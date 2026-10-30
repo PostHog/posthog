@@ -860,12 +860,17 @@ describe("App", () => {
   });
 
   // A signed-in app on local chat t5, in a full-height frame as Root gives it, so the chat has rows to draw messages in.
-  const localApp = (chats: Partial<PiChats> = {}) => {
+  // Local agents live in a global map by task id, so a test that needs its own agent names its own chat.
+  const localApp = (
+    chats: Partial<PiChats> = {},
+    extras: Partial<LocalSession> = {},
+    taskId = "t5",
+  ) => {
     initTheme("dark");
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
-    writeFileSync(join(sessions, "t5.jsonl"), "");
-    saveLayout(openTask(initialLayout(), "t5"), layoutPath("user-1"));
+    writeFileSync(join(sessions, `${taskId}.jsonl`), "");
+    saveLayout(openTask(initialLayout(), taskId), layoutPath("user-1"));
     const agent = () =>
       ({
         watch: (onView: (view: typeof emptyRunView) => void) => {
@@ -880,6 +885,7 @@ describe("App", () => {
           efforts: async () => ({ available: [], current: null }),
           commands: async () => [],
         },
+        ...extras,
       }) as unknown as LocalSession;
     const first = agent();
     const mouse: MouseEvents = new EventEmitter();
@@ -891,7 +897,9 @@ describe("App", () => {
               account: "user-1",
               work: {
                 listRecent: async () => ({
-                  tasks: [{ id: "t5", title: "Local", runtime: "pi" } as Task],
+                  tasks: [
+                    { id: taskId, title: "Local", runtime: "pi" } as Task,
+                  ],
                   hasMore: false,
                 }),
               } as unknown as WorkList,
@@ -999,6 +1007,53 @@ describe("App", () => {
       rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
         force: true,
       });
+    }
+  });
+
+  it("shows a Claude Code chat's mode on the composer's rule and cycles it with Ctrl+] and Ctrl+Shift+]", async () => {
+    const modes = [
+      { id: "auto", name: "Auto Mode" },
+      { id: "plan", name: "Plan Mode" },
+      { id: "default", name: "Default" },
+    ];
+    let current = "auto";
+    const setMode = vi.fn(async (id: string) => {
+      current = id;
+    });
+    const { output, press, drawnSince, close } = localApp(
+      {},
+      {
+        runtime: "acp",
+        control: {
+          models: async () => ({ available: [], current: null }),
+          efforts: async () => ({ available: [], current: null }),
+          commands: async () => [],
+          modes: async () => ({ available: modes, current }),
+          setMode,
+        },
+      } as unknown as Partial<LocalSession>,
+      "t9",
+    );
+    try {
+      // The agent starts and reports its modes first, which takes a moment.
+      await vi.waitFor(
+        () => expect(drawnSince(0)).toContain("⏵⏵ Auto Mode • $0.00"),
+        { timeout: 3000 },
+      );
+      let mark = output().length;
+      press("\x1d");
+      await vi.waitFor(() => expect(setMode).toHaveBeenCalledWith("plan"));
+      await vi.waitFor(() =>
+        expect(drawnSince(mark)).toContain("⏵⏵ Plan Mode"),
+      );
+      mark = output().length;
+      press("\x1b[93;6u");
+      await vi.waitFor(() => expect(setMode).toHaveBeenLastCalledWith("auto"));
+      await vi.waitFor(() =>
+        expect(drawnSince(mark)).toContain("⏵⏵ Auto Mode"),
+      );
+    } finally {
+      close();
     }
   });
 });

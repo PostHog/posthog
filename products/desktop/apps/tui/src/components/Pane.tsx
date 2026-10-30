@@ -117,6 +117,7 @@ export function Pane({
   banner = [],
   billing,
   showContext,
+  mode,
   chat,
   composer,
   pending,
@@ -158,6 +159,8 @@ export function Pane({
   billing?: Billing;
   // The context donut on the composer's rule, from settings.
   showContext?: boolean;
+  // The chat's permission mode, shown on the composer's rule beside who pays.
+  mode?: string;
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
@@ -357,7 +360,7 @@ export function Pane({
       ? composer.render(
           width,
           focused,
-          usageStatus(showContext ? fill : null, cost, shells),
+          usageStatus(showContext ? fill : null, cost, shells, mode),
         )
       : { editor: [], popup: [] };
   const composerLines = drawn.editor.map(shade);

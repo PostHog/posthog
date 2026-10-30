@@ -57,6 +57,7 @@ export function useKeys({
   control,
   paneAtDrop,
   toggleSidebar,
+  cycleMode,
   repoPickerKey,
   notice: { flashNotice, clearNotice },
 }: {
@@ -72,6 +73,7 @@ export function useKeys({
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   paneAtDrop: () => string | undefined;
   toggleSidebar: () => void;
+  cycleMode: (paneId: string, step: 1 | -1) => void;
   // Gives a key to the pane's open /repo picker; false when it has none.
   repoPickerKey: (paneId: string, sequence: string) => boolean;
   notice: Notice;
@@ -148,6 +150,10 @@ export function useKeys({
     }
     if (shortcut === "toggleSidebar") {
       toggleSidebar();
+      return;
+    }
+    if (shortcut === "cycleMode" || shortcut === "cycleModeBack") {
+      cycleMode(workspace.focusedPaneId, shortcut === "cycleMode" ? 1 : -1);
       return;
     }
     if (shortcut) {

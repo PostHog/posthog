@@ -80,14 +80,16 @@ export function usageStatus(
   fill: ContextFill | null,
   costUsd: number | { plan: string } | null,
   shells?: string,
+  mode?: string,
 ): string {
   const cost =
     typeof costUsd === "object" && costUsd !== null
       ? costUsd.plan
       : formatCostUsd(costUsd ?? 0);
-  // The cost is faint like the rule it sits on; only the donut's colour should catch the eye.
-  const faint = `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m`;
-  const usage = `${fill ? donut(fill) : ""}${faint}`;
+  // The mode and the cost are faint like the rule they sit on; only the donut's colour should catch the eye.
+  const lead = mode ? `\u001b[2m${mode}${fill ? " • " : ""}\u001b[22m` : "";
+  const faint = `\u001b[2m${fill || mode ? " • " : ""}${cost}\u001b[22m`;
+  const usage = `${lead}${fill ? donut(fill) : ""}${faint}`;
   if (!shells) return usage;
   return `\u001b[2m${shells}${usage ? " • " : ""}\u001b[22m${usage}`;
 }

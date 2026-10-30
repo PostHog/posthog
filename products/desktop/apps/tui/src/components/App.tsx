@@ -235,6 +235,8 @@ export function App({
     onRunLive,
     onChatStarted,
     modelLabel,
+    cycleMode,
+    modeOf,
   } = useModels({
     startingFor: (paneId) =>
       startingOptions(loadPrefs().billing, placeFor(paneId)),
@@ -397,6 +399,8 @@ export function App({
     scrollPane,
     control,
     paneAtDrop,
+    cycleMode: (paneId, step) =>
+      cycleMode(paneId, taskOf(findPane(layout, paneId)?.taskId ?? null), step),
     toggleSidebar: () => {
       track("sidebar narrowed", { narrow: !narrowSidebar });
       setNarrowSidebar(!narrowSidebar);
@@ -445,6 +449,7 @@ export function App({
       })}
       billing={loadPrefs().billing}
       showContext={loadPrefs().showContext}
+      mode={modeOf(node.taskId)}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
