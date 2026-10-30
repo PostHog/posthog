@@ -164,8 +164,7 @@ async def test_preempt_only_touches_the_runs_own_engine(
             PREEMPTED_ERROR,
             id="clickhouse_build_is_preempted",
         ),
-        # Cancelling a Trino build does not stop its SQL, so the old build would keep writing the
-        # table while the new run writes it too.
+        # Cancelling a Trino build does not stop its SQL.
         pytest.param(
             DataModelingJobEngine.MANAGED_WAREHOUSE,
             WorkflowExecutionStatus.RUNNING,
@@ -180,8 +179,7 @@ async def test_preempt_only_touches_the_runs_own_engine(
             False,
             DataModelingJobStatus.FAILED,
             ABANDONED_ERROR,
-            # A later build of the node runs under the same fixed id, so only the row's own run
-            # shows that this row is a corpse.
+            # A later build runs under the same fixed id, so only the row's own run shows it ended.
             id="abandoned_trino_build_is_reaped",
         ),
     ],

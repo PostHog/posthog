@@ -1350,8 +1350,6 @@ class HeldChild:
     parent_workflow_id: str
 
 
-# Keyed by child workflow id. The stub writes it from workflow code and the test reads it, which
-# works because the unsandboxed runner runs workflows in this process.
 _held_children: dict[str, HeldChild] = {}
 _child_starts: list[HeldChild] = []
 _peak_builds_per_node: dict[str, int] = {}
@@ -1478,8 +1476,7 @@ class TestTrinoModelLock:
                     for child_id in child_ids:
                         await env.client.get_workflow_handle(child_id).signal(HeldMockMaterializeViewWorkflow.release)
 
-                # Nothing here waits on a timer. With time skipping on, the server jumps to the
-                # winner's execution timeout as soon as every workflow waits for a signal.
+                # With time skipping on, the server jumps to the winner's timeout while children wait for a signal.
                 with env.auto_time_skipping_disabled():
                     winner = await start(winner_id, winner_nodes)
                     await _wait_until(lambda: len(held_by(winner_id)) == len(winner_nodes))

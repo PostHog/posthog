@@ -34,9 +34,8 @@ def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
     prefix = f"materialize-view-{dag_id}-"
     if not workflow_id.startswith(prefix):
         return None
-    # The remainder is `{node_id}-{timestamp}`, or `{node_id}-trino` for a Trino build. Node ids
-    # are UUIDs, so take the first five dash-separated groups rather than assuming a fixed overall
-    # length.
+    # The remainder is `{node_id}-{suffix}`. Node ids are UUIDs, so take the first five
+    # dash-separated groups rather than assuming a fixed overall length.
     groups = workflow_id[len(prefix) :].split("-")
     return "-".join(groups[:5]) if len(groups) >= 5 else None
 
@@ -101,9 +100,7 @@ async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -
         if not job.workflow_id:
             continue
         try:
-            # A Trino build reuses one workflow id across runs, so describe the row's own run. By id
-            # alone Temporal describes the latest run, and a later build of the same node would keep
-            # an earlier corpse looking alive.
+            # Trino builds reuse one workflow id, so describe this row's run rather than the latest one.
             description = await temporal.get_workflow_handle(job.workflow_id, run_id=job.workflow_run_id).describe()
         except RPCError as e:
             # NOT_FOUND is the only error that proves absence. Timeouts, unavailability and
@@ -153,10 +150,7 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id, inputs.engine)
     partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
     if inputs.engine == DataModelingJobEngine.MANAGED_WAREHOUSE:
-        # Cancelling a Trino build does not stop its SQL: the statement runs as a blocking call that
-        # the Trino client cannot kill. A preempted build would keep writing its table while this
-        # run builds it again. ExecuteDAGWorkflow gives each Trino build a fixed child id instead,
-        # so Temporal refuses the second build, and here every row is only a candidate for reaping.
+        # The Trino client cannot kill a running statement. The fixed Trino child id stops a second build instead.
         partitioned = PartitionedJobs(owned=[], others=partitioned.owned + partitioned.others)
     if not partitioned.owned and not partitioned.others:
         await logger.adebug("No previous DAG run to preempt")

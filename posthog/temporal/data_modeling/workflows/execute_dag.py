@@ -447,8 +447,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         max_concurrent_children = MAX_CONCURRENT_CHILDREN
         if managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_CONCURRENCY_PATCH):
             max_concurrent_children = TRINO_SHADOW_MAX_CONCURRENT_CHILDREN
-        # Histories from before the patch started children under timestamped ids, and replay must
-        # start them under the same ids.
+        # Histories from before the patch must replay their timestamped child ids.
         trino_build_lock = managed_warehouse_only and temporalio.workflow.patched(TRINO_CHILD_LOCK_PATCH)
         # Histories from before the patch keep the semaphore, because its wake-up order decides the
         # order of child-start commands, and replay must reproduce that order.
@@ -655,9 +654,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     unavailable_trino_nodes.discard(nr.node_id)
                 if nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None):
                     unavailable_trino_nodes.add(nr.node_id)
-                # A node another run is building did not fail. Its downstreams take the Trino
-                # unavailable path above through unavailable_trino_nodes, so none of them builds on
-                # top of a table that the other run is still writing.
+                # A node another run builds did not fail. Its dependents skip through unavailable_trino_nodes instead.
                 if not nr.success and nr.skip_reason != BUILT_BY_ANOTHER_RUN_SKIP_REASON:
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
