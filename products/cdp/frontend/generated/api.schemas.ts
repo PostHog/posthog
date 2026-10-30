@@ -1051,14 +1051,50 @@ export type HogFunctionsRevisionsListParams = {
 
 export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Maximum number of log entries to return (default 100).
+     * @minimum 1
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[]
 }
+
+/**
+ * * `DEBUG` - DEBUG
+ * * `LOG` - LOG
+ * * `INFO` - INFO
+ * * `WARN` - WARN
+ * * `ERROR` - ERROR
+ */
+export type PluginConfigsLogsListTypeFilterItem =
+    (typeof PluginConfigsLogsListTypeFilterItem)[keyof typeof PluginConfigsLogsListTypeFilterItem]
+
+export const PluginConfigsLogsListTypeFilterItem = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
 
 export type PublicHogFunctionTemplatesListParams = {
     /**

@@ -16,6 +16,8 @@ export const HogFlowsListParams = () => zod.object({
         ),
 })
 
+export const hogFlowsListQueryLimitMax = 500
+
 export const HogFlowsListQueryParams = () => zod.object({
     broadcast_eligible: zod
         .boolean()
@@ -38,7 +40,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .describe(
             "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(hogFlowsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
@@ -1168,8 +1170,14 @@ export const HogFlowsProposalsListParams = () => zod.object({
         ),
 })
 
+export const hogFlowsProposalsListQueryLimitMax = 500
+
 export const HogFlowsProposalsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(hogFlowsProposalsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     status: zod
         .enum(['applied', 'approved', 'rejected', 'suggested'])
@@ -1267,8 +1275,14 @@ export const HogFlowsRevisionsListParams = () => zod.object({
         ),
 })
 
+export const hogFlowsRevisionsListQueryLimitMax = 500
+
 export const HogFlowsRevisionsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(hogFlowsRevisionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
