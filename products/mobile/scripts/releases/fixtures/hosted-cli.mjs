@@ -14,6 +14,19 @@ function done(value = '') {
 function flag(name) {
     return args[args.indexOf(name) + 1]
 }
+function releases() {
+    return [...Object.values(state.releases), ...(state.extraReleases ?? [])]
+}
+function createRelease(data) {
+    const release = { ...data, id: Math.max(0, ...releases().map(({ id }) => id)) + 1 }
+    if (state.releases[data.tag_name]) {
+        state.extraReleases ??= []
+        state.extraReleases.push(release)
+    } else {
+        state.releases[data.tag_name] = release
+    }
+    return release
+}
 if (tool === 'eas') {
     if (command === 'build') {
         done(
@@ -70,10 +83,7 @@ if (tool === 'eas') {
 } else if (command === 'release') {
     const [operation, tag] = args
     if (operation === 'create') {
-        if (state.releases[tag]) {
-            throw new Error('Duplicate release claim')
-        }
-        state.releases[tag] = { draft: true, body: readFileSync(flag('--notes-file'), 'utf8') }
+        createRelease({ tag_name: tag, draft: true, body: readFileSync(flag('--notes-file'), 'utf8') })
     } else if (operation === 'edit') {
         state.releases[tag].body = readFileSync(flag('--notes-file'), 'utf8')
         if (args.includes('--draft=false')) {
@@ -90,7 +100,17 @@ if (tool === 'eas') {
     if (method === 'GET') {
         let value
         if (path.startsWith('releases/tags/')) {
-            value = state.releases[decodeURIComponent(path.slice('releases/tags/'.length))]
+            const tag = decodeURIComponent(path.slice('releases/tags/'.length))
+            value = releases().find((release) => release.tag_name === tag && !release.draft)
+        } else if (path.startsWith('releases?')) {
+            const search = new URLSearchParams(path.split('?')[1])
+            const page = Number(search.get('page'))
+            const perPage = Number(search.get('per_page'))
+            value = releases()
+                .sort((left, right) => right.id - left.id)
+                .slice((page - 1) * perPage, page * perPage)
+        } else if (path.startsWith('releases/')) {
+            value = releases().find(({ id }) => id === Number(path.split('/')[1]))
         } else if (path.startsWith('git/ref/')) {
             value = state.pointer ? { object: { type: 'tag', sha: state.pointer } } : null
         } else if (path.startsWith('git/tags/')) {
@@ -106,6 +126,18 @@ if (tool === 'eas') {
             process.exit(1)
         }
         done(value)
+    } else if (path === 'releases' && method === 'POST') {
+        done(createRelease(data))
+    } else if (path.startsWith('releases/') && method === 'PATCH') {
+        const release = releases().find(({ id }) => id === Number(path.split('/')[1]))
+        if (!release) {
+            throw new Error('Release ID not found')
+        }
+        if (release.draft && !data.tag_name) {
+            release.tag_name = `untagged-${release.id}`
+        }
+        Object.assign(release, data)
+        done(release)
     } else if (path === 'deployments') {
         const id = state.deployments.length + 1
         state.deployments.push({ ...data, id })
