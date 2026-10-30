@@ -11,7 +11,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -461,6 +461,26 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
+        it('leaves no loading state when a user without edit access has no run to show', async () => {
+            const createMock = jest.fn(() => [201, completedRecalculation2])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({
+                experiment: { ...EXPERIMENT, user_access_level: AccessControlLevel.Viewer } as Experiment,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+
+            expect(createMock).not.toHaveBeenCalled()
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
         // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
         const experimentWithExtraMetric: Experiment = {
             ...EXPERIMENT,
@@ -725,6 +745,20 @@ describe('experimentMetricsLogic', () => {
                 name: 'does not refresh results whose window ended hours before start_date before the stale threshold',
                 experiment: { ...EXPERIMENT, start_date: hoursAgo(1) } as Experiment,
                 latest: { ...completedRecalculation, query_to: hoursAgo(5) },
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'refreshes stale results for a user with edit access',
+                experiment: { ...EXPERIMENT, user_access_level: AccessControlLevel.Editor } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh stale results for a user without edit access',
+                experiment: { ...EXPERIMENT, user_access_level: AccessControlLevel.Viewer } as Experiment,
+                latest: staleCompletedRecalculation,
                 loads: 1,
                 expectedTriggers: [],
             },
@@ -1045,11 +1079,13 @@ describe('experimentMetricsLogic', () => {
         })
 
         it.each([
-            { trigger: 'stale_refresh', expectedToasts: [] },
-            { trigger: 'manual', expectedToasts: [['No editor access.']] },
+            { trigger: 'stale_refresh', userAccessLevel: AccessControlLevel.Manager, expectedToasts: [] },
+            { trigger: 'cold_run', userAccessLevel: AccessControlLevel.Manager, expectedToasts: [] },
+            { trigger: 'heal_latest_run', userAccessLevel: AccessControlLevel.Manager, expectedToasts: [] },
+            { trigger: 'manual', userAccessLevel: AccessControlLevel.Viewer, expectedToasts: [['No editor access.']] },
         ] as const)(
-            'shows $expectedToasts.length toasts when a $trigger run is refused',
-            async ({ trigger, expectedToasts }) => {
+            'shows $expectedToasts.length toasts when a $trigger run is refused for a $userAccessLevel',
+            async ({ trigger, userAccessLevel, expectedToasts }) => {
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -1067,7 +1103,10 @@ describe('experimentMetricsLogic', () => {
                         ],
                     },
                 })
-                mountLogic()
+                logic = experimentMetricsLogic({
+                    experiment: { ...EXPERIMENT, user_access_level: userAccessLevel } as Experiment,
+                })
+                logic.mount()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
 
                 await expectLogic(logic, () => {

@@ -6,10 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Experiment, ExperimentStatus } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
 import { getExperimentStatus, isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -194,6 +195,17 @@ const HEAL_TRIGGER_BY_RESULT_SOURCE = {
     recalculation: 'heal_latest_run',
     timeseries_fallback: 'cold_run',
 } as const satisfies Record<ResultSourceEnumApi, ExperimentMetricsRecalculationRequestTriggerEnumApi>
+
+// The page starts these runs without a click, so a user who cannot start them has nothing to act on.
+const AUTOMATIC_TRIGGERS: ReadonlySet<ExperimentMetricsRecalculationRequestTriggerEnumApi> = new Set([
+    'cold_run',
+    'heal_latest_run',
+    'stale_refresh',
+])
+
+const userCanEdit = (experiment: Experiment): boolean =>
+    !experiment.user_access_level ||
+    accessLevelSatisfied(AccessControlResourceType.Experiment, experiment.user_access_level, AccessControlLevel.Editor)
 
 const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
@@ -915,6 +927,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 if (!experimentIsLaunched()) {
                     return
                 }
+                if (AUTOMATIC_TRIGGERS.has(trigger) && !userCanEdit(props.experiment)) {
+                    return
+                }
                 /**
                  * A config change while a run is active queues a rerun; the terminal branch (poll, or a
                  * terminal-on-create) drains it. Guard on the run status, not isRecalculating: a transient
@@ -1062,8 +1077,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         actions.loadLatestRecalculation()
                         return
                     }
-                    if (error?.status === 403 && trigger === 'stale_refresh') {
-                        // The page starts this refresh on load, so a reader without edit access has nothing to act on.
+                    if (error?.status === 403 && AUTOMATIC_TRIGGERS.has(trigger)) {
+                        // The GET can report more access than the POST grants, such as manager for a creator.
                         return
                     }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
