@@ -461,6 +461,30 @@ describe("CloudRuns", () => {
     run.stop();
   });
 
+  it("re-watches a run from the entries it already holds, so a reply that landed while no pane watched is replayed", async () => {
+    const { engine, runs } = setup();
+    const first = runs.watch("t1", "r1", () => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(1));
+    engine.emit(CloudTaskEvent.Update, {
+      ...base,
+      kind: "snapshot",
+      newEntries: [entry("a"), entry("b")],
+      windowStart: 0,
+      status: "in_progress",
+    });
+    first.stop();
+    // The next watch resumes from the two entries it knows, never from the stream's latest entry.
+    runs.watch("t1", "r1", () => {});
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalledTimes(2));
+    expect(engine.watch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ...base, resumeFromEntryCount: 2 }),
+    );
+    // A first watch of a run has nothing to resume from.
+    expect(engine.watch.mock.calls[0][0]).not.toHaveProperty(
+      "resumeFromEntryCount",
+    );
+  });
+
   it("shows a prefetched tail as soon as a run is opened", async () => {
     const { runs } = setup(logOf(500));
     await runs.prefetch("t1", "r1", 300);
