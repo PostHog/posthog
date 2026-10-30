@@ -4628,7 +4628,7 @@
         }
     },
     "delete-feature-flag": {
-        "description": "Soft-delete a feature flag by ID in the current project.\n\nA flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide against its current state. Other flags do not check `version`.\n\nOnly a running experiment blocks the delete. Check `experiment_set_metadata` in the flag's definition first and name every experiment listed there to the user before deleting: a draft experiment cannot launch until its flag is restored. Use `feature-flag-restore` to undo a delete.",
+        "description": "Soft-delete a feature flag by ID in the current project.\n\nA flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide against its current state. Other flags do not check `version`.\n\nOf the experiments that use the flag, only a running one blocks the delete. Read `experiment_set_metadata` from `feature-flag-get-definition` first and name every experiment listed there to the user before deleting: a draft experiment cannot launch until its flag is restored. Use `feature-flag-restore` to undo a delete.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Delete feature flag",

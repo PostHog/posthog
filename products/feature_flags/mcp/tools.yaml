@@ -90,9 +90,10 @@ tools:
             against its current state. Other flags do not check `version`.
 
 
-            Only a running experiment blocks the delete. Check `experiment_set_metadata` in the flag's definition first
-            and name every experiment listed there to the user before deleting: a draft experiment cannot launch until
-            its flag is restored. Use `feature-flag-restore` to undo a delete.
+            Of the experiments that use the flag, only a running one blocks the delete. Read `experiment_set_metadata`
+            from `feature-flag-get-definition` first and name every experiment listed there to the user before
+            deleting: a draft experiment cannot launch until its flag is restored. Use `feature-flag-restore` to undo a
+            delete.
         include_params:
             - version
         inject_body:
