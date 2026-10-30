@@ -696,6 +696,7 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
     missing_uuid: "it has no LC_UUID, so crashes can't be matched to it. Link without `-no_uuid`.",
     compressed_dwarf:
         "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
+    unparseable_slice: "one of its architectures can't be parsed, so hog skips that architecture.",
 }
 
 // A path the DWARF names can reach the source folder through a symlink, or the folder can be one,
