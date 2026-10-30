@@ -3693,18 +3693,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "last_run",
         ]
 
+    def refuse_unshared_t3_code_changes(self, workflow: WorkflowEditState, data: dict[str, Any]) -> None:
+        user_access_control = self.user_access_control
+        if (
+            user_access_control
+            and not _only_stops_the_workflow(data)
+            and not _may_change_t3_code_steps(workflow, user_access_control, data.get("actions"))
+        ):
+            raise exceptions.PermissionDenied(_T3_CODE_OWNER_ONLY_ERROR)
+
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
 
-        user_access_control = self.user_access_control
-        if (
-            instance
-            and user_access_control
-            and not _only_stops_the_workflow(data)
-            and not _may_change_t3_code_steps(instance, user_access_control, data.get("actions"))
-        ):
-            raise exceptions.PermissionDenied(_T3_CODE_OWNER_ONLY_ERROR)
+        if instance:
+            self.refuse_unshared_t3_code_changes(instance, data)
         origin_product = instance.origin_product if instance else data.get("origin_product")
         if origin_product == HogFlowOriginProduct.TRANSACTIONAL_EMAILS and _holds_t3_code_step(data.get("actions")):
             raise serializers.ValidationError({"actions": _T3_CODE_TRANSACTIONAL_ERROR})
@@ -3945,8 +3948,12 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
-    if enabled and not _may_change_t3_code_steps(hog_flow, user_access_control):
-        raise WorkflowAccessDenied(required_level="editor")
+
+    def refuse_unshared_t3_code_runs(workflow: WorkflowEditState) -> None:
+        if enabled and not _may_change_t3_code_steps(workflow, user_access_control):
+            raise WorkflowAccessDenied(required_level="editor")
+
+    refuse_unshared_t3_code_runs(hog_flow)
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
         validated_data: dict[str, Any] = {"status": target}
@@ -3959,7 +3966,12 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
             )
             serializer.is_valid(raise_exception=True)
             validated_data = dict(serializer.validated_data)
-        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
+        save_validated_workflow(
+            team_id=team_id,
+            hog_flow_id=hog_flow.id,
+            validated_data=validated_data,
+            authorize=refuse_unshared_t3_code_runs,
+        )
     return str(target)
 
 
@@ -5671,6 +5683,9 @@ class HogFlowViewSet(
             # existing raw-API automation is unaffected.
             route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
+        requested_change = {
+            field: value for field, value in serializer.validated_data.items() if field in serializer.initial_data
+        }
         try:
             result = update_workflow(
                 team_id=self.team_id,
@@ -5684,6 +5699,7 @@ class HogFlowViewSet(
                 and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys(),
                 validated_status=serializer.instance.status,
                 requested_exit_condition=serializer.initial_data.get("exit_condition"),
+                authorize=lambda locked: serializer.refuse_unshared_t3_code_changes(locked, requested_change),
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
