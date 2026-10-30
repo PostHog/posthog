@@ -14924,6 +14924,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
 export type ExternalDataDestinationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -14969,6 +14970,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
 export type ExternalDataSchemasListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -15032,6 +15034,7 @@ export type ExternalDataSchemasResyncCreate400 = {
 export type ExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -15115,6 +15118,7 @@ export type ExternalDataSourcesWizardRetrieveParams = {
 export type WarehouseColumnStatisticsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

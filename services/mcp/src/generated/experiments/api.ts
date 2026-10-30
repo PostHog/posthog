@@ -19,8 +19,14 @@ export const ExperimentHoldoutsListParams = () => zod.object({
         ),
 })
 
+export const experimentHoldoutsListQueryLimitMax = 1000
+
 export const ExperimentHoldoutsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(experimentHoldoutsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -656,6 +662,8 @@ export const ExperimentSavedMetricsListParams = () => zod.object({
         ),
 })
 
+export const experimentSavedMetricsListQueryLimitMax = 1000
+
 export const ExperimentSavedMetricsListQueryParams = () => zod.object({
     event: zod
         .string()
@@ -663,7 +671,11 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
         .describe(
             "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name\/description\/tags."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(experimentSavedMetricsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -764,6 +776,8 @@ export const ExperimentsListParams = () => zod.object({
         ),
 })
 
+export const experimentsListQueryLimitMax = 1000
+
 export const ExperimentsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
     created_by_id: zod
@@ -785,7 +799,7 @@ export const ExperimentsListQueryParams = () => zod.object({
             'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
         ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(experimentsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod
         .string()

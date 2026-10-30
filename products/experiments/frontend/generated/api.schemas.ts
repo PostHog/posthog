@@ -5271,6 +5271,7 @@ export interface ExperimentSetupContextResponseApi {
 export type ExperimentHoldoutsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5286,6 +5287,7 @@ export type ExperimentSavedMetricsListParams = {
     event?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5321,6 +5323,7 @@ export type ExperimentsListParams = {
     feature_flag_id?: number
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

@@ -332,6 +332,7 @@ export type ContextLayerPagesRetrieveParams = {
 export type ContextLayerProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

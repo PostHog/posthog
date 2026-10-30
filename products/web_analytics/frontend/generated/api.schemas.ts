@@ -2285,6 +2285,7 @@ export type WebAnalyticsWeeklyDigestParams = {
 export type WebAnalyticsContentAutopilotOpportunitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2300,6 +2301,7 @@ export type WebAnalyticsContentAutopilotOpportunitiesListParams = {
 export type WebAnalyticsContentAutopilotProfilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2311,6 +2313,7 @@ export type WebAnalyticsContentAutopilotProfilesListParams = {
 export type WebAnalyticsContentAutopilotProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2330,6 +2333,7 @@ export type WebAnalyticsContentAutopilotProposalsListParams = {
 export type WebAnalyticsContentAutopilotRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2346,6 +2350,7 @@ export type WebAnalyticsFilterPresetsListParams = {
     created_by?: number
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

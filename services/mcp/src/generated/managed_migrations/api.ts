@@ -11,8 +11,14 @@ import * as zod from 'zod'
 /**
  * List batch import (managed migration) jobs across all teams. PostHog staff only.
  */
+export const managedMigrationsSupportListQueryLimitMax = 1000
+
 export const ManagedMigrationsSupportListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(managedMigrationsSupportListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
     search: zod.string().optional().describe('A search term.'),

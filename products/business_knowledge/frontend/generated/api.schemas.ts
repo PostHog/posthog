@@ -647,6 +647,7 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
 export type BusinessKnowledgeGapSuggestionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -703,6 +704,7 @@ export type BusinessKnowledgeSourcesListParams = {
     library_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -743,6 +745,7 @@ export const BusinessKnowledgeSourcesListSourceType = {
 export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number
     /**

@@ -16,8 +16,14 @@ export const ErrorTrackingAssignmentRulesListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingAssignmentRulesListQueryLimitMax = 1000
+
 export const ErrorTrackingAssignmentRulesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingAssignmentRulesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1656,8 +1662,14 @@ export const ErrorTrackingBypassRulesListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingBypassRulesListQueryLimitMax = 1000
+
 export const ErrorTrackingBypassRulesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingBypassRulesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -8768,8 +8780,14 @@ export const ErrorTrackingRecommendationsListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingRecommendationsListQueryLimitMax = 1000
+
 export const ErrorTrackingRecommendationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingRecommendationsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     poll: zod.boolean().optional().describe('True reads the current state without scheduling a refresh.'),
 })
@@ -12073,8 +12091,14 @@ export const ErrorTrackingSuppressionRulesListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingSuppressionRulesListQueryLimitMax = 1000
+
 export const ErrorTrackingSuppressionRulesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingSuppressionRulesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

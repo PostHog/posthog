@@ -1033,6 +1033,7 @@ export type AlertsListParams = {
     insight_tag?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1067,6 +1068,7 @@ export type AlertsRetrieveParams = {
 export type InsightsThresholdsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

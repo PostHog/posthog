@@ -991,8 +991,14 @@ export const SignalsReportArtefactsListParams = () => zod.object({
         ),
 })
 
+export const signalsReportArtefactsListQueryLimitMax = 1000
+
 export const SignalsReportArtefactsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsReportArtefactsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1156,8 +1162,14 @@ export const SignalsReportChecksListParams = () => zod.object({
         ),
 })
 
+export const signalsReportChecksListQueryLimitMax = 1000
+
 export const SignalsReportChecksListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsReportChecksListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -4583,8 +4595,14 @@ export const SignalsSourceConfigsListParams = () => zod.object({
         ),
 })
 
+export const signalsSourceConfigsListQueryLimitMax = 1000
+
 export const SignalsSourceConfigsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsSourceConfigsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

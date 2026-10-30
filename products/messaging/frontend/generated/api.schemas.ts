@@ -909,6 +909,7 @@ export interface SendTransactionalEmailApi {
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -951,6 +952,7 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 export type MessagingTemplatesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

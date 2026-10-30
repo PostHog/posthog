@@ -2694,6 +2694,7 @@ export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
 export type ErrorTrackingAlertsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2705,6 +2706,7 @@ export type ErrorTrackingAlertsListParams = {
 export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2716,6 +2718,7 @@ export type ErrorTrackingAssignmentRulesListParams = {
 export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2727,6 +2730,7 @@ export type ErrorTrackingBypassRulesListParams = {
 export type ErrorTrackingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2757,6 +2761,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2821,6 +2826,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2850,6 +2856,7 @@ export type ErrorTrackingIssuesValuesRetrieveParams = {
 export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2893,6 +2900,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2916,6 +2924,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2931,6 +2940,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2942,6 +2952,7 @@ export type ErrorTrackingStackFramesListParams = {
 export type ErrorTrackingSuppressionRulesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

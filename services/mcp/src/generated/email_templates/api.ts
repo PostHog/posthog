@@ -16,8 +16,14 @@ export const MessagingTemplatesListParams = () => zod.object({
         ),
 })
 
+export const messagingTemplatesListQueryLimitMax = 1000
+
 export const MessagingTemplatesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(messagingTemplatesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

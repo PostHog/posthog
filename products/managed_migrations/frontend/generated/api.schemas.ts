@@ -398,6 +398,7 @@ export interface BatchImportAWSIAMSetupApi {
 export type ManagedMigrationsSupportListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -435,6 +436,7 @@ export const ManagedMigrationsSupportListStatus = {
 export type ManagedMigrationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

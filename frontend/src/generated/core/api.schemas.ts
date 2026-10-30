@@ -6752,6 +6752,7 @@ export interface VerifyEmailRequestApi {
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6763,6 +6764,7 @@ export type CimdVerificationTokensListParams = {
 export type DomainsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6809,6 +6811,7 @@ export type DomainsScimLogsRetrieveParams = {
 export type IdentityProviderConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6855,6 +6858,7 @@ export type IdentityProviderConfigsScimLogsRetrieveParams = {
 export type InvitesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6866,6 +6870,7 @@ export type InvitesListParams = {
 export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6877,6 +6882,7 @@ export type OauthApplicationsListParams = {
 export type OrganizationsProjectsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6915,6 +6921,7 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
 export type DataDeletionRequestsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6962,6 +6969,7 @@ export const EventsValuesRetrieveFormat = {
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7037,6 +7045,7 @@ export type FileSystemSearchRetrieveParams = {
 export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7048,6 +7057,7 @@ export type FileSystemShortcutListParams = {
 export type ProjectSecretApiKeysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7159,6 +7169,7 @@ export type TerminalNetplayMailboxRetrieveParams = {
 export type UploadedMediaListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7207,6 +7218,7 @@ export type UsersListParams = {
     is_staff?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7222,6 +7234,7 @@ export type UsersIntegrationsListParams = {
     kind?: UsersIntegrationsListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

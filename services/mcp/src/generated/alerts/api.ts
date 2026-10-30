@@ -16,6 +16,8 @@ export const AlertsListParams = () => zod.object({
         ),
 })
 
+export const alertsListQueryLimitMax = 1000
+
 export const AlertsListQueryParams = () => zod.object({
     created_by: zod
         .string()
@@ -27,7 +29,7 @@ export const AlertsListQueryParams = () => zod.object({
         .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(alertsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()

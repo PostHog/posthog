@@ -1183,6 +1183,7 @@ export type McpGatewayAuditListParams = {
     actor_service_account_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1221,6 +1222,7 @@ export type McpGatewayAuditCountsRetrieveParams = {
 export type McpGatewayMembersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1232,6 +1234,7 @@ export type McpGatewayMembersListParams = {
 export type McpGatewayRulesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1243,6 +1246,7 @@ export type McpGatewayRulesListParams = {
 export type McpGatewayServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1283,6 +1287,7 @@ export const McpGatewayServersToolsRetrieveScopeType = {
 export type McpGatewayServiceAccountsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1294,6 +1299,7 @@ export type McpGatewayServiceAccountsListParams = {
 export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1329,6 +1335,7 @@ export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
 export type McpServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

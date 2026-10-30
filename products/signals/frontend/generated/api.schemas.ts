@@ -10651,6 +10651,7 @@ export const SignalsAnomaliesSearchRetrieveInterval = {
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -10850,6 +10851,7 @@ export type SignalsReportPrReviewCommentReactionDestroyParams = {
 export type SignalsReportArtefactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -10861,6 +10863,7 @@ export type SignalsReportArtefactsListParams = {
 export type SignalsReportChecksListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -11312,6 +11315,7 @@ export type SignalsScoutScratchpadSearchParams = {
 export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

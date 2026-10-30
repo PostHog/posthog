@@ -16,8 +16,10 @@ export const BatchExportsListParams = () => zod.object({
         ),
 })
 
+export const batchExportsListQueryLimitMax = 1000
+
 export const BatchExportsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(batchExportsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
