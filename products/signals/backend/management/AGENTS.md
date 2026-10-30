@@ -281,12 +281,14 @@ uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "che
 An optional `pools` list in the payload replaces the default candidate pools, in merge order:
 
 ```json
-{"pools": [
-  {"source": "priority", "size": 5, "lowest_priority": "P1"},
-  {"source": "for_you_recommended", "size": 10},
-  {"source": "assigned", "size": 0},
-  {"source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30}
-]}
+{
+  "pools": [
+    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "for_you_recommended", "size": 10 },
+    { "source": "assigned", "size": 0 },
+    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+  ]
+}
 ```
 
 Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
