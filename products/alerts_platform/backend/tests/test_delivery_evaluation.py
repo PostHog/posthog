@@ -36,12 +36,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
-from products.alerts_platform.backend.models import (
-    AlertReceiver,
-    AlertRoute,
-    PlatformAlertConfiguration,
-    PlatformAlertDeliveryHold,
-)
+from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
@@ -436,48 +431,6 @@ class TestDeliverEvaluation(APIBaseTest):
             ("a@example.com,b@example.com", headline),
         ]
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
-
-    @parameterized.expand(
-        [
-            ("routing_on", True, ["C-1", "C-infra", "C-all"]),
-            ("routing_off", False, ["C-1"]),
-        ]
-    )
-    def test_a_team_route_adds_its_receiver_when_the_alert_labels_match(
-        self, _name: str, routing: bool, expected_channels: list[str]
-    ) -> None:
-        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
-            id=CONFIGURATION_ID,
-            team=self.team,
-            name="API errors",
-            source_kind=SourceKind.LOGS,
-            check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
-            labels={"team": "infra"},
-        )
-        firing = (AlertEventKind.FIRING,)
-        create_alert_destinations(
-            team_id=self.team.id,
-            configuration_id=configuration.id,
-            destinations=(NewAlertDestination(data=SLACK, event_kinds=firing),),
-        )
-
-        def route(channel: str, matchers: list[dict[str, str]], position: int) -> None:
-            receiver = AlertReceiver.objects.for_team(self.team.id).create(
-                team=self.team, name=channel, type=DestinationType.SLACK, config={**SLACK, "slack_channel_id": channel}
-            )
-            AlertRoute.objects.for_team(self.team.id).create(
-                team=self.team, receiver=receiver, matchers=matchers, event_kinds=["firing"], position=position
-            )
-
-        route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
-        route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
-        route("C-all", [], 2)
-        route("C-1", [], 3)
-
-        self._run(_announcement(_transition(AlertEventKind.FIRING)), {}, live=routing, owned_by_platform=True)
-
-        assert [channel for channel, _ in RecordingTransport.sends] == expected_channels
 
     @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
     def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(

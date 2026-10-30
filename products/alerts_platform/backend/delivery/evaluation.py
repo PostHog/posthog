@@ -26,6 +26,7 @@ from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
+from products.alerts_platform.backend.delivery.routing import deliver_routes
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
@@ -52,7 +53,6 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
 )
-from products.alerts_platform.backend.logic.alert_routes import RoutedReceiver, routed_receivers
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
@@ -69,8 +69,6 @@ _EMISSION_EPISODE: Final = datetime(1970, 1, 1, tzinfo=UTC)
 # the legacy message and the native one. An alert the platform owns never reads it, because the
 # source sends nothing for that alert and a flag-eval failure would silence it.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
-
-ROUTING_FLAG: Final = "platform-alerts-routing"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
 # team live only when its alerts use no such type. Nothing checks this in code, and one alert
@@ -113,15 +111,6 @@ def destinations_are_live(team: Team) -> bool:
             team_id=team.id,
             exc_info=True,
         )
-        return False
-
-
-def routing_is_enabled(team: Team) -> bool:
-    """Fail closed, so a flag-eval blip sends to the alert's own destinations only, as before routes."""
-    try:
-        return bool(team_flag_enabled(ROUTING_FLAG, team))
-    except Exception:
-        logger.warning("alerts_platform_routing_flag_check_failed_defaulting_off", team_id=team.id, exc_info=True)
         return False
 
 
@@ -201,7 +190,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
-    platform_destinations = _platform_destinations(request, team)
+    platform_destinations = _platform_destinations(request)
     native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
@@ -322,6 +311,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 failures.append(type(error).__name__)
             else:
                 sent += 1
+    sent += deliver_routes(
+        request=request,
+        announced=announced,
+        team=team,
+        thread_store=thread_store,
+        project=project,
+        transports=_TRANSPORTS,
+    )
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
     # in full. A native send that fails also reruns the whole delivery, so the store records the
     # emission, and a rerun does not send every HogFunction message a second time.
@@ -527,26 +524,25 @@ class _PlatformDestinations:
     """An alert's enabled `AlertDestination` rows, with the kind each of its event ids announces."""
 
     destinations: tuple[StoredAlertDestination, ...]
-    routed: tuple[RoutedReceiver, ...]
     # The addresses the source's own settings name, read once per delivery.
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
     incident_event_ids: frozenset[str]
 
 
-def _platform_destinations(request: AlertDeliveryRequest, team: Team) -> _PlatformDestinations | None:
+def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations | None:
     """The alert's destinations when the platform owns them, or None when its source's HogFunctions
     hold them. Read once per delivery, and after the check, so a destination removed in between is
     not sent to. Only an alert the platform owns can have its destinations on the platform."""
     if not request.owned_by_platform:
         return None
-    configuration = (
+    owner = (
         PlatformAlertConfiguration.objects.for_team(request.team_id)
         .filter(id=request.configuration_id)
-        .values("destinations_owner", "labels")
+        .values_list("destinations_owner", flat=True)
         .first()
     )
-    if configuration is None or configuration["destinations_owner"] != PlatformAlertOwner.PLATFORM:
+    if owner != PlatformAlertOwner.PLATFORM:
         return None
     incident_kinds = {
         event_id: INCIDENT_KINDS[IncidentAction(action)]
@@ -556,9 +552,6 @@ def _platform_destinations(request: AlertDeliveryRequest, team: Team) -> _Platfo
         destinations=enabled_alert_destinations(
             team_id=request.team_id, configuration_id=UUID(request.configuration_id)
         ),
-        routed=routed_receivers(team_id=request.team_id, labels=configuration["labels"])
-        if routing_is_enabled(team)
-        else (),
         # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
         recipients=recipients.addresses(
             request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
@@ -602,7 +595,7 @@ def _destinations(
 
 
 def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> list[_SubscribedDestination]:
-    """The `AlertDestination` rows and routed receivers that hear this event.
+    """The `AlertDestination` rows that hear this event.
 
     A message event reaches every destination but an incident manager that asked for its kind. An
     incident event reaches every incident manager, whatever kinds it lists: one that heard a
@@ -617,15 +610,6 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
         and (incident or kind in destination.event_kinds)
-    ]
-    # A receiver that names the same target as a destination already hearing this event would send twice.
-    own = {json.dumps(subscriber.data, sort_keys=True) for subscriber in subscribers}
-    subscribers += [
-        _SubscribedDestination(id=str(receiver.id), data=receiver.data, receives_emitted_events=False)
-        for receiver in platform.routed
-        if (receiver.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
-        and (incident or kind in receiver.event_kinds)
-        and json.dumps(receiver.data, sort_keys=True) not in own
     ]
     # The source's recipients read messages. An incident edge is for an incident manager only.
     if platform.recipients and not incident:

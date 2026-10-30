@@ -9,7 +9,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind
-from products.alerts_platform.backend.models import AlertRoute
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
 
 logger = structlog.get_logger(__name__)
 
@@ -31,24 +31,26 @@ def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[Routed
     routes = (
         AlertRoute.objects.for_team(team_id)
         .filter(enabled=True, receiver__enabled=True)
-        .select_related("receiver")
         .order_by("position", "created_at", "id")
     )
-    kinds_by_receiver: dict[UUID, list[AlertEventKind]] = {}
-    data_by_receiver: dict[UUID, AlertDestinationData] = {}
+    kinds_by_receiver: dict[UUID, dict[AlertEventKind, None]] = {}
     for route in routes:
         if not _matches(route, labels):
             continue
-        kinds = kinds_by_receiver.setdefault(route.receiver_id, [])
-        for kind in route.event_kinds:
-            if AlertEventKind(kind) not in kinds:
-                kinds.append(AlertEventKind(kind))
-        data_by_receiver[route.receiver_id] = cast(AlertDestinationData, route.receiver.config)
+        kinds_by_receiver.setdefault(route.receiver_id, {}).update(
+            dict.fromkeys(AlertEventKind(kind) for kind in route.event_kinds)
+        )
         if not route.continue_matching:
             break
+    # Loaded only for the receivers that matched, so a team's other configs are never decrypted.
+    configs = {
+        receiver.id: receiver.config
+        for receiver in AlertReceiver.objects.for_team(team_id).filter(id__in=kinds_by_receiver).only("id", "config")
+    }
     return tuple(
-        RoutedReceiver(id=receiver_id, data=data_by_receiver[receiver_id], event_kinds=tuple(kinds))
+        RoutedReceiver(id=receiver_id, data=cast(AlertDestinationData, configs[receiver_id]), event_kinds=tuple(kinds))
         for receiver_id, kinds in kinds_by_receiver.items()
+        if receiver_id in configs
     )
 
 
