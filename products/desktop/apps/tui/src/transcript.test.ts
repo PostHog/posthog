@@ -340,6 +340,43 @@ describe("transcriptFrom bookkeeping", () => {
   });
 });
 
+describe("transcriptFrom plans", () => {
+  it("shows the plan Claude Code asks approval for as the agent's own text, not a tool call", () => {
+    const acp = (
+      second: number,
+      params: Record<string, unknown>,
+    ): StoredLogEntry =>
+      ({
+        type: "acp_message",
+        timestamp: at(second),
+        notification: { method: "session/update", params },
+      }) as StoredLogEntry;
+    const { lines } = transcriptFrom("acp", [
+      acp(2, {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "plan-1",
+          title: "Ready to code?",
+          kind: "switch_mode",
+          status: "pending",
+          rawInput: {
+            plan: "# Ship it\n\n1. Build\n2. Publish",
+            toolName: "ExitPlanMode",
+          },
+          _meta: { claudeCode: { toolName: "ExitPlanMode" } },
+        },
+      }),
+    ]);
+    expect(lines).toEqual([
+      {
+        kind: "assistant",
+        id: expect.any(String),
+        text: "# Ship it\n\n1. Build\n2. Publish",
+      },
+    ]);
+  });
+});
+
 describe("transcriptFrom actions", () => {
   it("turns a show_actions call into an actions line and drops calls it cannot read", () => {
     const actions = [

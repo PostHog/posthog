@@ -12,7 +12,12 @@ import {
 import type { LocalAgent } from "./local";
 import type { AcpLog } from "./localChats";
 import type { PiControl } from "./models";
-import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
+import {
+  type AcpQuestion,
+  type AgentPrompt,
+  type PromptReply,
+  promptId,
+} from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
 import { claudeSettings } from "./starting";
 
@@ -160,6 +165,13 @@ export class ClaudeLocalSession implements LocalAgent {
       },
     ): void => {
       if (request.taskRunId !== this.input.taskRunId) return;
+      const meta = request.toolCall._meta as
+        | { codeToolKind?: string; questions?: AcpQuestion[] }
+        | undefined;
+      const questions =
+        meta?.codeToolKind === "question" && Array.isArray(meta.questions)
+          ? meta.questions
+          : undefined;
       this.setPrompts([
         ...this.prompts,
         {
@@ -169,6 +181,7 @@ export class ClaudeLocalSession implements LocalAgent {
             toolCallId: request.toolCall.toolCallId,
             title: request.toolCall.title ?? "Allow this tool call?",
             options: request.options,
+            ...(questions && { questions }),
           },
         },
       ]);
@@ -288,6 +301,8 @@ export class ClaudeLocalSession implements LocalAgent {
       reply.taskRunId,
       reply.toolCallId,
       reply.optionId,
+      undefined,
+      reply.answers,
     );
   }
 

@@ -278,6 +278,7 @@ const SUMMARY_TOOL = "task_summary_update";
 // Buttons the agent offers; the desktop app draws them, and here the action picker does.
 const ACTIONS_TOOL = "show_actions";
 const actionsInput = z.object({ actions: z.array(showActionSchema).min(1) });
+const planInput = z.object({ plan: z.string().min(1) });
 export type ShowAction = z.infer<typeof showActionSchema>;
 
 function toLine(item: ConversationItem): TranscriptLine[] {
@@ -312,6 +313,11 @@ function toLine(item: ConversationItem): TranscriptLine[] {
         return update.status !== "failed" && input.success
           ? [{ kind: "actions", id: item.id, actions: input.data.actions }]
           : [];
+      }
+      // Claude Code asks to leave plan mode with the plan in the call; the plan is what the user reads.
+      if (update.kind === "switch_mode") {
+        const plan = planInput.safeParse(update.rawInput).data?.plan;
+        if (plan) return [{ kind: "assistant", id: item.id, text: plan }];
       }
       return [
         {
