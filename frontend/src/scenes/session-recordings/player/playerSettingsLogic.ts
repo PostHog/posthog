@@ -125,7 +125,7 @@ export interface playerSettingsLogicActions {
         dock: WatchDebugDock
     }
     toggleWatchPanelSection: (section: WatchPanelSection) => {
-        section: WatchPanelSection
+        section: 'overview'
     }
 }
 

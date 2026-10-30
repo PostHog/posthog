@@ -282,7 +282,22 @@ export function Playlist({
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
     const emptyState =
-        type === 'collection' ? (
+        ongoingRecordings.length > 0 ? (
+            <div className="flex flex-col items-center gap-2 p-4 text-secondary text-sm">
+                <span>Only live recordings so far</span>
+                {hasNext && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        loading={sessionRecordingsResponseLoading}
+                        onClick={() => maybeLoadSessionRecordings('older')}
+                        data-attr="list-load-older"
+                    >
+                        Load more
+                    </LemonButton>
+                )}
+            </div>
+        ) : type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
             <ListEmptyState listEmptyState={listEmptyState} />
@@ -409,6 +424,7 @@ export function Playlist({
                             <OngoingRecordingsGroup
                                 count={ongoingRecordings.length}
                                 holdsActive={ongoingRecordings.some((r) => r.id === activeItemId)}
+                                defaultOpen={finishedRecordings.length === 0}
                             >
                                 <ListSection
                                     key="ongoing"

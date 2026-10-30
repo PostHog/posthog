@@ -28,7 +28,7 @@ export function splitOngoingRecordings<T extends { ongoing?: boolean }>(
     recordings: T[],
     enabled: boolean
 ): { ongoing: T[]; finished: T[] } {
-    if (!enabled || !recordings.some((r) => r.ongoing) || !recordings.some((r) => !r.ongoing)) {
+    if (!enabled || !recordings.some((r) => r.ongoing)) {
         return { ongoing: [], finished: recordings }
     }
     return { ongoing: recordings.filter((r) => r.ongoing), finished: recordings.filter((r) => !r.ongoing) }

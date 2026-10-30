@@ -249,7 +249,7 @@ describe('splitOngoingRecordings()', () => {
 
     it.each([
         ['folds ongoing recordings away from finished ones', [live, done], true, [live], [done]],
-        ['keeps every row when all of them are still recording', [live, live], true, [], [live, live]],
+        ['folds every row when all of them are still recording', [live, live], true, [live, live], []],
         ['keeps every row when none are still recording', [done], true, [], [done]],
         ['keeps every row outside the watch layout', [live, done], false, [], [live, done]],
     ])('%s', (_, recordings, enabled, ongoing, finished) => {
