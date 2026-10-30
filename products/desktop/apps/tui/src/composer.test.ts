@@ -359,6 +359,23 @@ describe("Composer", () => {
     });
   });
 
+  it("puts back a message that failed to send, images and all", () => {
+    const sent: [string, number][] = [];
+    const composer = new Composer(
+      () => {},
+      (message, images) => sent.push([message, images.length]),
+    );
+    const image = {
+      type: "image" as const,
+      data: "aGk=",
+      mimeType: "image/png",
+    };
+    composer.putBack("look [Image #3] and [Image #4]", [image, image]);
+    composer.handleInput("\r");
+
+    expect(sent).toEqual([["look [Image #3] and [Image #4]", 2]]);
+  });
+
   it("keeps numbering images across messages", () => {
     const sent: [string, number][] = [];
     const composer = new Composer(

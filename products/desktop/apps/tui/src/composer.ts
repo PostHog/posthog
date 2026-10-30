@@ -147,6 +147,16 @@ export class Composer {
     this.repaint();
   }
 
+  // Puts back a message that could not be sent, with its images under the markers its text already carries.
+  putBack(text: string, images: ImageContent[]): void {
+    this.setText(text);
+    const markers = text.match(/\[Image #\d+\]/g) ?? [];
+    images.forEach((image, index) => {
+      const marker = markers[index];
+      if (marker) this.images.set(marker, image);
+    });
+  }
+
   showingSuggestions(): boolean {
     return this.editor.isShowingAutocomplete();
   }
