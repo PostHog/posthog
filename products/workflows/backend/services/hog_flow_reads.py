@@ -510,7 +510,9 @@ class _WorkflowFilterSet(FilterSet):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimization__enabled=True)
-        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE).exclude(has_agent_step_q())
+        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE).exclude(
+            has_agent_step_q() & ~Q(actions__contains=[{"type": "function_email"}])
+        )
 
 
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML

@@ -163,7 +163,7 @@ describe('workflowProposalsLogic', () => {
             status: 'active',
             actions: [{ id: 'task', type: 'function', config: { template_id: 'template-posthog-create-task' } }],
             enabled: false,
-            reason: 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.',
+            reason: 'A suggestion can\'t change or add a "Create AI task", "Run scout" or "Replay Vision" step, and a workflow with one and no email step can\'t take suggestions. Make this change in the workflow editor instead.',
         },
         {
             case: 'a live workflow with a classify and an AI task step',
@@ -173,7 +173,17 @@ describe('workflowProposalsLogic', () => {
                 { id: 'task', type: 'function', config: { template_id: 'template-posthog-create-task' } },
             ],
             enabled: false,
-            reason: 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.',
+            reason: 'A suggestion can\'t change or add a "Create AI task", "Run scout" or "Replay Vision" step, and a workflow with one and no email step can\'t take suggestions. Make this change in the workflow editor instead.',
+        },
+        {
+            case: 'a live workflow with an email and an AI task step',
+            status: 'active',
+            actions: [
+                { id: 'email', type: 'function_email' },
+                { id: 'task', type: 'function', config: { template_id: 'template-posthog-create-task' } },
+            ],
+            enabled: false,
+            reason: undefined,
         },
         {
             case: 'a live workflow with a classify step',

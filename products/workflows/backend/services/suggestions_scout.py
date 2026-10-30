@@ -32,7 +32,6 @@ from products.workflows.backend.metrics import (
     TARGET_UNTRACKED_METRIC,
 )
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision
-from products.workflows.backend.models.hog_flow.hog_flow import has_agent_step_q
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
 SOURCE_PRODUCT = "workflows"
@@ -83,7 +82,6 @@ def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: b
                 hog_flow__status=HogFlow.State.ACTIVE,
                 hog_flow__actions__contains=[{"type": "function_email"}],
             )
-            .exclude(has_agent_step_q("hog_flow__actions"))
             .exists()
         )
         if not wanted:

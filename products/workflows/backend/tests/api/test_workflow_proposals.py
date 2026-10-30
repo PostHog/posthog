@@ -183,6 +183,24 @@ class TestSuggestionTouchesAgentWorkflow(SimpleTestCase):
             ),
             ("rewires edges with no agent step", _PLAIN_FLOW, {"edges": [{"from": "a", "to": "b"}]}, False),
             (
+                "changes an email step beside an AI task step",
+                [_trigger_action(), _email_action(), _ai_task_action()],
+                {"actions": [{"id": "email_1", "config": {"inputs": {"email": {"value": {"subject": "Hi"}}}}}]},
+                False,
+            ),
+            (
+                "echoes the AI task step back unchanged on an email workflow",
+                [_trigger_action(), _email_action(), {**_ai_task_action(), "on_error": None, "filters": None}],
+                {"actions": [{**_ai_task_action(), "on_error": None, "filters": None}]},
+                False,
+            ),
+            (
+                "changes the AI task step on an email workflow",
+                [_trigger_action(), _email_action(), _ai_task_action()],
+                {"actions": [{"id": "ai_task_1", "config": {"inputs": {"posthog_mcp_scopes": {"value": "full"}}}}]},
+                True,
+            ),
+            (
                 "sends a template id that is not a string",
                 _PLAIN_FLOW,
                 {"actions": [{"id": "n", "config": {"template_id": ["x"]}}]},
@@ -732,7 +750,6 @@ class TestWorkflowProposals(APIBaseTest):
         [
             ("no email step", [], "classify_1"),
             ("an email step too", [_email_action()], "classify_1"),
-            ("an email step too and no step id", [_email_action()], None),
         ]
     )
     def test_a_classify_step_takes_a_category_suggestion_with_no_email_reading(
@@ -768,23 +785,35 @@ class TestWorkflowProposals(APIBaseTest):
             "team_growth": "Growth",
         }
 
-    def test_an_opted_in_workflow_that_gains_an_agent_step_leaves_the_work_list_and_the_scout(self):
-        agent_flow, email_flow = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
-        self._toggle(agent_flow, True)
-        HogFlow.objects.filter(id=agent_flow).update(
-            actions=[*HogFlow.objects.get(id=agent_flow).actions, _ai_task_action()]
+    def test_an_agent_step_takes_a_classify_workflow_off_the_work_list_but_not_an_email_workflow(self):
+        sync_template_to_db(_classify_template())
+        classify_flow, email_flow = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
+        HogFlow.objects.filter(id=classify_flow).update(actions=[_trigger_action(), _classify_action()])
+        self._toggle(classify_flow, True)
+        HogFlow.objects.filter(id=email_flow).update(
+            actions=[*HogFlow.objects.get(id=email_flow).actions, _ai_task_action()]
+        )
+        self._toggle(email_flow, True)
+        HogFlow.objects.filter(id=classify_flow).update(
+            actions=[_trigger_action(), _classify_action(), _ai_task_action()]
         )
 
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?optimization_enabled=true").json()
-        assert agent_flow not in {item["id"] for item in listed["results"]}
-        self._toggle(email_flow, True)
-        self._toggle(email_flow, False)
-        assert self._suggestions_scout() is None
+        assert {item["id"] for item in listed["results"]} == {email_flow}
+        assert self._suggestions_scout() is not None
 
-    def test_a_suggestion_is_refused_at_approval_once_the_workflow_has_an_agent_step(self):
-        flow_id = self._create_active_flow()
-        proposal = self._propose(flow_id)
-        HogFlow.objects.filter(id=flow_id).update(actions=[*HogFlow.objects.get(id=flow_id).actions, _ai_task_action()])
+    def test_a_suggestion_is_refused_at_approval_once_a_classify_workflow_has_an_agent_step(self):
+        sync_template_to_db(_classify_template())
+        flow_id = self._create_active_flow(optimize=False)
+        HogFlow.objects.filter(id=flow_id).update(actions=[_trigger_action(), _classify_action()])
+        self._toggle(flow_id, True)
+        proposal = self._propose(
+            flow_id,
+            content={
+                "actions": [{"id": "classify_1", "config": {"inputs": {"categories": {"value": {"team_x": "X"}}}}}]
+            },
+        )
+        HogFlow.objects.filter(id=flow_id).update(actions=[_trigger_action(), _classify_action(), _ai_task_action()])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}

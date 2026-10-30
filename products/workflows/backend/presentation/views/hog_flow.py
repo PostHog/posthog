@@ -577,25 +577,42 @@ def item_id(item: Any) -> Any:
     return item.get("id") if isinstance(item, dict) else None
 
 
-def _has_agent_step(content: dict) -> bool:
-    return any(
+def _without_nulls(value: Any) -> Any:
+    # A merge reads a null field as "delete it", so a step echoed back unchanged loses its null fields.
+    if isinstance(value, dict):
+        return {key: _without_nulls(item) for key, item in value.items() if item is not None}
+    return value
+
+
+def _is_agent_step(step: object) -> bool:
+    return (
         isinstance(step, dict)
         and isinstance(step.get("config"), dict)
         and isinstance(step["config"].get("template_id"), str)
         and step["config"]["template_id"] in AGENT_STEP_TEMPLATE_IDS
-        for step in content.get("actions") or []
     )
 
 
 def suggestion_touches_agent_workflow(live_content: dict, merged_content: dict) -> bool:
-    """Whether a suggestion is for a workflow with a "Create AI task", "Run scout" or "Replay Vision" step, or
-    would leave one in it.
+    """Whether a suggestion changes, adds or converts a "Create AI task", "Run scout" or "Replay Vision" step, or
+    is for a workflow without an email step that has one.
 
     Such a step runs another agent, or reads recordings, with its own access. An agent files the suggestion and a
     person approves it from a diff, and almost any change upstream (a branch condition, a filter, the trigger)
-    changes what reaches that step. So a workflow with one takes no suggestions, and a suggestion can't add one.
+    changes what reaches that step. Workflows without an email step only take suggestions since classify steps
+    could opt in, so they get the whole rule. Email workflows keep taking suggestions as before, except on the
+    agent step itself.
     """
-    return _has_agent_step(live_content) or _has_agent_step(merged_content)
+    live_steps = {item_id(step): step for step in live_content.get("actions") or [] if isinstance(step, dict)}
+    merged_steps = [step for step in merged_content.get("actions") or [] if isinstance(step, dict)]
+    if any(
+        (_is_agent_step(step) or _is_agent_step(live_steps.get(item_id(step))))
+        and _without_nulls(step) != _without_nulls(live_steps.get(item_id(step)))
+        for step in merged_steps
+    ):
+        return True
+    sends_email = any(step.get("type") == "function_email" for step in live_steps.values())
+    return not sends_email and any(_is_agent_step(step) for step in [*live_steps.values(), *merged_steps])
 
 
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
@@ -4789,8 +4806,8 @@ class WorkflowHasNoEmailStepError(exceptions.APIException):
 class WorkflowHasAgentStepError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
-        'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a '
-        "suggestion can't add one. Make this change in the workflow editor instead."
+        'A suggestion can\'t change or add a "Create AI task", "Run scout" or "Replay Vision" step, and a workflow '
+        "with one and no email step can't take suggestions. Make this change in the workflow editor instead."
     )
     default_code = "workflow_has_agent_step"
 
@@ -6258,13 +6275,7 @@ class HogFlowViewSet(
             for step in live_content.get("actions") or []
             if isinstance(step, dict) and step.get("type") == "function_email"
         }
-        # Without a step, a change to the workflow as a whole, or to one of its email steps, has an email reading.
-        touched_steps = {item_id(step) for step in content.get("actions") or []}
-        about_email = (
-            step_id in live_email_steps
-            if step_id
-            else bool(live_email_steps) and ("actions" not in content or bool(touched_steps & live_email_steps))
-        )
+        about_email = step_id in live_email_steps if step_id else bool(live_email_steps)
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence) if about_email else None
         if measured is not None:
             evidence["measured"] = measured
@@ -6515,10 +6526,11 @@ class HogFlowViewSet(
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
             # Turning it off stays open, so a workflow can still be switched off after it loses those steps.
-            if enabled and instance.step_template_ids & AGENT_STEP_TEMPLATE_IDS:
-                raise WorkflowHasAgentStepError()
-            if enabled and not (instance.has_email_step or _CLASSIFY_TEMPLATE_ID in instance.step_template_ids):
-                raise WorkflowHasNoEmailStepError()
+            if enabled and not instance.has_email_step:
+                if instance.step_template_ids & AGENT_STEP_TEMPLATE_IDS:
+                    raise WorkflowHasAgentStepError()
+                if _CLASSIFY_TEMPLATE_ID not in instance.step_template_ids:
+                    raise WorkflowHasNoEmailStepError()
             # PostHog's suggestions scout reads only email steps, so only they need it running.
             if enabled and instance.has_email_step and not is_optimization_enabled(instance.id):
                 refusal = suggestions_scout_refusal(

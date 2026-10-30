@@ -547,11 +547,13 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     return 'Suggestions need a live workflow. Enable it first.'
                 }
                 // The server judges the published steps, so a step only in the draft does not count.
-                if (originalWorkflow.actions.some(isAgentStepAction)) {
-                    return 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.'
-                }
-                if (!originalWorkflow.actions.some((action) => isEmailAction(action) || isClassifyAction(action))) {
-                    return 'Self-driving needs a step it can suggest changes to, such as an email step. Add one and publish the workflow to turn it on.'
+                if (!originalWorkflow.actions.some(isEmailAction)) {
+                    if (originalWorkflow.actions.some(isAgentStepAction)) {
+                        return 'A suggestion can\'t change or add a "Create AI task", "Run scout" or "Replay Vision" step, and a workflow with one and no email step can\'t take suggestions. Make this change in the workflow editor instead.'
+                    }
+                    if (!originalWorkflow.actions.some(isClassifyAction)) {
+                        return 'Self-driving needs a step it can suggest changes to, such as an email step. Add one and publish the workflow to turn it on.'
+                    }
                 }
                 return undefined
             },
