@@ -529,7 +529,11 @@ async function publish() {
                 receipt.staged = staged
                 receipt.stagingDeployment = deployment.id
                 saveReceipt(receipt)
-                api(`releases/${releaseId}`, { body: JSON.stringify(receipt, null, 2) }, 'PATCH')
+                api(
+                    `releases/${releaseId}`,
+                    { tag_name: releaseTag(request.id), body: JSON.stringify(receipt, null, 2) },
+                    'PATCH'
+                )
                 deploymentStatus(deployment.id, 'success')
                 return staged
             },
@@ -581,7 +585,12 @@ async function publish() {
                 saveReceipt(receipt)
                 api(
                     `releases/${releaseId}`,
-                    { draft: false, prerelease: true, body: JSON.stringify(receipt, null, 2) },
+                    {
+                        tag_name: releaseTag(request.id),
+                        draft: false,
+                        prerelease: true,
+                        body: JSON.stringify(receipt, null, 2),
+                    },
                     'PATCH'
                 )
                 advancePointer(receipt)

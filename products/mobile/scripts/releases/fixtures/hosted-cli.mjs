@@ -133,6 +133,9 @@ if (tool === 'eas') {
         if (!release) {
             throw new Error('Release ID not found')
         }
+        if (release.draft && !data.tag_name) {
+            release.tag_name = `untagged-${release.id}`
+        }
         Object.assign(release, data)
         done(release)
     } else if (path === 'deployments') {

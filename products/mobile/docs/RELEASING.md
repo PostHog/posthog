@@ -98,7 +98,7 @@ Rotate the key and certificate together, retain the old material securely for ol
 The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
 The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
 Receipt lookup includes draft releases across every page of the release list. GitHub's release-by-tag endpoint only returns published releases and cannot find an interrupted draft claim.
-Receipt writes use the numeric release ID returned when the claim is created. If multiple releases share a request tag, publication stops before any EAS operation; reconcile every named release ID before retrying.
+Receipt writes use the numeric release ID returned when the claim is created and explicitly retain its request tag. If multiple releases share a request tag, publication stops before any EAS operation; reconcile every named release ID before retrying.
 A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
 
 GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.
