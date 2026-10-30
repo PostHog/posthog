@@ -300,10 +300,7 @@ def _series_dict(
 
     series_object: dict[str, Any] = {
         "data": data,
-        # Labels are formatted in the CURRENT range's context, even for the
-        # previous compare series, because the live runner does the same
-        # (build_series_response passes self.query_date_range regardless of
-        # series period).
+        # The live runner also formats the previous compare series' labels in the current range
         "labels": [format_label_date(item, runner.query_date_range, runner.team.week_start_day) for item in buckets],
         "days": [item.strftime(day_fmt) for item in buckets],
         "count": float(sum(data)),

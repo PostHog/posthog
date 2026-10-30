@@ -59629,6 +59629,10 @@
         "WebVitalsItem": {
             "additionalProperties": false,
             "properties": {
+                "action": {
+                    "$ref": "#/definitions/WebVitalsItemAction",
+                    "deprecated": "The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes\nonce those entries expire. Read the series from the query at `order` instead."
+                },
                 "data": {
                     "items": {
                         "type": "number"
@@ -59647,6 +59651,19 @@
                 }
             },
             "required": ["data", "days", "order"],
+            "type": "object"
+        },
+        "WebVitalsItemAction": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "$ref": "#/definitions/WebVitalsMetric"
+                },
+                "math": {
+                    "$ref": "#/definitions/WebVitalsPercentile"
+                }
+            },
+            "required": ["custom_name", "math"],
             "type": "object"
         },
         "WebVitalsMetric": {

@@ -235,9 +235,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["compare_label"] == live_series["compare_label"]
             assert pre_series["data"] == live_series["data"]
             assert pre_series["days"] == live_series["days"]
-            # The previous series' labels must use the CURRENT range's context
-            # like the live runner does, because the compare tooltip pairs
-            # points across series by these.
+            # The compare tooltip pairs points across series by these labels
             assert pre_series["labels"] == live_series["labels"]
         assert precomputed.resolved_compare_date_range is not None
 

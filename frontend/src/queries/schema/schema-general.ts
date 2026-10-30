@@ -4431,11 +4431,20 @@ export interface WebVitalsQuery<T = InsightQueryNode> extends WebAnalyticsQueryB
     source: T
 }
 
+export interface WebVitalsItemAction {
+    custom_name: WebVitalsMetric
+    math: WebVitalsPercentile
+}
 export interface WebVitalsItem {
     data: number[]
     days: string[]
     /** The index of the row's series in the query. */
     order: integer
+    /**
+     * @deprecated The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes
+     * once those entries expire. Read the series from the query at `order` instead.
+     */
+    action?: WebVitalsItemAction
 }
 
 export interface WebVitalsQueryResponse extends AnalyticsQueryResponseBase {
