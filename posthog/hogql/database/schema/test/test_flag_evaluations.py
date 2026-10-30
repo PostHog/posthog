@@ -41,7 +41,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -780,6 +780,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "unqualified_reads_beside_a_joined_subquery",
+                "SELECT count() FROM events JOIN (SELECT 'probe-distinct-id' AS id) AS d ON events.distinct_id = d.id "
+                f"WHERE {FLAG_CALL_CONJUNCTS}",
+                [(1,)],
+            ),
+            (
                 "cte",
                 f"WITH calls AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM calls",
                 [(1,)],
@@ -1071,6 +1077,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             self._query_events(query, modifiers=modifiers).clickhouse
             == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
         )
+
+    def test_query_reading_event_that_another_source_has_raises_instead_of_reading_flag_evaluations(self):
+        query = (
+            "SELECT count() FROM events JOIN (SELECT distinct_id, event FROM events) AS calls "
+            f"ON events.distinct_id = calls.distinct_id WHERE {FLAG_CALL_CONJUNCTS}"
+        )
+        with self.assertRaisesRegex(ResolutionError, "Ambiguous query"):
+            self._query_events(query)
 
     @parameterized.expand(
         [
