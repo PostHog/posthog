@@ -22,6 +22,7 @@ import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessCont
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -437,13 +438,13 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         return values.insight
                     }
                     const dashboard = Number(router.values.searchParams.dashboard)
+                    // A new worksheet opened from a dashboard goes on that dashboard.
+                    const dashboardId =
+                        !asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0 ? dashboard : null
                     const payload = {
                         name: asCopy ? `${values.name.trim()} (copy)` : values.name.trim(),
                         query: JSON.parse(JSON.stringify(values.worksheet)) as BIVisualizationNodeApi,
                         saved: true,
-                        ...(!asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0
-                            ? { dashboards: [dashboard] }
-                            : {}),
                     }
                     const state = { editorView: BIEditorView.BI, config: values.config }
                     const operation = values.insight && !asCopy ? 'update' : 'create'
@@ -451,16 +452,19 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         values.insight && !asCopy
                             ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
                             : await insightsCreate(String(values.currentTeamId), payload)
+                    if (dashboardId !== null) {
+                        await insightsApi.addNewInsightToDashboards(insight.id, [dashboardId])
+                    }
                     if (asCopy) {
                         cache.agentRefreshAfterSave = false
                         actions.setAgentUpdateState(null)
                     }
-                    captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
+                    captureBIEditorQuerySaved(state, 'insight', operation, dashboardId !== null)
                     captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
                     if (asCopy) {
                         captureBIWorksheetAction('copied', state.config, { insight_id: insight.id })
                     }
-                    if (payload.dashboards?.length) {
+                    if (dashboardId !== null) {
                         captureBIWorksheetAction('added_to_dashboard', state.config, { insight_id: insight.id })
                     }
                     return insight

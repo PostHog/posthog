@@ -50,7 +50,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -2918,12 +2917,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 const dashboardId = values.dashboardId
-                const insight = await insightsApi.create({
-                    name,
-                    query: sourceQueryToSave,
-                    saved: true,
-                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
-                })
+                const insight = await insightsApi.create(
+                    { name, query: sourceQueryToSave, saved: true },
+                    dashboardId ? [dashboardId] : []
+                )
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -3172,17 +3169,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
-                // When saving from a dashboard flow, attach the tile server-side without
-                // dropping the insight's existing dashboard links.
                 const dashboardId = values.dashboardId
-                if (dashboardId) {
-                    const existingDashboardIds = liveDashboardIds(values.editingInsight.dashboard_tiles)
-                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
-                }
 
                 let savedInsight: InsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+                    // Saving from a dashboard flow also places the insight on that dashboard.
+                    if (dashboardId) {
+                        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
+                        savedInsight = {
+                            ...savedInsight,
+                            dashboard_tiles: [
+                                ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                                tile,
+                            ],
+                        }
+                    }
                 } catch (e) {
                     actions.setInsightLoading(false)
                     if (e instanceof ApiError) {
