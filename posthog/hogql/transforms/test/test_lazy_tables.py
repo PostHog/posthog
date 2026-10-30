@@ -165,6 +165,21 @@ class TestWrappedEventJoins(SimpleTestCase):
         assert {"properties___$raw_user_agent", "properties___$ip"} <= self._exports(printed, "joined", native)
         assert "joined.properties," not in printed.split(" FROM ", 1)[0]
 
+    def test_converts_a_key_read_through_a_document_alias(self) -> None:
+        printed, _ = self._compile(f"SELECT joined.properties AS p, p.amount + 1 {WRAPPED_JOIN}")
+        assert printed.startswith(
+            "SELECT joined.properties AS p, plus(accurateCastOrNull(joined.properties___amount, %(hogql_val_"
+        ), printed
+        assert self._exports(printed, "joined", native=False) == {"properties", "properties___amount"}
+
+    def test_wraps_a_schema_qualified_table_without_an_alias(self) -> None:
+        printed, _ = self._compile(
+            "SELECT initial.event, posthog.events.properties.amount FROM events AS initial "
+            "JOIN posthog.events ON initial.person_id = posthog.events.person_id"
+        )
+        assert "accurateCastOrNull(posthog__events.properties___amount, %(hogql_val_" in printed.split(" FROM ", 1)[0]
+        assert ") AS posthog__events ON equals(" in printed
+
     def test_wraps_a_join_whose_constraint_needs_the_identity_join(self) -> None:
         printed, _ = self._compile(f"SELECT joined.event {WRAPPED_JOIN}", person_overrides=False)
         assert self._exports(printed, "joined", native=False) == {"pdi___person_id", "event"}
@@ -375,6 +390,27 @@ class TestLazyJoins(BaseTest):
             ),
         )
         assert [tuple(row) for row in result.results] == [expected]
+
+    def test_wrapped_events_join_converts_a_key_read_through_a_document_alias(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric")
+        event_uuid = _create_event(
+            team=self.team,
+            event="priced",
+            distinct_id="user",
+            person_id=UUID("00000000-0000-4000-8000-000000000001"),
+            properties={"amount": "7"},
+        )
+        result = execute_hogql_query(
+            "SELECT related.properties AS p, p.amount + 1 FROM events AS source "
+            "JOIN events AS related ON source.person_id = related.person_id "
+            "WHERE source.uuid = {event_uuid} AND related.uuid = {event_uuid}",
+            team=self.team,
+            placeholders={"event_uuid": ast.Constant(value=event_uuid)},
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+        assert [row[1] for row in result.results] == [8.0]
 
     def test_wrapped_events_join_reads_each_alias_from_its_own_source(self) -> None:
         PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric")

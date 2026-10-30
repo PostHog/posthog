@@ -256,19 +256,14 @@ class LazyTableResolver(TraversingVisitor):
     def _wrap_table_for_lazy_resolution(
         self, node: ast.SelectQuery, table_alias: str, select_type: ast.SelectQueryType
     ) -> None:
+        # The scope key of a schema-qualified table (`posthog__events`) is not its written name, so match the binding.
+        original_table_type = select_type.tables[table_alias]
         join_ptr = node.select_from
-        while join_ptr:
-            current_alias = join_ptr.alias or (
-                str(join_ptr.table.chain[0]) if isinstance(join_ptr.table, ast.Field) else None
-            )
-            if current_alias == table_alias and isinstance(join_ptr.table, ast.Field):
-                break
+        while join_ptr is not None and join_ptr.type is not original_table_type:
             join_ptr = join_ptr.next_join
-
         assert join_ptr is not None and isinstance(join_ptr.table, ast.Field), f"Table {table_alias} not found"
 
         # Collect while the outer reads still identify the table they belong to.
-        original_table_type = select_type.tables[table_alias]
         collector = WrappedTableReferenceCollector(original_table_type)
         collector.visit(node)
 
@@ -302,10 +297,11 @@ class LazyTableResolver(TraversingVisitor):
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
 
-        for field_type, export_name in collector.fields.values():
-            field_type.name = export_name
-            field_type.table_type = join_ptr.type
         for property_type, export_name, through_lazy_join in collector.properties.values():
+            if id(property_type.field_type) in collector.fields:
+                # A key read through a select alias of the document (`properties AS p, p.amount`) shares the
+                # document's field type, which is rebound below. The property keeps its own copy of the source.
+                property_type.field_type = dataclasses.replace(property_type.field_type)
             # The field type keeps the original table so the property-type pass still finds the property's
             # definition, while the printer reads the exported column.
             property_type.joined_subquery = join_ptr.type
@@ -313,6 +309,9 @@ class LazyTableResolver(TraversingVisitor):
             if through_lazy_join:
                 # The lazy join's subquery converted the value already, as it does without this wrapper.
                 property_type.field_type.table_type = join_ptr.type
+        for field_type, export_name in collector.fields.values():
+            field_type.name = export_name
+            field_type.table_type = join_ptr.type
 
     def _read_property_path(
         self, subquery_type: ast.SelectQueryType, column: ast.Alias, property_path: tuple[str | int, ...]
