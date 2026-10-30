@@ -5,7 +5,7 @@ from unittest import mock
 
 import psycopg
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound, IntegrationReader
 from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
 
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient, PostgreSQLConnectionError
@@ -232,7 +232,7 @@ class TestWriterClient:
         writer = PostgresDestinationWriter(_ctx(integration_id))
 
         with (
-            mock.patch.object(Integration.objects, "aget", side_effect=Integration.DoesNotExist),
+            mock.patch.object(IntegrationReader, "aget", side_effect=IntegrationNotFound),
             mock.patch.object(psycopg.AsyncConnection, "connect") as connect,
             pytest.raises(DestinationConfigurationError) as caught,
         ):

@@ -58,7 +58,7 @@ export interface TimeSeriesComboChartConfig {
     showTickMarks?: boolean
     /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig

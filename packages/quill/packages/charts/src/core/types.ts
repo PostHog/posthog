@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { LegendItem, LegendValue } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
+import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -304,8 +305,7 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
@@ -410,7 +410,7 @@ export interface ChartLegendConfig {
     columnLabels?: Partial<Record<'label' | LegendValue, string>>
 }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */

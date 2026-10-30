@@ -16,6 +16,9 @@ dayjs.extend(timezone)
 export { dayjs }
 export interface Dayjs extends DayjsOriginal {}
 
+const PARSED_DATES_LIMIT = 5_000
+const parsedDates = new Map<string, Dayjs>()
+
 /** Parse a date string into a Dayjs in the given timezone, browser-tz-independent.
  *
  * - Strings without explicit timezone info ("2026-03-08", "2026-03-08 14:00:00")
@@ -23,6 +26,22 @@ export interface Dayjs extends DayjsOriginal {}
  * - Strings with explicit timezone info (trailing "Z" or "±HH:MM") are real instants;
  *   parse them as such and convert into the requested timezone. */
 export function parseDateInTimezone(dateStr: string, tz: string): Dayjs {
+    // Timezone parsing goes through Intl and is slow. Charts on one dashboard share most labels,
+    // and a chart parses all of them again each time it mounts. Dayjs instances are immutable,
+    // so a cached instance is safe to share.
+    const key = `${tz}|${dateStr}`
+    let parsed = parsedDates.get(key)
+    if (!parsed) {
+        if (parsedDates.size >= PARSED_DATES_LIMIT) {
+            parsedDates.clear()
+        }
+        parsed = parseUncached(dateStr, tz)
+        parsedDates.set(key, parsed)
+    }
+    return parsed
+}
+
+function parseUncached(dateStr: string, tz: string): Dayjs {
     const hasExplicitTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr)
     try {
         if (hasExplicitTz) {
