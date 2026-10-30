@@ -305,7 +305,12 @@ class LazyTableResolver(TraversingVisitor):
                 ast.Alias(alias=export.name, expr=ast.Field(chain=[table_alias, *export.field_chain]))
                 for export in collector.exports.values()
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=list(join_ptr.table.chain)), alias=table_alias),
+            # A SAMPLE clause applies to the table, not to the subquery that replaces it.
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=list(join_ptr.table.chain)),
+                alias=table_alias,
+                sample=clone_expr(join_ptr.sample, clear_types=True) if join_ptr.sample is not None else None,
+            ),
         )
         subquery = cast(
             ast.SelectQuery,
@@ -334,6 +339,7 @@ class LazyTableResolver(TraversingVisitor):
 
         join_ptr.table = subquery
         join_ptr.alias = table_alias
+        join_ptr.sample = None
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
 
