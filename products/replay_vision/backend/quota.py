@@ -628,20 +628,32 @@ def unreported_spend_by_org(report_cutoff: datetime) -> dict[UUID, UnreportedSpe
     The report counts receipts up to its cutoff, but the projection starts now. The spend in between,
     receipts since the cutoff and in-flight reservations, goes onto the scanner figure.
     """
-    org_ids = set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True)) | set(
-        ReplayScannerBackfill.objects.unscoped()
-        .filter(status__in=ACTIVE_BACKFILL_STATUSES)
-        .values_list("team__organization_id", flat=True)
+    receipts = ReplayObservationUsage.objects.filter(created_at__gte=report_cutoff)
+    # An org that switched its last scanner off after the cutoff still has that spend to report.
+    org_ids = (
+        set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True))
+        | set(
+            ReplayScannerBackfill.objects.unscoped()
+            .filter(status__in=ACTIVE_BACKFILL_STATUSES)
+            .values_list("team__organization_id", flat=True)
+        )
+        | set(
+            ReplayObservation.objects.filter(status__in=IN_FLIGHT_STATUSES).values_list(
+                "team__organization_id", flat=True
+            )
+        )
+        | set(receipts.values_list("organization_id", flat=True).distinct())
     )
+    # Reservations read BEFORE receipts: an observation settling between the two is counted twice, never zero times.
+    states = {org_id: quota_state(org_id) for org_id in org_ids}
     receipts_since_cutoff = dict(
-        ReplayObservationUsage.objects.filter(organization_id__in=org_ids, created_at__gte=report_cutoff)
+        receipts.filter(organization_id__in=org_ids)
         .values("organization_id")
         .annotate(total=Sum("credits"))
         .values_list("organization_id", "total")
     )
     result: dict[UUID, UnreportedSpend] = {}
-    for org_id in org_ids:
-        state = quota_state(org_id)
+    for org_id, state in states.items():
         projection = spend_projection(org_id, org_state=state)
         result[org_id] = UnreportedSpend(
             scanner_credits=projection.scanners_period_credits
