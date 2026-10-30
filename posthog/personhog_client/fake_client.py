@@ -261,6 +261,9 @@ class FakePersonHogClient:
         """Make a person look held by another live lifecycle op, so a delete reports SKIPPED_CONFLICT."""
         self._lifecycle_marks.add((team_id, person_id))
 
+    def release_lifecycle_mark(self, *, team_id: int, person_id: int) -> None:
+        self._lifecycle_marks.discard((team_id, person_id))
+
     def add_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
         self._cohort_memberships.setdefault(person_id, []).append(
             cohort_pb2.CohortMembership(cohort_id=cohort_id, is_member=is_member)

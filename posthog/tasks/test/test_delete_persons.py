@@ -100,8 +100,8 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 unmatched_distinct_ids=["ghost"],
             )
 
-    def test_passes_the_task_id_as_the_deletion_run(self) -> None:
-        delete_persons_async.push_request(id="task-1")
+    def test_passes_the_task_id_and_attempt_as_the_deletion_run(self) -> None:
+        delete_persons_async.push_request(id="task-1", retries=2)
         self.addCleanup(delete_persons_async.pop_request)
         with patch(
             "posthog.tasks.delete_persons.process_queued_person_deletion",
@@ -116,7 +116,7 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 organization_id=None,
                 was_impersonated=False,
             )
-        assert process.call_args.kwargs["run_id"] == "task-1"
+        assert process.call_args.kwargs["run_id"] == "task-1:2"
 
     def test_retries_only_the_failed_persons(self) -> None:
         failed = uuid4()

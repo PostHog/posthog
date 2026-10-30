@@ -158,11 +158,13 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
             id_slice = inputs.person_ids[start : start + inputs.batch_size]
             if not id_slice:
                 return 0, False
+            info = temporalio.activity.info()
             deleted = await asyncio.to_thread(
                 _delete_specific_persons_via_personhog,
                 inputs.team_id,
                 id_slice,
-                temporalio.activity.info().workflow_run_id,
+                # A retry under the first attempt's op id replays its recorded conflicts instead of trying again.
+                f"{info.workflow_run_id}:{info.attempt}",
             )
             should_continue = start + inputs.batch_size < len(inputs.person_ids)
         else:

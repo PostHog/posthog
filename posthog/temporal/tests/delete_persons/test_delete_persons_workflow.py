@@ -53,7 +53,7 @@ class TestDeletePersonsActivity:
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("d1", 1)]
         assert fake.tombstone_queue == {}
 
-    async def test_by_ids_runs_the_saga_under_the_workflow_run(self, activity_environment):
+    async def test_by_ids_runs_the_saga_under_the_workflow_run_and_attempt(self, activity_environment):
         person_uuid = str(uuid_lib.uuid4())
         with fake_personhog_client() as fake, _no_publish(), override_settings(PERSON_DELETE_VIA_LIFECYCLE=True):
             fake.add_person(team_id=1, person_id=10, uuid=person_uuid, version=3, distinct_ids=["d1"])
@@ -65,7 +65,8 @@ class TestDeletePersonsActivity:
 
         assert deleted == 1
         [call] = [call for call in fake.calls if call.method == "lifecycle.delete_persons"]
-        run_id = activity_environment.info.workflow_run_id
+        info = activity_environment.info
+        run_id = f"{info.workflow_run_id}:{info.attempt}"
         assert call.request.op_id == str(lifecycle_delete_op_id(run_id, 1, [10]))
         assert fake._persons_by_uuid[(1, person_uuid)].is_deleted is True
 

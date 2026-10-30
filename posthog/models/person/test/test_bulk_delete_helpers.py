@@ -329,11 +329,17 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         assert ops[0] == ops[1] != ops[2]
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].version == 1
 
-    def test_a_person_held_by_another_op_stays_live_and_fails_the_tombstone_step_for_a_retry(self):
+    def test_a_person_held_by_another_op_stays_live_and_fails_the_tombstone_step_until_the_next_attempt(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         get_active_fake().hold_lifecycle_mark(team_id=self.team.pk, person_id=p.pk)
         with _no_publish() as publish:
-            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
+            result = delete_persons_profile(
+                self.team.pk,
+                [p],
+                actor=self.user,
+                organization_id=self.organization.id,
+                run=DeletionRun(run_id="task-1:0"),
+            )
             with self.assertRaises(PersonTombstoneFailed) as raised:
                 tombstone_and_publish_persons(self.team.pk, [p])
 
@@ -345,6 +351,13 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         publish.assert_not_called()
         assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is False
+
+        get_active_fake().release_lifecycle_mark(team_id=self.team.pk, person_id=p.pk)
+        with _no_publish():
+            replayed = delete_persons_profile(self.team.pk, [p], actor=self.user, run=DeletionRun(run_id="task-1:0"))
+            retried = delete_persons_profile(self.team.pk, [p], actor=self.user, run=DeletionRun(run_id="task-1:1"))
+        # The first op recorded the conflict, so only the next attempt's op id reaches the released person.
+        assert (replayed.retryable_errors, retried.deleted_count) == ([p.uuid], 1)
 
     def test_an_already_tombstoned_person_is_republished_and_a_missing_one_is_dropped(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
