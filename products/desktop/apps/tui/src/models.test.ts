@@ -67,9 +67,9 @@ describe("modeStatus", () => {
     ["acceptEdits", "Accept Edits", "⏵ Accept Edits"],
     ["plan", "Plan Mode", "◯ Plan Mode"],
     ["default", "Default", "■ Default"],
-    ["bypassPermissions", "Bypass Permissions", "⏭ Bypass Permissions"],
+    ["bypassPermissions", "Bypass Permissions", "» Bypass Permissions"],
     ["read-only", "Read only", "◌ Read only"],
-    ["full-access", "Full access", "⏭ Full access"],
+    ["full-access", "Full access", "» Full access"],
     ["something-new", "New", "⏵ New"],
   ])("marks %s with its own glyph", (id, name, expected) => {
     expect(modeStatus({ id, name })).toBe(expected);

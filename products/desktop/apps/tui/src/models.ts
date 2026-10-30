@@ -302,14 +302,15 @@ export function nextMode(
 
 // Each mode's glyph on the composer's rule: how far the agent runs before it asks. Auto and accept-edits borrow
 // Claude Code's chevrons, plan waits in a circle, default stops at every call, and bypass skips the asking.
+// Only glyphs without an emoji presentation: a terminal draws one of those two cells wide and eats the space after it.
 const MODE_GLYPHS: Record<string, string> = {
   auto: "⏵⏵",
   acceptEdits: "⏵",
   plan: "◯",
   default: "■",
-  bypassPermissions: "⏭",
+  bypassPermissions: "»",
   "read-only": "◌",
-  "full-access": "⏭",
+  "full-access": "»",
 };
 
 export const modeStatus = (mode: Mode): string =>
