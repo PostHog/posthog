@@ -35,6 +35,78 @@ class TestTrialSpendRecovery(BaseTest):
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
 
+    @parameterized.expand([("research",), ("repo_selection",)])
+    def test_task_recovery_applies_late_report_billing_exemption(self, stage: str) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        task = Task.objects.create(
+            team=self.team, title="Report research", origin_product="signal_report", signal_report=report, internal=True
+        )
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=False):
+            run = task.create_run(extra_state={"ai_stage": stage, "unprocessed_request_ids": ["late"]})
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert not spend.billing_exempt
+        TaskRun.objects.filter(id=run.id, team_id=self.team.id).update(status=TaskRun.Status.COMPLETED)
+        SignalReport.objects.filter(id=report.id, team_id=self.team.id).update(
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+        )
+        with (
+            patch(
+                "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+                new_callable=AsyncMock,
+                return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123),
+            ),
+            patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
+        ):
+            recover_spend(self.team.id, str(spend.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(id=spend.id)
+        assert spend.finalized_at is not None
+        assert spend.billing_exempt
+        assert not spend.accounting_failed
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    def test_publication_retries_after_the_final_receipt_settles(self) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        source_key = str(uuid4())
+        record_llm_spend(
+            "late",
+            team_id=self.team.id,
+            signal_id=signal_id,
+            stage="grouping",
+            token_cost_microusd=None,
+            source_id=f"generation:{source_key}",
+            trial_grant_id=str(grant.id),
+            strict=True,
+        )
+        complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        response = AsyncMock(status=200)
+        response.__aenter__.return_value = response
+        response.json.return_value = {
+            "request_id": "late",
+            "model": "example",
+            "provider": "example",
+            "cost_usd": "0.000123",
+        }
+        with (
+            patch("aiohttp.ClientSession._request", new_callable=AsyncMock, return_value=response) as fetch,
+            patch(
+                "products.signals.backend.spend_recovery.submit_signal_metadata_updates",
+                new_callable=AsyncMock,
+                side_effect=[RuntimeError("Temporal unavailable"), None],
+            ) as publish,
+        ):
+            result = recover_spend.apply(args=(self.team.id, str(spend.id)), throw=False)
+        assert result.successful(), result.result
+        assert publish.await_count == 2
+        fetch.assert_awaited_once()
+        assert fetch.call_args.args[1] == "https://gateway.example.com/v1/usage/late"
+        grant.refresh_from_db()
+        spend.refresh_from_db()
+        assert grant.settled_microusd == 123
+        assert not spend.accounting_failed
+        assert spend.finalized_at is not None
+
     def test_worker_loss_releases_report_slot_only_after_all_attempt_runs_finish(self) -> None:
         self.claim()
         task = Task.objects.create(team=self.team, title="Scout attempts", origin_product="signals_scout")
@@ -137,7 +209,7 @@ class TestTrialSpendRecovery(BaseTest):
             assert fetch.call_args_list[0].args[0] == f"request-{RECOVERY_SOURCE_LIMIT:02}"
             recover_spend(self.team.id, str(spend.id))
             recover_spend(self.team.id, str(spend.id))
-            assert publish.await_count == 2
+            assert publish.await_count == 3
             publish.assert_awaited_with(team_id=self.team.id, signal_ids=[signal_id])
         grant.refresh_from_db()
         spend.refresh_from_db()
@@ -151,7 +223,7 @@ class TestTrialSpendRecovery(BaseTest):
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         report = SignalReport.objects.create(team=child, triggering_signal_id=uuid4())
         task = Task.objects.create(
-            team=child, title="Child trial", origin_product="signal_report", signal_report=report
+            team=child, title="Child trial", origin_product="signal_report", signal_report=report, internal=True
         )
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD,
@@ -168,6 +240,7 @@ class TestTrialSpendRecovery(BaseTest):
             ),
             patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
             patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch,
+            patch("products.signals.backend.spend_recovery.submit_signal_metadata_updates", new_callable=AsyncMock),
         ):
             recover_incomplete_spend()
             args = next(

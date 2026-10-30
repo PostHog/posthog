@@ -12,6 +12,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from redis.exceptions import LockNotOwnedError
 
 from posthog import redis
+from posthog.celery_queues import CeleryQueue
 from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.llm.gateway_usage import fetch_gateway_cost
 
@@ -23,7 +24,7 @@ from products.signals.backend.spend import (
     submit_signal_metadata_updates,
 )
 from products.signals.backend.trial.tasks import release_abandoned_report_reservations
-from products.tasks.backend.facade.api import get_task_run
+from products.tasks.backend.facade.api import get_task_report_id, get_task_run
 from products.tasks.backend.facade.billing import process_pending_gateway_usage
 
 logger = structlog.get_logger(__name__)
@@ -34,8 +35,12 @@ RECOVERY_LOCK_SECONDS = 60
 
 
 def _recover_spend(*, team_id: int, spend_id: str) -> None:
-    spend = SignalSpend.objects.for_team(team_id).filter(id=spend_id, accounting_failed=True).first()
+    spend = SignalSpend.objects.for_team(team_id).filter(id=spend_id).first()
     if spend is None:
+        return
+    if not spend.accounting_failed:
+        if spend.signal_id:
+            async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
         return
     SignalSpend.objects.for_team(team_id).filter(id=spend.id).update(updated_at=timezone.now())
     if spend.task_run_id:
@@ -43,7 +48,10 @@ def _recover_spend(*, team_id: int, spend_id: str) -> None:
         if run is None:
             return
         if run.is_terminal:
-            complete_task_spend(team_id=run.team_id, run_id=str(spend.task_run_id))
+            report_id = get_task_report_id(task_id=run.task_id, team_id=run.team_id)
+            complete_task_spend(
+                team_id=run.team_id, run_id=str(spend.task_run_id), report_id=str(report_id) if report_id else None
+            )
         else:
             process_pending_gateway_usage(team_id=run.team_id, run_id=spend.task_run_id)
             refresh_task_spend(team_id=run.team_id, run_id=str(spend.task_run_id), strict=True)
@@ -90,13 +98,26 @@ def _recover_spend(*, team_id: int, spend_id: str) -> None:
         async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
 
 
-@shared_task(ignore_result=True, soft_time_limit=40, time_limit=45)
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=40,
+    time_limit=45,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=None,
+    # Queue expiry must not discard publication retries after costs have settled.
+    retry_kwargs={"expires": None},
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def recover_spend(team_id: int, spend_id: str) -> None:
     lock = redis.get_client().lock(
         f"signals:spend-recovery:{team_id}:{spend_id}", timeout=RECOVERY_LOCK_SECONDS, blocking=False
     )
     if not lock.acquire():
-        return
+        raise RuntimeError("Spend recovery is already running")
     try:
         _recover_spend(team_id=team_id, spend_id=spend_id)
     finally:

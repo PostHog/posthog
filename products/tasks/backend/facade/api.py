@@ -1369,6 +1369,10 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
+def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
+    return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
+
+
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
     """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
 
