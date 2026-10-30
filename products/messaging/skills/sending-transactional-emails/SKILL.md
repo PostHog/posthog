@@ -57,7 +57,7 @@ Use the SDK when the backend is Node.js or Python, and the HTTP API otherwise.
 
 - **Node.js:** `posthog-node`, `posthog.emails.send({ to, templateId, templateData, distinctId, idempotencyKey })`. It returns `{ data, error }` and does not throw. Set `secretKey` on the client.
 - **Python:** `posthog`, `posthog.emails.send(to=..., template_id=..., template_data=..., distinct_id=..., idempotency_key=...)`. It raises `EmailError`. Set `secret_key` on the client.
-- **Any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>` and a JSON body with `template.id`, `to`, `message_data`, and `identifiers.distinct_id`.
+- **Any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>` and a JSON body with `template_id`, `to`, `message_data`, and `distinct_id`.
 
 Install the latest SDK release. If the installed SDK has no `emails` API, upgrade it or use the HTTP API.
 
