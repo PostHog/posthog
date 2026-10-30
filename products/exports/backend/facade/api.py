@@ -126,14 +126,17 @@ def save_export_asset_content_from_file(
 
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
 # The API rejects this key from clients, so only PostHog's own writers reach this map.
-_PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+_PINNABLE_EXPORT_LIMIT_CONTEXTS = {
+    LimitContext.POSTHOG_AI.value: LimitContext.POSTHOG_AI,
+    LimitContext.SQL_ALERT.value: LimitContext.SQL_ALERT,
+}
 
 
-def export_limit_context(export_context: dict | None) -> LimitContext:
+def export_limit_context(export_context: dict | None, default: LimitContext = LimitContext.QUERY) -> LimitContext:
     requested = (export_context or {}).get("limit_context")
     if isinstance(requested, str):
-        return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
-    return LimitContext.QUERY
+        return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, default)
+    return default
 
 
 # The execution modes an insight export can warm its cache with. Async modes return no result on a
@@ -246,10 +249,13 @@ def _create_png_export_asset(
     is_system: bool = False,
     expires_after: datetime | None = None,
     execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    limit_context: LimitContext | None = None,
     reference_lines: list[dict[str, Any]] | None = None,
 ) -> ExportedAsset:
     if execution_mode not in _EXPORT_EXECUTION_MODES:
         raise ValueError(f"Unsupported execution mode for an export: {execution_mode}")
+    if limit_context is not None and _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(limit_context.value) != limit_context:
+        raise ValueError(f"Unsupported limit context for an export: {limit_context}")
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
@@ -279,6 +285,8 @@ def _create_png_export_asset(
             raise ValueError("Dashboard not found")
     if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         export_context = {**(export_context or {}), "execution_mode": execution_mode.value}
+    if limit_context is not None:
+        export_context = {**(export_context or {}), "limit_context": limit_context.value}
 
     if reference_lines:
         export_context = {**(export_context or {}), "reference_lines": reference_lines}
@@ -375,6 +383,8 @@ def render_png_export(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    limit_context: LimitContext | None = None,
     reference_lines: list[dict[str, Any]] | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
     """Render a PNG export synchronously and return the asset together with its content bytes.
@@ -386,6 +396,11 @@ def render_png_export(
     the user's export listings and the per-team export quota. ``expires_after`` overrides
     the format's default TTL; pass it when the render backs a short-lived delivery URL so
     the stored bytes do not outlive their only consumer by months.
+
+    ``execution_mode`` works as in ``create_png_export``. ``limit_context`` runs a saved insight
+    under the limit context another caller already ran it with, so a recent-cache render reads
+    that caller's cached result instead of computing it again. Only PostHog's own pinnable limit
+    contexts are accepted; others raise ``ValueError``.
     """
     asset = _create_png_export_asset(
         team=team,
@@ -396,6 +411,8 @@ def render_png_export(
         dashboard_id=dashboard_id,
         is_system=is_system,
         expires_after=expires_after,
+        execution_mode=execution_mode,
+        limit_context=limit_context,
         reference_lines=reference_lines,
     )
 

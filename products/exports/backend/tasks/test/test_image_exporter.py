@@ -17,6 +17,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import REGISTRY
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.insight_result import InsightResult
@@ -457,6 +458,7 @@ class TestImageExporter(APIBaseTest):
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 False,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                LimitContext.QUERY_ASYNC,
             ),
             (
                 "with_source_and_dashboard_variables",
@@ -464,6 +466,7 @@ class TestImageExporter(APIBaseTest):
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 True,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                LimitContext.QUERY_ASYNC,
             ),
             (
                 "source_vars_not_overridden_by_dashboard_vars",
@@ -481,6 +484,7 @@ class TestImageExporter(APIBaseTest):
                 },
                 True,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                LimitContext.QUERY_ASYNC,
             ),
             (
                 "without_export_context",
@@ -488,6 +492,7 @@ class TestImageExporter(APIBaseTest):
                 None,
                 False,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                LimitContext.QUERY_ASYNC,
             ),
             (
                 "recent_cache_execution_mode",
@@ -495,6 +500,7 @@ class TestImageExporter(APIBaseTest):
                 None,
                 False,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                LimitContext.QUERY_ASYNC,
             ),
             (
                 "async_execution_mode_falls_back",
@@ -502,6 +508,18 @@ class TestImageExporter(APIBaseTest):
                 None,
                 False,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                LimitContext.QUERY_ASYNC,
+            ),
+            (
+                "pinned_sql_alert_limit_context",
+                {
+                    "execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value,
+                    "limit_context": LimitContext.SQL_ALERT.value,
+                },
+                None,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                LimitContext.SQL_ALERT,
             ),
         ]
     )
@@ -513,6 +531,7 @@ class TestImageExporter(APIBaseTest):
         expected_query_override: dict | None,
         with_dashboard: bool,
         expected_execution_mode: ExecutionMode,
+        expected_limit_context: LimitContext,
         mock_calculate: Any,
         *args: Any,
     ) -> None:
@@ -550,6 +569,7 @@ class TestImageExporter(APIBaseTest):
 
         call_kwargs = mock_calculate.call_args[1]
         assert call_kwargs["execution_mode"] == expected_execution_mode
+        assert call_kwargs["limit_context"] == expected_limit_context
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:
