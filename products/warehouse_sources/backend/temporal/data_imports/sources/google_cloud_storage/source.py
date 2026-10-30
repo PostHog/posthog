@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -26,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     GCS_EXAMPLE_URL,
     parse_gcs_url,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    SelfManagedCredential,
+    SelfManagedLocation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
 )
@@ -47,6 +51,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     api_docs_url = "https://cloud.google.com/storage/docs/interoperability"
     requires_team_feature_flag = FEATURE_FLAG
+    self_managed_service = "gcs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -67,6 +72,15 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     def discovery_options(self, config: GoogleCloudStorageSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
+
+    def self_managed_connection_inputs(
+        self, location: SelfManagedLocation, credential: SelfManagedCredential
+    ) -> dict[str, Any]:
+        return {
+            "url_pattern": f"https://storage.googleapis.com/{location.bucket}/",
+            "access_key_id": credential.access_key,
+            "secret_access_key": credential.access_secret,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

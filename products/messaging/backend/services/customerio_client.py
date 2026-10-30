@@ -8,7 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 class CustomerIOAPIError(Exception):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        # The HTTP status Customer.io returned, or None when the request got no response.
+        self.status_code = status_code
 
 
 class CustomerIOClient:
@@ -58,7 +61,7 @@ class CustomerIOClient:
                 logger.exception(f"API request failed. {error_msg}. {status_info}")
             else:
                 logger.exception(f"API request failed. {error_msg}")
-            raise CustomerIOAPIError(error_msg)
+            raise CustomerIOAPIError(error_msg, status_code=e.response.status_code if e.response is not None else None)
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
 
@@ -83,6 +86,15 @@ class CustomerIOClient:
     def get_globally_unsubscribed_customers(self, limit: int = 1000, start: Optional[str] = None) -> dict[str, Any]:
         filter_conditions = {"attribute": {"field": "unsubscribed", "operator": "eq", "value": True}}
         return self.search_customers(filter_conditions, limit, start)
+
+    def get_suppressions(self, suppression_type: str, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        """One page of the addresses Customer.io's email provider suppressed for `suppression_type`: `bounces`,
+        `blocks`, `spam_reports` or `invalid_emails`. Each entry has `email`, `created`, `reason` and `status`."""
+        response = self._make_request(
+            "GET", f"/esp/suppression/{suppression_type}", params={"limit": min(limit, 1000), "offset": offset}
+        )
+        suppressions = response.get("suppressions")
+        return suppressions if isinstance(suppressions, list) else []
 
     def validate_credentials(self) -> bool:
         try:

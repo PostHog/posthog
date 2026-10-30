@@ -18,7 +18,7 @@ import json
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from itertools import batched
 from typing import Any, Final, cast
 from uuid import UUID, uuid4
@@ -310,9 +310,7 @@ def _record_check_metrics(
     muted_notification: NotificationAction = NotificationAction.NONE,
     skip: SkipReason | None = None,
     muted_by_quiet_hours: bool = False,
-    now: datetime,
     grouping_key: str = "",
-    record_lag: bool = True,
 ) -> None:
     safe_record(increment_checks, SourceKind.LOGS.value, notification.value)
     if skip is not None:
@@ -324,8 +322,17 @@ def _record_check_metrics(
     previous_state = check.instance(grouping_key).state
     if previous_state != new_state:
         safe_record(increment_state_transition, SourceKind.LOGS.value, previous_state, new_state)
-    if record_lag and check.next_check_at is not None:
-        lag_ms = int((now - check.next_check_at).total_seconds() * 1000)
+
+
+def _record_scheduler_lag(checks: Sequence[PlatformAlertCheckInput]) -> None:
+    # Wall clock rather than the tick: due times and the tick both fall on the minute, so lag
+    # against the tick is 0 until a check misses a whole tick, and it hides the wait in dispatch,
+    # the worker queue and the batch pool.
+    taken_at = datetime.now(UTC)
+    for check in checks:
+        if check.next_check_at is None:
+            continue
+        lag_ms = int((taken_at - check.next_check_at).total_seconds() * 1000)
         if lag_ms > 0:
             safe_record(record_scheduler_lag, SourceKind.LOGS.value, lag_ms)
 
@@ -358,7 +365,6 @@ def _verdict(
         muted_notification=outcome.muted_notification,
         skip=skip,
         muted_by_quiet_hours=check_input.muted,
-        now=now,
     )
     return outcome
 
@@ -478,6 +484,7 @@ def _request(
         else None,
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
+        overflow_is_lower_bound=recorded.overflow_is_lower_bound,
         parts=delivery_parts(recorded, actions),
     )
 
@@ -569,9 +576,7 @@ def _held(
         error_message=error_message,
         failed=True,
     )
-    _record_check_metrics(
-        check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
-    )
+    _record_check_metrics(check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip)
     return recorded, _request(check, recorded, _ungrouped_move(check, outcome), sends_messages=False)
 
 
@@ -674,7 +679,7 @@ def _as_configured_now(
     platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
     a child environment has its logs there, and the query would read the project's instead.
     """
-    legacy_ids = [check.legacy_configuration_id for check in checks]
+    legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
     current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []
@@ -735,9 +740,7 @@ def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
             consecutive_failures=check.consecutive_failures,
             disable=True,
         )
-    _record_check_metrics(
-        check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
-    )
+    _record_check_metrics(check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE)
     return recorded, None
 
 
@@ -841,22 +844,21 @@ def _evaluate_grouped(
         muted=muted,
         absent=absent,
     )
-    for index, verdict in enumerate(decision.verdicts):
+    for verdict in decision.verdicts:
         _record_check_metrics(
             check,
             new_state=verdict.group.new_state,
             notification=verdict.outcome.notification,
             muted_notification=verdict.outcome.muted_notification,
             muted_by_quiet_hours=muted,
-            now=now,
             grouping_key=verdict.group.grouping_key,
-            record_lag=index == 0,
         )
     recorded = decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, date_to),
         grouping=check.grouping,
         query_duration_ms=result.query_duration_ms,
+        results_cut=result.truncated,
     )
     return recorded, _request(
         check,
@@ -1062,6 +1064,7 @@ def _evaluate_admitted(
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
+    _record_scheduler_lag(checks)
     current, stopped = _as_configured_now(checks, team_id=team_id, now=cutoff)
     triage = _triage(current, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:

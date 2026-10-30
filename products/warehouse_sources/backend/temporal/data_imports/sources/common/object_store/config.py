@@ -5,6 +5,7 @@ from typing import Literal, get_args
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import CsvColumnType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     INVALID_CONFIG_ERROR,
     ObjectStorageError,
@@ -33,7 +34,7 @@ GCS_ENDPOINT_URL = "https://storage.googleapis.com"
 # a path into the URLs built from it. GCS also allows underscores.
 _BUCKET_NAMES: dict[ObjectStoreProvider, re.Pattern[str]] = {
     ObjectStoreProvider.S3: re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"),
-    # GCS allows up to 222 characters in a dotted name; `_valid_bucket` checks the length of each part.
+    # GCS allows up to 222 characters in a dotted name; `valid_bucket_name` checks the length of each part.
     ObjectStoreProvider.GCS: re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]"),
     ObjectStoreProvider.R2: re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"),
 }
@@ -47,7 +48,7 @@ _AZURE_CONTAINER_NAME = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 _AZURE_ACCOUNT_KEY = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 
 
-def _valid_bucket(provider: ObjectStoreProvider, bucket: str) -> bool:
+def valid_bucket_name(provider: ObjectStoreProvider, bucket: str) -> bool:
     if not _BUCKET_NAMES[provider].fullmatch(bucket) or ".." in bucket:
         return False
     # A GCS name without dots is at most 63 characters, and so is each dot-separated part of one with dots.
@@ -103,7 +104,7 @@ class ObjectStoreConfig:
         )
 
     def __post_init__(self) -> None:
-        if not _valid_bucket(self.provider, self.bucket):
+        if not valid_bucket_name(self.provider, self.bucket):
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: '{self.bucket}' in the URL isn't a valid bucket name.")
         if self.provider == ObjectStoreProvider.S3:
             if not _REGION_NAME.fullmatch(self.region):
@@ -220,6 +221,12 @@ class CsvOptions:
     # Mirrors ClickHouse's `format_csv_allow_double_quotes`: off means a double quote is an ordinary
     # character and never encloses a field.
     allow_double_quotes: bool = True
+    # Columns cast from text to a typed column. Every other column stays a string.
+    column_types: tuple[CsvColumnType, ...] = ()
+    # Read an unquoted `\N` as null, as ClickHouse does. Only tables moved from a self-managed table set it.
+    null_marker: bool = False
+    # The field delimiter for every file. None picks it from the file name: tabs for `.tsv`, else commas.
+    delimiter: str | None = None
 
 
 @frozen

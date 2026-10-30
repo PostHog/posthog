@@ -158,6 +158,9 @@ class SourceResponse:
     """Set by an incremental source that replaces rows by origin instead of merging on a primary key
     (see `ReplaceScope`). The run loads as appends and needs no primary key. A first sync or a reset
     ignores it, because the table starts empty."""
+    preserve_column_names: bool = False
+    """Write the column names as the source yields them instead of normalizing them to snake_case.
+    Set for a table whose existing queries name its columns as they were before the import."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source

@@ -188,21 +188,21 @@ export const ExperimentHoldoutsCreateBody = () => zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -262,6 +262,18 @@ export const ExperimentHoldoutsCreateBody = () => zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -489,21 +501,21 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
                                         ),
                                     operator: zod
                                         .enum([
+                                            'semver_eq',
+                                            'semver_neq',
                                             'semver_gt',
                                             'semver_gte',
                                             'semver_lt',
                                             'semver_lte',
-                                            'semver_eq',
-                                            'semver_neq',
                                             'semver_tilde',
                                             'semver_caret',
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -563,6 +575,18 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
+                                    cohort_missing: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -1587,6 +1611,18 @@ export const ExperimentsCreateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -3318,6 +3354,18 @@ export const ExperimentsCreateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -7778,6 +7826,18 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -9509,6 +9569,18 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -13948,6 +14020,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -15679,6 +15763,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     .optional(),
                                             }),
                                             zod.object({
+                                                cohort_deleted: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                    ),
+                                                cohort_missing: zod
+                                                    .union([zod.boolean(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                    ),
                                                 cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                 key: zod
                                                     .literal('id')
@@ -19857,6 +19953,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -19881,8 +19978,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -19898,7 +19996,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -19916,7 +20014,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()

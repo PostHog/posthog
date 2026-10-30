@@ -627,6 +627,21 @@ impl Coordinator {
             // still runs, which is what spares the successor the TTL.
             _ = cancel.cancelled() => Ok(()),
             _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
+            // A live lease does not prove the seat: a deleted election key
+            // lets another candidate win while this one keeps coordinating.
+            lost = util::await_held_key_lost(
+                &self.store,
+                util::HeldKey::Leader,
+                lease_id,
+                self.config.standby_poll_interval,
+                &cancel,
+            ) => match lost {
+                Some(how) => {
+                    tracing::error!(name = %self.config.name, how, "election key lost; abdicating");
+                    Err(Error::leadership_lost())
+                }
+                None => Ok(()),
+            },
             result = self.run_coordination_loop(cancel.clone()) => result,
         };
 
@@ -658,6 +673,7 @@ impl Coordinator {
         let migration_stream = self.store.watch_migration_from(anchor).await?;
         let seal_acks_stream = self.store.watch_seal_acks_from(anchor).await?;
         let request_stream = self.store.watch_migration_request_from(anchor).await?;
+        let drain_reports_stream = self.store.watch_drain_reports_from(anchor).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
 
@@ -771,6 +787,7 @@ impl Coordinator {
                     migration_stream,
                     seal_acks_stream,
                     request_stream,
+                    drain_reports_stream,
                 )
                 .await
             });
@@ -879,9 +896,11 @@ impl Coordinator {
         mut migration_stream: WatchStream,
         mut seal_acks_stream: WatchStream,
         mut request_stream: WatchStream,
+        mut drain_reports_stream: WatchStream,
     ) -> Result<()> {
         let _gauge = migration::PhaseGauge;
         migration::register_transition_metrics();
+        migration::register_retire_metrics();
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -894,6 +913,9 @@ impl Coordinator {
                 }
                 msg = request_stream.message() => {
                     util::live_watch_response(msg?, "migration request")?;
+                }
+                msg = drain_reports_stream.message() => {
+                    util::live_watch_response(msg?, "drain report")?;
                 }
             }
             let deadline = tokio::time::Instant::now() + debounce_interval;
@@ -910,6 +932,9 @@ impl Coordinator {
                     }
                     msg = request_stream.message() => {
                         util::live_watch_response(msg?, "migration request")?;
+                    }
+                    msg = drain_reports_stream.message() => {
+                        util::live_watch_response(msg?, "drain report")?;
                     }
                 }
             }
@@ -933,7 +958,13 @@ impl Coordinator {
     ) -> Result<()> {
         let Some((migration, mod_revision)) = store.get_migration_with_mod_revision().await? else {
             migration::record_phase(None);
-            // No saga: a waiting request may start once the fleet is quiet.
+            // No saga: a drained generation retires, then a waiting request may
+            // start once nothing drains and the fleet is quiet.
+            let draining = match migration::retire_drained(store).await? {
+                migration::Retirement::Retired => return Ok(()),
+                migration::Retirement::Waiting(waiting) => waiting,
+                migration::Retirement::Clear => Vec::new(),
+            };
             let Some((request, request_revision)) =
                 store.get_migration_request_with_mod_revision().await?
             else {
@@ -944,8 +975,15 @@ impl Coordinator {
                 Some(k8s) => members_for_k8s(k8s, &pods, request.to.partitions).await,
                 None => Member::active_all(&active_pod_names(&pods)),
             };
-            return migration::consider_request(store, &members, &pods, request, request_revision)
-                .await;
+            return migration::consider_request(
+                store,
+                &members,
+                &pods,
+                request,
+                request_revision,
+                draining,
+            )
+            .await;
         };
         let pods = store.list_pods().await?;
         let members = match k8s_awareness {

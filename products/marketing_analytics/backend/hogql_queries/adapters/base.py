@@ -878,7 +878,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         The window is half-open `[min, max)` to match the framework convention — using `<=` on the
         upper bound double-counts boundary days that fall in two adjacent job windows."""
         stats_table_name = self._level_tables().stats_table.name
-        date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, self._stats_date_column])])
+        date_field = ast.Call(
+            name="toDateTime",
+            # Job windows are UTC days; the team timezone would shift day D into window D-1 east of UTC.
+            args=[ast.Field(chain=[stats_table_name, self._stats_date_column]), ast.Constant(value="UTC")],
+        )
         return ast.And(
             exprs=[
                 ast.CompareOperation(

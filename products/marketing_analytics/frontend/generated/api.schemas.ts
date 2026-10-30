@@ -225,6 +225,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1715,6 +1719,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1744,9 +1750,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1907,6 +1911,8 @@ export interface DataWarehouseSourceUsageApi {
     source_type?: string | null
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
 }
 
 export interface DataWarehouseSyncWarningApi {

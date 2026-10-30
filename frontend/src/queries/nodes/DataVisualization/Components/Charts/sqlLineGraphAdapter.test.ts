@@ -1,5 +1,6 @@
 import {
     MAX_CATEGORY_LABEL_WIDTH,
+    type Series,
     type TooltipContext,
     type TrendLineConfig,
     type ValueLabelContext,
@@ -13,7 +14,7 @@ import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, EmptyBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlChartProps } from './SqlChart'
 import {
     AREA_FILL_OPACITY,
@@ -34,6 +35,7 @@ import {
     hasAxisTickFormatting,
     hasMixedSeriesTypes,
     seriesDisplayType,
+    sqlChartData,
     sqlChartKind,
 } from './sqlLineGraphAdapter'
 
@@ -311,6 +313,39 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('sqlChartData', () => {
+        const xData = (data: string[]): AxisSeries<string> => ({
+            column: { name: 'week', type: { name: 'DATE', isNumerical: false }, label: 'week', dataIndex: 0 },
+            data,
+        })
+
+        it('sums rows that share an x value so they do not overlap in one slot', () => {
+            const result = sqlChartData(
+                EmptyBreakdownSeries,
+                xData(['2026-10-05', '2026-10-05', '2026-10-12', '2026-10-12']),
+                [ySeries('rows_written', [100, 300, null, 400])],
+                ChartDisplayType.ActionsBar
+            )
+            expect(result.xData?.data).toEqual(['2026-10-05', '2026-10-12'])
+            expect(result.yData.map((series) => series.data)).toEqual([[400, 400]])
+        })
+
+        it('keeps the data unchanged when x values are unique', () => {
+            const x = xData(['2026-10-05', '2026-10-12'])
+            const yData = [ySeries('rows_written', [100, 300])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBar)).toEqual({
+                xData: x,
+                yData,
+            })
+        })
+
+        it('keeps one bar per row on a bar value chart', () => {
+            const x = xData(['a', 'a'])
+            const yData = [ySeries('count', [1, 2])]
+            expect(sqlChartData(EmptyBreakdownSeries, x, yData, ChartDisplayType.ActionsBarValue).xData).toBe(x)
+        })
+    })
+
     describe('capYSeriesData', () => {
         it('returns null for missing data', () => {
             expect(capYSeriesData(undefined as unknown as SqlChartProps['yData'])).toBeNull()
@@ -339,7 +374,30 @@ describe('sqlLineGraphAdapter', () => {
                 ChartDisplayType.ActionsLineGraph
             )
             expect(percent.visibility).toEqual({ total: false })
-            expect(plain.visibility).toBeUndefined()
+            expect(plain.visibility).toEqual({})
+        })
+
+        it.each<[string, AxisSeries<number | null>['settings'], Series['visibility']]>([
+            ['keeps an excluded series out of the total', { display: { excludeFromTotal: true } }, { total: false }],
+            ['hides value labels for the series', { display: { valueLabels: 'hide' } }, { valueLabel: false }],
+            [
+                'combines both flags',
+                { display: { excludeFromTotal: true, valueLabels: 'hide' } },
+                { total: false, valueLabel: false },
+            ],
+        ])('%s', (_name, settings, expected) => {
+            const [series] = buildSeries([ySeries('target', [5], settings)], ChartDisplayType.ActionsStackedBar, true)
+            expect(series.visibility).toEqual(expected)
+        })
+
+        it('labels only the series that opted in when the chart setting is off', () => {
+            const [bars, target] = buildSeries(
+                [ySeries('bars', [1]), ySeries('target', [5], { display: { valueLabels: 'show' } })],
+                ChartDisplayType.ActionsStackedBar,
+                false
+            )
+            expect(bars.visibility).toEqual({ valueLabel: false })
+            expect(target.visibility).toEqual({})
         })
 
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
@@ -587,6 +645,14 @@ describe('sqlLineGraphAdapter', () => {
             ])
             expect(config.totalFormatter!(15059)).toBe('$15059')
         })
+
+        it('formats the total with the first column in the sum, skipping an excluded column', () => {
+            const config = buildSqlTooltipConfig({}, [
+                ySeries('target', [1], { display: { excludeFromTotal: true }, formatting: { suffix: ' goal' } }),
+                ySeries('revenue', [1], { formatting: { prefix: '$' } }),
+            ])
+            expect(config.totalFormatter!(15059)).toBe('$15059')
+        })
     })
 
     describe('buildLineChartConfig', () => {
@@ -782,9 +848,12 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
         })
 
-        it('omits value labels unless showValuesOnSeries is set', () => {
-            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.valueLabels).toBeUndefined()
+        it.each<[string, SqlLineYSeries[] | undefined, boolean]>([
+            ['no series opts in', [ySeries('a', [1])], false],
+            ['a series opts in', [ySeries('a', [1], { display: { valueLabels: 'show' } })], true],
+        ])('with showValuesOnSeries off, builds value labels only when %s', (_name, ySeriesData, enabled) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.valueLabels !== undefined).toBe(enabled)
         })
 
         it('formats each value label from its own series column when showValuesOnSeries is set', () => {

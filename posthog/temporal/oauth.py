@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 
-from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
@@ -16,6 +16,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SCOUT_MONITORING_RESULT_SCOPE,
     SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
@@ -70,17 +71,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
         SIGNALS_APP_CLIENT_ID_US,
         SIGNALS_APP_CLIENT_ID_EU,
         SIGNALS_APP_CLIENT_ID_DEV,
-    }
-)
-
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
     }
 )
 
@@ -245,6 +235,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #   canvas:write           Every canvas in a public space of the scout's project, and every canvas
 #                          the acting user created in a space they can see (see
 #                          `authorized_canvases`): publish a new version, patch a grid layout, write
@@ -296,6 +292,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
         "canvas:write",
         "experiment:write",
     }
@@ -642,6 +639,7 @@ def create_oauth_access_token_for_user(
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
+    include_monitoring_result_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
@@ -662,6 +660,8 @@ def create_oauth_access_token_for_user(
         resolved.append(INTERACTIVE_RUN_SCOPE)
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
+    if include_monitoring_result_scope:
+        resolved.append(SCOUT_MONITORING_RESULT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
@@ -680,7 +680,7 @@ def _organization_id_for_team(team_id: int) -> str:
 
 
 class WizardIdentityBlockedError(Exception):
-    """The abuse blocklist refuses this identity a wizard credential. Distinct from
+    """An access rule refuses this identity a wizard credential. Distinct from
     the mint's RuntimeError cases because it is permanent, and a caller that retries
     a transient token failure must not retry this one."""
 
@@ -695,16 +695,6 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     resume reaches with no request in front of it.
     """
     organization_id = _organization_id_for_team(team_id)
-    if wizard_identity_blocked(
-        distinct_id=str(user.distinct_id),
-        email=user.email,
-        surface="wizard_mint",
-        user_uuid=str(user.uuid),
-        organization_ids=[organization_id],
-        team_ids=[team_id],
-    ):
-        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
-
     try:
         refused = security_access_refused(
             SecuritySubject(

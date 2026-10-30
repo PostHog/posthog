@@ -129,7 +129,17 @@ export function NewSourceScene(): JSX.Element {
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
 export function AvailableSourcesError(): JSX.Element {
+    const { availableSourcesForbidden } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
+
+    if (availableSourcesForbidden) {
+        return (
+            <LemonBanner type="info">
+                You don't have permission to connect a data warehouse source. Ask a project admin for editor access to
+                data warehouse sources.
+            </LemonBanner>
+        )
+    }
 
     return (
         <LemonBanner
@@ -142,10 +152,7 @@ export function AvailableSourcesError(): JSX.Element {
             }}
         >
             <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
-            <p className="m-0">
-                This can happen if the request timed out or you don't have permission to manage data sources in this
-                project. Try again, or ask an organization admin to check your access.
-            </p>
+            <p className="m-0">The request may have timed out. Try again, and contact support if it keeps failing.</p>
         </LemonBanner>
     )
 }
@@ -555,7 +562,12 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 // Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
 // with a key the provider issues. The customer has no network path in front of them, so the
 // firewall hint would name a setup step that does not exist.
-const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = ['BigQuery', 'DynamoDB', 'Firebase']
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = [
+    'BigQuery',
+    'CloudflareD1',
+    'DynamoDB',
+    'Firebase',
+]
 
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.

@@ -130,7 +130,7 @@ class TestPlaywrightSetup(APIBaseTest):
         self.ensure_url_patterns_loaded()
 
         with override_settings(E2E_TESTING=True):
-            payload = {"organization_name": "E2E Org"}
+            payload = {"organization_name": "E2E Org", "no_demo_data": True}
             response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

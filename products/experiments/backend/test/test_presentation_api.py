@@ -47,11 +47,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import ConditionSetTraffic
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.metric_calculation.config import (
+    build_primary_calculation_configs,
+    get_metric_calculation_config,
 )
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -66,6 +66,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -104,6 +105,7 @@ _WITH_A_SECOND_CONDITION = {
 }
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
+    until=datetime(2026, 10, 19, tzinfo=UTC),
     team_timezone="UTC",
     people_by_set={1: 120, 2: 880},
     calls=2000,
@@ -730,10 +732,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1060,6 +1059,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.user.is_staff = is_staff
         self.user.save()
         experiment = self._create_experiment_with_a_pinned_condition(f"health-inputs-{_name}")
+        experiment.feature_flag.last_called_at = timezone.now() - timedelta(days=1)
+        experiment.feature_flag.save()
         if denied_property is not None:
             self._deny_event_property(denied_property)
         headers: dict[str, str] = {}
@@ -1086,6 +1087,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(
             [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
             [(1, "test"), (2, None)],
+        )
+        self.assertEqual(
+            (
+                inputs["flag_last_called_at"] is not None,
+                inputs["flag_called_during_run"],
+                inputs["exposure_events"]["required_flag_key"],
+            ),
+            (True, True, f"health-inputs-{_name}"),
         )
         traffic = inputs["condition_set_traffic"]
         self.assertEqual(
@@ -1247,7 +1256,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         with (
             time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
-            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch_exposure_event_flag(enabled=True),
         ):
             serialized = ExperimentSerializer(
                 experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
@@ -7249,6 +7258,14 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
         return response
 
+    def _assert_cohort_calculated(self, cohort: dict[str, Any]) -> None:
+        # Every caller runs transaction.on_commit callbacks at once, so one refetch reads the finished calculation.
+        if cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort['id']}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            cohort = response.json()
+        self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.
@@ -7326,13 +7343,74 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
+
+    @parameterized.expand(
+        [
+            # (name, start_date)
+            ("before_cutoff", "2026-08-20T10:00"),
+            ("after_cutoff", "2026-09-10T10:00"),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_flag_evaluations_only_org(
+        self, _name: str, start_date: str, patch_on_commit: MagicMock
+    ):
+        # Ingestion writes no $feature_flag_called rows to events for this org. Only the $experiment_exposure copies reach events.
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        response = self._generate_experiment(start_date)
+        created_experiment = response.json()["id"]
+        start = datetime.fromisoformat(start_date)
+
+        journeys_for(
+            {
+                "exposed": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                "other_flag": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "control"},
+                    },
+                ],
+                "before_start": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start - timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        with patch_exposure_event_flag(enabled=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+                {},
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        cohort = response.json()["cohort"]
+        cohort_id = cohort["id"]
+
+        self._assert_cohort_calculated(cohort)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["exposed"], [res["name"] for res in response.json()["results"]])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
@@ -7511,9 +7589,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
@@ -7716,9 +7792,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
@@ -8966,6 +9040,178 @@ class TestExperimentExcludedVariants(_HoistFlagConfigClientMixin, APILicensedTes
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+MANUAL = {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000}
+
+
+class TestRunningTimeTargetEndpoint(APILicensedTest):
+    def _experiment(
+        self,
+        running_time_calculation: dict[str, Any],
+        *,
+        with_result: bool = True,
+        stats_config: dict | None = None,
+        paused_variant_samples: int | None = None,
+        result_days_ago: float = 0,
+    ) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="revenue-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 80},
+                        {"key": "test", "rollout_percentage": 20},
+                        *([{"key": "paused", "rollout_percentage": 0}] if paused_variant_samples else []),
+                    ]
+                },
+            },
+        )
+        launched_at = timezone.now() - timedelta(days=3)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="revenue",
+            feature_flag=flag,
+            start_date=launched_at,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase", "math": "sum"},
+                    "uuid": "revenue",
+                }
+            ],
+            running_time_calculation=running_time_calculation,
+            stats_config=stats_config or {},
+        )
+        if with_result:
+            spread = {"number_of_samples": 1000, "sum": 1000, "sum_squares": 26000}
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="revenue",
+                fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
+                query_from=launched_at,
+                query_to=timezone.now() - timedelta(days=result_days_ago),
+                completed_at=timezone.now(),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result={
+                    "baseline": {"key": "control", **spread},
+                    "variant_results": [
+                        {"key": "test", "method": "bayesian", **spread},
+                        *(
+                            [
+                                {
+                                    "key": "paused",
+                                    "method": "bayesian",
+                                    "number_of_samples": paused_variant_samples,
+                                    "sum": paused_variant_samples,
+                                    "sum_squares": 26 * paused_variant_samples,
+                                }
+                            ]
+                            if paused_variant_samples
+                            else []
+                        ),
+                    ],
+                },
+            )
+        return experiment
+
+    @parameterized.expand(
+        [
+            ("sized_from_the_result_and_the_split", {}, {}, "", (30, 13903, 2000, True)),
+            ("no_result_yet", {}, {"with_result": False}, "", (30, None, None, False)),
+            (
+                "a_saved_effect_outside_the_editable_range",
+                {"minimum_detectable_effect": 0.5},
+                {},
+                "",
+                (0.5, 50050051, 2000, True),
+            ),
+            (
+                "a_paused_variant_counts_toward_nothing",
+                {},
+                {"paused_variant_samples": 300},
+                "",
+                (30, 13903, 2000, True),
+            ),
+            ("manual_mode_keeps_the_saved_target", MANUAL, {}, "", (30, 5000, None, False)),
+            (
+                "manual_experiment_sized_from_the_results_on_request",
+                MANUAL,
+                {},
+                "?mode=automatic",
+                (30, 13903, 2000, True),
+            ),
+        ]
+    )
+    def test_returns_the_target_the_header_compares(
+        self,
+        _name: str,
+        running_time_calculation: dict[str, Any],
+        setup: dict[str, Any],
+        query: str,
+        expected: tuple[float, int | None, int | None, bool],
+    ) -> None:
+        experiment = self._experiment(running_time_calculation, **setup)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/{query}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        effect, sample_size, current, has_outlook = expected
+        self.assertEqual(
+            response.json(),
+            {
+                "minimum_detectable_effect": effect,
+                "recommended_sample_size": sample_size,
+                "current_sample_size": current,
+                "outlook": ANY if has_outlook else None,
+            },
+        )
+        if has_outlook:
+            assert current is not None
+            outlook = response.json()["outlook"]
+            # Launched three days ago, so the exposures so far set the rate and the next marks are weeks 1, 2 and 4.
+            self.assertAlmostEqual(outlook["exposures_per_day"], current / 3, places=0)
+            self.assertEqual([c["weeks_since_launch"] for c in outlook["upcoming_checkpoints"]], [1, 2, 4])
+
+    @parameterized.expand(
+        [
+            # Launched three days ago with results up to yesterday: 2,000 exposures over two days.
+            ("results_up_to_yesterday", 1, 1000),
+            # A backfill stamps today with the end of the day, but its data ends when it ran: 2,000 over three days.
+            ("a_backfill_of_today", -0.5, 2000 / 3),
+        ]
+    )
+    def test_projects_the_rate_over_the_window_the_results_cover(
+        self, _name: str, result_days_ago: float, exposures_per_day: float
+    ) -> None:
+        experiment = self._experiment({}, result_days_ago=result_days_ago)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertAlmostEqual(response.json()["outlook"]["exposures_per_day"], exposures_per_day, places=0)
+
+    @parameterized.expand(
+        [
+            ("bayesian_99_percent", {"method": "bayesian", "bayesian": {"ci_level": 0.99}}, 20688),
+            ("frequentist_90_percent", {"method": "frequentist", "frequentist": {"alpha": 0.1}}, 10952),
+        ]
+    )
+    def test_sizes_at_the_experiments_confidence_level(
+        self, _name: str, stats_config: dict[str, Any], sample_size: int
+    ) -> None:
+        experiment = self._experiment({}, stats_config=stats_config)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["recommended_sample_size"], sample_size)
+
+
 class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def _calculate(self, payload: dict[str, Any]):
         return self.client.post(
@@ -9009,6 +9255,19 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIsNone(response.json()["recommended_running_time_days"])
 
+    def test_mean_from_baseline_stats(self):
+        response = self._calculate(
+            {
+                "metric_type": "mean_sum_or_avg",
+                "minimum_detectable_effect": 30,
+                "baseline_stats": {"number_of_samples": 1000, "sum": 1000, "sum_squares": 26000},
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["variance"], 25000 / 999, places=4)
+        self.assertEqual(body["recommended_sample_size"], 8898)
+
     def test_ratio_from_baseline_stats(self):
         response = self._calculate(
             {
@@ -9028,7 +9287,7 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         body = response.json()
         self.assertAlmostEqual(body["baseline_value"], 10, places=4)
         self.assertAlmostEqual(body["variance"], 32, places=1)
-        self.assertEqual(body["recommended_sample_size"], 1024)
+        self.assertEqual(body["recommended_sample_size"], 1025)
 
     def test_funnel_from_step_counts(self):
         response = self._calculate(
@@ -9048,6 +9307,7 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         [
             ("missing_baseline", {"metric_type": "funnel", "minimum_detectable_effect": 5}),
             ("zero_mde", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 0}),
+            ("non_finite_baseline", {"metric_type": "funnel", "baseline_value": "nan", "minimum_detectable_effect": 5}),
             ("ratio_without_variance", {"metric_type": "ratio", "baseline_value": 10, "minimum_detectable_effect": 10}),
             (
                 "ratio_stats_without_denominator_sum",
@@ -9062,6 +9322,22 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("effect_too_small_to_compute", {"baseline_value": 0.1, "minimum_detectable_effect": 1e-160}),
+            (
+                "exposure_rate_too_small_to_compute",
+                {"baseline_value": 0.1, "minimum_detectable_effect": 1e-160, "exposure_rate_per_day": 1e-320},
+            ),
+        ]
+    )
+    def test_extreme_input_gives_no_estimate(self, _name: str, payload: dict):
+        response = self._calculate({"metric_type": "funnel", **payload})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            (response.json()["recommended_sample_size"], response.json()["recommended_running_time_days"]), (None, None)
+        )
 
 
 class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):

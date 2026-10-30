@@ -5,11 +5,8 @@ they must agree on what a check row means, so the cap, the metric-query copy, an
 live here rather than three times over. `report_checks.py` still owns the shapes and the bounds;
 this module owns the write.
 
-The report's own state decides when a check first runs. A check on a resolved report names the date
-to look on. A check on a report that is still open cannot: the fix it re-measures has not shipped,
-and many fixes never get a merged pull request to date a soak window from. Such a check is stored
-`pending` with a soak duration and armed by the report's transition to `resolved`, whatever caused
-it. That makes the resolve the clock for every kind of fix.
+Monitoring entry anchors pending checks to implementation completion. With Monitoring disabled,
+resolution starts the soak for legacy agent checks.
 """
 
 from __future__ import annotations
@@ -86,18 +83,12 @@ def create_check(
 ) -> SignalReportCheck:
     """Write one check on a report, armed or pending.
 
-    Pass `next_run_at` and `expires_at` for a check that names when to look. Pass `soak_minutes`
-    instead for one that names how long to wait after the report resolves.
-
-    Which of the two the row uses is the report's call, not the caller's. A report that has not
-    resolved has no fix live yet, so a check on it is stored `pending` with a soak, and its dates
-    stay provisional until `arm_pending_checks` rewrites them at the resolve. A dated check keeps
-    the gap its author left as that soak. Only a resolved report takes a date as written.
+    Legacy authoring accepts explicit dates or a soak duration. Pending dates remain provisional
+    until Monitoring entry, or resolution for agent checks while Monitoring is disabled.
 
     The report row is locked for the same reason the REST path locks it: the per-report cap is a
     count followed by an insert, which only holds if concurrent creates serialize. The status
-    decision is read under the same lock, so a resolve landing mid-write either precedes the row
-    or arms it.
+    decision is read under the same lock, so Monitoring entry cannot snapshot an incomplete write.
     """
     if (next_run_at is None) == (soak_minutes is None):
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
@@ -488,7 +479,12 @@ def cancel_check(
     check: SignalReportCheck,
     *,
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
@@ -515,7 +511,13 @@ def cancel_check(
 
 
 def _arm_pending_checks(
-    *, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime, monitoring: bool = False
+    *,
+    team_id: int,
+    report_id: str | uuid.UUID,
+    resolved_at: datetime,
+    armed_at: datetime,
+    monitoring: bool = False,
+    agent_only: bool = False,
 ) -> int:
     """Arm rows individually because each check carries its own soak and schedule.
 
@@ -529,6 +531,8 @@ def _arm_pending_checks(
     )
     armed = 0
     for check in pending:
+        if agent_only and check.kind != SignalReportCheck.Kind.AGENT:
+            continue
         next_run_at = resolved_at + timedelta(minutes=check.soak_minutes or 0)
         interim = (
             monitoring
@@ -593,6 +597,14 @@ def arm_pending_checks(
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
         if report is None:
             return 0
+        if not (
+            SignalReportCheck.objects.for_team(team_id)
+            .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+            .exists()
+        ):
+            return 0
+        if monitoring_enabled is None:
+            monitoring_enabled = team_report_monitoring_enabled(team_id)
         status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
         if expected_monitoring_started_at is not None:
             if (
@@ -600,9 +612,10 @@ def arm_pending_checks(
                 or report.monitoring_started_at != expected_monitoring_started_at
             ):
                 return 0
-            resolved_at = expected_monitoring_started_at
+        if status == SignalReport.Status.MONITORING and report.monitoring_started_at is not None:
+            resolved_at = report.monitoring_started_at
             armed_at = timezone.now()
-        elif status == SignalReport.Status.RESOLVED:
+        elif status == SignalReport.Status.RESOLVED and not monitoring_enabled:
             armed_at = resolved_at
         else:
             return 0
@@ -612,4 +625,5 @@ def arm_pending_checks(
             resolved_at=resolved_at,
             armed_at=armed_at,
             monitoring=status == SignalReport.Status.MONITORING,
+            agent_only=not monitoring_enabled,
         )

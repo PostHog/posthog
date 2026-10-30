@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Online trace and session evaluations run as project workflows. Their event reads include all
+properties regardless of default, role, or member property access rules and AI observability
+product access. Evaluation previews and interactive trace/session queries continue to apply
+the requesting user's permissions.
+
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
@@ -35,7 +40,11 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 ## Generation formatting
 
 Generation evaluations extract message text without the per-message character cutoff.
-They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
+They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
+If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
+
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
@@ -63,15 +72,13 @@ Decision models are available under the existing LLM judge option. They return t
 The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
 Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
 Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+Leaving decision judging for LLM judging or Hog resets an invalid threshold to its default and preserves valid thresholds.
 Changing the judge method marks the evaluation as edited, including when the selected model supports both methods.
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
 Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.
-The detail editor PATCHes only changed fields on existing evaluations, so renaming or disabling a saved decision evaluation still works after its feature flag is turned off. Re-enabling it or changing its model or output configuration still validates decision access.
+The detail editor PATCHes only changed fields on existing evaluations. Re-enabling an evaluation or changing its model or output configuration still validates decision access.
 Explicit method selection requires a selected model, including for legacy evaluations that use the project's default connection.
-The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
-Both use the project's UUID as its group key; the numeric project ID is a group property.
-Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects use their saved provider keys or configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
 The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
@@ -146,7 +153,10 @@ API compatibility does not guarantee equivalent judgments or calibration across 
 Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
-A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
+The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
+For boolean judges, selecting **Decision model** shows **Decision threshold** as a percentage inside the **Judge model** section, below the model selector.
+Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
@@ -181,6 +191,15 @@ A provider rejection of an invalid token setting does not count as a truncated r
 The playground keeps the provider's explanation so users can correct the setting before trying again.
 
 ## Backfill recovery
+
+Estimates and new backfills clamp their start to UTC midnight 29 days before the current UTC date.
+This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
+Ranges ending at or before that boundary are rejected.
+Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
+
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
@@ -239,7 +258,7 @@ The editor updates the untouched Hog example when its category key changes, is r
 Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
-Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+Categorical events always set `$ai_evaluation_applicable`.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
 Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
@@ -260,6 +279,28 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
+Online evaluations and report result queries run as project workflows with complete event properties. Evaluation editors
+are trusted to configure workflows that read properties hidden from ordinary users. Grant Evaluations editor access only
+to people authorized to process the full inputs. AI Observability and Evaluations have separate RBAC settings.
+
+Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
+
+- Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- Restrict `$ai_clusters` when evaluation cluster titles and descriptions may contain private content.
+- For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
+- If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
+  `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
+- Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
+  property rules on report events protect the event copy, not the stored report narrative.
+- Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
+  not check each recipient's PostHog property permissions.
+- Evaluation-report Inbox summaries are suppressed when the project has any event-property denial or a denial of access
+  to the evaluation, including default, member, and role rules. Inbox copies cannot enforce those source permissions.
+
+User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
+results even when the project's default rules hide those result properties from users.
+Report agents also read complete source conversations when inspecting trace or session evaluation results.
+
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
@@ -271,6 +312,14 @@ Existing reports remain accessible through the Reports tab and the report list, 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

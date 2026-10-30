@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -87,15 +87,22 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert self.source.last_sync_error == "boom"
         assert self.source.is_enabled is True
 
-    def test_auto_disables_at_failure_cap(self):
-        # Regression: a source failing forever should stop syncing, matching the account path's cap.
+    @parameterized.expand([(True,), (False,)])
+    @patch(f"{HEALTH_SERVICE}.notify_source_auto_disabled")
+    def test_auto_disables_at_failure_cap(self, count_failure: bool, mock_notify: MagicMock) -> None:
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
         self.source.save()
 
-        record_sync_run(self._record(status="failed", error="boom"))
+        with self.captureOnCommitCallbacks(execute=True):
+            record_sync_run(self._record(status="failed", error="boom", count_failure=count_failure))
 
         self.source.refresh_from_db()
-        assert self.source.is_enabled is False
+        assert self.source.is_enabled is (not count_failure)
+        assert self.source.consecutive_failures == MAX_CONSECUTIVE_SYNC_FAILURES - 1 + int(count_failure)
+        assert self.source.last_sync_error == "boom"
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
+        assert run.status == "failed" and run.error == "boom"
+        assert mock_notify.call_count == int(count_failure)
 
     def test_unknown_source_is_a_noop(self):
         # A run for a since-deleted source must not crash or orphan a row.

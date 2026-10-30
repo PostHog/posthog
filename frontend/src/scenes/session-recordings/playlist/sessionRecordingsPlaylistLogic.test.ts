@@ -1418,6 +1418,62 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('applying a saved filter', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'saved_filter', updateSearchParams: true })
+            logic.mount()
+        })
+
+        it('replaces the filters with the defaults plus the saved keys in one load', async () => {
+            logic.actions.setFilters({ filter_test_accounts: true, date_from: '-30d' })
+            logic.actions.filterByPerson('p')
+            await expectLogic(logic, () => {
+                logic.actions.applySavedFilter({ date_from: '-7d' })
+            })
+                .toDispatchActions(['applySavedFilter', 'loadSessionRecordings'])
+                .toNotHaveDispatchedActions(['resetFilters', 'setFilters'])
+                .toMatchValues({ filters: { ...getDefaultFilters(), date_from: '-7d' } })
+        })
+    })
+
+    describe('filtering by a person', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'person_filter', updateSearchParams: true })
+            logic.mount()
+        })
+
+        it.each([
+            { name: 'a second person replaces the first', calls: ['a', 'b'], expected: 'b' },
+            { name: 'null drops the key', calls: ['a', null], expected: undefined },
+        ])('$name', ({ calls, expected }) => {
+            for (const personUUID of calls) {
+                logic.actions.filterByPerson(personUUID)
+            }
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
+            expect(router.values.searchParams.filters?.person_uuid).toBe(expected)
+            expect(logic.values.totalFiltersCount).toBe(expected ? 1 : 0)
+        })
+
+        it.each([
+            { name: 'reads the person from the URL', picked: null, urlFilters: { person_uuid: 'p' }, expected: 'p' },
+            {
+                name: 'drops the picked person for a URL without one',
+                picked: 'p',
+                urlFilters: { date_from: '-7d' },
+                expected: undefined,
+            },
+        ])('$name', async ({ picked, urlFilters, expected }) => {
+            if (picked) {
+                logic.actions.filterByPerson(picked)
+            }
+            router.actions.push('/replay', { filters: urlFilters })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
+        })
+    })
+
     describe('rehydrating persisted filters', () => {
         const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
 

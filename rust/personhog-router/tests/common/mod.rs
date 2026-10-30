@@ -54,12 +54,14 @@ use personhog_proto::personhog::types::v1::{
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
     ListPersonsForTeamResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest,
-    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse, RestorePersonsRequest, RestorePersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
@@ -562,6 +564,27 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<ListPersonsForTeamRequest>,
     ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
         Ok(Response::new(ListPersonsForTeamResponse::default()))
+    }
+
+    async fn raise_person_version_floors(
+        &self,
+        _request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(RaisePersonVersionFloorsResponse::default()))
+    }
+
+    async fn restore_persons(
+        &self,
+        _request: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        Ok(Response::new(RestorePersonsResponse::default()))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        _request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Ok(Response::new(WriteDistinctIdsResponse::default()))
     }
 }
 
@@ -1254,6 +1277,7 @@ impl PersonHogLifecycle for TestLifecycleService {
             .map(|person_id| lifecycle::DeletePersonResult {
                 person_id,
                 outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+                person_version: None,
             })
             .collect();
         Ok(Response::new(lifecycle::DeletePersonsResponse {

@@ -10,8 +10,10 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::{DefaultBodyLimit, Extension},
-    http::{Method, StatusCode},
+    extract::{DefaultBodyLimit, Extension, Request},
+    http::{header, HeaderValue, Method, StatusCode},
+    middleware::Next,
+    response::Response,
     routing::{any, get, post},
     Router,
 };
@@ -43,6 +45,7 @@ use crate::{
         flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
         remote_config,
+        request_outcome::{precreate_request_outcome_counters, record_request_outcome},
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
@@ -66,6 +69,9 @@ use crate::{
     rayon_dispatcher::RayonDispatcher,
     utils::bot_detection,
 };
+
+/// `/flags` and its legacy `/decide` alias, with and without a trailing slash.
+pub(crate) const FLAGS_ROUTES: [&str; 4] = ["/flags", "/flags/", "/decide", "/decide/"];
 
 #[derive(Clone)]
 pub struct FlagsEndpointRateLimiters<C = clock::DefaultClock>
@@ -454,9 +460,12 @@ where
         .route("/", get(index))
         .route(
             "/_readiness",
-            get(move || {
+            get({
                 let r = readiness.clone();
-                async move { r.check().await }
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
             }),
         )
         .route(
@@ -472,8 +481,9 @@ where
         );
 
     // Layer ordering (outermost to innermost, last `.layer()` is outermost):
-    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
-    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
+    //   record_request_outcome → HandleErrorLayer → TimeoutLayer →
+    //   record_concurrency_enter → ConcurrencyLimitLayer →
+    //   record_concurrency_wait → (per-sub-router).
     //
     // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
     // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
@@ -483,11 +493,10 @@ where
     // body is being buffered. Both are required.
     let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        for route in FLAGS_ROUTES {
+            flags_endpoints = flags_endpoints.route(route, any(endpoint::flags::<C>));
+        }
         flags_endpoints = flags_endpoints
-            .route("/flags", any(endpoint::flags::<C>))
-            .route("/flags/", any(endpoint::flags::<C>))
-            .route("/decide", any(endpoint::flags::<C>))
-            .route("/decide/", any(endpoint::flags::<C>))
             .layer(axum::middleware::from_fn(record_body_read))
             .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES))
             .layer(Extension(rate_limiters));
@@ -592,7 +601,9 @@ where
                 .layer(TimeoutLayer::new(Duration::from_millis(
                     config.request_timeout_ms,
                 ))),
-        );
+        )
+        // Outside the timeout, so it also counts the requests that the timeout drops.
+        .layer(axum::middleware::from_fn(record_request_outcome));
 
     let router = Router::new()
         .merge(status_router)
@@ -600,6 +611,10 @@ where
         .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            readiness,
+            close_connection_unless_ready,
+        ))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -607,11 +622,14 @@ where
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        setup_metrics_routes_for_product_with_overrides(
+        let router = setup_metrics_routes_for_product_with_overrides(
             router,
             "feature_flags",
             &bucket_overrides(),
-        )
+        );
+        // After the recorder exists.
+        precreate_request_outcome_counters();
+        router
     } else {
         router
     }
@@ -715,6 +733,22 @@ async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Re
     }
 
     Ok(())
+}
+
+/// Asks HTTP/1.1 clients to close the connection after this response once the pod is not
+/// ready, so their next request opens a new connection through the Service to a pod that stays.
+async fn close_connection_unless_ready(
+    axum::extract::State(readiness): axum::extract::State<ReadinessHandler>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    if !readiness.is_ready() {
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
+    response
 }
 
 pub async fn index() -> &'static str {

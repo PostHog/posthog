@@ -21,6 +21,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
@@ -43,13 +44,16 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
+    SignalReport,
     SignalReportCheck,
+    SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
@@ -114,6 +118,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.serializers import (
     ReportChartSerializer,
     ReportMetricWriteSerializer,
+    ReviewerProposalSerializer,
     SignalReportCheckWriteSerializer,
 )
 from products.skills.backend.api.skill_serializers import (
@@ -184,6 +189,10 @@ class RunMetadataField(serializers.DictField):
         data = super().to_representation(value)
         if isinstance(data, dict):
             data.pop("structured_output_schema", None)
+            if not self.context.get("may_read_reports", False) and (
+                data.get("triggered_by") in ("check", "monitoring") or data.get("check_id") is not None
+            ):
+                data.pop("run_note", None)
         return data
 
 
@@ -720,6 +729,52 @@ class LighthouseAuditResponseSerializer(serializers.Serializer):
     )
     audits_remaining = serializers.IntegerField(
         help_text=f"How many audits this run may still spend. Each run gets {MAX_AUDITS_PER_RUN}."
+    )
+
+
+class SubmitMonitoringResultRequestSerializer(serializers.Serializer):
+    evidence_status = serializers.ChoiceField(
+        choices=SignalReportMonitoringResult.EvidenceStatus.choices,
+        help_text="Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.",
+    )
+    evidence_reason = serializers.CharField(
+        min_length=1,
+        max_length=2000,
+        help_text="Explain why the evidence supports this qualification. Must not be blank.",
+    )
+    expectation_matches = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.",
+    )
+    explanation = serializers.CharField(
+        min_length=1,
+        max_length=16000,
+        help_text="Explain the conclusion using evidence from the assignment's fixed window.",
+    )
+    evidence_refs = serializers.ListField(
+        child=serializers.CharField(min_length=1),
+        max_length=50,
+        help_text="Evidence references supporting the conclusion, or an empty list when none are available.",
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        try:
+            MonitoringScoutResult.model_validate(self.initial_data)
+        except PydanticValidationError as error:
+            details: dict[str, list[str]] = {}
+            for issue in error.errors(include_url=False):
+                field = str(issue["loc"][0]) if issue["loc"] else "non_field_errors"
+                details.setdefault(field, []).append(issue["msg"])
+            raise serializers.ValidationError(details) from error
+        return attrs
+
+
+class SubmitMonitoringResultResponseSerializer(serializers.Serializer):
+    accepted = serializers.BooleanField(help_text="True when the result is stored, including an identical retry.")
+    result_id = serializers.UUIDField(help_text="The immutable Monitoring result's identifier.")
+    outcome = serializers.ChoiceField(
+        choices=SignalReportCheck.Outcome.choices,
+        help_text="The recorded verdict; this does not change the report's status.",
     )
 
 
@@ -1692,6 +1747,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "every report must be in this project."
         ),
     )
+    tags = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            f"Optional slug tags that group the report with related ones, at most {SignalReport.MAX_TAGS}. "
+            "Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, "
+            "`tracking-gap`), not the specific entity. Reuse a slug the project already uses before you "
+            "coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or "
+            f"longer than {SignalReport.MAX_TAG_LENGTH} characters after normalization is rejected."
+        ),
+    )
     idempotency_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1755,7 +1822,7 @@ class EmitReportResponseSerializer(serializers.Serializer):
     )
 
 
-class EditReportRequestSerializer(serializers.Serializer):
+class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
@@ -1812,7 +1879,8 @@ class EditReportRequestSerializer(serializers.Serializer):
             "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
             "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
             "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
-            "empty list is a no-op (existing reviewers are left untouched, never cleared)."
+            "empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. "
+            "Pass expected_reviewers from the report reviewer_assignment.state read before selection."
         ),
     )
     repository = serializers.CharField(
@@ -1876,6 +1944,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "of the diffs. Additive: links join what the report already has rather than replacing "
             "them, and only this report gets a row, so link from the side the sentence starts at. "
             "Links of the same kind must stay acyclic and every report must be in this project."
+        ),
+    )
+    tags = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=serializers.CharField(),
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            f"The report's full set of slug tags, at most {SignalReport.MAX_TAGS}. Replaces the report's "
+            "tags rather than adding to them, so send every tag you want kept. Omit the field (or send "
+            "null) to leave them untouched, and send an empty list to remove them. Reuse a slug the "
+            "project already uses before you coin a new one."
         ),
     )
     supersedes_implementation = serializers.BooleanField(
@@ -2005,6 +2085,14 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    tags_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many tags the report now carries, or null if the edit left them as they were "
+            "(the field omitted, or a re-send of what was already stored). 0 means the edit removed "
+            "the report's tags."
         ),
     )
     is_content_revision = serializers.BooleanField(
@@ -2371,6 +2459,16 @@ class ReviewerCorrectionEntrySerializer(serializers.Serializer):
     )
     after = serializers.ListField(
         child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    removal_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.",
+    )
+    removal_reason_reviewers = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="The removed identities that `removal_reason` applies to.",
     )
     at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
 
@@ -3364,6 +3462,9 @@ _WRITE_SCOPES_HELP = (
     "omitted. Empty means the scout reads the project and writes only its findings and its own "
     "memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "`ticket:write` lets the scout update tickets, manage saved views, and add private notes. "
+    "Scouts cannot send public replies, compose emails, change existing notes, or change customer "
+    "identity fields. Ticket changes can start workflows that message customers. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project "

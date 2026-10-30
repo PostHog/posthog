@@ -7,9 +7,13 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 
 import datetime as dt
 from collections.abc import Callable
+from functools import cache
+from typing import Literal
+
+from prometheus_client import Counter, Histogram
 
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.metrics import get_metric_meter
+from posthog.temporal.common.metrics import Attributes, get_metric_meter
 
 logger = get_write_only_logger(__name__)
 
@@ -18,6 +22,7 @@ logger = get_write_only_logger(__name__)
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
+    "alerts_platform_delivery_lag_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -31,6 +36,50 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
     120_000.0,
     300_000.0,
     600_000.0,
+]
+
+
+# A tick must end inside its minute, so these buckets resolve the seconds up to and past 60.
+ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS = (
+    "alerts_platform_tick_duration_ms",
+    "alerts_platform_tick_start_delay_ms",
+)
+
+ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS = [
+    100.0,
+    500.0,
+    1_000.0,
+    2_000.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    40_000.0,
+    50_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+]
+
+ALERTS_PLATFORM_TICK_KEYS_METRICS = ("alerts_platform_tick_keys",)
+
+ALERTS_PLATFORM_TICK_KEYS_BUCKETS = [
+    0.0,
+    50.0,
+    100.0,
+    200.0,
+    300.0,
+    400.0,
+    500.0,
+    600.0,
+    800.0,
+    1_000.0,
+    1_250.0,
+    1_500.0,
+    2_000.0,
+    3_000.0,
+    5_000.0,
 ]
 
 
@@ -164,6 +213,14 @@ def increment_describer_failures(source: str) -> None:
     ).add(1)
 
 
+def increment_slack_renderer_failures(source: str) -> None:
+    """A source's Slack renderer raised, so its alerts went out in the platform's generic layout."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_slack_renderer_failures_total",
+        "Slack messages sent in the platform's layout because the source's renderer raised",
+    ).add(1)
+
+
 def increment_root_edit_failures(provider: str) -> None:
     """An opening message could not be brought up to date, so it shows an older state."""
     get_metric_meter({"provider": provider}).create_counter(
@@ -172,17 +229,21 @@ def increment_root_edit_failures(provider: str) -> None:
     ).add(1)
 
 
-def increment_transition_events_emitted(source: str, count: int) -> None:
-    get_metric_meter({"source": source}).create_counter(
-        "alerts_platform_transition_events_emitted_total",
-        "$alert_transition events put on the internal events topic",
-    ).add(count)
-
-
 def increment_deliveries_previewed(source: str) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_previewed_total",
         "Deliveries recorded as a preview instead of being sent",
+    ).add(1)
+
+
+def increment_holds_expired(source: str) -> None:
+    """Held deliveries the safety net sent because nothing released them before their deadline.
+
+    Each one is a source that held a delivery and never answered, so a rise means a stalled source.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_holds_expired_total",
+        "Held deliveries the safety net sent after their deadline passed",
     ).add(1)
 
 
@@ -199,6 +260,81 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
         description="Wall time for one batch key's evaluation, queries included",
         unit="ms",
     ).record(dt.timedelta(milliseconds=duration_ms))
+
+
+DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+
+_DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
+_DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
+
+
+# A web process sends inline, outside any worker, when Temporal is unreachable or a deleted alert's
+# resolve cannot wait. It has no Temporal meter, so it records the same series in its own registry.
+# Created on first use, never at import: a worker exports this registry beside Temporal's meter, and
+# the same family declared twice makes Prometheus reject the worker's whole scrape.
+@cache
+def _inline_deliveries() -> Counter:
+    return Counter("alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"])
+
+
+@cache
+def _inline_delivery_lag() -> Histogram:
+    return Histogram(
+        "alerts_platform_delivery_lag_ms",
+        _DELIVERY_LAG_DESCRIPTION,
+        ["source", "provider"],
+        buckets=ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    )
+
+
+def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
+    """What happened to each transition a delivery carried, per destination provider.
+
+    `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
+    one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
+    only reading that says alerts reach people.
+    """
+    labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
+    try:
+        meter = get_metric_meter(labels)
+    except RuntimeError:
+        _inline_deliveries().labels(**labels).inc(count)
+        return
+    meter.create_counter("alerts_platform_deliveries_total", _DELIVERIES_DESCRIPTION).add(count)
+
+
+def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
+    """How long after the check decided a transition its message went out. Evaluation metrics
+    cannot see a delivery queue that stalls, so this is the one that does."""
+    labels: Attributes = {"source": source, "provider": provider}
+    try:
+        meter = get_metric_meter(labels)
+    except RuntimeError:
+        _inline_delivery_lag().labels(**labels).observe(lag_ms)
+        return
+    meter.create_histogram_timedelta(
+        name="alerts_platform_delivery_lag_ms", description=_DELIVERY_LAG_DESCRIPTION, unit="ms"
+    ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_tick_keys(keys: int) -> None:
+    """Batch keys one tick's discovery found due, the ones its limits left out included. Called
+    from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter().create_histogram(
+        name=ALERTS_PLATFORM_TICK_KEYS_METRICS[0],
+        description="Batch keys one tick's discovery found due, including those its limits left out",
+    ).record(keys)
+
+
+def record_tick_end(*, duration: dt.timedelta, deadline_reached: bool) -> None:
+    """One finished tick, measured from its scheduled minute. A tick that runs past its minute
+    makes the schedule skip the next one, so the duration's distance from 60 seconds is the
+    headroom left. Called from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter({"deadline_reached": str(deadline_reached).lower()}).create_histogram_timedelta(
+        name="alerts_platform_tick_duration_ms",
+        description="Time from a tick's scheduled minute to the end of its last dispatch page",
+        unit="ms",
+    ).record(duration)
 
 
 def record_scheduler_lag(source: str, lag_ms: int) -> None:

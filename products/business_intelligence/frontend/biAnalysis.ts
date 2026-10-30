@@ -4,6 +4,7 @@ import { ChartDisplayType } from '~/types'
 
 import { biComparisonSeries } from './biComparison'
 import { limitBIComparisonQuery } from './biComparisonLimit'
+import { isBIPivotTable } from './biTableLayout'
 import { buildBIFilledPeriod, getBIMissingDatesDisabledReason } from './biTimeSeries'
 
 export const BI_TABLE_CALCULATIONS: { value: BITableCalculation['type']; label: string }[] = [
@@ -80,7 +81,7 @@ export interface BIAnalysisInput {
 
 export function hasBIAnalysis(config: BIConfig): boolean {
     return (
-        config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+        isBIPivotTable(config) ||
         (!!config.missingDates && !getBIMissingDatesDisabledReason(config)) ||
         !!config.topN ||
         !!config.resultFilters?.length ||
@@ -139,7 +140,7 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
     if (![ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap].includes(config.chartType)) {
         return sets
     }
-    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const pivot = isBIPivotTable(config)
     if (pivot && config.totals?.rows) {
         sets.push(rows)
     }
@@ -159,8 +160,8 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
     }
     if (pivot) {
         // Reaggregate every hierarchy intersection: averages and distinct counts cannot be summed from leaves.
-        for (let rowDepth = 1; rowDepth <= rows.length; rowDepth++) {
-            for (let columnDepth = 1; columnDepth <= columns.length; columnDepth++) {
+        for (let rowDepth = Math.min(1, rows.length); rowDepth <= rows.length; rowDepth++) {
+            for (let columnDepth = Math.min(1, columns.length); columnDepth <= columns.length; columnDepth++) {
                 sets.push([...rows.slice(0, rowDepth), ...columns.slice(0, columnDepth)])
             }
             if (config.totals?.rows) {
@@ -178,7 +179,7 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
 
 export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): string {
     const dimensions = [...input.rows, ...input.columns]
-    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const pivot = isBIPivotTable(config)
     const ctes: string[] = []
     const topMeasure = config.values.length
         ? input.measures.find((measure) => measure.value === config.values[config.topN?.measureIndex ?? 0])

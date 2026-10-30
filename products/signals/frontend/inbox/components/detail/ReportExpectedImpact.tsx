@@ -12,6 +12,7 @@ import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
 import { buildReportCheckRows, latestCheckExplanations, monitoringPeriodLabel } from './reportCheckPresentation'
+import { ReportCheckTiming } from './ReportCheckTiming'
 import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
@@ -23,7 +24,11 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId, metricCheckReplacementDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const measurements = buildReportCheckRows(reportChecks ?? [], latestCheckExplanations(reportArtefacts ?? []))
+    const measurements = buildReportCheckRows(
+        reportChecks ?? [],
+        latestCheckExplanations(reportArtefacts ?? []),
+        report.status
+    )
         .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
         .flatMap((row) => {
             const { check } = row
@@ -74,8 +79,12 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                 </div>
             )}
             {measurements.length ? (
-                measurements.map(({ check, config, metric, goal, detail, tag, cancellable }) => {
+                measurements.map(({ check, reportStatus, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
+                    const showApprovalLabel =
+                        cancellable &&
+                        !check.monitoring_timing &&
+                        !['resolved', 'suppressed', 'deleted'].includes(reportStatus)
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
@@ -84,8 +93,8 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
                                 )}
                             </p>
-                            <p className="m-0 text-secondary text-sm">
-                                {cancellable ? (
+                            <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
+                                {showApprovalLabel ? (
                                     <span>{check.approved_at ? 'Approved measurement' : 'Proposed measurement'}</span>
                                 ) : (
                                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
@@ -95,7 +104,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                         ? ' · Monitoring definition'
                                         : ' · Goal for the full query window'}
                                 </span>
-                            </p>
+                            </div>
                             {query ? (
                                 <ReportCheckMetricChart
                                     reportId={report.id}
@@ -124,12 +133,16 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     config={config}
                                     monitoring={config.monitoring}
                                     metric={metric}
-                                    waitDescription={
-                                        cancellable && check.soak_minutes != null
-                                            ? `Minimum wait after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                            : cancellable
-                                              ? 'The soak and run schedule are separate from this definition.'
-                                              : detail
+                                    timingDescription={
+                                        <ReportCheckTiming
+                                            check={check}
+                                            reportStatus={reportStatus}
+                                            detail={
+                                                showApprovalLabel && check.soak_minutes != null
+                                                    ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                                    : detail
+                                            }
+                                        />
                                     }
                                 />
                             ) : (

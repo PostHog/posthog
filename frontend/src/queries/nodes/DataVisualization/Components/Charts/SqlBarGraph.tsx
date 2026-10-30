@@ -24,6 +24,7 @@ import {
     buildBarChartConfig,
     buildBarValueChartConfig,
     formatSqlSeriesValue,
+    hasValueLabels,
 } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -85,7 +86,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
                         {props.children}
-                        {props.chartSettings.showValuesOnSeries && (
+                        {hasValueLabels(props.chartSettings, props.yData) && (
                             <ValueLabels
                                 valueFormatter={valueLabelFormatter}
                                 position={props.chartSettings.valueLabelPosition}
