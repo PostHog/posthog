@@ -12,13 +12,14 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -31,9 +32,10 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     MessageLink,
+    NewAlertDestination,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease
+from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
@@ -89,6 +91,13 @@ class PagingTransport(RecordingTransport):
 
     def channel_target(self, target: AlertDestinationData) -> str:
         return str(target.get("pagerduty_routing_key", ""))
+
+
+class EmailingTransport(RecordingTransport):
+    provider = "email"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return ",".join(target.get("email_addresses", []))
 
 
 class RefusingTransport(RecordingTransport):
@@ -371,6 +380,58 @@ class TestDeliverEvaluation(APIBaseTest):
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
+    @parameterized.expand(
+        [
+            ("firing", AlertEventKind.FIRING, IncidentAction.TRIGGER, "Log alert 'API errors' is firing"),
+            ("resolved", AlertEventKind.RESOLVED, IncidentAction.RESOLVE, "Log alert 'API errors' is resolved"),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_owns_sends_to_its_enabled_rows(
+        self, _name: str, kind: AlertEventKind, action: IncidentAction, headline: str
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+        )
+        both = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=(
+                NewAlertDestination(data=SLACK, event_kinds=both),
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-off"}),
+                    event_kinds=both,
+                    enabled=False,
+                ),
+                NewAlertDestination(data=PAGERDUTY, event_kinds=(AlertEventKind.FIRING,)),
+            ),
+        )
+        hog_function = [_group(cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-hog"}))]
+
+        def project_members(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["b@example.com", "a@example.com", "b@example.com"]
+
+        with patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}):
+            self._run(
+                _announcement(_transition(kind)),
+                {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
+                incident_actions={"": action},
+                owned_by_platform=True,
+                transports={DestinationType.EMAIL: EmailingTransport},
+            )
+
+        # The source's recipients read the message once, and never the incident edge.
+        assert [(channel, m.headline) for channel, m in RecordingTransport.sends if channel != "R-1"] == [
+            ("C-1", headline),
+            ("a@example.com,b@example.com", headline),
+        ]
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
+
     @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
     def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
         self, _name: str, owned_by_platform: bool, expected: str | None
@@ -595,6 +656,23 @@ class TestDeliverEvaluation(APIBaseTest):
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
         )
+
+    def test_a_second_recipient_lookup_for_a_source_is_refused(self) -> None:
+        def first(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return []
+
+        def second(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["someone@example.com"]
+
+        with patch.dict(recipients._recipients, clear=True):
+            recipients.register(SourceKind.LOGS, first)
+            # A second `ready()` registers the same lookup again, which is not a conflict.
+            recipients.register(SourceKind.LOGS, first)
+
+            with pytest.raises(RuntimeError, match="already registered"):
+                recipients.register(SourceKind.LOGS, second)
+
+            assert recipients._recipients == {SourceKind.LOGS: first}
 
 
 class TestDeliveryPath(APIBaseTest):

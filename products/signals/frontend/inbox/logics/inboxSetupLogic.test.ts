@@ -742,7 +742,7 @@ describe('Inbox setup', () => {
         }
     )
 
-    it.each(['product-analytics', 'general'])('offers %s and enables it only at activation', async (name) => {
+    it.each(['product-analytics', 'general'])('keeps %s scout edits during reloads until activation', async (name) => {
         hasEvents = name === 'product-analytics'
         const skillName = `signals-scout-${name}`
         canonicalScouts = [{ ...mockScoutConfigs[0], skill_name: skillName, enabled: false }]
@@ -753,6 +753,27 @@ describe('Inbox setup', () => {
         await expectLogic(logic, () => logic.actions.toggleSuggestion(suggestion!)).toFinishAllListeners()
         expect(savedDraft?.suggestions).toEqual([suggestion])
         expect(enabledScouts).toEqual([])
+        const selectedState: InboxOnboardingStateApi = { draft: savedDraft, completed_at: null }
+        let finishReload!: (state: InboxOnboardingStateApi) => void
+        jest.spyOn(signalsApi, 'signalsOnboardingList').mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishReload = resolve
+                })
+        )
+        logic.actions.loadSetup()
+        logic.actions.toggleSuggestion(suggestion!)
+        expect(logic.values.draft.suggestions).toEqual([])
+        finishReload(selectedState)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draft.suggestions).toEqual([])
+        expect(savedDraft?.suggestions).toEqual([])
+        logic.unmount()
+        logic = inboxSetupLogic()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        expect(logic.values.draft.suggestions).toEqual([])
+        await expectLogic(logic, () => logic.actions.toggleSuggestion(suggestion!)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
         failCompletion = false
         await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()

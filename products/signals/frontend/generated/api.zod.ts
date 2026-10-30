@@ -29,6 +29,10 @@ export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
 
 export const signalsConfigCreateBodyPullRequestLabelMax = 50
 
+export const signalsConfigCreateBodyImplementationRepositoriesItemMax = 255
+
+export const signalsConfigCreateBodyImplementationRepositoriesMax = 20
+
 export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
     autostart_enabled: zod
         .boolean()
@@ -46,6 +50,12 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+    default_slack_notification_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too."
         ),
     autostart_base_branches: zod
         .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
@@ -118,6 +128,13 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
+        ),
+    implementation_repositories: zod
+        .array(zod.string().max(signalsConfigCreateBodyImplementationRepositoriesItemMax))
+        .max(signalsConfigCreateBodyImplementationRepositoriesMax)
+        .optional()
+        .describe(
+            "Extra GitHub repositories, as 'organization\/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default."
         ),
     anomaly_scoring_enabled: zod
         .boolean()
@@ -1418,6 +1435,30 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         .max(signalsReportsBulkStateCreateBodyIdsMax)
         .describe(
             'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.'
+        ),
+})
+
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaimBodyIdsMax = 100
+
+export const signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault = false
+
+export const SignalsReportsBulkClaimBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(signalsReportsBulkClaimBodyIdsMax)
+        .describe(
+            'Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.'
+        ),
+    takeover_agent_claims: zod
+        .boolean()
+        .default(signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault)
+        .describe(
+            'Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict.'
         ),
 })
 
@@ -4093,6 +4134,18 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
 })
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
@@ -4247,6 +4300,18 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 
@@ -4404,6 +4469,18 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 

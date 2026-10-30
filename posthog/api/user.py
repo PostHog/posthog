@@ -97,6 +97,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -481,6 +482,7 @@ class UserSerializer(serializers.ModelSerializer):
             # verification and so cannot rewrite the address a person signs in with.
             return self.instance.email
         reject_plus_addressed_email(value)
+        reject_lookalike_email_characters(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
@@ -1296,7 +1298,7 @@ class UserViewSet(
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
 
         # A replay of a spent code (double submit) is not a failure: the address is verified.
@@ -1384,7 +1386,7 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
@@ -1392,7 +1394,7 @@ class UserViewSet(
             )
         try:
             user = User.objects.filter(is_active=True).get(uuid=uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
         if user:
             # Allow re-requests when there's a pending email change that still

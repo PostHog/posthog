@@ -68,6 +68,14 @@ class TraceEventRow:
 
 
 @frozen
+class GitStampRow:
+    uuid: str
+    timestamp: datetime
+    git_branch: str | None
+    git_repo: str | None
+
+
+@frozen
 class PersonRow:
     distinct_id: str
     email: str | None
@@ -169,14 +177,27 @@ def _filter_conditions() -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=["filter_conditions"]))
 
 
-def _trace_rows_query() -> ast.SelectQuery:
+def _trace_rows_query(columns: Sequence[str] = tuple(_SELECTED)) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_select(),
+        select=_select({column: _SELECTED[column] for column in columns}),
         select_from=_ai_events(),
         where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), _filter_conditions()]),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
+    )
+
+
+def _git_stamps_query() -> ast.SelectQuery:
+    # The stamps come from the same first events load_trace reads, so the chip and its pull request agree on a trace
+    # longer than MAX_TRACE_EVENTS.
+    columns = ("uuid", "timestamp", "git_branch", "git_repo")
+    # HogQL makes `!=` true for NULL, so a missing branch is folded into the empty string first.
+    branch = ast.Call(name="ifNull", args=[ast.Field(chain=["git_branch"]), ast.Constant(value="")])
+    return ast.SelectQuery(
+        select=[ast.Field(chain=[column]) for column in columns],
+        select_from=ast.JoinExpr(table=_trace_rows_query(columns)),
+        where=ast.Call(name="notEmpty", args=[branch]),
     )
 
 
@@ -647,3 +668,14 @@ def load_trace_search(
         if match_count:
             counts[row.uuid] = int(match_count)
     return LoadedTraceSearch(rows=tuple(rows), counts=counts)
+
+
+def load_trace_git_rows(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+) -> tuple[GitStampRow, ...]:
+    return tuple(
+        GitStampRow(uuid=str(uuid), timestamp=timestamp, git_branch=read_text(branch), git_repo=read_text(repo))
+        for uuid, timestamp, branch, repo in _read_trace(
+            "ai_trace_git", _git_stamps_query, team, user, trace_id, timestamp_hint, widen_unhinted=False
+        )
+    )

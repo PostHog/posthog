@@ -3,7 +3,13 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_flag_evaluations,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -14,6 +20,8 @@ from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -613,6 +621,57 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": version},
         )
         return {str(row[0]) for row in rows}
+
+    def test_performed_flag_call_criterion_reads_flag_evaluations_when_the_rewrite_is_on(self) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        caller = _create_person(team=self.team, distinct_ids=["caller"], immediate=True)
+        other_caller = _create_person(team=self.team, distinct_ids=["other-caller"], immediate=True)
+        flush_persons_and_events()
+        _create_flag_evaluations(self.team.pk, "probe-flag", distinct_id="caller", person_id=caller.uuid)
+        _create_flag_evaluations(self.team.pk, "other-flag", distinct_id="other-caller", person_id=other_caller.uuid)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="called probe-flag",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag_called",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "event_filters": [
+                                        {
+                                            "key": "$feature_flag",
+                                            "type": "event",
+                                            "value": "probe-flag",
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(self._cohort_member_ids(cohort, 0), {str(caller.uuid)})
 
     def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
         internal = _create_person(

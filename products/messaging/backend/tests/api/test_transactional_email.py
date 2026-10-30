@@ -10,6 +10,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
@@ -215,14 +216,20 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("timeout", requests.ReadTimeout(), "timeout"),
-            ("connect_timeout", requests.ConnectTimeout(), "timeout"),
-            ("connection_error", requests.ConnectionError(), "connection_error"),
-            ("cdp_api_error", MagicMock(status_code=500), "5xx"),
+            ("timeout", requests.ReadTimeout(), "timeout", None),
+            ("connect_timeout", requests.ConnectTimeout(), "timeout", None),
+            ("connection_error", requests.ConnectionError(), "connection_error", None),
+            ("cdp_api_error", MagicMock(status_code=500, json=dict), "5xx", None),
+            (
+                "invalid_request",
+                MagicMock(status_code=400, json=lambda: {"error": "invalid_request"}),
+                "4xx",
+                "invalid_request",
+            ),
         ]
     )
     def test_a_send_the_pipeline_does_not_confirm_is_unavailable(
-        self, mock_post, _flag, _capture, _name, outcome, expected_result
+        self, mock_post, _flag, _capture, _name, outcome, expected_result, expected_refusal_code
     ):
         if isinstance(outcome, Exception):
             mock_post.side_effect = outcome
@@ -231,11 +238,15 @@ class TestTransactionalEmail(APIBaseTest):
         metric = "messaging_transactional_email_cdp_requests_total"
         before = REGISTRY.get_sample_value(metric, {"result": expected_result}) or 0
 
-        response = self.client.post(self.url, self.body, format="json")
+        with capture_logs() as logs:
+            response = self.client.post(self.url, self.body, format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert REGISTRY.get_sample_value(metric, {"result": expected_result}) == before + 1
+        if not isinstance(outcome, Exception):
+            rejected = [log for log in logs if log["event"] == "transactional_email_queue_rejected"]
+            assert [log["refusal_code"] for log in rejected] == [expected_refusal_code]
 
     @parameterized.expand(
         [
