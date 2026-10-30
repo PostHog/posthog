@@ -24,7 +24,9 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
@@ -36,6 +38,7 @@ from products.experiments.backend.facade.contracts import (
     EndedExperiment,
     ExperimentChanged,
     ExperimentValidationError,
+    LinkedExperiment,
     StoredPrimaryResult,
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
@@ -521,6 +524,54 @@ class TestExperimentFlagIds(BaseTest):
         }
 
 
+class TestFlagLiveExperiments(BaseTest):
+    def test_lists_the_experiments_that_are_not_deleted_per_listed_flag(self) -> None:
+        now = timezone.now()
+        flag_ids: dict[str, int] = {}
+        experiment_ids: dict[str, int] = {}
+        for flag_key, name, start_date, end_date, deleted, archived in [
+            ("running", "running", now, None, False, False),
+            ("running", "draft on the same flag", None, None, False, False),
+            ("stopped", "stopped", now - timedelta(days=1), now, False, False),
+            ("archived", "archived", now, None, False, True),
+            ("deleted", "deleted", now, None, True, False),
+            ("deleted_null", "deleted_null", now, None, None, False),
+            ("unlisted", "unlisted", now, None, False, False),
+        ]:
+            if flag_key not in flag_ids:
+                flag_ids[flag_key] = FeatureFlag.objects.create(team=self.team, key=flag_key, created_by=self.user).id
+            experiment_ids[name] = Experiment.objects.create(
+                team=self.team,
+                name=name,
+                feature_flag_id=flag_ids[flag_key],
+                start_date=start_date,
+                end_date=end_date,
+                deleted=deleted,
+                archived=archived,
+            ).id
+        flag_ids["no_experiment"] = FeatureFlag.objects.create(team=self.team, key="none", created_by=self.user).id
+        listed = {key: flag_id for key, flag_id in flag_ids.items() if key != "unlisted"}
+
+        def linked(name: str, is_running: bool) -> LinkedExperiment:
+            return LinkedExperiment(id=experiment_ids[name], name=name, is_running=is_running)
+
+        experiments = api.live_experiments_by_flag(listed.values())
+
+        assert {flag_id: set(linked_experiments) for flag_id, linked_experiments in experiments.items()} == {
+            flag_ids["running"]: {linked("running", True), linked("draft on the same flag", False)},
+            flag_ids["stopped"]: {linked("stopped", False)},
+            flag_ids["archived"]: {linked("archived", True)},
+        }
+        assert {key: api.flag_has_live_experiment(flag_id) for key, flag_id in listed.items()} == {
+            "running": True,
+            "stopped": True,
+            "archived": True,
+            "deleted": False,
+            "deleted_null": False,
+            "no_experiment": False,
+        }
+
+
 class TestDigestExperiments(BaseTest):
     def test_lists_the_experiments_launched_and_completed_in_the_period(self) -> None:
         period_start = datetime(2026, 10, 19, tzinfo=UTC)
@@ -635,7 +686,13 @@ class TestTeamExperimentsSettings(BaseTest):
             flag_cleanup_repository="posthog/posthog",
         )
 
-        assert api.get_team_experiments_settings(self.team.id) == TeamExperimentsSettings(
+        with self.assertNumQueries(1), capture_db_queries() as queries:
+            settings = api.get_team_experiments_settings(self.team.id)
+
+        # A team join must keep the deprecated taxonomy columns deferred, as `TeamManager` does.
+        selected = " ".join(query["sql"] for query in queries.captured_queries)
+        assert [attr for attr in DEPRECATED_ATTRS if f'"{attr}"' in selected] == []
+        assert settings == TeamExperimentsSettings(
             experiment_recalculation_times=("02:00:00", "14:00:00"),
             default_experiment_confidence_level=Decimal("0.90"),
             default_experiment_stats_method="frequentist",

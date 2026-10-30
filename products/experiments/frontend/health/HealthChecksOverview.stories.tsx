@@ -52,6 +52,7 @@ export const Draft: Story = {
             {
                 code: 'new_flag_no_traffic',
                 subcode: null,
+                reason: null,
                 severity: 'info',
                 title: 'The feature flag has no traffic yet',
                 detail: "PostHog hasn't recorded any calls to the linked feature flag yet. The experiment only counts users after your code evaluates the flag, so launch after the flag starts getting traffic. New calls can take up to an hour to show up here.",
@@ -83,6 +84,7 @@ export const DraftWithEventsNotReceived: Story = {
             {
                 code: 'metric_event_not_ingested',
                 subcode: null,
+                reason: null,
                 severity: 'info',
                 title: "A metric uses an event this project hasn't received",
                 detail: 'The primary metric "Revenue" uses the event "purchase_completed", which this project hasn\'t received yet. Until it arrives, the metric can\'t compare the variants. Launch the experiment after your code starts sending it.',
@@ -96,6 +98,7 @@ export const DraftWithEventsNotReceived: Story = {
             {
                 code: 'exposure_criteria_cannot_match',
                 subcode: 'exposure_event_not_ingested',
+                reason: null,
                 severity: 'info',
                 title: "This project hasn't received the exposure event",
                 detail: 'The experiment counts users as exposed when they send the event "checkout_viewed", which this project hasn\'t received yet. Until it arrives, nobody is counted as exposed. Launch the experiment after your code starts sending it.',
@@ -119,6 +122,7 @@ export const RunningWithSignificanceOnASmallSample: Story = {
             {
                 code: 'early_significance',
                 subcode: 'below_detectable_effect',
+                reason: null,
                 severity: 'info',
                 title: 'Significant result on a small sample',
                 detail: 'The variant "test" shows a +20% difference on the metric "Checkout", which is significant. With 2,000 users so far, the experiment can reliably detect differences of about 38% or more, so this difference may shrink or go away as more users arrive. The running time estimate needs about 3,201 users to detect a 30% difference. Wait for that sample before you decide.',
@@ -167,6 +171,7 @@ export const RunningWithAnIssue: Story = {
             {
                 code: 'srm',
                 subcode: null,
+                reason: null,
                 severity: 'warning',
                 title: 'Users are not split across variants as configured',
                 detail: "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection.",

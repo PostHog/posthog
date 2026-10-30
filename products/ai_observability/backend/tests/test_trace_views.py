@@ -1,10 +1,10 @@
 import base64
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
@@ -28,6 +28,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue
 from products.engineering_analytics.backend.facade import api as engineering_analytics_api
 from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG, BranchPRMatch
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.exports.backend.facade.api import ExportedAsset
 
 from .logic.traces.rows import make_cluster, make_cluster_run_event, make_evaluation_result_event
 
@@ -572,7 +573,8 @@ class TestTraceSearchView(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
-    def test_a_grant_on_one_object_does_not_open_traces(self) -> None:
+    @parameterized.expand([("the trace", "get", ""), ("an export", "post", "exports/")])
+    def test_a_grant_on_one_object_does_not_open_traces(self, _name: str, method: str, path: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -594,7 +596,8 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
         _create_trace(self.team)
         self.client.force_login(member)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/ai_observability/traces/{_encode('trace-1')}/")
+        url = f"/api/projects/{self.team.id}/ai_observability/traces/{_encode('trace-1')}/{path}"
+        response = getattr(self.client, method)(url)
 
         assert response.status_code == 403, response.content
 
@@ -742,3 +745,101 @@ class TestTracePullRequestView(ClickhouseTestMixin, APIBaseTest):
         response, resolve = self._get("trace-1")
 
         assert (response.status_code, resolve.called) == (400, False)
+
+
+class TestTraceExportViews(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        async_connect = patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+        self.start_workflow = async_connect.start().return_value.start_workflow
+        self.addCleanup(async_connect.stop)
+
+    def _url(self, segment: str, export_id: int | None = None, suffix: str = "") -> str:
+        url = f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/exports/"
+        return url if export_id is None else f"{url}{export_id}/{suffix}"
+
+    def _create(self, trace_id: str = "a/b") -> dict[str, Any]:
+        response = self.client.post(self._url(_encode(trace_id)), {"timestamp_hint": T0.isoformat()}, format="json")
+        assert response.status_code == 201, response.content
+        return response.json()
+
+    def test_creates_reports_and_serves_the_export_to_its_creator(self) -> None:
+        export = self._create()
+        export_id = export["id"]
+
+        assert set(export) == {"id", "status", "filename", "createdAt", "expiresAfter", "exception"}
+        assert (export["status"], export["exception"]) == ("pending", None)
+        self.start_workflow.assert_awaited_once()
+        assert self.client.get(self._url(_encode("a/b"), export_id)).json()["status"] == "pending"
+        assert self.client.get(self._url(_encode("a/b"), export_id, "content/")).status_code == 409
+
+        ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
+        content = self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+
+        assert content.status_code == 200
+        assert content["Content-Disposition"].startswith("attachment")
+        assert self.client.get(f"/api/projects/{self.team.id}/exports/{export_id}/").status_code == 404
+        self.assertRedirects(
+            self.client.get(f"/api/projects/{self.team.id}/exports/{export_id}/content"),
+            self._url(_encode("a/b"), export_id, "content"),
+            fetch_redirect_response=False,
+        )
+
+    @parameterized.expand([("another user", True, "a/b"), ("another trace", False, "c")])
+    def test_status_and_content_are_404_for(self, _name: str, as_teammate: bool, url_trace_id: str) -> None:
+        export_id = self._create()["id"]
+        if as_teammate:
+            self.client.force_login(User.objects.create_and_join(self.organization, "peer@example.com", "testtest"))
+
+        for suffix in ("", "content/"):
+            assert self.client.get(self._url(_encode(url_trace_id), export_id, suffix)).status_code == 404
+
+    def test_an_export_whose_workflow_never_started_fails_at_once(self) -> None:
+        self.start_workflow.side_effect = RuntimeError("Temporal is unreachable")
+
+        export = self._create()
+        status = self.client.get(self._url(_encode("a/b"), export["id"])).json()
+
+        expected = ("failed", "The export could not be started. Try again.")
+        assert (export["status"], export["exception"]) == expected
+        assert (status["status"], status["exception"]) == expected
+
+    @patch("products.ai_observability.backend.presentation.views.report_user_action")
+    def test_tracks_a_download(self, report_user_action: MagicMock) -> None:
+        export_id = self._create()["id"]
+        ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+
+        report_user_action.assert_called_once_with(
+            self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
+        )
+
+    def test_a_failed_export_reports_its_reason(self) -> None:
+        export_id = self._create()["id"]
+        ExportedAsset.objects.filter(id=export_id).update(
+            exception="This trace is no longer available.", exception_type="InvalidExportContext"
+        )
+
+        status = self.client.get(self._url(_encode("a/b"), export_id)).json()
+        content = self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+
+        assert (status["status"], status["exception"]) == ("failed", "This trace is no longer available.")
+        assert (content.status_code, content.json()["detail"]) == (409, "This trace is no longer available.")
+
+    @parameterized.expand([("a malformed hint", _encode("a/b"), "yesterday"), ("an unencoded trace id", "a+b", None)])
+    def test_rejects(self, _name: str, segment: str, hint: str | None) -> None:
+        response = self.client.post(self._url(segment), {"timestamp_hint": hint} if hint else {}, format="json")
+
+        assert response.status_code == 400
+        self.start_workflow.assert_not_awaited()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.ai_observability.backend.presentation.trace_exports.TraceExportRateThrottle.rate", new="1/day")
+    def test_throttles_exports_per_user(self, _rate_limit: MagicMock) -> None:
+        self._create()
+
+        assert self.client.post(self._url(_encode("a/b")), {}, format="json").status_code == 429
+        self.client.force_login(User.objects.create_and_join(self.organization, "peer@example.com", "testtest"))
+        self._create()

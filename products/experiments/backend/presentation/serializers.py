@@ -220,6 +220,14 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
         ),
     )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), "
+            "what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs "
+            "('no_history_access'). Null when the finding names none."
+        ),
+    )
     severity = serializers.ChoiceField(
         choices=ExperimentHealthFindingSeverity.choices,
         help_text="How much the problem affects the results: critical, warning, or info.",
