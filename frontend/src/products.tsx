@@ -740,7 +740,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
-    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlerts: {
+        name: 'Platform alerts',
+        description:
+            'Get told when your logs or data cross a threshold you set, in Slack, email, PagerDuty, or another tool.',
+        projectBased: true,
+        iconType: 'inbox',
+    },
     PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
@@ -3044,6 +3050,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Platform alerts',
+        intents: [],
         category: ProductItemCategory.UNRELEASED,
         iconType: 'inbox',
         href: urls.platformAlerts(),

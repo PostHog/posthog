@@ -9,6 +9,8 @@ export const manifest: ProductManifest = {
     scenes: {
         PlatformAlerts: {
             name: 'Platform alerts',
+            description:
+                'Get told when your logs or data cross a threshold you set, in Slack, email, PagerDuty, or another tool.',
             import: () => import('./frontend/PlatformAlertsScene'),
             projectBased: true,
             iconType: 'inbox',
@@ -34,6 +36,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Platform alerts',
+            intents: [],
             category: ProductItemCategory.UNRELEASED,
             iconType: 'inbox',
             href: urls.platformAlerts(),
