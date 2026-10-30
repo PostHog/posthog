@@ -110,7 +110,7 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the agent answers a request about PostHog itself, the user's PostHog project and its data, or company-specific knowledge. The agent answers other requests, such as general coding questions or conversational asides, without these searches. The topic decides the scope, not the location: a PostHog question about a file in the user's repository stays in scope. For an in-scope request, Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Intent prompt trials
 
