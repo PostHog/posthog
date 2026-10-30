@@ -160,7 +160,6 @@ describe('CapturedEventsService', () => {
             await service.queueInvocationResults(results)
             await service.flush()
 
-            // The team is resolved once per team per result, not once per event
             expect(teamManager.getTeam).toHaveBeenCalledTimes(3)
             expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(2)
             // Results resolve concurrently, so the order of events inside a token's batch is not fixed

@@ -109,9 +109,7 @@ export class CapturedEventsService {
             return
         }
 
-        // One source webhook request can now emit hundreds of events, so events are grouped per
-        // team token into batch requests and sent a few batches at a time. Capture reads one token
-        // per request body, which is why the grouping is per token and not per flush.
+        // Capture reads one token per request body, so batches are grouped per team token.
         const byToken = new Map<string, InternalCaptureEvent[]>()
         for (const event of events) {
             const group = byToken.get(event.team_token)
