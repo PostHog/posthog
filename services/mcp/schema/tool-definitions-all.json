@@ -8018,7 +8018,7 @@
         "feature_flag_behavior": "enable"
     },
     "inbox-report-artefacts-create": {
-        "description": "Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status judgments are consequential, not advisory: the canonical priority and actionability steer what people and agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals live in report checks, not artefacts. Writes are attributed to your task automatically. Returns the created artefact with its id.",
+        "description": "Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status judgments are consequential, not advisory: the canonical priority and actionability steer what people and agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals live in report checks, not artefacts. Writes are attributed to your task automatically, or to the calling user when no task is running. Returns the created artefact with its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append an artefact to a report",
