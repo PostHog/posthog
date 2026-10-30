@@ -23,9 +23,10 @@ function surveyStatusLabel(survey: SurveyApi): string {
 }
 
 function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
-    const { limitingSurveyId } = useValues(workflowSurveyPickerLogic)
+    const logic = workflowSurveyPickerLogic({ surveyId: survey.id })
+    const { limitingSurveyId } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
-    const { limitToWorkflowRecipients } = useActions(workflowSurveyPickerLogic)
+    const { limitToWorkflowRecipients } = useActions(logic)
 
     if (!IN_APP_SURVEY_TYPES.has(survey.type)) {
         return (
@@ -78,33 +79,42 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
 }
 
 export default function CyclotronJobInputSurveyPicker({ value, onChange }: CustomInputRendererProps): JSX.Element {
-    const { surveys, surveysLoading } = useValues(workflowSurveyPickerLogic)
-    const { loadSurveys } = useActions(workflowSurveyPickerLogic)
-
     const selectedId = typeof value === 'string' ? value : ''
-    const selectedSurvey = surveys.find((survey) => survey.id === selectedId)
+    const logic = workflowSurveyPickerLogic({ surveyId: selectedId || null })
+    const { surveys, surveysLoading, selectedSurvey, selectedSurveyLoading } = useValues(logic)
+    const { loadSurveys, loadSelectedSurvey, setSearch } = useActions(logic)
 
+    const currentSurvey = selectedSurvey?.id === selectedId ? selectedSurvey : null
     const options: LemonInputSelectOption[] = surveys
-        .filter((survey) => IN_APP_SURVEY_TYPES.has(survey.type) || survey.id === selectedId)
+        .filter((survey) => IN_APP_SURVEY_TYPES.has(survey.type) && survey.id !== selectedId)
         .map((survey) => ({
             key: survey.id,
             label: `${truncate(survey.name, 60)} (${surveyStatusLabel(survey)})`,
         }))
-    // A stored ID that's no longer in the list (archived or deleted) still renders as itself, not blank.
-    if (selectedId && !selectedSurvey && !surveysLoading) {
-        options.push({ key: selectedId, label: `Unknown survey (${selectedId})` })
+    // A stored ID that no longer resolves (deleted) still renders as itself, not blank.
+    if (selectedId) {
+        options.unshift({
+            key: selectedId,
+            label: currentSurvey
+                ? `${truncate(currentSurvey.name, 60)} (${surveyStatusLabel(currentSurvey)})`
+                : selectedSurveyLoading
+                  ? 'Loading survey...'
+                  : `Unknown survey (${selectedId})`,
+        })
     }
 
     return (
         <div className="flex flex-col gap-2">
             <div className="flex gap-2 items-center">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                     <LemonInputSelect
                         mode="single"
                         data-attr="select-workflow-survey"
-                        placeholder={surveysLoading ? 'Loading surveys...' : 'Select a survey...'}
+                        placeholder="Search surveys..."
                         value={selectedId ? [selectedId] : []}
                         onChange={(val) => onChange(val[0] ?? null)}
+                        onInputChange={setSearch}
+                        disableFiltering
                         options={options}
                         loading={surveysLoading}
                     />
@@ -115,15 +125,18 @@ export default function CyclotronJobInputSurveyPicker({ value, onChange }: Custo
                 <LemonButton
                     size="small"
                     type="tertiary"
-                    onClick={loadSurveys}
-                    disabledReason={surveysLoading ? 'Loading...' : undefined}
+                    onClick={() => {
+                        loadSurveys()
+                        loadSelectedSurvey(selectedId || null)
+                    }}
+                    disabledReason={surveysLoading || selectedSurveyLoading ? 'Loading...' : undefined}
                 >
                     Refresh
                 </LemonButton>
             </div>
-            {selectedSurvey ? (
-                <SurveyReadiness survey={selectedSurvey} />
-            ) : selectedId && !surveysLoading ? (
+            {currentSurvey && !currentSurvey.archived ? (
+                <SurveyReadiness survey={currentSurvey} />
+            ) : selectedId && !selectedSurveyLoading ? (
                 <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
             ) : null}
         </div>
