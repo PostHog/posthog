@@ -17,6 +17,8 @@ export interface Workspace {
   id: string;
   root: LayoutNode;
   focusedPaneId: string;
+  // Set with /rename-workspace; the sidebar numbers a workspace without one.
+  name?: string;
 }
 
 export interface LayoutState {
@@ -298,6 +300,29 @@ export function closeFocused(state: LayoutState): LayoutState | "quit" {
       focusedPaneId,
     })),
     focus: "pane",
+  };
+}
+
+// The workspace a pane sits in, if any.
+export function workspaceOf(
+  state: LayoutState,
+  paneId: string,
+): Workspace | undefined {
+  return state.workspaces.find((workspace) =>
+    paneIds(workspace.root).includes(paneId),
+  );
+}
+
+export function renameWorkspace(
+  state: LayoutState,
+  workspaceId: string,
+  name: string,
+): LayoutState {
+  return {
+    ...state,
+    workspaces: state.workspaces.map((workspace) =>
+      workspace.id === workspaceId ? { ...workspace, name } : workspace,
+    ),
   };
 }
 

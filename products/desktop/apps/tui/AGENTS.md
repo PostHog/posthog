@@ -21,7 +21,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
 In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+K (or Cmd+K) searches tasks, Ctrl+R reloads all code, Ctrl+Q quits.
-Slash commands: `/model`, `/effort`, `/new`, `/search`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
+Slash commands: `/model`, `/effort`, `/new`, `/rename`, `/rename-workspace`, `/search`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands. `/rename` and `/rename-workspace` with no name put the current one in the composer to edit.
 `/local` and `/cloud` switch the current pane and set where new chats in other panes run, saved between runs.
 `!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 

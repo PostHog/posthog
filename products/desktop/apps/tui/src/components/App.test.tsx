@@ -411,6 +411,63 @@ describe("App", () => {
     }
   });
 
+  it("renames the chat and its workspace from the composer", async () => {
+    const split = openTask(
+      splitFocused(openTask(initialLayout(), "t1", "Old name"), "row"),
+      "t2",
+      "Other",
+    );
+    saveLayout(focusPane(split, paneIds(activeWorkspace(split).root)[0]));
+    const rename = vi.fn(
+      async (taskId: string, title: string) =>
+        ({ id: taskId, title, runtime: "pi" }) as Task,
+    );
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: { rename } as unknown as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    const type = (text: string): void => {
+      mouse.emit("keys", text);
+      mouse.emit("keys", "\r");
+    };
+    try {
+      await vi.waitFor(() => expect(output()).toContain("Old name"));
+      type("/rename-workspace Infra");
+      await vi.waitFor(() =>
+        expect(activeWorkspace(loadLayout()).name).toBe("Infra"),
+      );
+      // The sidebar names the workspace instead of numbering it.
+      await vi.waitFor(() => expect(output()).toContain("Infra"));
+      type("/rename");
+      await vi.waitFor(() => expect(output()).toContain("/rename Old name"));
+      mouse.emit("keys", "\u007f".repeat("Old name".length));
+      type("New name");
+      await vi.waitFor(() =>
+        expect(rename).toHaveBeenCalledWith("t1", "New name"),
+      );
+      await vi.waitFor(() =>
+        expect(
+          allPanes(loadLayout()).find((pane) => pane.taskId === "t1")?.title,
+        ).toBe("New name"),
+      );
+    } finally {
+      instance.unmount();
+    }
+  });
+
   it("starts new chats where the last /local or /cloud pointed, after a restart", async () => {
     saveLayout(initialLayout());
     const session = {
