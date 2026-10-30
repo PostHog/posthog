@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.ai_observability.backend.presentation.trace_ids import (
     MalformedTraceIdSegmentError,
     decode_trace_id_segment,
+    encode_trace_id_segment,
 )
 
 
@@ -19,8 +20,9 @@ class TestDecodeTraceIdSegment(SimpleTestCase):
             ("é/ü", "w6kvw7w"),
         ]
     )
-    def test_decodes_the_shared_vectors(self, trace_id: str, segment: str) -> None:
+    def test_encodes_and_decodes_the_shared_vectors(self, trace_id: str, segment: str) -> None:
         assert decode_trace_id_segment(segment) == trace_id
+        assert encode_trace_id_segment(trace_id) == segment
 
     @parameterized.expand(
         [

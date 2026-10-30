@@ -21,7 +21,8 @@ from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import api as experiments_api
+from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
@@ -290,7 +291,7 @@ def create_organization_with_team(
         ),
         created_experiments=(
             [
-                PlaywrightSetupCreatedExperiment(id=e.id, feature_flag_key=e.feature_flag.key)
+                PlaywrightSetupCreatedExperiment(id=e.id, feature_flag_key=e.feature_flag_key)
                 for e in created_experiments
             ]
             if created_experiments
@@ -401,21 +402,22 @@ def _create_experiments(
     if not data.experiments:
         return []
 
-    from products.experiments.backend.experiment_service import ExperimentService
-
-    service = ExperimentService(team=team, user=user)
     created: list[Experiment] = []
     for exp_spec in data.experiments:
         start_date = None
         if exp_spec.start_date:
             start_date = datetime.fromisoformat(exp_spec.start_date.replace("Z", "+00:00"))
 
-        experiment = service.create_experiment(
-            name=exp_spec.name,
-            feature_flag_key=exp_spec.feature_flag_key,
-            metrics=exp_spec.metrics,
-            metrics_secondary=exp_spec.metrics_secondary,
-            start_date=start_date,
+        experiment = experiments_api.create_experiment(
+            team=team,
+            user=user,
+            input_dto=CreateExperimentInput(
+                name=exp_spec.name,
+                feature_flag_key=exp_spec.feature_flag_key,
+                metrics=exp_spec.metrics,
+                metrics_secondary=exp_spec.metrics_secondary,
+                start_date=start_date,
+            ),
         )
         created.append(experiment)
     return created

@@ -22,6 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     thread_permalink,
 )
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -597,7 +598,7 @@ def create_posthog_code_task_for_repo_activity(
     repo_research_run_id: str | None = None,
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
     from posthog.models.user import User
 
     from products.signals.backend.facade import api as signals_facade
@@ -607,11 +608,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     # A report notification invites the reader to reply in its thread, so a mention there is the
@@ -863,7 +860,7 @@ def create_posthog_code_task_for_repo_activity(
             *(m.ts for m in thread_messages),
         )
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
+            integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
             defaults={
@@ -976,7 +973,7 @@ def forward_posthog_code_followup_activity(
     the first attempt announced. It defaults to ``None`` for histories recorded before
     the workflow classified this early, which simply leave the run on its own model.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
@@ -989,11 +986,7 @@ def forward_posthog_code_followup_activity(
 
     task_run = mapping.task_run
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     actor_user = mapping.task.created_by

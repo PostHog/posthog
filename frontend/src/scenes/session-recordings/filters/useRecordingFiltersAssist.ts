@@ -25,8 +25,7 @@ const RECORDINGS_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
         'the user sees matching recordings both in this chat and on screen.',
 }
 
-// Recording-metric keys of the query's `properties` filters, whose `type: 'recording'` is a zod
-// default the agent may omit from its raw args.
+// Recording-metric keys whose `type: 'recording'` is a zod default the agent may omit.
 const RECORDING_METRIC_KEYS = new Set([
     ...DURATION_KEYS,
     'console_error_count',
@@ -39,10 +38,7 @@ const RECORDING_METRIC_KEYS = new Set([
     'snapshot_source',
 ])
 
-/**
- * Attaches the open list's filters to PostHog AI and mirrors the filters it produces back onto the list, for
- * whichever header holds the filter button.
- */
+/** Attaches the open list's filters to PostHog AI and mirrors what it produces back onto the list. */
 export function useRecordingFiltersAssist({
     filters,
     setFilters,
@@ -62,24 +58,17 @@ export function useRecordingFiltersAssist({
     ] as AttachedContextItem[])
 
     const applyFilters = (toolOutput: Record<string, any>): void => {
-        // Improve type
         setFilters(toolOutput.recordings_filters)
         setIsFiltersExpanded(true)
     }
 
-    // The headless query tool's call input mirrored onto the open list. The input is a complete query:
-    // every field is applied, with omitted fields set to the query schema's defaults so the list shows
-    // the same recordings the tool returned. The args are raw agent-sent JSON (never zod-validated), so
-    // fields are coerced and the recording-metric `type` default is stamped back on before converting to
-    // the universal filter shape. person_uuid (query-level constraint), after (pagination cursor), and
-    // limit (the agent's page size, which shouldn't shrink the user's list) have no counterpart in the
-    // universal filters.
+    // The tool's args are raw agent JSON, so the schema defaults never ran: missing fields are filled here and the
+    // recording-metric `type` is added back. person_uuid, after and limit have no place in the universal filters.
     const applyRecordingsQuery = (input: Record<string, any>): void => {
         const props = (Array.isArray(input.properties) ? input.properties : []).map((f: Record<string, any>) =>
             f && !f.type && RECORDING_METRIC_KEYS.has(f.key) ? { ...f, type: 'recording' } : f
         )
-        // Duration filters have their own control in the universal shape, so the converter expects
-        // them in `having_predicates` rather than `properties`.
+        // The converter expects duration filters in `having_predicates`, not `properties`.
         const universal = recordingsQueryToUniversalFilters({
             kind: NodeKind.RecordingsQuery,
             properties: props.filter((f: Record<string, any>) => !DURATION_KEYS.has(f?.key)),
