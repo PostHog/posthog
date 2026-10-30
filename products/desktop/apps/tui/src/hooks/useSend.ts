@@ -56,6 +56,7 @@ export function useSend({
   openEffortSheet,
   compact,
   openSearch,
+  openSettings,
   onChatStarted,
   runShell,
   repos,
@@ -95,6 +96,7 @@ export function useSend({
     instructions: string,
   ) => void;
   openSearch: () => void;
+  openSettings: () => void;
   repos: Pick<RepoPicker, "open" | "reposFor">;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
@@ -183,6 +185,10 @@ export function useSend({
     }
     if (slash?.command === "search") {
       openSearch();
+      return;
+    }
+    if (slash?.command === "settings") {
+      openSettings();
       return;
     }
     // With no name, the command comes back with the current one to edit.

@@ -26,6 +26,7 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+Shift+\\", "\x1b[92;6u", "splitDown"],
     ["kitty Cmd+Shift+\\", "\x1b[92;10u", "splitDown"],
     ["kitty Ctrl+|", "\x1b[124;5u", "splitDown"],
+    ["kitty Ctrl+;", "\x1b[59;5u", "settings"],
     ["legacy Ctrl+S no longer splits", "\x13", null],
     ["kitty Ctrl+S no longer splits", "\x1b[115;5u", null],
     ["legacy Ctrl+C", "\x03", "close"],

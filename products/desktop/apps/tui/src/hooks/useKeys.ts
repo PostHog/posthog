@@ -21,6 +21,7 @@ import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import type { Notice } from "./useNotice";
 import type { SearchState } from "./useSearch";
+import type { SettingsState } from "./useSettings";
 import type { OpenModal } from "./useSheets";
 import type { SidebarState } from "./useSidebar";
 
@@ -43,6 +44,7 @@ export function useKeys({
   setLayout,
   sidebar,
   search,
+  settings,
   composerFor,
   modalFor,
   onModalKey,
@@ -57,6 +59,7 @@ export function useKeys({
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   sidebar: SidebarState;
   search: SearchState;
+  settings: SettingsState;
   composerFor: (paneId: string) => Composer;
   modalFor: (paneId: string) => OpenModal | undefined;
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
@@ -113,6 +116,8 @@ export function useKeys({
     if (search.open && (shortcut === "close" || key.escape)) {
       return search.toggle();
     }
+    if (shortcut === "settings") return settings.toggle();
+    if (settings.open && shortcut === "close") return settings.toggle();
     if (shortcut === "close") return close();
     // Layout and chats are saved as they change, so quitting loses nothing.
     if (shortcut === "quit") return exit();
@@ -123,8 +128,8 @@ export function useKeys({
       ).__posthogTuiReload?.();
       return;
     }
-    // The open search takes every other key through onKey.
-    if (search.open) return;
+    // The open search or settings take every other key through onKey.
+    if (search.open || settings.open) return;
     if (shortcut === "newChat") {
       setLayout(newChat);
       return;
@@ -192,6 +197,10 @@ export function useKeys({
     if (isAppKey(sequence)) return;
     if (search.open) {
       search.onKey(sequence);
+      return;
+    }
+    if (settings.open) {
+      settings.onKey(sequence);
       return;
     }
     // A dropped file goes to the pane under the pointer, which takes focus, like a click would.

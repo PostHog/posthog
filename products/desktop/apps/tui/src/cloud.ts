@@ -17,10 +17,12 @@ import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mc
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { TuiAuth } from "./auth";
 import { currentRepository, PiChats } from "./chats";
+import { loadClaudeToken } from "./claudeToken";
 import { LOG_PATH } from "./errors";
 import { LocalSession } from "./local";
 import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
+import { loadPrefs } from "./prefs";
 import { CloudRuns } from "./runs";
 import { TodayClient } from "./today";
 
@@ -265,10 +267,18 @@ export function createCloud(
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;
+      const claudeOAuthToken = loadPrefs().localClaudePlan
+        ? loadClaudeToken()
+        : null;
+      if (loadPrefs().localClaudePlan && !claudeOAuthToken)
+        throw new Error(
+          "Add your Claude token in settings (Ctrl+;), or turn the Claude plan off",
+        );
       const session = new LocalSession(
         await piClients.create({
           sessionFile: localChats.sessionFile(id),
           taskContext: { taskId: id, cwd: process.cwd() },
+          claudeOAuthToken: claudeOAuthToken ?? undefined,
         }),
         mcp,
       );
