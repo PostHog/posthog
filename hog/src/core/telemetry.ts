@@ -151,7 +151,8 @@ export class Telemetry {
         const common = {
             ...this.commonProperties(),
             install_id: installId,
-            env_id: credentials?.projectId ?? null,
+            // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
+            env_id: credentials && isCloudHost(credentials.host) ? credentials.projectId : null,
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         }
