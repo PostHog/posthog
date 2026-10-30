@@ -1,6 +1,7 @@
 from collections.abc import Callable, Collection
 from typing import Any, Optional, cast
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model, QuerySet
 
 from rest_framework.generics import GenericAPIView
@@ -178,10 +179,13 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
         fetch: Callable[[PageRequest], Page[T]],
         serializer_class: type[BaseSerializer] | None = None,
     ) -> Response:
+        limit = self.get_limit(request)
+        if limit is None:
+            raise ImproperlyConfigured(f"{type(self).__name__} needs a default_limit to page a facade list.")
         self.request = request
-        self.limit = self.get_limit(request) or self.default_limit
+        self.limit = limit
         self.offset = self.get_offset(request)
-        page = fetch(PageRequest(limit=self.limit, offset=self.offset))
+        page = fetch(PageRequest(limit=limit, offset=self.offset))
         self.count = page.count
 
         serializer_class = serializer_class or view.get_serializer_class()
