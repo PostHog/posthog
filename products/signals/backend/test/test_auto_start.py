@@ -2,7 +2,7 @@ import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pytest
@@ -44,6 +44,7 @@ from products.signals.backend.auto_start import (
     _has_unimplemented_work,
     _latest_reviewers_content,
     _live_skill_owner_identities,
+    _monitoring_implementation_requires_request,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -85,6 +86,9 @@ from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTA
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import DjangoAssertNumQueries
 
 SCOUT_SKILL = "signals-scout-error-tracking"
 
@@ -1711,6 +1715,53 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
     assert mock_autostart.called is expect_autostart
     if not expect_autostart:
         assert outcome.status == "blocked"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("restricted", "budget", "expected", "queries"),
+    [(False, None, False, 4), (True, None, True, 3), (False, "levels", True, 2), (False, "nodes", True, 2)],
+)
+def test_monitoring_provenance_batches_merged_frontiers(
+    team: Team,
+    django_assert_num_queries: "DjangoAssertNumQueries",
+    restricted: bool,
+    budget: str | None,
+    expected: bool,
+    queries: int,
+) -> None:
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+    sources = SignalReport.objects.bulk_create(
+        [SignalReport(team=team, status=SignalReport.Status.DELETED) for _ in range(20)]
+    )
+    SignalReportArtefact.objects.bulk_create(
+        [
+            SignalReportArtefact(
+                team_id=team.id,
+                report=source,
+                type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+                content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(report.id)).model_dump_json(),
+                link_target_id=report.id,
+            )
+            for source in sources
+        ]
+    )
+    if restricted:
+        SignalEmissionRecord.objects.create(
+            team=team,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            source_id=str(uuid4()),
+            signal_id=str(uuid4()),
+            report_id=str(sources[-1].id),
+            emitted_at=timezone.now(),
+        )
+    with (
+        patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_LEVELS", 1 if budget == "levels" else 50),
+        patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_NODES", 10 if budget == "nodes" else 500),
+        django_assert_num_queries(queries),
+    ):
+        assert _monitoring_implementation_requires_request(team.id, str(report.id)) is expected
 
 
 @pytest.mark.asyncio
