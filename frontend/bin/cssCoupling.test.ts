@@ -28,6 +28,16 @@ describe('cssCoupling.mjs', () => {
         ['a *ClassName prop', '<Popover overlayClassName="Bar" />', ['Bar']],
         ['template literal text, not a word cut by a hole', '<div className={`Foo ${size} Baz${x}`} />', ['Foo']],
         ['no strings outside className', "<div title='Foo' />", []],
+        [
+            'a line comment with an apostrophe before the class',
+            "<div className={\n  // don't remove\n  'Foo'\n} />",
+            ['Foo'],
+        ],
+        [
+            'a block comment with an apostrophe before the class',
+            "<div className={/* don't remove */ 'Foo'} />",
+            ['Foo'],
+        ],
     ])('classNamesUsedIn reads %s', (_, tsx, expected) => {
         expect([...classNamesUsedIn(tsx)].sort()).toEqual(expected.sort())
     })
@@ -54,5 +64,17 @@ describe('cssCoupling.mjs', () => {
         expect(findCouplings(files, (file: string) => sources[file]).map((c: { file: string }) => c.file)).toEqual(
             expected
         )
+    })
+
+    it('findCouplings still flags a stylesheet with no remaining importer', () => {
+        // Removing the sole import drops the stylesheet from the esbuild graph entirely, so it is not
+        // a key of `files`. An explicit stylesheetFiles list is the only way to still index its classes.
+        const files = {
+            'PropertyFiltersDisplay.tsx': { bytes: 0, staticImports: [] },
+        }
+        const stylesheetFiles = ['PropertyFilters.scss']
+        expect(
+            findCouplings(files, (file: string) => sources[file], stylesheetFiles).map((c: { file: string }) => c.file)
+        ).toEqual(['PropertyFiltersDisplay.tsx'])
     })
 })
