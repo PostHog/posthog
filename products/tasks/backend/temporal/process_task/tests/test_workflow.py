@@ -22,7 +22,13 @@ from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    RetryState,
+    TimeoutError as ActivityTimeoutError,
+    TimeoutType,
+)
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -574,9 +580,7 @@ class TestSandboxRotation:
         return cast("asyncio.Task[None]", name)
 
     def _snapshot(self, external_id: str | None = "snap-1") -> CreateResumeSnapshotOutput:
-        return CreateResumeSnapshotOutput(
-            external_id=external_id, snapshot_kind="directory", snapshot_mount_path="/mnt/work"
-        )
+        return CreateResumeSnapshotOutput(external_id=external_id, snapshot_mount_path="/mnt/work")
 
     def _replacement(self, used_snapshot: bool = True) -> GetSandboxForRepositoryOutput:
         return GetSandboxForRepositoryOutput(
@@ -3323,6 +3327,7 @@ class TestProcessTaskWorkflowUnit:
         assert cloned == ["posthog/posthog", "posthog/code"]
         for repository in ("posthog/posthog", "posthog/code"):
             assert clone_options[repository]["start_to_close_timeout"] == timedelta(minutes=5)
+            assert clone_options[repository]["schedule_to_close_timeout"] == timedelta(minutes=5)
             assert clone_options[repository]["retry_policy"].maximum_attempts == 6
         assert result.clone_ms is None
 
@@ -3399,7 +3404,24 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].release_barrier is False
 
     @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
-    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
+    @pytest.mark.parametrize("clone_times_out", [True, False])
+    async def test_overlap_primary_clone_failure(
+        self, monkeypatch: pytest.MonkeyPatch, fail_on_primary_clone_failure: bool, clone_times_out: bool
+    ) -> None:
+        clone_error: Exception = RuntimeError("clone timed out")
+        if clone_times_out:
+            clone_error = ActivityError(
+                "clone timed out",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="test-worker",
+                activity_type="clone_repository_in_sandbox",
+                activity_id="clone",
+                retry_state=RetryState.TIMEOUT,
+            )
+            clone_error.__cause__ = ActivityTimeoutError(
+                "clone deadline exceeded", type=TimeoutType.SCHEDULE_TO_CLOSE, last_heartbeat_details=[]
+            )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3439,7 +3461,7 @@ class TestProcessTaskWorkflowUnit:
                 return StartAgentServerOutput(sandbox_url=created.sandbox_url)
             if activity_fn is clone_repository_in_sandbox:
                 assert kwargs["retry_policy"].maximum_attempts == 6
-                raise RuntimeError("clone timed out")
+                raise clone_error
             if activity_fn is mark_repo_ready:
                 ready_inputs.append(args[0])
                 return None
@@ -3460,7 +3482,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         if fail_on_primary_clone_failure:
-            with pytest.raises(RuntimeError, match="clone timed out"):
+            with pytest.raises(type(clone_error), match="clone timed out"):
                 await workflow._get_sandbox_for_repository()
             assert mark_repo_ready not in calls
             assert checkout_branch_in_sandbox not in calls

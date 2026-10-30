@@ -21,7 +21,7 @@ declare global {
     // sibling files (currently just toolbar.css) from the same versioned URL.
     const __POSTHOG_TOOLBAR_PUBLIC_PATH__: string
 
-    // Build-time constant injected into the toolbar loader (frontend/src/toolbar/loader.ts):
+    // Build-time constant injected into the toolbar loader (frontend/src/toolbar/floating/loader.ts):
     // the basename of the toolbar app's ESM entry inside dist/toolbar/ — hashed in prod
     // builds (e.g. `toolbar-app-ABC123.js`), plain `toolbar-app.js` in dev. See
     // finalizeToolbarBuild in frontend/toolbar-config.mjs.

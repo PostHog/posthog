@@ -131,8 +131,7 @@ export function countRetiredHints(hints: Record<string, HintState>): number {
 export interface TaskDefaultsSyncState {
   // The "always create pull requests" value Desktop and the server last agreed on.
   autoPublishCloudRuns: boolean;
-  // The local "Start in" choice was offered to the server once.
-  planModeOffered: boolean;
+  startInPlanMode?: boolean;
 }
 
 export interface SyncedCustomInstructions {

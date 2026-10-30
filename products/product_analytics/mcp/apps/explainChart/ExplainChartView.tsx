@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 
@@ -7,9 +7,15 @@ import type { ExplainChartData, StoryChapter, StoryEvidence } from './explainCha
 import { StoryChapterView } from './StoryChapterView'
 import { StoryChartOverlay } from './StoryChartOverlay'
 import { buildStoryPages, type StoryPage } from './storyPages'
+import { StoryPanelResizeGrip } from './StoryPanelResizeGrip'
 import { StorySingleChapterView } from './StorySingleChapterView'
 import { StorySteps } from './StorySteps'
 import { StorySummaryView } from './StorySummaryView'
+
+// The panel takes a share of the space, so a small screen keeps more of it for the chart.
+const DEFAULT_PANEL_WIDTH = 'clamp(280px, 35%, 420px)'
+const MIN_PANEL_WIDTH = 240
+const MIN_CHART_WIDTH = 320
 
 const wholeFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
 const smallFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 2 })
@@ -25,11 +31,11 @@ export interface StoryPageChange {
 }
 
 export interface StoryEvidenceCharts {
-    canShow: (query: Record<string, unknown>) => boolean
-    prefetch: (queries: Record<string, unknown>[]) => void
+    canShow: (item: StoryEvidence) => boolean
+    prefetch: (items: StoryEvidence[]) => void
     /** Draws the chart, fading every series that the evidence's text does not name. */
-    render: (query: Record<string, unknown>, text: string) => ReactNode
-    onShow?: (query: Record<string, unknown>) => void
+    render: (item: StoryEvidence) => ReactNode
+    onShow?: (item: StoryEvidence) => void
 }
 
 export interface ExplainChartViewProps {
@@ -58,7 +64,7 @@ function seriesNoteOf(data: ExplainChartData): string | null {
         return null
     }
     const series = data.results[data.seriesIndex]
-    const label = series?.label || series?.action?.name || `series ${data.seriesIndex + 1}`
+    const label = series?.label || `series ${data.seriesIndex + 1}`
     return `This follows ${label}, one of the ${data.results.length} series on the chart.`
 }
 
@@ -72,36 +78,40 @@ export function ExplainChartView({
     evidenceCharts,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
-    // With one chapter, a summary page and steps add nothing, so the walkthrough is that chapter alone.
+    // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
     const singleChapter = pages.length === 2
     const [activeIndex, setActiveIndex] = useState(singleChapter ? 1 : 0)
     const [previewIndex, setPreviewIndex] = useState<number | null>(null)
     const [shownEvidenceIndex, setShownEvidenceIndex] = useState<number | null>(null)
+    // Null keeps the default width until the panel is dragged.
+    const [panelWidth, setPanelWidth] = useState<number | null>(null)
+    const rowRef = useRef<HTMLDivElement>(null)
+    const asideRef = useRef<HTMLElement>(null)
+    const maxPanelWidth = (): number =>
+        Math.max(MIN_PANEL_WIDTH, (rowRef.current?.clientWidth ?? Infinity) - MIN_CHART_WIDTH)
     const active = pages[activeIndex] ?? pages[0]!
     const hasNext = activeIndex + 1 < pages.length
     const shownEvidence: StoryEvidence | null =
         shownEvidenceIndex === null ? null : (active.chapter?.evidence[shownEvidenceIndex] ?? null)
-    const evidenceView =
-        evidenceCharts && shownEvidence?.query ? { text: shownEvidence.text, query: shownEvidence.query } : null
+    const evidenceView = shownEvidence && evidenceCharts?.canShow(shownEvidence) ? shownEvidence : null
 
     const prefetch = evidenceCharts?.prefetch
     useEffect(() => {
-        const queries = active.chapter?.evidence.flatMap((item) => (item.query ? [item.query] : [])) ?? []
-        if (queries.length) {
-            prefetch?.(queries)
+        if (active.chapter?.evidence.length) {
+            prefetch?.(active.chapter.evidence)
         }
     }, [active, prefetch])
 
-    const canShowChart = (item: StoryEvidence): boolean => !!item.query && !!evidenceCharts?.canShow(item.query)
+    const canShowChart = (item: StoryEvidence): boolean => !!evidenceCharts?.canShow(item)
 
     const toggleEvidenceChart = (index: number): void => {
-        const query = active.chapter?.evidence[index]?.query
-        if (index === shownEvidenceIndex || !query) {
+        const item = active.chapter?.evidence[index]
+        if (index === shownEvidenceIndex || !item) {
             setShownEvidenceIndex(null)
             return
         }
         setShownEvidenceIndex(index)
-        evidenceCharts?.onShow?.(query)
+        evidenceCharts?.onShow?.(item)
     }
 
     const select = (index: number, source: StoryNavigationSource): void => {
@@ -127,7 +137,7 @@ export function ExplainChartView({
 
     return (
         <div className="@container/story" data-attr="explain-chart">
-            <div className="flex flex-col @3xl/story:flex-row">
+            <div ref={rowRef} className="flex flex-col @3xl/story:flex-row">
                 <div className="min-w-0 flex-1">
                     {/* The header is one line in both views, so showing an evidence chart moves nothing. The evidence's text stays highlighted in the panel. */}
                     {evidenceCharts && evidenceView ? (
@@ -140,10 +150,10 @@ export function ExplainChartView({
                                     data-attr="explain-chart-evidence-back"
                                 >
                                     <ArrowLeft className="size-3" />
-                                    Back to the walkthrough
+                                    Back to the explanation
                                 </Button>
                             </div>
-                            {evidenceCharts.render(evidenceView.query, evidenceView.text)}
+                            {evidenceCharts.render(evidenceView)}
                         </>
                     ) : (
                         <>
@@ -157,9 +167,26 @@ export function ExplainChartView({
                     )}
                 </div>
                 <aside
-                    className="relative shrink-0 border-t border-border @3xl/story:w-80 @3xl/story:border-t-0 @3xl/story:border-l"
-                    aria-label="Walkthrough of this chart"
+                    ref={asideRef}
+                    className="relative shrink-0 border-t border-border @3xl/story:w-(--story-panel-width) @3xl/story:border-t-0 @3xl/story:border-l"
+                    style={
+                        {
+                            // The browser keeps room for the chart when the space shrinks after a drag.
+                            '--story-panel-width':
+                                panelWidth === null
+                                    ? DEFAULT_PANEL_WIDTH
+                                    : `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth}px, calc(100% - ${MIN_CHART_WIDTH}px))`,
+                        } as CSSProperties
+                    }
+                    aria-label="Explanation of this chart"
                 >
+                    <StoryPanelResizeGrip
+                        getWidth={() => asideRef.current?.offsetWidth ?? panelWidth ?? MIN_PANEL_WIDTH}
+                        minWidth={MIN_PANEL_WIDTH}
+                        maxWidth={maxPanelWidth()}
+                        onResize={(width) => setPanelWidth(Math.min(Math.max(width, MIN_PANEL_WIDTH), maxPanelWidth()))}
+                        onReset={() => setPanelWidth(null)}
+                    />
                     {/* Beside the chart, the panel takes the chart's height and the page scrolls inside it. */}
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">
                         {/* Keyed on the page, so each chapter opens at its top and an evidence chart keeps the scroll. */}
@@ -194,7 +221,8 @@ export function ExplainChartView({
                                 />
                             )}
                         </div>
-                        {!singleChapter && (
+                        {/* One chapter shows on its own and a chart with none shows its summary alone, so steps add nothing. */}
+                        {pages.length > 2 && (
                             <div className="flex items-center justify-between gap-3 border-t border-border py-2 ps-4 pe-3">
                                 <StorySteps
                                     pages={pages}

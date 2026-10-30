@@ -13,14 +13,16 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
-from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
+from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
     MessageImage,
     MessageLink,
+    SlackMessageContent,
 )
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
 
@@ -193,13 +195,23 @@ class TestSlackTransport(APIBaseTest):
         with pytest.raises(DeliveryError):
             self._send(team_id=self.team.id + 1)
 
-    def test_a_refusal_from_slack_becomes_a_delivery_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_in_channel", True),
+            ("account_inactive", True),
+            ("channel_not_found", False),
+            ("missing_scope", False),
+            ("ratelimited", False),
+            ("internal_error", False),
+        ]
+    )
+    def test_a_refusal_from_slack_becomes_a_delivery_error(self, code: str, misconfigured: bool) -> None:
         with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
-            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(
-                "channel_not_found", {"error": "channel_not_found"}
-            )
-            with pytest.raises(DeliveryError):
+            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(code, {"error": code})
+            with pytest.raises(DeliveryError) as refused:
                 SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert isinstance(refused.value, DestinationMisconfigured) is misconfigured
 
     def test_a_message_whose_image_slack_cannot_fetch_goes_again_without_it(self) -> None:
         message = alert_message(image=MessageImage(url="https://app.example.com/chart.png", alt_text="Insight chart"))
@@ -219,3 +231,86 @@ class TestSlackTransport(APIBaseTest):
 
         with pytest.raises(DeliveryError):
             self._send(target=target)
+
+
+class TestSlackAttachmentTransport(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_attachments_survive_send_retry_and_state_update(self, refuse_image: bool) -> None:
+        image = {"type": "image", "image_url": "https://example.com/chart.png", "alt_text": "Chart"}
+        actions = {
+            "type": "actions",
+            "elements": [
+                {"type": "button", "url": "https://example.com", "text": {"type": "plain_text", "text": "View"}}
+            ],
+        }
+        metadata = {
+            "color": "#D97706",
+            "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Limit exceeded"}}],
+        }
+        content = SlackMessageContent(text="", blocks=[], attachments=[metadata, {"blocks": [image, actions]}])
+        target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-SAMPLE"})
+        with (
+            patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer,
+            patch.object(SlackTransport, "_integration"),
+            patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as integration,
+        ):
+            renderer.return_value.return_value = content
+            post = integration.return_value.client.chat_postMessage
+            responses: list[Any] = [{"ts": "1700000000.1"}]
+            if refuse_image:
+                responses.insert(0, SlackApiError("invalid_blocks", {"error": "invalid_blocks"}))
+            post.side_effect = responses
+            transport = SlackTransport()
+            handle = transport.deliver(team_id=1, target=target, message=MESSAGE)
+            assert handle is not None
+            sent = post.call_args.kwargs["attachments"]
+            assert sent[0] == metadata
+            assert sent[1]["blocks"][-1] == actions
+            assert any(block["type"] == "image" for block in sent[1]["blocks"]) is not refuse_image
+            transport.edit_root(team_id=1, target=target, root=handle, state_line="Resolved")
+            update = integration.return_value.client.chat_update.call_args.kwargs
+            updated = update["attachments"]
+            assert updated[0] == metadata
+            assert updated[1]["blocks"][-1] == actions
+            assert updated[1]["blocks"][-2]["elements"][0]["text"] == "Resolved"
+            # The card is the attachment, so the edit must not promote the stand-in below.
+            assert update["blocks"] == []
+            assert handle.root_content is not None
+            assert handle.root_content["attachments"] == sent
+            # A reader from before attachments existed edits `blocks` and indexes its last element,
+            # so an attachment card leaves it something to work on rather than an empty list.
+            assert handle.root_content["blocks"]
+            assert content.attachments[1]["blocks"] == [image, actions]
+
+
+class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The renderer contract promises neither an attachment nor a trailing action row, and
+            # the notice is the only sign that the alert stopped at its group limit.
+            ("an_attachment", False, False),
+            ("blocks_alone", True, False),
+            ("blocks_without_an_action_row", True, True),
+        ]
+    )
+    def test_untracked_groups_detail_survives_any_renderer_shape(
+        self, _name: str, blocks_only: bool, without_actions: bool
+    ) -> None:
+        rendered: list[dict[str, Any]] = [{"type": "divider"}]
+        if not without_actions:
+            rendered.append({"type": "actions", "elements": []})
+        content = (
+            SlackMessageContent(text="Alert", blocks=rendered)
+            if blocks_only
+            else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
+        )
+        message = replace(
+            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+        )
+        with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
+            renderer.return_value.return_value = content
+            result = content_for(team_id=1, message=message)
+        blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
+        assert "2 more groups not tracked" in str(blocks)
+        # Above the buttons when there are buttons, so the notice is never read as one of them.
+        assert blocks[-1]["type"] == ("section" if without_actions else "actions")

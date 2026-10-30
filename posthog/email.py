@@ -108,7 +108,8 @@ EMAIL_TASK_KWARGS = {
     "ignore_result": True,
     "autoretry_for": (Exception,),
     "max_retries": 3,
-    # Retries wait 5s, 10s and 20s. Without jitter the last attempt cannot come within a second of the first.
+    # SMTP retries wait 5s, 10s and 20s. Without jitter the last attempt cannot come within a second of the first.
+    # HTTP retries use HTTP_SEND_RETRY_COUNTDOWNS_SECONDS instead.
     "retry_backoff": 5,
     "retry_jitter": False,
 }
@@ -220,20 +221,14 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
 # Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
 WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 
-# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
-# the workflow, or the recipient is on the suppression list. Customer.io sends these emails instead.
-WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused", "recipient_suppressed"})
-
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
-# is invalid or the domain has no mail servers. Every provider would hard bounce it, so the email is dropped. It is not
-# retried and Customer.io does not send it.
-WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable"})
+# is invalid, the domain has no mail servers, or the address hard bounced and is on the suppression list. Every
+# provider would bounce it, so the email is dropped. It is not retried and Customer.io does not send it.
+WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable", "recipient_suppressed"})
 
-EMAIL_WORKFLOWS_FALLBACK_COUNTER = Counter(
-    "posthog_email_workflows_fallback_total",
-    "Emails that Workflows refused and Customer.io sent instead, by template.",
-    labelnames=["template_name"],
-)
+# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
+# the workflow.
+WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused"})
 
 
 def get_email_team_and_org_context(
@@ -288,14 +283,20 @@ class WorkflowsEmailError(Exception):
         self.status_code = status_code
 
 
+# Waits between worker attempts of an HTTP send that failed with one of the errors below. Customer.io no longer sends
+# an email that Workflows could not take, so the retries span about 19 minutes to outlast a short Workflows outage.
+# They stop there, because a login code or a password reset link that arrives later is of no use to the recipient.
+# SMTP sends keep the shorter retries in EMAIL_TASK_KWARGS.
+HTTP_SEND_RETRY_COUNTDOWNS_SECONDS = (10, 30, 60, 120, 300, 600)
+
 # Errors that a later attempt can fix. A database error can come before the send, when the record is read, or after
 # it, when the record is marked sent. A Workflows send is pinned before that write, so its retry replays under the
 # same idempotency key. A Customer.io send can go out a second time.
 RETRYABLE_HTTP_SEND_ERRORS = (WorkflowsEmailError, OperationalError, InterfaceError)
 
 
-def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
-    """Whether Customer.io can send the email without the risk of a duplicate."""
+def _workflows_queued_nothing(err: WorkflowsEmailError) -> bool:
+    """Whether the email is certain not to be queued, so a retry can pick its provider again."""
     if err.status_code is None:
         # A connection that was never made and a client that queued nothing sent nothing. Any other network
         # failure can come after Workflows queued the email.
@@ -516,8 +517,8 @@ def _send_one(
     Returns None when Workflows refused the recipient as undeliverable, so no provider sent the email.
     """
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
-    # change or a different error on the retry would send the same email again through Customer.io.
+    # After an attempt Workflows may have queued, a retry skips the flag. Otherwise a flag change on the retry would
+    # send the same email again through Customer.io.
     pinned_template_id = _pinned_workflows_template_id(idempotency_key)
     workflows_template_id = get_workflows_template_id(template_name, dest, pinned_template_id)
     if workflows_template_id:
@@ -540,17 +541,11 @@ def _send_one(
                     {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
                 )
                 return None
-            if pinned_template_id or not _workflows_error_allows_fallback(err):
+            # Workflows sends the retry. An email it certainly did not queue stays unpinned, so turning the flag off
+            # moves the retry to Customer.io.
+            if pinned_template_id or not _workflows_queued_nothing(err):
                 _pin_to_workflows(idempotency_key, workflows_template_id)
-                raise
-            logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
-            EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
-            _capture_email_event(
-                capture,
-                dest,
-                "transactional email workflows rejected",
-                {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
-            )
+            raise
     return "customer_io", _send_one_via_customer_io(dest, template_name, properties)
 
 
@@ -566,6 +561,12 @@ def _send_via_http(
     """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
+
+    if not current_task or current_task.request.is_eager:
+        # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
+        # so the global client delivers in the background. ScopedCapture keeps the cloud-only guard.
+        _send_via_http_batch(ScopedCapture(posthoganalytics), to, campaign_key, template_name, properties, will_retry)
+        return
 
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
@@ -874,14 +875,20 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
+def _worker_send_task() -> Any:
+    """The `_send_email` task that a worker runs this send in, or None for an inline or eager send."""
+    task = current_task
+    if not task or task.name != "posthog.email._send_email" or task.request.is_eager:
+        return None
+    return task
+
+
 def _send_will_retry(retry_in_worker: bool) -> bool:
     """Whether a retryable failure of this send gets another attempt."""
     if retry_in_worker:
         return True
-    task = current_task
-    if not task or task.name != "posthog.email._send_email" or task.request.is_eager:
-        return False
-    return task.request.retries < task.max_retries
+    task = _worker_send_task()
+    return task is not None and task.request.retries < len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS)
 
 
 def _send_email_now(
@@ -906,8 +913,17 @@ def _send_email_now(
                 properties=properties or {},
                 will_retry=_send_will_retry(retry_in_worker),
             )
-        except RETRYABLE_HTTP_SEND_ERRORS:
+        except RETRYABLE_HTTP_SEND_ERRORS as err:
             if not retry_in_worker:
+                task = _worker_send_task()
+                if task is not None:
+                    # After the last wait, Celery raises `err` instead of scheduling another attempt.
+                    countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
+                    raise task.retry(
+                        exc=err,
+                        countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
+                        max_retries=len(countdowns),
+                    )
                 raise
             # The retry sends the same idempotency key, so Workflows does not send the email twice.
             _send_email.apply_async(

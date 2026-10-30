@@ -19,9 +19,12 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
 from posthog.permissions import (
+    FEATURE_FLAG_REQUIRED_ERROR_CODE,
     PostHogFeatureFlagPermission,
+    get_authenticator_client,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    posthog_feature_flag_enabled,
 )
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
@@ -255,6 +258,7 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_SOURCE.value: "external_data_source",
     PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -552,6 +556,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # rather than through `required_scopes`.
         if source_kind not in self._source_kinds_with("editor", "write"):
             raise PermissionDenied(f"You cannot create {source_kind} alerts.")
+        self._check_rollout_flag(SourceKind(source_kind))
 
         serializer = create_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -573,6 +578,22 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(lambda: self._track("created", created), robust=True)
         return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    def _check_rollout_flag(self, source_kind: SourceKind) -> None:
+        spec = editable_source_configs().get(source_kind)
+        if spec is None or spec.rollout_flag is None:
+            return
+        if not posthog_feature_flag_enabled(
+            spec.rollout_flag,
+            str(cast(User, self.request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
+        ):
+            raise PermissionDenied(
+                f"{source_kind.value.capitalize()} alerts are not available for this project yet.",
+                code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
+            )
 
     def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
         report_user_action(

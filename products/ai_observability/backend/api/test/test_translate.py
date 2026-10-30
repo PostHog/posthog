@@ -13,7 +13,7 @@ from products.ai_observability.backend.translation.constants import (
     TRANSLATION_MODEL,
 )
 
-MOCK_PATH = "products.ai_observability.backend.translation.llm.get_llm_client"
+MOCK_PATH = "products.ai_observability.backend.translation.llm.build_openai_client"
 
 
 def mock_llm_client(mock_get_client: MagicMock) -> MagicMock:
