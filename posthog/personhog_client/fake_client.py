@@ -21,7 +21,6 @@ import json
 import time
 from collections.abc import Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -31,12 +30,13 @@ import grpc
 from personhog.lifecycle.v1 import lifecycle_pb2
 from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_pb2
 
+from posthog.dataclasses import frozen
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.personhog_client.interceptor import SEMANTIC_REFUSAL_METADATA_KEY
 from posthog.utils import is_anonymous_id
 
 
-@dataclass
+@frozen(kw_only=False)
 class _Call:
     method: str
     request: Any
