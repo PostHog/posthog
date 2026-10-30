@@ -1,0 +1,26 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/symbol_sets/0192f0a0-0000-7000-8000-00000000000b/download/",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/s3/get/0192f0a0-0000-7000-8000-00000000000b",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "status": 200
+    }
+  ],
+  "files": {
+    "out/0192f0a0-0000-7000-8000-00000000000b/__source/main.c": "utf8:int main;\n",
+    "out/0192f0a0-0000-7000-8000-00000000000b/dwarf": "utf8:mach-o bytes"
+  }
+}

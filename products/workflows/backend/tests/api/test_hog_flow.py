@@ -50,6 +50,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
@@ -233,6 +238,47 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert active.status_code == expected_status, active.json()
         assert draft.status_code == 201, draft.json()
+
+    @parameterized.expand(
+        [
+            ("default delivery with a title", None, "Hi", 201),
+            ("default delivery without a title", None, "", 400),
+            ("blank title", "notification", "   ", 400),
+            ("android data only without a title", "android_data_only", "", 400),
+            ("silent without a title", "silent", "", 201),
+            ("default delivery with the title left out", None, None, 201),
+        ]
+    )
+    def test_only_a_silent_push_may_skip_the_title(
+        self, _name: str, delivery: str | None, title: str | None, expected_status: int
+    ) -> None:
+        template = _push_function_template()
+        for schema in template["inputs_schema"]:
+            if schema["key"] == "title":
+                schema["required"] = False
+                schema["default"] = "Notification from {event.event}"
+        template["inputs_schema"].append({"key": "delivery", "type": "choice", "label": "Delivery", "required": False})
+        sync_template_to_db(template)
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={})
+        inputs: dict[str, Any] = {
+            "distinctId": {"value": "{event.distinct_id}"},
+            "channels": {"value": [provider.id]},
+        }
+        if title is not None:
+            inputs["title"] = {"value": title}
+        if delivery is not None:
+            inputs["delivery"] = {"value": delivery}
+        hog_flow, _ = self._create_hog_flow_with_action({"template_id": "template-native-push", "inputs": inputs})
+        hog_flow["actions"][1]["type"] = "function_push"
+
+        active = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+
+        assert active.status_code == expected_status, active.json()
+        assert draft.status_code == 201, draft.json()
+        if title is None:
+            saved_title = active.json()["actions"][1]["config"]["inputs"]["title"]["value"]
+            assert saved_title == "Notification from {event.event}"
 
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
@@ -4548,6 +4594,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("realtime_reference_only", "batch", "reference_only", None, True, 400, "can't evaluate"),
             # The realtime pipeline doesn't run for the team, so the cohort never becomes ready.
             ("team_off_realtime_pipeline", "batch", "off_pipeline", None, True, 400, "would never start"),
+            # A load-test team runs the pipeline, but its users must not see a realtime audience start.
+            ("team_granted_processing_only", "batch", "processing_only", None, True, 400, "would never start"),
         ]
     )
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
@@ -4594,7 +4642,12 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
+        if cohort_kind == "processing_only":
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+        off_env_list = cohort_kind in ("off_pipeline", "processing_only")
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if off_env_list else "all"):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == expected_status, response.json()
@@ -4971,7 +5024,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
 
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):
         with patch(
             "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
@@ -4993,6 +5046,8 @@ class TestHogFlowAPI(APIBaseTest):
         # the end of the audience, so the batch send skips every recipient after it.
         passed_settings = mock_workflows_query.call_args.kwargs["settings"]
         assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
+        # The page query runs under the resolver's own ClickHouse cap, not the interactive 60s default.
+        assert passed_settings.max_execution_time == 123
 
     @parameterized.expand(
         [
@@ -8041,6 +8096,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
             ("no_slash", "just-a-name"),
             ("too_many_slashes", "org/repo/extra"),
             ("whitespace_only", " "),
+            ("list_with_a_bad_entry", ["my-org/my-repo", "just-a-name"]),
+            ("duplicate_in_another_case", ["my-org/my-repo", "My-Org/My-Repo"]),
         ]
     )
     def test_rejects_a_repository_that_is_not_org_slash_repo(self, _name, repository):
@@ -8049,8 +8106,14 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__repository"
 
-    def test_accepts_an_org_slash_repo_repository(self):
-        response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
+    @parameterized.expand(
+        [
+            ("legacy_string", "my-org/my-repo"),
+            ("list", ["my-org/my-repo", "my-org/my-docs"]),
+        ]
+    )
+    def test_accepts_org_slash_repo_repositories(self, _name, repository):
+        response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

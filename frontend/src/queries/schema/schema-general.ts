@@ -167,6 +167,7 @@ export enum NodeKind {
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
+    MarketingAnalyticsRecommendationsQuery = 'MarketingAnalyticsRecommendationsQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -256,6 +257,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
+    | MarketingAnalyticsRecommendationsQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -375,6 +377,7 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
+    | MarketingAnalyticsRecommendationsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -6560,6 +6563,8 @@ export interface ExperimentExposureHealthFinding {
     code: ExperimentExposureHealthFindingCode
     /** The case within the code, when a code covers several. Null when the code has one case. */
     subcode: string | null
+    /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info. */
     severity: ExperimentExposureHealthFindingSeverity
     /** One-line summary of the problem. */
@@ -8529,6 +8534,80 @@ export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryRes
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>
+
+export type MarketingAnalyticsRecommendationsSourceType = 'GoogleAds' | 'GoogleSearchConsole'
+
+export interface MarketingAnalyticsRecommendationsSource {
+    sourceType: MarketingAnalyticsRecommendationsSourceType
+    /** Google Ads campaign table. */
+    campaignTable?: string
+    /** Google Ads daily campaign stats table. */
+    campaignStatsTable?: string
+    /** Google Ads daily campaign impression share table. */
+    campaignImpressionShareTable?: string
+    /** Google Ads customer table, used for the account currency. */
+    customerTable?: string
+    /** Google Ads search term table for Search campaigns. */
+    searchTermTable?: string
+    /** Google Ads search term table split by the keyword that matched each term. */
+    searchTermKeywordTable?: string
+    /** Google Ads search term table for Performance Max campaigns. */
+    performanceMaxSearchTermTable?: string
+    /** Google Search Console table with one row per query, or per query and page. */
+    queryTable?: string
+    /** Google Search Console sites table, used to infer the brand name. */
+    sitesTable?: string
+}
+
+export interface MarketingAnalyticsRecommendationsQuery extends DataNode<MarketingAnalyticsRecommendationsQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsRecommendationsQuery
+    dateRange?: DateRange
+    /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
+    sources?: MarketingAnalyticsRecommendationsSource[]
+}
+
+export type MarketingAnalyticsRecommendationRule =
+    | 'budget_constrained'
+    | 'brand_leak'
+    | 'scale_campaign'
+    | 'review_campaign'
+    | 'policy_limited'
+    | 'brand_overlap'
+    | 'content_gap'
+    | 'keyword_gap'
+    | 'spend_without_conversions'
+    | 'striking_distance'
+
+export type MarketingAnalyticsRecommendationLevel = 'campaign' | 'search_term'
+
+export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 'invest' | 'keep'
+
+export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated'
+
+export interface MarketingAnalyticsRecommendation {
+    rule: MarketingAnalyticsRecommendationRule
+    level: MarketingAnalyticsRecommendationLevel
+    /** The campaign name or the search term the recommendation is about. */
+    subject: string
+    /** The campaign a search term recommendation applies to, when it applies to one. */
+    campaign?: string | null
+    action: string
+    reason: string
+    /** Monthly money impact in the account currency. Null when the rule has no money impact. */
+    impact?: number | null
+    impactDirection: MarketingAnalyticsRecommendationImpactDirection
+    impactType: MarketingAnalyticsRecommendationImpactType
+    currency?: string | null
+}
+
+export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsRecommendation[]
+    /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+    disclaimer: string
+}
+
+export type CachedMarketingAnalyticsRecommendationsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsRecommendationsQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string

@@ -130,6 +130,8 @@ from personhog.types.v1.person_pb2 import (
     ListPersonsForTeamResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     RestoredDistinctId,
