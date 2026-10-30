@@ -73,7 +73,7 @@ export const PostHogConfig = z
             .url()
             .optional()
             .describe(
-                'The PostHog host for this project, like https://eu.posthog.com. --host and HOG_HOST override it, and it overrides the host your credentials carry.'
+                'The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.'
             ),
         errorTracking: ErrorTracking.optional(),
         cli: z

@@ -1,7 +1,7 @@
 import type { OptionSpec, OptionValues } from './command'
 import type { PostHogConfig } from './config'
 import { EXIT_USAGE, HogError } from './errors'
-import type { Env, Runtime } from './runtime'
+import type { Env, Runtime, RuntimeFetch } from './runtime'
 import { kebabCase } from './text'
 
 // Options every command takes. Each one also reads the env vars in `env`, in order, and some read
@@ -11,7 +11,6 @@ export const GLOBAL_OPTIONS = {
         type: 'string',
         placeholder: 'url',
         env: ['HOG_HOST'],
-        config: 'host',
         description: 'The PostHog host to use instead of the one in your credentials',
     },
     dotenvFile: {
@@ -178,7 +177,7 @@ export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtim
         queue = turn
         return turn
     }
-    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const fetch: RuntimeFetch = async (input, init) => {
         await waitTurn()
         if (!globals.debug) {
             return runtime.fetch(input, init)
@@ -195,6 +194,6 @@ export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtim
             runtime.writeStderr(`[debug] ${label} failed: ${error instanceof Error ? error.message : error}\n`)
             throw error
         }
-    }) as typeof globalThis.fetch
+    }
     return { ...runtime, fetch }
 }
