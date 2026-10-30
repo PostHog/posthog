@@ -21,7 +21,14 @@ export function compareLayerReports(report, baseReport) {
     }
 }
 
-const shortName = (file) => file.replace(/^frontend\/src\//, '')
+// Edge and chain paths come from the PR's own build output, so a crafted file name could carry
+// a newline or an HTML comment delimiter and forge the CI report's own section markers.
+const sanitizeForReport = (text) =>
+    text
+        .replace(/[\r\n]/g, ' ')
+        .replace(/<!--/g, '< !--')
+        .replace(/-->/g, '-- >')
+const shortName = (file) => sanitizeForReport(file.replace(/^frontend\/src\//, ''))
 
 export function renderLayerSection(report, baseReport, graphUrl) {
     const { added, removed, layers } = compareLayerReports(report, baseReport)
@@ -78,6 +85,10 @@ export function renderLayerSection(report, baseReport, graphUrl) {
     lines.push(
         '<sub>Posted automatically by [check-layers](https://github.com/PostHog/posthog/blob/master/frontend/bin/check-layers.mjs)</sub>'
     )
+    // Without a base there is no comparison, so a new upward import must not read as a pass.
+    if (!baseReport) {
+        return { status: 'info', summary: 'no base comparison available', body: lines.join('\n') }
+    }
     const summary = added.length
         ? `${added.length} new upward import(s)`
         : `no new upward imports, ${removed.length} removed`

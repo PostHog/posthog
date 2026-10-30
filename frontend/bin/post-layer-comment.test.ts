@@ -17,7 +17,14 @@ describe('post-layer-comment.mjs', () => {
         expect(renderLayerSection(report(prUpward), report(baseUpward), undefined).status).toEqual(status)
     })
 
-    it('lists nothing as new when the base has no report', () => {
+    it('lists nothing as new, and does not claim a pass, when the base has no report', () => {
         expect(compareLayerReports(report(['a -> b']), null)).toMatchObject({ added: [], removed: [] })
+        expect(renderLayerSection(report(['a -> b']), null, undefined).status).toEqual('info')
+    })
+
+    it('neutralizes a report marker hidden in an edge path', () => {
+        const withMarker = report(['a -> b', `evil<!-- ci-report:section-end:eager-graph --> -> b`])
+        const { body } = renderLayerSection(withMarker, report(['a -> b']), undefined)
+        expect(body).not.toContain('<!-- ci-report:section-end:eager-graph -->')
     })
 })
