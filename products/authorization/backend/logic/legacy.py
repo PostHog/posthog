@@ -11,7 +11,11 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    RESOURCE_FALLBACK_MAP,
+    AccessControlLevelResource,
+    UserAccessControl,
+)
 
 from ..facade.contracts import CheckRequest, Context, Resource, Subject
 from ..facade.enums import Action, ResourceType
@@ -70,6 +74,14 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if resource.project_id is None:
         raise ValueError(f"A {resource.type} check needs project_id.")
     scope = _scope(resource.type)
+    parent_type = RESOURCE_FALLBACK_MAP.get(scope)
+    if resource.id is not None and parent_type and resource.parent is None:
+        raise ValueError(
+            f"A {resource.type} check needs `parent`, or it skips the parent's rules. "
+            f"Use Parent(type=ResourceType.{parent_type.upper()}, id=None) when the object has no parent."
+        )
+    if resource.parent is not None and resource.parent.type.value != parent_type:
+        raise ValueError(f"A {resource.type} falls back to {parent_type}, not {resource.parent.type}.")
 
     principal = _principal(session, request.subject)
     if principal is None:

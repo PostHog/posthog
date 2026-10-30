@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.testing import create_access_control, create_role
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
@@ -150,15 +152,76 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_parent", None),
-            ("parent_of_another_type", Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="1")),
+            ("fallback_type_without_parent", ResourceType.WAREHOUSE_TABLE, None, True),
+            (
+                "fallback_type_with_wrong_parent",
+                ResourceType.WAREHOUSE_TABLE,
+                Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="5"),
+                True,
+            ),
+            (
+                "parent_on_a_type_without_one",
+                ResourceType.DASHBOARD,
+                Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id="5"),
+                True,
+            ),
+            (
+                "fallback_type_with_no_source",
+                ResourceType.WAREHOUSE_TABLE,
+                Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id=None),
+                False,
+            ),
+            (
+                "fallback_type_with_source",
+                ResourceType.WAREHOUSE_TABLE,
+                Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id="5"),
+                False,
+            ),
+            ("type_without_a_parent", ResourceType.DASHBOARD, None, False),
         ]
     )
-    def test_warehouse_table_without_its_parent_raises(self, _name: str, parent: Parent | None) -> None:
-        resource = Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=self.team.id, parent=parent)
+    def test_parent_checks_match_v1(
+        self, _name: str, resource_type: ResourceType, parent: Parent | None, raises: bool
+    ) -> None:
+        resource = Resource(type=resource_type, id="1", project_id=self.team.id, parent=parent)
+        ref = ObjectAccessRef(
+            resource=resource_type.value,
+            id="1",
+            team_id=self.team.id,
+            created_by_id=None,
+            fallback_parent=FallbackParent(resource=parent.type.value, id=parent.id) if parent else None,
+        )
+        access = UserAccessControl(self.user, self.team)
 
-        with pytest.raises(ValueError, match="falls back to|fallback_parent"):
-            authorization.check(resource=resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
+        def outcome(call: Callable[[], bool]) -> bool | str:
+            try:
+                return call()
+            except ValueError:
+                return "raises"
+
+        sdk = outcome(
+            lambda: authorization.check(resource=resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
+        )
+        v1 = outcome(lambda: access.check_access_level_for_ref(ref, "viewer"))
+
+        assert sdk == v1
+        assert (sdk == "raises") is raises
+
+    @parameterized.expand(
+        [
+            ("no_parent", None),
+            ("matching_parent", Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id="5")),
+        ]
+    )
+    def test_category_check_on_a_fallback_type_matches_v1(self, _name: str, parent: Parent | None) -> None:
+        self._rule("warehouse_table", "none")
+        category = Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=self.team.id, parent=parent)
+
+        allowed = authorization.check(resource=category, action=Action.VIEW, subject=Subject(user_id=self.user.id))
+
+        assert allowed == UserAccessControl(self.user, self.team).check_access_level_for_resource(
+            "warehouse_table", "viewer"
+        )
 
     def test_check_without_a_subject_reads_the_user_that_authentication_set(self) -> None:
         self._rule("dashboard", "none", str(self.dashboard.id), member=True)
@@ -438,6 +501,30 @@ class TestCheckMatchesCurrentRules(BaseTest):
             ),
             ("action_without_a_level", {"action": Action.JOIN}, ValueError),
             ("no_project", {"resource": Resource(type=ResourceType.DASHBOARD, id="1")}, ValueError),
+            (
+                "warehouse_table_without_parent_in_a_missing_team",
+                {"resource": Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=1)},
+                ValueError,
+            ),
+            (
+                "warehouse_table_without_parent_for_an_unknown_user",
+                {
+                    "resource": Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=1),
+                    "subject": Subject(user_id=999999),
+                },
+                ValueError,
+            ),
+            (
+                "category_with_a_parent_of_another_type",
+                {
+                    "resource": Resource(
+                        type=ResourceType.WAREHOUSE_TABLE,
+                        project_id=1,
+                        parent=Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="1"),
+                    )
+                },
+                ValueError,
+            ),
             ("context", {"context": Context(channel="mcp")}, NotImplementedError),
             ("api_key_subject", {"subject": Subject(api_key_id="key")}, NotImplementedError),
         ]
