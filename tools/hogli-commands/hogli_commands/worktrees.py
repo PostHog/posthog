@@ -37,7 +37,7 @@ from pathlib import Path
 import click
 from hogli.manifest import REPO_ROOT
 
-from .devbox import mutagen
+from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
@@ -520,6 +520,63 @@ def _box_last_used(workspace: Mapping[str, object]) -> float | None:
 
 
 def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
+    hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
+    coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
+    if hogland_boxes:
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before)
+    if coder_boxes:
+        _clean_coder_boxes(coder_boxes, box_action, idle_before)
+
+
+def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+    try:
+        hogland.ensure_cli()
+        devboxes = hogland.fetch_devboxes()
+    except SystemExit:
+        names = " ".join(box.workspace for box in boxes)
+        click.echo(f"  ⚠️  could not reach Hogland, so these devboxes were left as they are: {names}")
+        return
+    handled: list[Path] = []
+    for box in boxes:
+        devbox = get_workspace(box.workspace, devboxes)
+        if devbox is None:
+            click.echo(f"  {box.workspace} no longer exists.")
+            hogland.forget_ssh_entry(box.workspace)
+            handled.append(box.worktree_path)
+            continue
+        if not box.record.owns(devbox):
+            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
+            handled.append(box.worktree_path)
+            continue
+        last_used = _box_last_used(devbox)
+        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+            click.echo(
+                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
+            )
+            continue
+        try:
+            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+        except SystemExit:
+            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+        try:
+            if box_action == "delete":
+                click.echo(f"Deleting Hogland devbox {box.workspace}...")
+                hogland.delete(box.workspace)
+                hogland.forget_ssh_entry(box.workspace)
+            elif devbox["status"] == "running":
+                click.echo(f"Hibernating Hogland devbox {box.workspace}...")
+                hogland.hibernate(box.workspace)
+            else:
+                click.echo(f"  {box.workspace} is already {devbox['status']}.")
+        except SystemExit:
+            command = "delete" if box_action == "delete" else "hibernate"
+            click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
+            continue
+        handled.append(box.worktree_path)
+    forget_worktree_boxes(handled)
+
+
+def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:

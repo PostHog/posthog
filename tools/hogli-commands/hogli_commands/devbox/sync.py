@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import Any
 
 import click
 
-from . import mutagen
+from . import hogland, mutagen
 from .cli import _workspace_arg_suffix, resolve_workspace_name, workspace_argument
 from .coder import _fail, ensure_runtime_ready, get_workspace, get_workspace_status, run_in_workspace
 
@@ -84,6 +85,26 @@ class BoxGitState:
     dirty: bool
 
 
+@dataclass(frozen=True)
+class BoxShell:
+    repo_path: str
+    run: Callable[[list[str], float], subprocess.CompletedProcess[str]]
+
+
+def _coder_shell(workspace: str) -> BoxShell:
+    return BoxShell(
+        repo_path=_REMOTE_REPO_PATH,
+        run=lambda command, timeout: run_in_workspace(workspace, command, timeout=timeout),
+    )
+
+
+def _hogland_shell(name: str) -> BoxShell:
+    return BoxShell(
+        repo_path=hogland.REMOTE_REPO_PATH,
+        run=lambda command, timeout: hogland.run_in_devbox(name, command, timeout=timeout),
+    )
+
+
 class BoxCheckoutAction(Enum):
     SKIP = "skip"
     MATCHES = "matches"
@@ -139,17 +160,16 @@ def _read_local_head(local_path: Path) -> GitHead | None:
     return GitHead(branch=lines[1], sha=lines[0])
 
 
-def _run_box_script(workspace: str, script: str, *args: str) -> subprocess.CompletedProcess[str] | None:
+def _run_box_script(shell: BoxShell, script: str, *args: str) -> subprocess.CompletedProcess[str] | None:
+    script = script.replace(_REMOTE_REPO_PATH, shell.repo_path)
     try:
-        return run_in_workspace(
-            workspace, ["bash", "-c", script, "hogli-sync", *args], timeout=_REMOTE_GIT_TIMEOUT_SECONDS
-        )
+        return shell.run(["bash", "-c", script, "hogli-sync", *args], _REMOTE_GIT_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         return None
 
 
-def _probe_box_state(workspace: str) -> BoxGitState | None:
-    result = _run_box_script(workspace, _PROBE_BOX_HEAD_SCRIPT)
+def _probe_box_state(shell: BoxShell) -> BoxGitState | None:
+    result = _run_box_script(shell, _PROBE_BOX_HEAD_SCRIPT)
     if result is None or result.returncode != 0:
         return None
     lines = result.stdout.split()
@@ -158,7 +178,9 @@ def _probe_box_state(workspace: str) -> BoxGitState | None:
     return BoxGitState(head=GitHead(branch=lines[0], sha=lines[1]), dirty=lines[2] != "0")
 
 
-def _align_box_checkout(workspace: str, local_path: Path, requested: bool | None) -> None:
+def _align_box_checkout(
+    workspace: str, local_path: Path, requested: bool | None, shell: BoxShell | None = None
+) -> None:
     """Put the box on the local branch and commit before the first mirror is created.
 
     A one-way-safe mirror has no common ancestor on its first scan, so every
@@ -170,6 +192,7 @@ def _align_box_checkout(workspace: str, local_path: Path, requested: bool | None
     """
     if requested is False:
         return
+    shell = shell or _coder_shell(workspace)
 
     def give_up(message: str) -> None:
         if requested:
@@ -180,7 +203,7 @@ def _align_box_checkout(workspace: str, local_path: Path, requested: bool | None
     if local is None:
         give_up("Couldn't read the local branch, so the devbox checkout was left as is.")
         return
-    box = _probe_box_state(workspace)
+    box = _probe_box_state(shell)
     if box is None:
         give_up("Couldn't read the devbox's git state, so its checkout was left as is.")
         return
@@ -196,7 +219,7 @@ def _align_box_checkout(workspace: str, local_path: Path, requested: bool | None
         return
 
     click.echo(f"Devbox is on {box.head.describe()}. Checking out {local.describe()} there first...")
-    result = _run_box_script(workspace, _CHECKOUT_SCRIPT, local.branch, local.sha)
+    result = _run_box_script(shell, _CHECKOUT_SCRIPT, local.branch, local.sha)
     returncode = None if result is None else result.returncode
     if returncode == 0:
         click.echo("Devbox checkout matches local.")
@@ -440,3 +463,27 @@ def _ensure_workspace_running(name: str, workspaces: list[dict[str, Any]] | None
     status = get_workspace_status(workspace)
     if status != "running":
         _fail(f"Devbox '{name}' is {status}, not running. Run `hogli devbox:start` first.")
+
+
+def ensure_hogland_sync_session(
+    name: str, local_path: Path, *, checkout_branch: bool | None = None, verbose: bool = False
+) -> None:
+    if sync_session_exists(name, verbose=verbose):
+        click.echo(f"Sync already running for {name}.")
+        return
+    create_hogland_sync_session(name, local_path, checkout_branch)
+    click.echo("Sync created. Initial scan and copy may take a few minutes for large checkouts.")
+
+
+def create_hogland_sync_session(name: str, local_path: Path, checkout_branch: bool | None = None) -> None:
+    config_path = mutagen.ensure_user_mutagen_config()
+    _align_box_checkout(name, local_path, checkout_branch, shell=_hogland_shell(name))
+    destination = f"{hogland.ssh_alias(name)}:{hogland.REMOTE_REPO_PATH}"
+    click.echo(f"Creating sync: {local_path} -> {destination}")
+    mutagen.sync_create(
+        name=f"ph-{name}",
+        src=str(local_path),
+        dst=destination,
+        config_path=config_path,
+        labels=mutagen.workspace_labels(name),
+    )

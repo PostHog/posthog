@@ -20,6 +20,7 @@ from typing import Any
 import click
 
 from .coder import _fail
+from .hogland import ssh_config_path as hogland_ssh_config_path
 
 _MANAGED_MUTAGEN_DIR = Path.home() / ".hogli" / "bin"
 _MUTAGEN_VERSION = "0.18.1"
@@ -42,7 +43,7 @@ _KEEPALIVE_COUNT = 3
 _CONNECT_TIMEOUT_SECONDS = 60
 
 # Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
-# a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
+# a devbox (a `coder.*` or `hogland.*` host -- the only things hogli syncs to) do we bump
 # mutagen's count and turn off autostart; every other invocation passes through untouched, so a shared
 # daemon's non-devbox syncs are unaffected. Execs the real ssh/scp by absolute
 # path so a shim-dir entry on PATH can never make the shim re-invoke itself.
@@ -51,15 +52,21 @@ _SHIM_TEMPLATE = """#!/usr/bin/env bash
 # Raises mutagen's intolerant `-oServerAliveCountMax=1` for devbox (coder.*)
 # connections so the sync survives a Tailscale/DERP path reset instead of dying
 # with a broken pipe, and stops those connections from starting a stopped box.
+# hogland.* hosts resolve through hogli's own ssh config, so they get -F.
 # Any non-devbox ssh is passed through unchanged.
 devbox=
+hogland=
 for a in "$@"; do
-  case "$a" in coder.*|*@coder.*) devbox=1 ;; esac
+  case "$a" in
+  coder.*|*@coder.*) devbox=1 ;;
+  hogland.*|*@hogland.*) devbox=1; hogland=1 ;;
+  esac
 done
 if [ -n "$devbox" ]; then
   export CODER_SSH_DISABLE_AUTOSTART=true
 fi
 args=()
+[ -n "$hogland" ] && args+=(-F "{hogland_config}")
 for a in "$@"; do
   case "$a" in
   -oConnectTimeout=*) [ -n "$devbox" ] && a="-oConnectTimeout={connect_timeout}" ;;
@@ -284,6 +291,7 @@ def ensure_ssh_shim() -> Path:
             count=_KEEPALIVE_COUNT,
             connect_timeout=_CONNECT_TIMEOUT_SECONDS,
             real=_resolve_real_ssh(name),
+            hogland_config=hogland_ssh_config_path(),
         )
         if not target.exists() or target.read_text() != content:
             _write_owner_only(target, content)

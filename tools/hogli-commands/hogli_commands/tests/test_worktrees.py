@@ -478,6 +478,55 @@ class TestWorktreeBoxes:
         assert devbox_config.load_worktree_boxes() == ({str(tmp_path / "a"): box_a} if kept else {})
 
     @pytest.mark.parametrize(
+        ("action", "status", "expected_calls"),
+        [
+            ("delete", "running", [("hogland-delete", "wt-a"), ("coder-delete", "devbox-test-user-b")]),
+            ("stop", "running", [("hogland-hibernate", "wt-a"), ("coder-stop", "devbox-test-user-b")]),
+            ("stop", "hibernated", [("coder-stop", "devbox-test-user-b")]),
+        ],
+        ids=["delete", "stop-hibernates", "stop-already-hibernated"],
+    )
+    def test_routes_each_box_to_its_own_provider(
+        self, tmp_path, monkeypatch, registry_path, action, status, expected_calls
+    ) -> None:
+        calls: list[tuple[str, str]] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            worktrees,
+            "fetch_user_workspaces",
+            lambda: [{"name": "devbox-test-user-b", "id": "id-b", "status": "running"}],
+        )
+        monkeypatch.setattr(worktrees, "get_workspace_status", lambda ws: ws["status"])
+        monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("coder-delete", name)))
+        monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("coder-stop", name)))
+        monkeypatch.setattr(worktrees.hogland, "ensure_cli", lambda: None)
+        monkeypatch.setattr(
+            worktrees.hogland, "fetch_devboxes", lambda: [{"name": "wt-a", "id": "created-a", "status": status}]
+        )
+        monkeypatch.setattr(worktrees.hogland, "delete", lambda name: calls.append(("hogland-delete", name)))
+        monkeypatch.setattr(worktrees.hogland, "hibernate", lambda name: calls.append(("hogland-hibernate", name)))
+        monkeypatch.setattr(worktrees.hogland, "forget_ssh_entry", lambda name: None)
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+        devbox_config.record_worktree_box(
+            tmp_path / "a",
+            devbox_config.WorktreeBoxRecord(
+                workspace="wt-a", git_dir="admin", workspace_id="created-a", provider="hogland"
+            ),
+        )
+        devbox_config.record_worktree_box(tmp_path / "b", _box("devbox-test-user-b", workspace_id="id-b"))
+
+        _clean_worktree_boxes(
+            [
+                WorktreeBox(worktree_path=Path(path), record=record)
+                for path, record in devbox_config.load_worktree_boxes().items()
+            ],
+            action,
+        )
+
+        assert calls == expected_calls
+        assert devbox_config.load_worktree_boxes() == {}
+
+    @pytest.mark.parametrize(
         "listed",
         [[{"name": "devbox-test-user-a", "id": "id-a"}], None],
         ids=["delete-fails", "listing-fails"],
