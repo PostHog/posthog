@@ -2984,6 +2984,7 @@ class TestIntegrationAPIKeyAccess:
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
+        assert response.json()["next"] is None and response.json()["previous"] is None
         mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
 
         # Lookups are cached per id — hits and misses alike — so repeated probes can't spend the
