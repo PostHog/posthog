@@ -4056,6 +4056,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         "signals.SignalTrialGrant",
         on_delete=models.PROTECT,
         db_constraint=False,
+        db_index=False,
         null=True,
         blank=True,
         related_name="+",
@@ -4073,7 +4074,10 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"

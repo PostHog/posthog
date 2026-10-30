@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 db_constraint=False,
+                db_index=False,
                 null=True,
                 on_delete=django.db.models.deletion.PROTECT,
                 related_name="+",
