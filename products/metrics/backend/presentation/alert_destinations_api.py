@@ -22,8 +22,9 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
+from posthog.integrations import IntegrationManager
 from posthog.models import User
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.alerts.backend.facade.destinations import (
@@ -263,12 +264,9 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
         # Native delivery looks the workspace up by team and kind, so a destination naming any other
         # integration would be saved and never notify.
-        if (
-            data["type"] == DestinationType.SLACK
-            and not Integration.objects.filter(
-                id=data["slack_workspace_id"], team_id=self.team_id, kind__in=SLACK_INTEGRATION_KINDS
-            ).exists()
-        ):
+        if data["type"] == DestinationType.SLACK and data["slack_workspace_id"] not in IntegrationManager.kinds(
+            *SLACK_INTEGRATION_KINDS, auth_types="any"
+        ).get_many(self.team_id, [data["slack_workspace_id"]]):
             raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
         try:
             with transaction.atomic():
