@@ -158,3 +158,4 @@ map to verdicts. Use these to calibrate your interpretation of query results.
 - **`diagnosing-sdk-health`** — an outdated SDK is a common root cause and blunts the diagnostic signals
 - **`finding-sessions-to-watch`** — once capture works, pick the sessions worth watching
 - **`investigating-replay`** — analyze the recording once it exists
+- **`diagnosing-replay-capture-gaps`** — a recording exists but parts of the session are missing from it

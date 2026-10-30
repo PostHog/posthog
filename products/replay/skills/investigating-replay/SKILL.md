@@ -250,4 +250,6 @@ leaves a scheduled sweep behind that the inline scan does not.
 - **`finding-sessions-to-watch`** — choose which sessions are worth investigating in the first place
 - **`finding-replay-for-issue`** — start from an error tracking issue and find its linked recordings
 - **`diagnosing-missing-recordings`** — when a recording that should exist doesn't
+- **`diagnosing-replay-rendering`** — the recording plays back wrong (black or blank screens, missing styles, canvas, iframes)
+- **`diagnosing-replay-capture-gaps`** — parts of the session are missing from the recording
 - **`creating-replay-vision-scanners`** — automate this kind of watching as a scheduled scanner
