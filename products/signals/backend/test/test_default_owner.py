@@ -7,9 +7,12 @@ from django.apps import apps
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.default_owner import assign_default_owner, resolve_default_owner
 from products.signals.backend.models import (
     SignalReport,
@@ -19,7 +22,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
 )
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 
 class TestDefaultOwner(BaseTest):
@@ -27,10 +30,19 @@ class TestDefaultOwner(BaseTest):
         super().setUp()
         self.report = SignalReport.objects.create(team=self.team, status="ready", title="A report")
 
-    def _member(self, email: str, *, active: bool = True) -> User:
+    def _member(self, email: str, *, active: bool = True, level: int = OrganizationMembership.Level.MEMBER) -> User:
         user = User.objects.create(email=email, is_active=active)
-        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        OrganizationMembership.objects.create(user=user, organization=self.organization, level=level)
         return user
+
+    def _make_project_private(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
 
     def _activated_by(self, user: User) -> None:
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"onboarding": {"activated_by": user.pk}})
@@ -76,21 +88,25 @@ class TestDefaultOwner(BaseTest):
 
     @parameterized.expand(
         [
-            ("scout_owner_before_activator", True, True, "scout"),
-            ("activator_before_enabler", False, True, "activator"),
-            ("enabler_when_activator_is_deactivated", False, False, "enabler"),
+            ("skill_owner_before_whoever_enabled_the_scout", True, True, True, "skill_owner"),
+            ("scout_owner_before_activator", True, False, True, "scout"),
+            ("activator_before_enabler", False, False, True, "activator"),
+            ("enabler_when_activator_is_deactivated", False, False, False, "enabler"),
         ]
     )
     def test_picks_the_first_eligible_candidate(
-        self, _name: str, from_scout: bool, activator_active: bool, expected: str
+        self, _name: str, from_scout: bool, scout_has_owner: bool, activator_active: bool, expected: str
     ) -> None:
         people = {
+            "skill_owner": self._member("skill-owner@example.com"),
             "scout": self._member("scout-owner@example.com"),
             "activator": self._member("activator@example.com", active=activator_active),
             "enabler": self._member("enabler@example.com"),
         }
         if from_scout:
             self._authored_by_scout_of(people["scout"])
+        if scout_has_owner:
+            LLMSkillOwner.objects.create(team=self.team, skill_name="signals-scout-general", user=people["skill_owner"])
         self._activated_by(people["activator"])
         self._enabled_source(people["enabler"])
 
@@ -98,6 +114,31 @@ class TestDefaultOwner(BaseTest):
 
         assert owner is not None
         assert owner.id == people[expected].id
+
+    def test_falls_through_to_an_admin_when_the_enabler_cannot_see_the_project(self) -> None:
+        self._make_project_private()
+        enabler = self._member("enabler@example.com")
+        self._member("admin@example.com", level=OrganizationMembership.Level.ADMIN)
+        self._enabled_source(enabler)
+
+        owner = resolve_default_owner(self.team, str(self.report.id))
+
+        assert owner is not None
+        assert owner.id != enabler.id
+
+    def test_assigns_an_owner_outside_team_scope(self) -> None:
+        self._authored_by_scout_of(self._member("scout-owner@example.com"))
+        self._reviewers([])
+        token = set_current_team_id(None)
+
+        try:
+            with patch("products.signals.backend.default_owner.default_owner_fallback_enabled", return_value=True):
+                assert assign_default_owner(self.team, str(self.report.id)) is True
+        finally:
+            reset_current_team_id(token)
+
+        (entry,) = self._latest_reviewers()
+        assert entry["is_default_owner"] is True
 
     @parameterized.expand([("legacy_writer", False), ("protected_writer", True)])
     def test_routes_a_report_with_no_reviewers_to_the_default_owner(self, _name: str, writer_enabled: bool) -> None:

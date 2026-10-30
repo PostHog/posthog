@@ -148,9 +148,9 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     # Before the card goes out, so the Slack card and "For you" both name the default owner. The
-    # "new report" push already went out on `first_visible_at`, when the report still had nobody, so
-    # a successful assignment queues it again; the per-user cooldown keeps the earlier recipients
-    # from getting a second one. Guarded because the fallback is supplementary, the same way as the
+    # "new report" push is queued on `first_visible_at` instead, when the report still had nobody,
+    # so an assignment queues that push again. Its per-user cooldown stops a second push to anyone
+    # it already reached. Guarded because the fallback is supplementary, the same way as the
     # support write-back below.
     try:
         if assign_default_owner(team, report_id):
