@@ -598,6 +598,31 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == expected_status
 
+    def test_fingerprint_list_pages_one_issue_in_sql(self) -> None:
+        issue = self.create_issue(fingerprints=["first", "second", "third"])
+        self.create_issue(fingerprints=["other_issue"])
+        for day, fingerprint in enumerate(["first", "second", "third"], start=1):
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, fingerprint=fingerprint).update(
+                created_at=datetime(2025, 1, day, tzinfo=UTC)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/fingerprints",
+                data={"issue_id": str(issue.id), "limit": 1, "offset": 1},
+            )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["count"] == 3
+        assert [row["fingerprint"] for row in body["results"]] == ["second"]
+        assert body["next"] is not None
+        fingerprint_table = ErrorTrackingIssueFingerprintV2._meta.db_table
+        assert any(
+            fingerprint_table in query["sql"] and "LIMIT 1" in query["sql"].upper()
+            for query in queries.captured_queries
+        )
+
     def test_fingerprint_resolve_is_scoped_to_team(self):
         other_team = Team.objects.create(organization=self.organization)
         other_issue = ErrorTrackingIssue.objects.create(team=other_team)
@@ -1462,6 +1487,16 @@ class TestErrorTracking(APIBaseTest):
         )
 
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+
+        # one-row pages walk the team's frames without skipping or repeating one
+        pages = [
+            self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/stack_frames", data={"limit": 1, "offset": offset}
+            ).json()
+            for offset in range(2)
+        ]
+        self.assertEqual([page["count"] for page in pages], [2, 2])
+        self.assertEqual({page["results"][0]["raw_id"] for page in pages}, {"raw_id/0", "other_raw_id/0"})
 
         # it only fetches stack traces for the specified team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")

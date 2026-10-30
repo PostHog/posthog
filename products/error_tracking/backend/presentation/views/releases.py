@@ -1,9 +1,12 @@
+from typing import cast
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
@@ -11,7 +14,6 @@ from products.error_tracking.backend.facade import (
     api as error_tracking_api,
     contracts,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 MAX_HASH_ID_LENGTH = 128
 RELEASE_HASH_IN_USE_ERROR_CODE = "release_hash_in_use"
@@ -63,6 +65,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "error_tracking"
     scope_object_read_actions = ["list", "retrieve", "by_hash"]
     serializer_class = ErrorTrackingReleaseSerializer
+    pagination_class = FacadeLimitOffsetPagination
 
     def _validated_hash_id(self, hash_id) -> str | None:
         if not hash_id:
@@ -73,10 +76,8 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return hash_id
 
     def list(self, request, *args, **kwargs) -> Response:
-        return paginate_via_facade(
-            self,
-            request,
-            lambda limit, offset: error_tracking_api.list_releases(self.team.id, limit=limit, offset=offset),
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
+            request, self, lambda page: error_tracking_api.list_releases(self.team.id, page=page)
         )
 
     def retrieve(self, request, *args, pk=None, **kwargs) -> Response:

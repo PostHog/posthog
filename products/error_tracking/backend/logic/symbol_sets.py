@@ -13,7 +13,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -420,9 +420,7 @@ def list_symbol_sets(
     search: str | None,
     symbol_set_status: str | None,
     order_by: str | None,
-    limit: int | None,
-    offset: int,
-) -> tuple[list[ErrorTrackingSymbolSet], int]:
+) -> QuerySet[ErrorTrackingSymbolSet]:
     queryset = ErrorTrackingSymbolSet.objects.filter(team_id=team_id).select_related("release")
 
     if ref:
@@ -443,11 +441,7 @@ def list_symbol_sets(
     elif symbol_set_status == "invalid":
         queryset = queryset.filter(storage_ptr__isnull=True)
 
-    queryset = queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
-
-    total = queryset.count()
-    rows = queryset if limit is None else queryset[offset : offset + limit]
-    return list(rows), total
+    return queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
 
 
 def get_symbol_set(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet | None:

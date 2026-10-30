@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
@@ -29,7 +30,6 @@ from products.error_tracking.backend.facade import (
     issues as issues_facade,
     summaries as summaries_facade,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceResultSerializer,
 )
@@ -336,6 +336,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "summary_regenerate",
     ]
     serializer_class = ErrorTrackingIssueReadSerializer
+    pagination_class = FacadeLimitOffsetPagination
 
     def _report_issue_change(self, request: request.Request, action: str, properties: dict[str, object]) -> None:
         # Captured server-side because the frontend issue events only see the web app.
@@ -349,10 +350,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         )
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        return paginate_via_facade(
-            self,
-            request,
-            lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
+            request, self, lambda page: facade_api.list_issues_detailed(self.team.id, page=page)
         )
 
     @extend_schema(

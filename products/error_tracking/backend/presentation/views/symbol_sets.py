@@ -1,12 +1,15 @@
+from typing import cast
+
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import pagination, serializers, status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -16,7 +19,6 @@ from products.error_tracking.backend.facade import (
     contracts,
     symbol_sets as symbol_sets_facade,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS = 1000
 
@@ -203,7 +205,7 @@ class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
     )
 
 
-class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
+class ErrorTrackingSymbolSetPagination(FacadeLimitOffsetPagination):
     max_limit = 100
 
 
@@ -232,17 +234,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         query = ErrorTrackingSymbolSetListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = dict(query.validated_data)
-        return paginate_via_facade(
-            self,
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda limit, offset: symbol_sets_facade.list_symbol_sets(
+            self,
+            lambda page: symbol_sets_facade.list_symbol_sets(
                 self.team.id,
                 ref=params.get("ref"),
                 search=params.get("search"),
                 symbol_set_status=params.get("status"),
                 order_by=params.get("order_by"),
-                limit=limit,
-                offset=offset,
+                page=page,
             ),
         )
 

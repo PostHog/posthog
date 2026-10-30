@@ -6,7 +6,9 @@ stay off the django.setup() path of the read-oriented main facade.
 
 from typing import Any
 
+from posthog.api.pagination import select_page
 from posthog.event_usage import AnalyticsProps
+from posthog.paging import Page, PageRequest
 
 from ..logic import symbol_sets as _logic
 from . import contracts
@@ -46,19 +48,16 @@ def list_symbol_sets(
     search: str | None,
     symbol_set_status: str | None,
     order_by: str | None,
-    limit: int | None,
-    offset: int,
-) -> tuple[list[contracts.ErrorTrackingSymbolSet], int]:
-    rows, total = _logic.list_symbol_sets(
+    page: PageRequest,
+) -> Page[contracts.ErrorTrackingSymbolSet]:
+    queryset = _logic.list_symbol_sets(
         team_id,
         ref=ref,
         search=search,
         symbol_set_status=symbol_set_status,
         order_by=order_by,
-        limit=limit,
-        offset=offset,
     )
-    return [_to_symbol_set(row) for row in rows], total
+    return select_page(queryset, page).map(_to_symbol_set)
 
 
 def get_symbol_set(team_id: int, symbol_set_id: str) -> contracts.ErrorTrackingSymbolSet | None:
