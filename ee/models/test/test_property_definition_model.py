@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 from django.db import connection
 from django.utils import timezone
 
+from posthog.models import User
+
 from products.event_definitions.backend.models.enterprise_copies import PROPERTY_DEFINITION_COPIED_FIELDS
 
 from ee.models.property_definition import EnterprisePropertyDefinition
@@ -46,3 +48,20 @@ class TestPropertyDefinition(BaseTest):
         assert saved.description == "second"
         assert saved.hidden is False
         assert copies == tuple(saved.serializable_value(name) for name in PROPERTY_DEFINITION_COPIED_FIELDS)
+
+    def test_deleting_a_user_clears_their_id_from_the_base_copies(self):
+        other = User.objects.create_and_join(self.organization, "copied-user@example.com", None)
+        definition = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="owned definition", updated_by=other, verified_by=other
+        )
+
+        other.delete()
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT updated_by_id, verified_by_id FROM posthog_propertydefinition WHERE id = %s", [definition.pk]
+            )
+            assert cursor.fetchone() == (
+                None,
+                None,
+            )
