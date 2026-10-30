@@ -38,6 +38,35 @@ def validate_client_name(value: str) -> None:
             raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
+POSTHOG_OWNED_DOMAINS = ("posthog.com", "posthog.net", "posthog.dev")
+
+_NON_ALPHANUMERIC_RE = re.compile(r"[^a-z0-9]")
+
+
+def is_posthog_owned_host(host: str | None) -> bool:
+    host = (host or "").lower().rstrip(".")
+    return any(host == domain or host.endswith(f".{domain}") for domain in POSTHOG_OWNED_DOMAINS)
+
+
+def validate_cimd_client_name(value: str, client_id_host: str | None) -> None:
+    """Stricter than `validate_client_name`, for CIMD clients.
+
+    "PostHog" is blocked anywhere in the name, including split forms like "Post Hog", unless the
+    document is served from a PostHog-owned domain. The host is proven, because a CIMD client_id
+    is the URL PostHog fetched the document from. DCR keeps the starts-with rule, because MCP
+    clients name themselves after the server (for example "Claude Code (posthog)").
+    """
+    if not is_posthog_owned_host(client_id_host) and "posthog" in _NON_ALPHANUMERIC_RE.sub("", value.lower()):
+        raise serializers.ValidationError(
+            "Client name cannot contain 'PostHog' unless the metadata document is served from "
+            f"{', '.join(POSTHOG_OWNED_DOMAINS)}, or a subdomain of one of them"
+        )
+    lower_value = value.lower()
+    for word in BLOCKED_CLIENT_NAME_WORDS:
+        if word in lower_value:
+            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+
+
 def sanitize_client_name(value: str) -> str:
     """HTML-escape an untrusted client name so it is safe to render in any sink.
 

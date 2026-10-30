@@ -3,7 +3,13 @@ from unittest import TestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from posthog.api.oauth.client_name import CLIENT_NAME_MAX_LENGTH, sanitize_client_name, validate_client_name
+from posthog.api.oauth.client_name import (
+    CLIENT_NAME_MAX_LENGTH,
+    is_posthog_owned_host,
+    sanitize_client_name,
+    validate_cimd_client_name,
+    validate_client_name,
+)
 
 
 class TestSanitizeClientName(TestCase):
@@ -61,3 +67,55 @@ class TestValidateClientName(TestCase):
     )
     def test_accepts_valid_names(self, _name, value):
         validate_client_name(value)
+
+
+class TestValidateCimdClientName(TestCase):
+    @parameterized.expand(
+        [
+            ("prefix", "PostHog Client"),
+            ("suffix", "Claude for PostHog"),
+            ("middle_lowercase", "acme posthog sync"),
+            ("split_by_space", "Acme Post Hog"),
+            ("split_by_punctuation", "Acme Post-Hog"),
+            ("blocked_word", "Acme Trusted Client"),
+        ]
+    )
+    def test_rejects_on_other_domains(self, _name, value):
+        with self.assertRaises(serializers.ValidationError):
+            validate_cimd_client_name(value, "app.example.com")
+
+    @parameterized.expand(
+        [
+            ("apex", "posthog.com"),
+            ("subdomain", "artifacts.posthog.com"),
+            ("net", "posthog.net"),
+            ("dev", "x.posthog.dev"),
+        ]
+    )
+    def test_allows_posthog_on_posthog_owned_domains(self, _name, host):
+        validate_cimd_client_name("PostHog Artifacts", host)
+
+    def test_blocked_words_apply_on_posthog_owned_domains(self):
+        with self.assertRaises(serializers.ValidationError):
+            validate_cimd_client_name("PostHog Official", "posthog.com")
+
+    def test_accepts_unrelated_name(self):
+        validate_cimd_client_name("Acme Analytics", "app.example.com")
+
+
+class TestIsPosthogOwnedHost(TestCase):
+    @parameterized.expand(
+        [
+            ("apex", "posthog.com", True),
+            ("subdomain", "artifacts.posthog.com", True),
+            ("uppercase_and_trailing_dot", "Artifacts.PostHog.com.", True),
+            ("net", "posthog.net", True),
+            ("dev", "posthog.dev", True),
+            ("lookalike", "evilposthog.com", False),
+            ("posthog_label_on_other_domain", "posthog.com.example.com", False),
+            ("other_tld", "posthog.io", False),
+            ("missing", None, False),
+        ]
+    )
+    def test_host(self, _name, host, expected):
+        self.assertEqual(is_posthog_owned_host(host), expected)

@@ -25,6 +25,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
+from rest_framework import serializers
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
@@ -37,11 +38,11 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import filter_to_unprivileged_scopes
+from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
 from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
-from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
-from .client_name import sanitize_client_name, validate_client_name
+from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
 
 if TYPE_CHECKING:
@@ -271,7 +272,11 @@ def fetch_client_json_document(
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
     verdict = validate_url_and_pin_ips(url)
     if not verdict.allowed:
-        raise CIMDValidationError(f"URL blocked: {verdict.reason}")
+        # These messages reach the client, so they never echo the resolved address: that would
+        # make this fetch an oracle for what a host resolves to inside our network.
+        if verdict.reason == UNRESOLVED_HOST_REASON:
+            raise CIMDValidationError(f"{what} host name does not resolve")
+        raise CIMDValidationError(f"{what} host is not a public internet address")
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
@@ -296,7 +301,15 @@ def fetch_client_json_document(
         )
     except requests.RequestException as e:
         session.close()
-        raise CIMDFetchError(f"Failed to fetch {what}: {e}") from e
+        # The exception text can carry the pinned IP and connection internals, so the client
+        # gets the kind of failure and the full exception stays on the chained cause.
+        if isinstance(e, requests.Timeout):
+            raise CIMDFetchError(f"{what} fetch timed out after {CIMD_FETCH_TIMEOUT_SECONDS} seconds") from e
+        if isinstance(e, requests.exceptions.SSLError):
+            raise CIMDFetchError(f"{what} fetch failed: the TLS certificate could not be verified") from e
+        if isinstance(e, requests.ConnectionError):
+            raise CIMDFetchError(f"{what} fetch failed: could not connect") from e
+        raise CIMDFetchError(f"{what} fetch failed") from e
 
     try:
         if response.is_redirect or response.is_permanent_redirect:
@@ -511,7 +524,8 @@ def _capture_verification_rejected(
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
     is absent so callers leave existing scopes untouched. A present field returns a
-    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
+    (possibly empty) list, capped to grantable scopes by `filter_self_registered_ceiling`. A list of
+    only OIDC identity scopes is a sign-in-only client and keeps them as its ceiling.
 
     Raises CIMDValidationError when the field is present and non-empty but every entry is
     non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
@@ -527,13 +541,21 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
-    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    filtered = filter_self_registered_ceiling(raw_scopes)
     if raw_scopes and not filtered:
         raise CIMDValidationError(
-            "None of the declared com.posthog.scopes are available to self-registered clients. "
-            "Remove the field to register with the default scope set."
+            f"com.posthog.scopes has no scope a CIMD client can be granted ({_describe_declared(raw_scopes)}). "
+            f"Use scopes from scopes_supported in the authorization server metadata, list only "
+            f"{', '.join(OIDC_SCOPES)} for a sign-in-only client, or remove the field to use the default scope set"
         )
     return filtered
+
+
+def _describe_declared(values: list) -> str:
+    """Echo partner-declared values back in an error, bounded so a hostile document can't inflate it."""
+    shown = [str(value)[:64] for value in values[:10]]
+    more = f", and {len(values) - 10} more" if len(values) > 10 else ""
+    return ", ".join(shown) + more
 
 
 def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -626,11 +648,14 @@ def _create_cimd_application(
     ``allow_confidential`` is the caller's only say in whether a declared private_key_jwt is
     honored on creation; see ``_resolve_client_authentication``.
     """
-    client_name = metadata.get("client_name", "CIMD Client")
-    try:
-        validate_client_name(client_name)
-    except Exception:
+    client_name = metadata.get("client_name")
+    if not isinstance(client_name, str) or not client_name:
         client_name = "CIMD Client"
+    else:
+        try:
+            validate_cimd_client_name(client_name, urlparse(url).hostname)
+        except serializers.ValidationError as e:
+            raise CIMDValidationError(f"client_name is not allowed: {' '.join(str(d) for d in e.detail)}") from e
     # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
     client_name = sanitize_client_name(client_name)
 
@@ -719,7 +744,7 @@ def _update_cimd_application(
     client_name = metadata.get("client_name")
     if client_name:
         try:
-            validate_client_name(client_name)
+            validate_cimd_client_name(client_name, urlparse(app.client_id).hostname)
             app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
@@ -916,7 +941,7 @@ def fetch_and_upsert_cimd_application(
                 },
             )
             return new_app
-        except (IntegrityError, ValidationError):
+        except (IntegrityError, ValidationError) as e:
             app = OAuthApplication.objects.filter(client_id=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
@@ -924,6 +949,8 @@ def fetch_and_upsert_cimd_application(
                 # document, so the declaration in it still speaks for this client.
                 _register_partner_if_declared(app, metadata, register_provisioning=register_provisioning)
                 return app
+            if isinstance(e, ValidationError):
+                raise CIMDValidationError(f"Metadata document was rejected: {_describe_validation_error(e)}") from e
             raise
     finally:
         cache.delete(fetch_lock)
