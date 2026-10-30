@@ -911,13 +911,15 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects):
+@pytest.mark.parametrize("researching", [False, True])
+async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects, researching):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.READY,
+        status=SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.READY,
         total_weight=2,
         signal_count=2,
         signals_researched=2,
+        pending_triggering_signal_id=uuid.uuid4() if researching else None,
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
     input_.sync_with_source = True
@@ -925,9 +927,11 @@ async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(atea
     result = await assign_and_emit_signal_activity(input_)
 
     assert result.report_id == str(report.id)
-    assert result.promoted is True
+    assert result.promoted is not researching
     await database_sync_to_async(report.refresh_from_db)()
-    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.status == (SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.CANDIDATE)
+    if researching:
+        assert str(report.pending_triggering_signal_id) == input_.signal_id
     events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
     assert "signal_source_report_refresh_requested" in events
     refresh = next(

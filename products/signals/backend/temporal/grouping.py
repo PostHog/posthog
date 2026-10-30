@@ -1024,10 +1024,13 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
-            if (
-                report.status == SignalReport.Status.IN_PROGRESS
-                and report.pending_triggering_signal_id is None
-                and (source_refresh or (pending_bucket is not None and report.signal_count >= pending_bucket))
+            if report.status == SignalReport.Status.IN_PROGRESS and (
+                source_refresh
+                or (
+                    report.pending_triggering_signal_id is None
+                    and pending_bucket is not None
+                    and report.signal_count >= pending_bucket
+                )
             ):
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])

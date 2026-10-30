@@ -758,6 +758,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
@@ -1099,6 +1100,7 @@ class MarkReportReadyInput:
     title: str
     summary: str
     processed_signal_count: int
+    processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
@@ -1250,9 +1252,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # bucket is strictly above what this run processed, so reaching it also means new
             # signals arrived. A pending source refresh needs research even between buckets.
             bucket = next_research_bucket(report.researched_signal_count)
-            has_new_signals = report.pending_triggering_signal_id is not None or (
-                bucket is not None and report.signal_count >= bucket
+            has_pending_refresh = (
+                report.pending_triggering_signal_id is not None
+                and str(report.pending_triggering_signal_id) != input.processed_pending_signal_id
             )
+            has_new_signals = has_pending_refresh or (bucket is not None and report.signal_count >= bucket)
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals

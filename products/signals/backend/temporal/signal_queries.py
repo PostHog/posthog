@@ -610,9 +610,10 @@ class FetchSignalsForReportInput:
     report_id: str
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
+    processed_pending_signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -630,6 +631,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
 
         signals = [_parse_signal_row(row) for row in (result.results or [])]
+        pending_id = await (
+            SignalReport.objects.using("default")
+            .filter(team_id=input.team_id, id=input.report_id)
+            .values_list("pending_triggering_signal_id", flat=True)
+            .afirst()
+        )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -637,7 +644,14 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(
+            signals=signals,
+            processed_pending_signal_id=(
+                str(pending_id)
+                if pending_id and any(signal.signal_id == str(pending_id) for signal in signals)
+                else None
+            ),
+        )
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

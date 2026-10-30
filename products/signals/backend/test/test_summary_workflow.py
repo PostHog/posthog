@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import OperationalError
 
@@ -33,7 +33,11 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
-from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
+from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
+    FetchSignalsForReportOutput,
+    fetch_signals_for_report_activity,
+)
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
@@ -229,6 +233,7 @@ class _Recorder:
         self.failures = 0
         self.pending_inputs: list[MarkReportPendingInput] = []
         self.ready_inputs: list[MarkReportReadyInput] = []
+        self.processed_pending_signal_id: str | None = None
 
 
 def _signal_data() -> SignalData:
@@ -241,6 +246,26 @@ def _signal_data() -> SignalData:
         weight=1.0,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("marker_fetched", [False, True])
+async def test_fetch_identifies_only_pending_markers_in_its_snapshot(ateam: Team, marker_fetched: bool) -> None:
+    signal = _signal_data()
+    pending_id = uuid.UUID(signal.signal_id) if marker_fetched else uuid.uuid4()
+    report = await SignalReport.objects.acreate(team=ateam, pending_triggering_signal_id=pending_id)
+    with (
+        patch(
+            "products.signals.backend.temporal.signal_queries.execute_hogql_query_with_retry",
+            return_value=Mock(results=[[]]),
+        ),
+        patch("products.signals.backend.temporal.signal_queries._parse_signal_row", return_value=signal),
+    ):
+        result = await fetch_signals_for_report_activity(
+            FetchSignalsForReportInput(team_id=ateam.id, report_id=str(report.id))
+        )
+    assert result.processed_pending_signal_id == (str(pending_id) if marker_fetched else None)
 
 
 def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
@@ -278,7 +303,9 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
         recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(
+            signals=signals, processed_pending_signal_id=recorder.processed_pending_signal_id
+        )
 
     @activity.defn(name="report_has_assigned_signals_activity")
     async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
@@ -532,6 +559,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
     recorder.checks_summary = "Expected impact matches the reconciled checks."
     recorder.checks_monitoring_enabled = True
+    recorder.processed_pending_signal_id = str(uuid.uuid4())
 
     await _run_summary_workflow(recorder)
 
@@ -541,6 +569,8 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     assert inputs[0].checks_snapshot == snapshot
     assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
+    if target == "ready":
+        assert inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
 
 
 @pytest.mark.asyncio
