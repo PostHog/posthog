@@ -212,6 +212,15 @@ class TestIncidentRows:
         assert secret not in str(result.raised)
         assert set(result.paths) == {"/graphql"}
 
+    def test_log_incidents_query_omits_the_invalid_severities_field(self) -> None:
+        # AppSignal's `LogLineActionTrigger` type has no `severities` field (only id, name,
+        # description, query, sourceIds, actionType, ...). Requesting it makes AppSignal's
+        # GraphQL server reject the whole query with a 400, failing every log_incidents sync.
+        result = _driver().run("log_incidents", [_graphql_page("logIncidents", [])])
+
+        assert result.raised is None
+        assert "severities" not in result.requests[0].json()["query"]
+
 
 class TestAppsignalSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
