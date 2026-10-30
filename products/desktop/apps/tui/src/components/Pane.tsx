@@ -110,6 +110,7 @@ export function Pane({
   local,
   isLocalPane,
   newChatPlace,
+  banner = [],
   chat,
   composer,
   pending,
@@ -145,6 +146,8 @@ export function Pane({
   isLocalPane: boolean;
   // Where a new chat typed here would run.
   newChatPlace: "local" | "cloud";
+  // What an empty chat shows above its composer: the model, who pays, and where it runs.
+  banner?: string[];
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
@@ -409,11 +412,19 @@ export function Pane({
       popupLines.length > 0 ? (
         popupContent
       ) : (
-        <Text dimColor>
-          {newChatPlace === "local"
-            ? `Type a message to start a local chat in ${process.cwd()}, or press Ctrl+K to find a chat.`
-            : "Type a message to start a cloud run, or press Ctrl+K to find a chat."}
-        </Text>
+        <Box flexDirection="column">
+          {banner.map((line, index) => (
+            <Text key={line} bold={index === 0} dimColor={index > 0}>
+              {line}
+            </Text>
+          ))}
+          <Text> </Text>
+          <Text dimColor>
+            {newChatPlace === "local"
+              ? "Type a message to start a local chat, or press Ctrl+K to find a chat."
+              : "Type a message to start a cloud run, or press Ctrl+K to find a chat."}
+          </Text>
+        </Box>
       );
   else if (isLocalPane && !local)
     content = <Spinner label="Starting local agent…" />;

@@ -5,7 +5,7 @@ A chat runs pi, or Claude Code on the user's own Claude plan, here or in the clo
 
 ## What it does
 
-- Sidebar: split workspaces drawn as trees, each followed by a gap, then an All tasks list that also holds the workspaces' tasks (their row there jumps to the pane), with run status dots, and keyboard or mouse selection.
+- Sidebar: a Today row that opens the day's briefing in the main view (with its composer), a New chat row that gives the main view back, split workspaces drawn as trees, each followed by a gap, then an All tasks list that also holds the workspaces' tasks (their row there jumps to the pane), with run status dots, and keyboard or mouse selection.
 - Search: a full-screen search over your tasks, each with its sidebar status and when it was last active.
 - Panes: tmux-like splits, nested splits, focus by key or click, and a header with where the chat runs, its repo, its PR and its status.
 - Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one. A pane shows a new run's first message, the sandbox's setup steps as the backend reports them, and a failure reason. A reply to a stopped run brings the same run back.
@@ -22,7 +22,7 @@ A chat runs pi, or Claude Code on the user's own Claude plan, here or in the clo
 - Tests: `../../node_modules/.bin/vitest run` or `hogli test products/desktop/apps/tui`. Typecheck: `../../node_modules/.bin/tsc --noEmit -p .`.
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
-In the app: Ctrl+\\ splits side by side and Ctrl+Shift+\\ (Ctrl+|) stacks, Cmd works in place of Ctrl, and legacy terminals send both as Ctrl+\\; Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+B (or Cmd+B, since tmux keeps Ctrl+B) narrows the sidebar to its logo, saved between runs, Ctrl+K (or Cmd+K) searches tasks, Ctrl+; opens settings, Ctrl+R reloads all code, Ctrl+Q quits.
+In the app: Ctrl+\\ splits side by side and Ctrl+Shift+\\ (Ctrl+|) stacks, Cmd works in place of Ctrl, and legacy terminals send both as Ctrl+\\; Ctrl+C twice closes a chat, Ctrl+N starts a new chat (another pane inside a split workspace, the main view elsewhere), Ctrl+B (or Cmd+B, since tmux keeps Ctrl+B) narrows the sidebar to its logo, saved between runs, Ctrl+K (or Cmd+K) searches tasks, Ctrl+; opens settings, Ctrl+R reloads all code, Ctrl+Q quits.
 Slash commands: `/model`, `/effort`, `/compact [focus]`, `/new`, `/repo`, `/clear` (local chats), `/rename`, `/rename-workspace`, `/search`, `/settings`, `/billing`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands. `/rename` and `/rename-workspace` with no name put the current one in the composer to edit.
 `/new` in a split pane makes that pane a new chat. Anywhere else, `/new` and Ctrl+N clear the main view.
 `/repo` opens a searchable multi-select of the GitHub repositories the team's and the user's GitHub connections reach (type to search, Space ticks, Enter saves). Each pane keeps its own pick for new cloud chats, saved between runs; a pane that never picked uses the repository of the folder the TUI started in.
@@ -38,6 +38,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown. A load that fails shows its error and keeps the process (and its local agents) alive; Enter tries again, and so does the next change to the code |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
+| `banner.ts` | What an empty chat shows above its composer: the model it starts on, who pays, and where it runs, from the pane's place, `/billing`, pi's starting model or the user's own `~/.claude/settings.json` |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, and who pays for them |
 | `billing.ts`, `settings.ts`, `chatgpt.ts`, `claudeToken.ts`, `claudeLocal.ts` | The billing picker and what each billing starts (the cloud harness, the local model, or why a local chat cannot start); the settings screen's rows and keys; pi's ChatGPT login, logout and who is logged in; the Claude token file and the engine's store over it. `PiChats.start` takes the cloud harness, and `reply` continues pi, Claude and Codex runs. `LocalAgent` in `local.ts` is what a pane needs from any local agent: pi's `LocalSession`, or `ClaudeLocalSession`, which drives `AgentService` (built in `cloud.ts` with its Electron-only needs stubbed) and turns its ACP permission requests into `acp` prompts |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots. A split task has two rows, so a workspace row's selection key is its pane |

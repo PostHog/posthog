@@ -21,6 +21,7 @@ import {
   optimizeWorkspace,
   paneIds,
   saveLayout,
+  showToday,
   splitFocused,
   splitSizes,
 } from "./layout";
@@ -382,4 +383,15 @@ describe("layout", () => {
       expect(cells.reduce((sum, size) => sum + size, 0)).toBe(total);
     },
   );
+
+  it("shows Today in the main view until a new chat takes it back", () => {
+    const shown = showToday(openTask(initialLayout(), "c"));
+    const main = activeWorkspace(shown).root;
+    expect(main).toMatchObject({ kind: "pane", taskId: null, today: true });
+    expect(activeWorkspace(newChat(shown)).root).toMatchObject({
+      kind: "pane",
+      taskId: null,
+      today: undefined,
+    });
+  });
 });
