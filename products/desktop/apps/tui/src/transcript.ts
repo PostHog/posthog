@@ -15,9 +15,19 @@ import { z } from "zod";
 export type TranscriptLine =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string }
-  | { kind: "tool"; id: string; title: string; status: string }
+  | ToolLine
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
   | { kind: "actions"; id: string; actions: ShowAction[] };
+
+export interface ToolLine {
+  kind: "tool";
+  id: string;
+  title: string;
+  status: string;
+  // What the call worked on, such as a shell command or a file path.
+  detail: string;
+  output: string;
+}
 
 export interface Transcript {
   lines: TranscriptLine[];
@@ -25,6 +35,8 @@ export interface Transcript {
   turnOpen: boolean;
   // The latest turn once it has finished: how long it took and when it ended (epoch ms).
   lastTurn: { durationMs: number; endedAt: number } | null;
+  // When the open turn started (epoch ms), or null between turns.
+  turnStartedAt: number | null;
 }
 
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
@@ -47,6 +59,9 @@ export function transcriptFrom(
         );
   const lines = built.items.flatMap(toLine);
   const turnOpen = built.lastTurnInfo?.isComplete === false;
+  // An open turn holds its negated start time until it completes.
+  const turnStartedAt =
+    turnOpen && built.lastTurnInfo ? -built.lastTurnInfo.durationMs : null;
   const lastTurn =
     built.lastTurnInfo?.isComplete && built.lastActivityAt !== null
       ? {
@@ -67,9 +82,10 @@ export function transcriptFrom(
       ],
       turnOpen,
       lastTurn,
+      turnStartedAt,
     };
   }
-  return { lines, turnOpen, lastTurn };
+  return { lines, turnOpen, lastTurn, turnStartedAt };
 }
 
 // Bookkeeping the harness asks for every turn; it says nothing about the work.
@@ -107,6 +123,8 @@ function toLine(item: ConversationItem): TranscriptLine[] {
           id: item.id,
           title: update.title,
           status: update.status ?? "pending",
+          detail: toolDetail(update.rawInput),
+          output: toolOutput(update.content, update.rawOutput),
         },
       ];
     case "status":
@@ -116,6 +134,54 @@ function toLine(item: ConversationItem): TranscriptLine[] {
     default:
       return [];
   }
+}
+
+function toolDetail(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const fields = input as Record<string, unknown>;
+  const main = fields.command ?? fields.path ?? fields.file_path;
+  return typeof main === "string" ? main : JSON.stringify(input);
+}
+
+const textOf = (blocks: unknown): string[] =>
+  Array.isArray(blocks)
+    ? blocks.flatMap((block) => {
+        const inner = block?.type === "content" ? block.content : block;
+        return inner?.type === "text" ? [inner.text as string] : [];
+      })
+    : [];
+
+function toolOutput(content: unknown, rawOutput: unknown): string {
+  const text = [...textOf(content), ...textOf(rawOutput)].join("\n");
+  return text || (typeof rawOutput === "string" ? rawOutput : "");
+}
+
+const plural = (count: number, noun: string): string =>
+  `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// What each tool's calls count as: a verb and the noun it counts.
+function phraseOf(title: string): [string, string] {
+  const name = title.toLowerCase();
+  if (name === "bash") return ["ran", "shell command"];
+  if (name === "read") return ["read", "file"];
+  if (name === "edit" || name === "write") return ["edited", "file"];
+  if (name === "grep" || name === "find" || name === "ls")
+    return ["searched", "time"];
+  return [`called ${name.includes("posthog") ? "PostHog" : name}`, "time"];
+}
+
+// How a run of tool calls reads collapsed, like "Ran 5 shell commands · read 2 files".
+export function toolSummary(tools: ToolLine[]): string {
+  const counts = new Map<string, { noun: string; count: number }>();
+  for (const tool of tools) {
+    const [verb, noun] = phraseOf(tool.title);
+    const entry = counts.get(verb) ?? { noun, count: 0 };
+    counts.set(verb, { ...entry, count: entry.count + 1 });
+  }
+  const text = [...counts]
+    .map(([verb, { noun, count }]) => `${verb} ${plural(count, noun)}`)
+    .join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // A message the user just sent shows at once, until the run's log echoes it back as its latest user message.

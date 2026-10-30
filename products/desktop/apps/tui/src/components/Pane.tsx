@@ -67,6 +67,7 @@ export function Pane({
   model,
   chips,
   onPrChip,
+  onChatBox,
   onRunLive,
   onTurn,
   focused,
@@ -98,6 +99,8 @@ export function Pane({
   chips: StatusChip[];
   // The pull request chip's box, so a click on it can open the PR.
   onPrChip: (element: DOMElement | null, url: string | null) => void;
+  // The chat's box, so a click on a tool group can open it.
+  onChatBox: (element: DOMElement | null) => void;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -119,7 +122,7 @@ export function Pane({
             view.entries,
             task.description || task.description_preview,
           )
-        : { lines: [], turnOpen: false, lastTurn: null },
+        : { lines: [], turnOpen: false, lastTurn: null, turnStartedAt: null },
     [task, view.entries],
   );
   const lines = useMemo(
@@ -133,9 +136,16 @@ export function Pane({
         lines,
         transcript.turnOpen,
         transcript.lastTurn,
+        transcript.turnStartedAt,
       )
     : local
-      ? runNotice(view, lines, transcript.turnOpen, transcript.lastTurn)
+      ? runNotice(
+          view,
+          lines,
+          transcript.turnOpen,
+          transcript.lastTurn,
+          transcript.turnStartedAt,
+        )
       : pending
         ? ({
             text: isLocalPane ? "Starting local agent…" : "Starting cloud run…",
@@ -299,6 +309,7 @@ export function Pane({
       </Box>
       <Box height={height} flexDirection="column" overflow="hidden">
         <Box
+          ref={onChatBox}
           flexGrow={1}
           flexDirection="column"
           justifyContent="flex-end"

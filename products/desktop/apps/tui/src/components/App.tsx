@@ -244,6 +244,7 @@ export function App({
   );
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
+  const chatBoxes = useRef(new Map<string, DOMElement>());
   const prChips = useRef(
     new Map<string, { element: DOMElement; url: string }>(),
   );
@@ -811,6 +812,15 @@ export function App({
     if (hit) {
       setNavigating(false);
       setLayout((current) => focusPane(current, hit[0]));
+      const chatBox = chatBoxes.current.get(hit[0]);
+      const box = chatBox && boxOf(chatBox);
+      const chat = chatFor(`${hit[0]}:${paneTaskId(hit[0])}`);
+      if (
+        box &&
+        hitTest(click, [["chat", box]]) &&
+        chat.toggleAt(click.row - box.top)
+      )
+        repaint((tick) => tick + 1);
     }
   };
   const onWheel = (wheel: Wheel): void => {
@@ -1040,6 +1050,10 @@ export function App({
               if (element && url)
                 prChips.current.set(node.id, { element, url });
               else prChips.current.delete(node.id);
+            }}
+            onChatBox={(element) => {
+              if (element) chatBoxes.current.set(node.id, element);
+              else chatBoxes.current.delete(node.id);
             }}
             focused={!sidebarFocused && node.id === workspace.focusedPaneId}
           />
