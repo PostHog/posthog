@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 import pytest
@@ -60,7 +60,12 @@ def _alert() -> LogsAlertConfiguration:
     return LogsAlertConfiguration(id=ALERT_ID, team_id=7, name="Errors", filters=FILTERS, **CONDITION, **SCHEDULE)
 
 
-def _transition(kind: AlertEventKind) -> AnnouncedTransition:
+# A copy stores its filters nested, and a history row written before the nesting keeps them flat.
+NESTED_SOURCE_CONFIG: Final = {"filters": FILTERS, SOURCE_CONDITION_KEY: CONDITION}
+FLAT_SOURCE_CONFIG: Final = {**FILTERS, SOURCE_CONDITION_KEY: CONDITION}
+
+
+def _transition(kind: AlertEventKind, source_config: dict[str, Any] = NESTED_SOURCE_CONFIG) -> AnnouncedTransition:
     return AnnouncedTransition(
         grouping_key="",
         kind=kind,
@@ -68,7 +73,7 @@ def _transition(kind: AlertEventKind) -> AnnouncedTransition:
         value=42.0 if kind in (AlertEventKind.FIRING, AlertEventKind.RESOLVED) else None,
         labels={},
         condition={**CONDITION, **SCHEDULE},
-        source_config={**FILTERS, SOURCE_CONDITION_KEY: CONDITION},
+        source_config=source_config,
         error_message="query timed out",
         occurred_at=NOW,
         evaluation_key=f"slot:1|{WINDOW_MARKER}{WINDOW_END.isoformat()}",
@@ -111,13 +116,29 @@ class TestEmitLogsLegacyEvents(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("firing", AlertEventKind.FIRING, True, None, "$logs_alert_firing"),
-            ("resolved", AlertEventKind.RESOLVED, True, None, "$logs_alert_resolved"),
-            ("errored", AlertEventKind.ERRORED, True, None, "$logs_alert_errored"),
-            ("auto_disabled", AlertEventKind.BROKEN, True, None, "$logs_alert_auto_disabled"),
-            # Cooldown held the message, and the incident still opens.
-            ("incident_opened", AlertEventKind.FIRING, False, IncidentAction.TRIGGER, "$logs_alert_incident_opened"),
-            ("incident_closed", AlertEventKind.RESOLVED, False, IncidentAction.RESOLVE, "$logs_alert_incident_closed"),
+            (f"{name}_{shape}", kind, sends_message, incident_action, event_name, source_config)
+            for name, kind, sends_message, incident_action, event_name in [
+                ("firing", AlertEventKind.FIRING, True, None, "$logs_alert_firing"),
+                ("resolved", AlertEventKind.RESOLVED, True, None, "$logs_alert_resolved"),
+                ("errored", AlertEventKind.ERRORED, True, None, "$logs_alert_errored"),
+                ("auto_disabled", AlertEventKind.BROKEN, True, None, "$logs_alert_auto_disabled"),
+                # Cooldown held the message, and the incident still opens.
+                (
+                    "incident_opened",
+                    AlertEventKind.FIRING,
+                    False,
+                    IncidentAction.TRIGGER,
+                    "$logs_alert_incident_opened",
+                ),
+                (
+                    "incident_closed",
+                    AlertEventKind.RESOLVED,
+                    False,
+                    IncidentAction.RESOLVE,
+                    "$logs_alert_incident_closed",
+                ),
+            ]
+            for shape, source_config in [("nested", NESTED_SOURCE_CONFIG), ("flat", FLAT_SOURCE_CONFIG)]
         ]
     )
     def test_an_event_carries_what_the_logs_stack_emits_for_the_same_check(
@@ -127,13 +148,16 @@ class TestEmitLogsLegacyEvents(SimpleTestCase):
         sends_message: bool,
         incident_action: IncidentAction | None,
         event_name: str,
+        source_config: dict[str, Any],
     ) -> None:
         with patch(_ACTIVITIES_PRODUCE) as legacy:
             _legacy_emit(event_name)
 
         produce = self._emit(
             LegacyEventEmission(
-                transition=_transition(kind), sends_message=sends_message, incident_action=incident_action
+                transition=_transition(kind, source_config),
+                sends_message=sends_message,
+                incident_action=incident_action,
             )
         )
 

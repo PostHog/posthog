@@ -5,7 +5,12 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/le
 import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { AutoresearchPipelineApi, ResearchIntervalDaysEnumApi } from '../generated/api.schemas'
+import {
+    AgentModelOptionsApi,
+    AgentReasoningEffortOptionApi,
+    AutoresearchPipelineApi,
+    ResearchIntervalDaysEnumApi,
+} from '../generated/api.schemas'
 import {
     MAX_ITERATIONS_PER_RUN,
     MIN_ITERATIONS_PER_RUN,
@@ -22,6 +27,42 @@ const RESEARCH_INTERVAL_OPTIONS: { value: ResearchIntervalDaysEnumApi | typeof O
     ...Object.values(ResearchIntervalDaysEnumApi).map((days) => ({ value: days, label: `Every ${days} days` })),
     { value: ONLY_WHEN_ASKED, label: 'Only when I ask' },
 ]
+
+const DEFAULT_SETTING = 'default'
+
+function modelSelectOptions(
+    options: AgentModelOptionsApi | null,
+    savedModel: string | null
+): { value: string; label: string }[] {
+    if (!options) {
+        // Keep the saved model readable while the list loads.
+        return [
+            { value: DEFAULT_SETTING, label: 'Default' },
+            ...(savedModel ? [{ value: savedModel, label: savedModel }] : []),
+        ]
+    }
+    const withCost = (label: string, cost: string | null | undefined): string =>
+        cost ? `${label} · ${cost} cost` : label
+    const defaultCost = options.models.find((option) => option.model === options.default_model)?.cost_multiplier
+    return [
+        { value: DEFAULT_SETTING, label: withCost(`Default (${options.default_model_label})`, defaultCost) },
+        ...options.models.map((option) => ({
+            value: option.model,
+            label: withCost(option.label, option.cost_multiplier),
+        })),
+    ]
+}
+
+function effortSelectOptions(
+    efforts: AgentReasoningEffortOptionApi[],
+    defaultEffort: string | null | undefined
+): { value: string; label: string }[] {
+    const defaultLabel = efforts.find((effort) => effort.value === defaultEffort)?.label
+    return [
+        { value: DEFAULT_SETTING, label: defaultLabel ? `Default (${defaultLabel})` : 'Default' },
+        ...efforts.map((effort) => ({ value: effort.value, label: effort.label })),
+    ]
+}
 
 export function SetupTab(): JSX.Element {
     const { pipeline } = useValues(autoresearchPipelineLogic)
@@ -67,10 +108,10 @@ export function SetupTab(): JSX.Element {
 }
 
 function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
-    const { schedule, savingSchedule, saveDisabledReason } = useValues(trainingScheduleLogic({ id: pipeline.id }))
-    const { setResearchIntervalDays, setIterationsPerRun, saveSchedule } = useActions(
-        trainingScheduleLogic({ id: pipeline.id })
-    )
+    const { schedule, savingSchedule, saveDisabledReason, agentModelOptions, agentModelOptionsLoading, effortOptions } =
+        useValues(trainingScheduleLogic({ id: pipeline.id }))
+    const { setResearchIntervalDays, setIterationsPerRun, setAgentModel, setAgentReasoningEffort, saveSchedule } =
+        useActions(trainingScheduleLogic({ id: pipeline.id }))
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-end gap-3">
@@ -97,6 +138,30 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                         data-attr="autoresearch-iterations-per-run"
                     />
                 </label>
+                <label className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold">Research model</span>
+                    <LemonSelect
+                        size="small"
+                        options={modelSelectOptions(agentModelOptions, pipeline.agent_model)}
+                        value={schedule?.agent_model ?? DEFAULT_SETTING}
+                        onChange={(value) => setAgentModel(value === DEFAULT_SETTING ? null : value)}
+                        loading={agentModelOptionsLoading}
+                        dropdownMatchSelectWidth={false}
+                        data-attr="autoresearch-research-model"
+                    />
+                </label>
+                {effortOptions.length > 0 && (
+                    <label className="flex flex-col gap-1">
+                        <span className="text-sm font-semibold">Thinking effort</span>
+                        <LemonSelect
+                            size="small"
+                            options={effortSelectOptions(effortOptions, agentModelOptions?.default_reasoning_effort)}
+                            value={schedule?.agent_reasoning_effort ?? DEFAULT_SETTING}
+                            onChange={(value) => setAgentReasoningEffort(value === DEFAULT_SETTING ? null : value)}
+                            data-attr="autoresearch-thinking-effort"
+                        />
+                    </label>
+                )}
                 <LemonButton
                     type="primary"
                     size="small"
@@ -105,10 +170,12 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                     disabledReason={saveDisabledReason}
                     data-attr="autoresearch-training-schedule-save"
                 >
-                    Save schedule
+                    Save settings
                 </LemonButton>
             </div>
-            <p className="text-xs text-secondary mb-0">{trainingScheduleStatus(pipeline)}</p>
+            <p className="text-xs text-secondary mb-0">
+                {trainingScheduleStatus(pipeline)} A larger model or more thinking effort costs more per training run.
+            </p>
         </div>
     )
 }

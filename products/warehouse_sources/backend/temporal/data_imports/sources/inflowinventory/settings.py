@@ -46,6 +46,14 @@ INFLOWINVENTORY_ENDPOINTS: dict[str, InflowInventoryEndpointConfig] = {
     "taxing_schemes": InflowInventoryEndpointConfig(
         name="taxing_schemes", path="taxing-schemes", id_field="taxingSchemeId"
     ),
+    "product_groups": InflowInventoryEndpointConfig(
+        name="product_groups", path="product-groups", id_field="productGroupId"
+    ),
+    "adjustment_reasons": InflowInventoryEndpointConfig(
+        name="adjustment_reasons", path="adjustment-reasons", id_field="adjustmentReasonId"
+    ),
+    "currencies": InflowInventoryEndpointConfig(name="currencies", path="currencies", id_field="currencyId"),
+    "team_members": InflowInventoryEndpointConfig(name="team_members", path="team-members", id_field="teamMemberId"),
 }
 
 ENDPOINTS = tuple(INFLOWINVENTORY_ENDPOINTS.keys())

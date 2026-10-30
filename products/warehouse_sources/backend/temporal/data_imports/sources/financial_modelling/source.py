@@ -52,7 +52,7 @@ class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, F
             name=ExternalDataSourceType.FINANCIALMODELLING,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Financial Modeling Prep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Financial Modeling Prep API key to pull market and company financial data into the PostHog Data warehouse.
 
 You can find your API key in your [Financial Modeling Prep dashboard](https://site.financialmodelingprep.com/developer/docs/dashboard).
@@ -73,6 +73,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

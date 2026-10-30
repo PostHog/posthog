@@ -167,7 +167,7 @@ class Dynamics365Source(ResumableSource[Dynamics365SourceConfig, Dynamics365Resu
 To connect, register an app in **Microsoft Entra ID** and add a client secret. Then add that app as an **application user** in your Dynamics 365 environment (Power Platform admin center > Environments > Settings > Users + permissions > Application users) and give it a security role that can read the tables you want to sync. The environment URL is the one you use to open the app, for example `https://contoso.crm.dynamics.com`.""",
             iconPath="/static/services/dynamics365.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynamics365",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

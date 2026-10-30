@@ -57,7 +57,7 @@ class NagerDateSource(ResumableSource[NagerDateSourceConfig, NagerDateResumeConf
             name=ExternalDataSourceType.NAGERDATE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Nager.Date",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["holidays", "public holidays", "calendar"],
             caption="""Pull public holiday data from the free [Nager.Date](https://date.nager.at) API into the PostHog Data warehouse.
 
@@ -79,6 +79,7 @@ The API only serves a rolling window of years around today, and it has no "chang
                 [
                     SourceFieldInputConfig(
                         name="country_codes",
+                        sync_setting=True,
                         label="Country codes",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

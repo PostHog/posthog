@@ -101,6 +101,28 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return set(self.get_retry_exhausted_errors())
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The Reporting API answers its own outages with a 500 "Internal error encountered" on every
+        # metric set at once, which clears without any change on the customer's side. Left unmapped,
+        # the job keeps the raw status and a URL that names the customer's app.
+        # It also answers an outage with a bare 503 "Service Unavailable" on the same endpoints, with
+        # no response body to match on, so it needs its own entry alongside the 500 case. Without it,
+        # the activity's classifier (import_data_sync.py) treats the 503 as an unclassified failure
+        # and reports it to error tracking on every attempt instead of retrying quietly.
+        return {
+            "500 Server Error": (
+                "Google Play's reporting API had an internal error, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+            "503 Server Error": (
+                "Google Play's reporting API was unavailable, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -108,14 +130,14 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["android", "play store", "vitals", "crash"],
             label="Google Play Console",
-            caption="""Sync Android vitals and error reporting from the Play Developer Reporting API: crash and ANR rates, excessive wakeups and stuck wakelocks, slow starts and slow rendering, low-memory kills, plus error issues, error reports, and the anomalies Play detects.
+            caption="""Sync Android vitals and error reporting from the Play Developer Reporting API: crash and ANR rates, excessive wakeups and stuck wakelocks, slow starts and slow rendering, low-memory kills, memory usage, plus error issues, error reports, release tracks, and the anomalies Play detects.
 
 To connect, create a Google Cloud service account and enable the **Play Developer Reporting API** in its project. Then, in Play Console under **Users and permissions**, invite the service account's email and give it access to view app quality data. Upload that service account's JSON key below.
 
 Leave the package names blank to sync every app the service account can see.""",
             iconPath="/static/services/google_play_console.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-play-console",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

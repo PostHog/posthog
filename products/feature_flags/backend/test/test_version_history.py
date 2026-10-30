@@ -267,6 +267,16 @@ class TestReconstructFlagAtVersion(BaseTest):
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
         assert result["filters"] == expected
 
+    def test_reconstruct_leaves_config_version_2_filters_unchanged(self):
+        v2_filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        current_filters = {**v2_filters, "default_value": True}
+
+        flag = self._create_flag(filters=current_filters, version=1)
+        self._simulate_update(flag, {"filters": (v2_filters, current_filters)})
+
+        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
+        assert result["filters"] == v2_filters
+
     def test_reconstruct_field_cleared_to_none(self):
         flag = self._create_flag(ensure_experience_continuity=True, version=1)
         self._simulate_update(flag, {"ensure_experience_continuity": (True, None)})

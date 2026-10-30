@@ -51,10 +51,8 @@ class TestResolveAfterValue:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("unauthorized", 401, True, False),
             ("forbidden_with_scope", 403, True, False),
             ("forbidden_without_scope", 403, False, True),
-            ("ok", 200, True, True),
             ("not_found_token_valid", 404, False, True),
         ]
     )

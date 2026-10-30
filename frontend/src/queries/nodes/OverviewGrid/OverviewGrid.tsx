@@ -21,14 +21,9 @@ import { WebAnalyticsItemKind, WebAnalyticsPreComputeStrategy } from '~/queries/
 
 export const NO_BASELINE_CHANGE_SENTINEL = 999999
 
-const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
 
-// Default classes for non-compact mode
 const OVERVIEW_ITEM_CELL_CLASSES_DEFAULT = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
-
-// Compact classes for marketing analytics
-const OVERVIEW_ITEM_CELL_CLASSES_COMPACT = `flex-1 border p-1 bg-surface-primary rounded min-w-[6rem] h-24 flex flex-col items-center text-center justify-between`
 
 export interface OverviewItem {
     key: string
@@ -61,7 +56,6 @@ interface OverviewGridProps {
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
-    compact?: boolean
 }
 
 export function OverviewGrid({
@@ -73,23 +67,17 @@ export function OverviewGrid({
     onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
-    compact = false,
 }: OverviewGridProps): JSX.Element {
     const filteredItems = items.filter(filterEmptyItems)
 
     return (
         <>
             <EvenlyDistributedRows
-                className={`flex justify-center items-center flex-wrap w-full ${compact ? 'gap-1' : 'gap-2'}`}
-                minWidthRems={
-                    compact
-                        ? OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT + 1
-                        : OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT + 2
-                }
-                maxItemsPerRow={compact ? 10 : undefined}
+                className="flex justify-center items-center flex-wrap w-full gap-2"
+                minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT + 2}
             >
                 {loading
-                    ? range(numSkeletons).map((i) => <OverviewItemCellSkeleton key={i} compact={compact} />)
+                    ? range(numSkeletons).map((i) => <OverviewItemCellSkeleton key={i} />)
                     : filteredItems.map((item) => (
                           <OverviewItemCell
                               key={item.key}
@@ -97,7 +85,6 @@ export function OverviewGrid({
                               preComputeStrategy={preComputeStrategy}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
-                              compact={compact}
                           />
                       ))}
             </EvenlyDistributedRows>
@@ -119,16 +106,15 @@ export function SamplingNotice({ samplingRate }: { samplingRate?: SamplingRate }
     )
 }
 
-const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Element => {
-    const cellClasses = compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT
+const OverviewItemCellSkeleton = (): JSX.Element => {
     return (
-        <div className={cellClasses}>
+        <div className={OVERVIEW_ITEM_CELL_CLASSES_DEFAULT}>
             <div className="flex flex-row w-full">
                 <div className="flex flex-row items-start justify-start flex-1">
                     {/* Empty space for potential beta tag */}
                 </div>
-                <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
-                    <LemonSkeleton className={`w-16 ${compact ? 'h-2.5' : 'h-3'}`} />
+                <div className="uppercase py-0.5 text-xs font-bold">
+                    <LemonSkeleton className="w-16 h-3" />
                 </div>
                 <div className="flex flex-1 flex-row justify-end items-start">
                     {/* Empty space for potential action buttons */}
@@ -149,7 +135,6 @@ interface OverviewItemCellProps {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
-    compact: boolean
 }
 
 const OverviewItemCell = ({
@@ -157,7 +142,6 @@ const OverviewItemCell = ({
     preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
-    compact,
 }: OverviewItemCellProps): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
 
@@ -224,7 +208,7 @@ const OverviewItemCell = ({
         <div
             className={clsx(
                 'flex-1 border bg-surface-primary rounded relative transition-colors',
-                compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30',
+                'min-w-[10rem] h-30',
                 item.selected && 'border-accent ring-1 ring-accent',
                 clickable && 'cursor-pointer hover:border-accent'
             )}
@@ -242,16 +226,9 @@ const OverviewItemCell = ({
                 <PreAggregatedBadge variant="preagg" />
             ) : null}
             <Tooltip title={tooltip}>
-                <div
-                    className={clsx(
-                        'flex flex-col items-center text-center justify-between w-full h-full',
-                        compact ? 'p-1' : 'p-2'
-                    )}
-                >
+                <div className="flex flex-col items-center text-center justify-between w-full h-full p-2">
                     <div className="flex flex-row w-full justify-center items-center gap-1">
-                        <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
-                            {label}
-                        </div>
+                        <div className="uppercase py-0.5 text-xs font-bold">{label}</div>
                         {item.warning && (
                             <Tooltip
                                 interactive={!!item.warningLink}
@@ -274,9 +251,7 @@ const OverviewItemCell = ({
                         )}
                     </div>
                     <div className="w-full flex-1 flex items-center justify-center">
-                        <div className={compact ? 'text-lg' : 'text-2xl'}>
-                            {formatItem(item.value, item.kind, { currency: baseCurrency })}
-                        </div>
+                        <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
                     </div>
                     {trend && isNotNil(item.changeFromPreviousPct) ? (
                         // eslint-disable-next-line react/forbid-dom-props
@@ -288,10 +263,7 @@ const OverviewItemCell = ({
                       Math.abs(item.changeFromPreviousPct) >= NO_BASELINE_CHANGE_SENTINEL ? (
                         <div className="text-muted">-</div>
                     ) : item.caption ? (
-                        <div
-                            className={clsx('text-secondary truncate max-w-full', compact ? 'text-[10px]' : 'text-xs')}
-                            title={item.caption}
-                        >
+                        <div className="text-secondary truncate max-w-full text-xs" title={item.caption}>
                             {item.caption}
                         </div>
                     ) : (

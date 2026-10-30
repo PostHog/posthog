@@ -24,6 +24,19 @@ def _last_modified_incremental_fields() -> list[IncrementalField]:
 
 
 @frozen
+class BloomerangFanoutConfig:
+    """A child table read once for each row of a parent list endpoint."""
+
+    parent_path: str
+    parent_params: dict[str, str]
+    # Column that carries the parent id on each child row.
+    parent_id_column: str
+    # When set, the child is read once for each embedded designation of this type, not once for each
+    # parent row. Pledges are designations inside transactions and have no list endpoint of their own.
+    designation_type: Optional[str] = None
+
+
+@frozen
 class BloomerangEndpointConfig:
     name: str
     path: str  # path under https://api.bloomerang.co/v2
@@ -45,6 +58,7 @@ class BloomerangEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["Id"])
     # Stable creation-time column to partition by. None when the endpoint has no AuditTrail.
     partition_key: Optional[str] = "CreatedDate"
+    fanout: Optional[BloomerangFanoutConfig] = None
 
 
 BLOOMERANG_ENDPOINTS: dict[str, BloomerangEndpointConfig] = {
@@ -158,6 +172,38 @@ BLOOMERANG_ENDPOINTS: dict[str, BloomerangEndpointConfig] = {
         sort_field="CreatedDate",
         # The API doesn't document which statuses an unfiltered request returns, so ask for all of them.
         extra_params={"status": "Active|Complete|Archived"},
+    ),
+    "Relationships": BloomerangEndpointConfig(
+        name="Relationships",
+        path="constituent/{id}/relationships",
+        # Rows carry no AuditTrail, so the `lastModified` filter has no cursor column to advance.
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        # A relationship links two constituents and is listed under each of them.
+        primary_keys=["ConstituentId", "Id"],
+        partition_key=None,
+        fanout=BloomerangFanoutConfig(
+            parent_path="constituents",
+            parent_params={"orderBy": "Id", "orderDirection": "Asc"},
+            parent_id_column="ConstituentId",
+        ),
+    ),
+    "PledgePaymentFailures": BloomerangEndpointConfig(
+        name="PledgePaymentFailures",
+        path="pledge/{id}/paymentFailures",
+        supports_incremental=False,
+        supports_sort=False,
+        has_audit_trail=False,
+        primary_keys=["PledgeId", "Id"],
+        partition_key="Date",
+        fanout=BloomerangFanoutConfig(
+            parent_path="transactions",
+            # /transactions takes no `orderBy=Id`.
+            parent_params={"type": "Pledge", "orderBy": "CreatedDate", "orderDirection": "Asc"},
+            parent_id_column="PledgeId",
+            designation_type="Pledge",
+        ),
     ),
 }
 

@@ -1,8 +1,7 @@
-import os
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any, Final, Literal, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -16,11 +15,14 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
@@ -29,7 +31,6 @@ from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
@@ -37,26 +38,35 @@ from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    customized_alert_destination_ids,
     destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
+    owned_alert_destination_ids,
     redact_destination_data,
     soft_delete_alert_destinations,
-    soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
+from products.alerts_platform.backend.facade.api import (
+    history_by_legacy_id,
+    recent_destination_sends,
+    reset_broken,
+    runtime_by_legacy_id,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    Grouping,
+    InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.platform_alert import GroupingSerializer
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -84,24 +94,22 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.facade.api import (
-    close_incident_before_delete,
+    ALLOWED_WINDOW_MINUTES,
+    MAX_MERGED_EVENT_ROWS,
+    AlertLimitReached,
+    PlatformCheckRow,
+    claim_alert_slot,
     close_incident_on_commit,
+    first_check_at,
     follow_logs_alert,
+    has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
+    platform_check_rows,
 )
+from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
-MAX_ALERTS_PER_TEAM = 20
-# Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
-# argocd for internal dogfood projects whose observability needs exceed the
-# customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
-# semaphore-sized fan-out in the Temporal activity) still hold for any team
-# not in this set.
-UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
-    int(t) for x in os.environ.get("LOGS_ALERTS_UNCAPPED_TEAM_IDS", "").split(",") if (t := x.strip()).isdigit()
-)
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
@@ -121,6 +129,7 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+_SINGLE_INSTANCE: Final = Grouping()
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -189,6 +198,13 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
             "Whether every HogFunction in the group is enabled, so the destination notifies for all "
             "alert event kinds. This is the stored setting: a destination PostHog stopped delivering "
             "to after repeated failures still reads as true."
+        )
+    )
+    message_customized = serializers.BooleanField(
+        help_text=(
+            "Whether any HogFunction in the group sends something other than the stock message, "
+            "such as an edited body, headers, method or code. A customized destination sends exactly "
+            "what its HogFunctions build."
         )
     )
     slack_workspace_id = serializers.IntegerField(required=False)
@@ -276,6 +292,15 @@ class _TimelineEvent:
     created_at: datetime
     state_before: str
     state_after: str
+
+
+class LogsAlertGroupingSerializer(GroupingSerializer):
+    """How a logs alert splits its results into instances."""
+
+    # The logs row has no grouping column. Every alert reads as single here, and `to_representation`
+    # of the alert serializer replaces it with the platform copy's grouping for an alert the platform owns.
+    def get_attribute(self, instance: LogsAlertConfiguration) -> Grouping:
+        return _SINGLE_INSTANCE
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -410,6 +435,24 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "Notification destination types configured for this alert — e.g. 'slack', 'webhook'. "
             "Empty list means no notifications will fire. One or more destinations should be added "
             "after creating an alert."
+        ),
+    )
+    grouping = LogsAlertGroupingSerializer(
+        required=False,
+        help_text=(
+            "How the alert splits its results into instances. Mode single keeps one instance for the whole "
+            "alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per "
+            "service or severity, each firing and resolving on its own, and needs threshold_operator above. "
+            "Only an alert the alerts platform evaluates can group. Any other alert reads as single and "
+            "rejects a different value. Omit it on update to keep the current grouping. Changing the keys "
+            "deletes the existing instances and closes their notification threads without a message."
+        ),
+    )
+    platform_owned = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the alerts platform evaluates this alert and sends its notifications. Only such an "
+            "alert can set a grouping other than single."
         ),
     )
 
@@ -631,6 +674,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             runtime.state, logs_state=instance.state, snooze_until=instance.snooze_until, at=timezone.now()
         ).value
         data["consecutive_failures"] = runtime.consecutive_failures
+        data["grouping"] = self.fields["grouping"].to_representation(runtime.grouping)
         data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
         data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
 
@@ -673,6 +717,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "grouping",
+            "platform_owned",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -689,6 +735,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "platform_owned",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -739,6 +786,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             validated_data["name"] = "Untitled alert"
 
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
+        grouping: Grouping | None = validated_data.pop("grouping", None)
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -817,7 +865,15 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     instance.clear_next_check()
 
             updated = super().update(instance, validated_data)
-            if enabled_change is True:
+            _write_platform_edit(
+                lambda: on_updated(
+                    team_id=updated.team_id,
+                    alert_id=updated.id,
+                    snooze_changed=snooze_data is not _SENTINEL,
+                    grouping=grouping,
+                )
+            )
+            if not updated.platform_owned and enabled_change is True:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
                 )
@@ -832,28 +888,33 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
+        grouping: Grouping | None = validated_data.pop("grouping", None)
 
         with transaction.atomic():
-            # select_for_update().count() doesn't acquire row locks because
-            # Django optimises count() to SELECT COUNT(*). Locking the team
-            # row instead serialises concurrent creates for this team.
-            team = Team.objects.select_for_update().get(id=validated_data["team_id"])
-            if validated_data["team_id"] not in UNCAPPED_ALERT_TEAM_IDS:
-                count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
-                if count >= MAX_ALERTS_PER_TEAM:
-                    raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
+            try:
+                claim_alert_slot(validated_data["team_id"])
+            except AlertLimitReached as error:
+                raise ValidationError(str(error)) from error
             if schedule_restriction := validated_data.get("schedule_restriction"):
-                validated_data["next_check_at"] = next_allowed_check_at(
-                    datetime.now(UTC),
-                    team_timezone=team.timezone,
-                    schedule_restriction=schedule_restriction,
-                )
+                validated_data["next_check_at"] = first_check_at(validated_data["team_id"], schedule_restriction)
             created = super().create(validated_data)
-            if created.enabled:
+            # Raised inside the transaction, so a grouping the alert cannot take leaves no alert behind.
+            if _write_platform_edit(
+                lambda: on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now(), grouping=grouping)
+            ):
+                created.refresh_from_db(fields=["owner", "owner_changed_at"])
+            elif created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
+
+
+def _write_platform_edit[T](write: Callable[[], T]) -> T:
+    try:
+        return write()
+    except InvalidPlatformAlertEdit as error:
+        raise ValidationError({error.field_name: str(error)}) from error
 
 
 def _validate_filters(filters: dict) -> None:
@@ -865,10 +926,7 @@ def _validate_filters(filters: dict) -> None:
     """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
-    has_severity = bool(filters.get("severityLevels"))
-    has_services = bool(filters.get("serviceNames"))
-    has_filter_group = bool(filters.get("filterGroup"))
-    if not (has_severity or has_services or has_filter_group):
+    if not has_any_filter(filters):
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
@@ -897,10 +955,14 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
             alert_id=str(obj.id),
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
         )
+        customized = customized_alert_destination_ids(
+            team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
         return [
             {
                 "hog_function_ids": list(group.hog_function_ids),
                 "enabled": group.fully_enabled,
+                "message_customized": not customized.isdisjoint(group.hog_function_ids),
                 **redact_destination_data(group.data),
             }
             for group in groups
@@ -1064,6 +1126,41 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     )
 
 
+MAX_DESTINATION_SENDS: Final = 20
+
+
+class LogsAlertDestinationSendsQuerySerializer(serializers.Serializer):
+    hog_function_ids = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="HogFunction IDs of one destination group. IDs that are not this alert's are ignored.",
+    )
+
+
+class LogsAlertDestinationSendSerializer(serializers.Serializer):
+    hog_function_id = serializers.CharField(
+        source="destination_id",
+        help_text="The HogFunction the message was sent for. It names the lifecycle event that was sent.",
+    )
+    sent_at = serializers.DateTimeField(help_text="When the send started.")
+    path = serializers.ChoiceField(
+        choices=DeliveryPath.choices,
+        help_text=(
+            "Which delivery path sent it. `native` is the stock message sent by the alerts platform. "
+            "`hog_function` is the destination's HogFunction."
+        ),
+    )
+    succeeded = serializers.BooleanField(help_text="Whether the destination accepted the message.")
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why a `native` send failed. Null when it succeeded, and for a `hog_function` send, "
+            "whose reason is in the HogFunction's own logs."
+        ),
+    )
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -1155,6 +1252,77 @@ def _fill_empty_buckets(
             result.append(BucketedCount(timestamp=cursor, count=0))
         cursor += interval
     return result
+
+
+@frozen
+class _EventWindow(Sequence[LogsAlertEvent]):
+    """The newest rows of a history merged from two sources, sized as the whole history.
+
+    `LimitOffsetPagination` pages it as it pages a list: it takes its length, then slices one page.
+    It holds only the rows up to the end of the page the request asked for.
+    """
+
+    newest: Sequence[LogsAlertEvent]
+    total: int
+
+    def __len__(self) -> int:
+        return self.total
+
+    @overload
+    def __getitem__(self, index: int) -> LogsAlertEvent: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[LogsAlertEvent]: ...
+
+    def __getitem__(self, index: int | slice) -> LogsAlertEvent | Sequence[LogsAlertEvent]:
+        return self.newest[index]
+
+
+def _with_platform_checks(
+    alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
+) -> QuerySet[LogsAlertEvent] | _EventWindow:
+    """`events` with the platform's checks in place of the shadow ones, newest first.
+
+    A logs check row written after the cutover is the shadow evaluation, so it is left out.
+    `rows_needed` is the end of the requested page, because a merged page needs that many rows
+    from each source.
+
+    Returns `events` unchanged for an alert the logs stack owns, and when ClickHouse fails, because
+    the shadow checks are a better answer than a failed list.
+    """
+    cutover_at = alert.owner_changed_at
+    if not alert.platform_owned or cutover_at is None:
+        return events
+    if kind is not None and kind != LogsAlertEvent.Kind.CHECK:
+        return events
+    # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
+    logs_events = stable_queryset_ordering(events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at))
+    try:
+        checks = platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+    except Exception as error:
+        capture_exception(error)
+        return events
+    if checks is None:
+        return events
+    merged = [*logs_events[:rows_needed], *(_as_logs_event(alert, row) for row in checks.rows)]
+    merged.sort(key=lambda event: event.created_at, reverse=True)
+    return _EventWindow(newest=merged[:rows_needed], total=logs_events.count() + checks.total)
+
+
+def _as_logs_event(alert: LogsAlertConfiguration, row: PlatformCheckRow) -> LogsAlertEvent:
+    """An unsaved row in the shape `LogsAlertEventSerializer` reads."""
+    return LogsAlertEvent(
+        id=row.id,
+        alert=alert,
+        kind=LogsAlertEvent.Kind.CHECK,
+        created_at=row.created_at,
+        state_before=row.state_before,
+        state_after=row.state_after,
+        threshold_breached=row.threshold_breached,
+        result_count=row.result_count,
+        error_message=row.error_message,
+        query_duration_ms=row.query_duration_ms,
+    )
 
 
 @extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
@@ -1343,6 +1511,36 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(status=204)
 
     @extend_schema(
+        parameters=[LogsAlertDestinationSendsQuerySerializer],
+        responses={200: LogsAlertDestinationSendSerializer(many=True)},
+        description=(
+            "The last messages sent to one destination of this alert in the past 7 days, newest first, "
+            "on both delivery paths, with whether each one succeeded."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="destinations/sends",
+        required_scopes=["logs:read"],
+        pagination_class=None,
+    )
+    def destination_sends(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        query = LogsAlertDestinationSendsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        owned = owned_alert_destination_ids(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            hog_function_ids=query.validated_data["hog_function_ids"],
+        )
+        sends = recent_destination_sends(
+            team_id=self.team_id, destination_ids=[str(i) for i in owned], limit=MAX_DESTINATION_SENDS
+        )
+        return Response(LogsAlertDestinationSendSerializer(sends, many=True).data)
+
+    @extend_schema(
         request=None,
         responses={200: LogsAlertEventSerializer(many=True)},
         description=(
@@ -1350,7 +1548,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
             "snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't "
             "change and there was no error) are filtered out since only the last 10 are kept "
-            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
+            "and they carry no forensic value. Optional `?kind=...` narrows to a single kind. "
+            "For an alert the alerts platform evaluates, checks since it took the alert over come "
+            "from the platform's check history."
         ),
     )
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
@@ -1371,12 +1571,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError({"kind": f"Must be one of {sorted(valid_kinds)}."})
             queryset = queryset.filter(kind=kind)
 
-        page = self.paginate_queryset(queryset)
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        rows_needed = paginator.get_offset(request) + (paginator.get_limit(request) or 0)
+        if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
+            raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
+        history = _with_platform_checks(alert, queryset, kind=kind, rows_needed=rows_needed)
+        page = self.paginate_queryset(history)
         if page is not None:
             serializer = LogsAlertEventSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = LogsAlertEventSerializer(queryset, many=True)
+        serializer = LogsAlertEventSerializer(history, many=True)
         return Response(serializer.data)
 
     @extend_schema(
@@ -1623,19 +1828,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
-        with transaction.atomic():
-            locked_instance = (
-                LogsAlertConfiguration.objects.select_for_update()
-                .filter(team_id=instance.team_id, id=instance.id)
-                .first()
-            )
-            if locked_instance is None:
-                return
-            soft_delete_all_alert_destinations(
-                team_id=locked_instance.team_id,
-                alert_id=str(locked_instance.id),
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-            super().perform_destroy(locked_instance)
-            transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)
+        if delete_alert(team_id=instance.team_id, alert_id=instance.id):
+            # Robust, so an analytics failure, such as a malformed Referer, cannot fail a committed delete.
+            transaction.on_commit(lambda: self._track("deleted", instance), robust=True)

@@ -112,7 +112,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
                        oat.application_id, oat.scoped_teams, oat.scoped_organizations,
-                       oat.sandbox_task_id,
+                       oat.sandbox_task_id, oat.impersonated_by_id,
                        u.current_team_id, u.distinct_id, u.is_staff
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
@@ -130,6 +130,10 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 return None
 
             if not row["application_id"]:
+                return None
+
+            # Staff impersonation mints tokens as the customer. Gateway spend must not go to that user.
+            if row.get("impersonated_by_id") is not None:
                 return None
 
             scopes = row["scope"].split() if row["scope"] else []

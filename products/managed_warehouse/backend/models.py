@@ -88,6 +88,8 @@ class ManagedWarehouseSourceLifecycle(models.Model):
     )
     generation = models.PositiveBigIntegerField(default=0)
     desired_active = models.BooleanField(default=True)
+    internal_only = models.BooleanField(default=False, db_default=False)
+    background_loading_enabled = models.BooleanField(default=False, db_default=False)
     legacy_conversion_generation = models.PositiveBigIntegerField(null=True, blank=True)
 
     class Meta:

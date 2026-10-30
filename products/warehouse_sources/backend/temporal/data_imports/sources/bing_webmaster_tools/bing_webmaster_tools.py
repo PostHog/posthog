@@ -282,7 +282,19 @@ def _page_query_stats_batches(
     pages = list(dict.fromkeys(page for item in page_stats if isinstance(page := item.get("Query"), str) and page))
     for page in pages:
         # The JSON endpoint documents `page` as a quoted JSON string literal, unlike `siteUrl`.
-        items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})
+        try:
+            items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})
+        except BingWebmasterToolsError as exc:
+            # GetPageStats and GetPageQueryStats can disagree about which of a site's pages are
+            # valid: Bing rejects some pages GetPageStats itself just listed. Skip that one page
+            # rather than losing every other page's stats to a page Bing won't serve.
+            # `_request_payload` appends the fault message verbatim (observed as the API's own
+            # "ERROR!!! InvalidUrl" wording), so anchor on the suffix rather than a bare substring
+            # match that could also catch an unrelated fault mentioning a URL.
+            if not str(exc).endswith("InvalidUrl"):
+                raise
+            logger.warning("Bing Webmaster Tools rejected a page as invalid", site_url=site_url, page=page)
+            continue
         rows = _stats_rows(items, site_url, "page_query_stats", logger)
         for row in rows:
             row["page"] = page

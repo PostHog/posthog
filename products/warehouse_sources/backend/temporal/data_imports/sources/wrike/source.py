@@ -46,7 +46,7 @@ class WrikeSource(ResumableSource[WrikeSourceConfig, WrikeResumeConfig]):
             name=ExternalDataSourceType.WRIKE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Wrike",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Wrike permanent access token to pull your Wrike data into the PostHog Data warehouse.
 
 Create a permanent access token under **Apps & Integrations → API** in Wrike. The token needs read access (the default `Default` scope is sufficient) to the resources you want to sync.

@@ -1,12 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
+import { offlineEvaluationsLogic } from '../offline-evaluations/offlineEvaluationsLogic'
 import {
     DATASETS_PER_PAGE,
     aiObservabilityDatasetsLogic,
@@ -96,24 +99,41 @@ describe('aiObservabilityDatasetsLogic', () => {
         })
         expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).toContain('datasets_page=2')
         expect(getDatasetListUrl(searchParams)).toContain('datasets_page=2')
+        expect(getDatasetListUrl(searchParams)).toContain('tab=datasets')
         expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
-    it('shares tag filters in the URL and restores them when returning to datasets', async () => {
+    it('shares dataset tag filters in the URL without replacing them with experiment filters', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
+            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+        })
+        const tabs = offlineEvaluationsLogic()
+        tabs.mount()
         router.actions.push(urls.aiObservabilityDatasets())
         const logic = aiObservabilityDatasetsLogic()
         logic.mount()
         await expectLogic(logic, () =>
             logic.actions.setFilters({ tags: ['quality', 'a,b'], tag_match: 'all' }, true, false)
         ).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'a,b'], tag_match: 'all' })
+        expect(router.values.searchParams).toMatchObject({
+            tab: 'datasets',
+            tags: ['quality', 'a,b'],
+            tag_match: 'all',
+        })
         expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith(
             expect.objectContaining({ tags: '["quality","a,b"]', tag_match: 'all' })
         )
-        router.actions.push(urls.aiObservabilityScorers())
-        router.actions.push(urls.aiObservabilityDatasets())
+        router.actions.push(urls.aiObservabilityOfflineEvaluations(), {
+            tab: 'experiments',
+            search: 'experiment-name',
+            tags: ['experiment-only'],
+            tag_match: 'any',
+        })
+        tabs.actions.setActiveTab('datasets')
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.filters.tags).toEqual(['quality', 'a,b'])
+        expect(logic.values.filters).toMatchObject({ search: '', tags: ['quality', 'a,b'], tag_match: 'all' })
         expect(router.values.searchParams.tags).toEqual(['quality', 'a,b'])
         router.actions.push(urls.aiObservabilityDatasets(), { tags: [], tag_match: 'any' })
         await expectLogic(logic).toFinishAllListeners()

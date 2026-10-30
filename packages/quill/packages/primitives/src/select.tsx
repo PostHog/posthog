@@ -154,7 +154,7 @@ const SelectItem = React.forwardRef<React.ComponentRef<typeof SelectPrimitive.It
                 <SelectPrimitive.ItemIndicator
                     render={<span className="pointer-events-none absolute end-2 flex items-center justify-center" />}
                 >
-                    <CheckIcon className="pointer-events-none" />
+                    <CheckIcon className="quill-select__indicator-icon pointer-events-none size-3.5" />
                 </SelectPrimitive.ItemIndicator>
             </SelectPrimitive.Item>
         )

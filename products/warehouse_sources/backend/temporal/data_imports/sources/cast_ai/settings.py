@@ -47,7 +47,8 @@ class CastAiEndpointConfig:
     # Unused: no endpoint documents a page size limit, so callers always pass page_size_param=None
     # and let the server pick. Kept only to satisfy the shared fan-out helper's protocol.
     page_size: int = 0
-    sort_mode: Literal["asc", "desc"] = "asc"
+    # The incremental reports fan out per cluster, so the rows of a run have no single order.
+    sort_mode: Literal["asc", "desc"] | None = None
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
     # Required report window params, as (start, end).

@@ -17,6 +17,7 @@ from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import (
     REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
     RemoteConfig,
     RemoteConfigTokenChangeSyncError,
     UnreadableTriggerGroupsError,
@@ -32,11 +33,10 @@ CONFIG_REFRESH_QUERY_COUNT = 6
 SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
 _READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
 _SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
-_FLAG_GROUP_WITH_NULL_EVENTS = {
-    "id": "g3",
-    "sampleRate": 1,
-    "conditions": {"matchType": "any", "events": None, "flag": "k"},
-}
+
+
+def _flag_group(flag: str | dict[str, Any], **conditions: Any) -> dict[str, Any]:
+    return {"id": "g4", "sampleRate": 1, "conditions": {"matchType": "all", "flag": flag, **conditions}}
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -341,6 +341,20 @@ class TestRemoteConfig(_RemoteConfigBase):
         session_recording = config["sessionRecording"]
         assert session_recording["sampleRate"] == expected
 
+    @parameterized.expand(
+        [
+            ("without_variant", {"id": 7, "key": "k"}, "k"),
+            ("with_variant", {"id": 7, "key": "k", "variant": "test"}, {"flag": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_linked_flag(
+        self, _name: str, stored: dict[str, Any], expected: str | dict[str, Any]
+    ) -> None:
+        self.team.session_recording_linked_flag = stored
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["linkedFlag"] == expected
+
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
@@ -362,8 +376,8 @@ class TestRemoteConfig(_RemoteConfigBase):
             ),
             (
                 "events_null",
-                {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]},
-                [_FLAG_GROUP_WITH_NULL_EVENTS],
+                {"version": 2, "groups": [_flag_group("k", events=None)]},
+                [_flag_group("k", events=None)],
                 False,
             ),
             (
@@ -376,9 +390,27 @@ class TestRemoteConfig(_RemoteConfigBase):
             ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False, True),
             ("column_not_an_object", ["not-a-config"], False, True),
             ("groups_not_a_list", {"version": 2, "groups": None}, False, True),
+            (
+                "flag_object_converted",
+                {
+                    "version": 2,
+                    "groups": [
+                        _flag_group({"id": 7, "key": "k"}, events=["purchase"]),
+                        _flag_group({"id": 7, "key": "k", "variant": "test"}),
+                    ],
+                },
+                [_flag_group("k", events=[{"name": "purchase"}]), _flag_group({"flag": "k", "variant": "test"})],
+                False,
+            ),
+            (
+                "flag_object_without_usable_key",
+                {"version": 2, "groups": [_flag_group({"id": 7}), _flag_group({"key": ""})]},
+                [_flag_group({"id": 7}), _flag_group({"key": ""})],
+                False,
+            ),
         ]
     )
-    def test_session_recording_trigger_groups_send_only_readable_groups(
+    def test_session_recording_trigger_groups_sent_to_sdk(
         self,
         _name: str,
         stored: Any,
@@ -386,7 +418,13 @@ class TestRemoteConfig(_RemoteConfigBase):
         expect_reported: bool,
     ) -> None:
         self.team.session_recording_trigger_groups = stored
-        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
+        with (
+            patch("posthog.models.remote_config.capture_exception") as mock_capture_exception,
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+            ),
+        ):
             self.team.save()
             self.sync_remote_config()
         reported = any(
@@ -399,6 +437,35 @@ class TestRemoteConfig(_RemoteConfigBase):
         else:
             assert session_recording["version"] == 2
             assert session_recording["triggerGroups"] == expected_trigger_groups
+
+    @parameterized.expand(
+        [
+            ("rollout_region", "US", {"flag": "k", "variant": "test"}),
+            ("same_project_id_other_region", "EU", {"id": 7, "key": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_trigger_group_flag_rollout_targets_one_region(
+        self, _name: str, region: str, expected_flag: dict[str, Any]
+    ) -> None:
+        def rollout_for_us_project(key: str, *args: Any, group_properties: Any = None, **kwargs: Any) -> bool:
+            project = (group_properties or {}).get("project", {})
+            return (
+                key == TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT
+                and project.get("id") == str(self.team.id)
+                and project.get("region") == "US"
+            )
+
+        flag = {"id": 7, "key": "k", "variant": "test"}
+        self.team.session_recording_trigger_groups = {"version": 2, "groups": [_flag_group(flag, events=["purchase"])]}
+        with (
+            override_settings(CLOUD_DEPLOYMENT=region),
+            patch("posthoganalytics.feature_enabled", side_effect=rollout_for_us_project),
+        ):
+            self.team.save()
+            self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["triggerGroups"] == [
+            _flag_group(expected_flag, events=[{"name": "purchase"}])
+        ]
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True

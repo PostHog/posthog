@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "capture_workflows_engagement_events": {
+            "description": "Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage.",
+            "type": "boolean"
+        },
+        "email_tracking_consent_mode": {
+            "description": "Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.\n\n* `off` - Off\n* `opt_out` - Opt Out\n* `opt_in` - Opt In",
+            "enum": ["off", "opt_out", "opt_in"],
+            "type": "string"
+        },
+        "expected_project_id": {
+            "description": "Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at.",
+            "type": "number"
+        },
+        "marketing_frequency_cap_max_messages": {
+            "anyOf": [
+                {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days."
+        },
+        "marketing_frequency_cap_window_days": {
+            "anyOf": [
+                {
+                    "maximum": 30,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off."
+        }
+    },
+    "type": "object"
+}

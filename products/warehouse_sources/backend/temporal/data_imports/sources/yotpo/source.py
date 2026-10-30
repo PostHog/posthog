@@ -158,7 +158,7 @@ class YotpoSource(ResumableSource[YotpoSourceConfig, YotpoResumeConfig]):
             label="Yotpo",
             docsUrl="https://posthog.com/docs/cdp/sources/yotpo",
             iconPath="/static/services/yotpo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -180,6 +180,7 @@ class YotpoSource(ResumableSource[YotpoSourceConfig, YotpoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date for email data",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

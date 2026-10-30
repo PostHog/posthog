@@ -28,6 +28,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     dashboard_filters = models.JSONField(null=True, blank=True)
     tiles = models.JSONField(blank=True, null=True)
     variables = models.JSONField(null=True, blank=True)
+    customization = models.JSONField(null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

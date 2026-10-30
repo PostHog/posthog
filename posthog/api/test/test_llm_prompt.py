@@ -1226,6 +1226,13 @@ class TestLLMPromptAPI(APIBaseTest):
         # + label created and label deleted-on-archive.
         assert len(rows) == 6
 
+    def test_per_prompt_access_control_route_does_not_exist(self):
+        prompt = self.create_prompt_version(name="guarded-prompt")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/{prompt.id}/access_controls/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 class TestLLMPromptConfigAPI(APIBaseTest):
     def create_prompt_version(

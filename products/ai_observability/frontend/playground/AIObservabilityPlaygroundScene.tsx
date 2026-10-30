@@ -27,9 +27,11 @@ import {
     Link,
     LemonDivider,
 } from '@posthog/lemon-ui'
+import { Button, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -136,7 +138,55 @@ function PlaygroundHeaderActions(): JSX.Element {
     const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const firstPromptId = promptConfigs[0]?.id
+
+    if (todayRailNav) {
+        return (
+            <>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Reset playground to default state"
+                    onClick={resetPlayground}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    tooltip="Reset playground to default state"
+                    data-attr="llma-playground-reset"
+                >
+                    <IconRevert />
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={() => addPromptConfig(firstPromptId)}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    data-attr="llma-playground-add-prompt"
+                >
+                    <IconPlus />
+                    Add prompt
+                </Button>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmPlayground}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <Button
+                        variant={playgroundSubmitting ? 'destructive-outline' : 'primary'}
+                        onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                        disabledReason={
+                            playgroundSubmitting
+                                ? undefined
+                                : !hasRunnablePrompts
+                                  ? 'Add messages to at least one prompt'
+                                  : undefined
+                        }
+                        data-attr="llma-playground-run-button"
+                    >
+                        {playgroundSubmitting ? <QuillSpinner /> : <IconPlay />}
+                        <span>{playgroundSubmitting ? 'Stop' : 'Run'}</span>
+                    </Button>
+                </AccessControlAction>
+            </>
+        )
+    }
 
     return (
         <>

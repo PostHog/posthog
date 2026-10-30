@@ -1,8 +1,10 @@
+from typing import Any
+
 import numpy as np
 
 from posthog.schema import DetectorType
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -80,6 +82,23 @@ class ThresholdDetector(BaseDetector):
             all_scores=scores,
             metadata={"lower_bound": lower, "upper_bound": upper},
         )
+
+    def fit(self, history: np.ndarray) -> DetectorArtifact:
+        # The bounds come from the config, so nothing is fitted.
+        return self._artifact({})
+
+    def _score_rows(
+        self, artifact: DetectorArtifact, rows: np.ndarray
+    ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        lower = self.config.get("lower_bound")
+        upper = self.config.get("upper_bound")
+        scores: list[float | None] = []
+        metadata: list[dict[str, Any]] = []
+        for value in rows if rows.ndim == 1 else rows[:, 0]:
+            is_breach = (lower is not None and value < lower) or (upper is not None and value > upper)
+            scores.append(1.0 if is_breach else 0.0)
+            metadata.append({"lower_bound": lower, "upper_bound": upper, "value": float(value)})
+        return scores, metadata
 
     @classmethod
     def get_default_config(cls) -> dict:

@@ -1,4 +1,4 @@
-import { type FocusEvent, type ReactNode, useCallback, useRef, useState } from 'react'
+import { type FocusEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
@@ -10,21 +10,33 @@ const CLOSE_DELAY_MS = 150
 export function TodayPulseHoverCard({
     children,
     card,
-    onOpen,
+    onOpenChange,
 }: {
     children: ReactNode
     card: ReactNode
-    onOpen: () => void
+    onOpenChange: (open: boolean) => void
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
+    const [open, setOpenState] = useState(false)
+    const openRef = useRef(false)
+    const onOpenChangeRef = useRef(onOpenChange)
+    onOpenChangeRef.current = onOpenChange
+    const setOpen = (next: boolean): void => {
+        if (next !== openRef.current) {
+            onOpenChange(next)
+        }
+        openRef.current = next
+        setOpenState(next)
+    }
+    useEffect(
+        () => () => {
+            if (openRef.current) {
+                onOpenChangeRef.current(false)
+            }
+        },
+        []
+    )
     const popupRef = useRef<HTMLDivElement>(null)
     const triggerRef = useCallback((): void => trackPointer(), [])
-    const show = (next: boolean): void => {
-        setOpen(next)
-        if (next) {
-            onOpen()
-        }
-    }
     return (
         <Popover
             open={open}
@@ -32,7 +44,7 @@ export function TodayPulseHoverCard({
                 if (next && details.reason === 'trigger-hover' && !pointerMovedRecently()) {
                     return
                 }
-                show(next)
+                setOpen(next)
             }}
         >
             <PopoverTrigger
@@ -43,7 +55,7 @@ export function TodayPulseHoverCard({
                 ref={triggerRef}
                 render={<div />}
                 className="TodayPulse__trigger"
-                onFocus={() => !open && show(true)}
+                onFocus={() => !open && setOpen(true)}
                 onBlur={(event: FocusEvent) => {
                     if (!popupRef.current?.contains(event.relatedTarget as Node | null)) {
                         setOpen(false)

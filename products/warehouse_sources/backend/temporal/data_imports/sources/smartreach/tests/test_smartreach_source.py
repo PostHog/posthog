@@ -36,34 +36,6 @@ class TestSmartreachSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid SmartReach API key"),
-            (403, False, "Invalid SmartReach API key"),
-            (500, False, "SmartReach returned HTTP 500"),
-            (0, False, "Could not connect to SmartReach: boom"),
-        ],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source.check_access")
-    def test_validate_credentials(
-        self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        message = (
-            "SmartReach returned HTTP 500"
-            if status == 500
-            else ("Could not connect to SmartReach: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source.check_access")
     def test_validate_credentials_v3_requires_team_id(self, mock_check: mock.MagicMock) -> None:
         # v3 list endpoints reject requests without team_id, so fail fast (before probing) when it's

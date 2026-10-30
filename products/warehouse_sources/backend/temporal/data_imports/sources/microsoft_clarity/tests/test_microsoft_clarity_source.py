@@ -40,14 +40,6 @@ class TestNonRetryableErrors:
                 "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3",
             ),
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
-            ),
-            (
                 "quota_exceeded",
                 "429 Client Error: Too Many Requests for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
             ),

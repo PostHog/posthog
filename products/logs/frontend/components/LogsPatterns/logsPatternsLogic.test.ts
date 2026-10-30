@@ -69,6 +69,9 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
             pattern: RESPONSE.patterns[0],
             baseline_estimated_count: null,
             baseline_volume_share_pct: null,
+            masked_example: 'GET <*> returned <N>',
+            services: [],
+            first_seen_ever: null,
         },
     ],
     current: {
@@ -87,6 +90,17 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
         date_from: '2026-06-16T12:00:00+00:00',
         date_to: '2026-06-16T13:00:00+00:00',
     },
+    window: {
+        current: { from: '2026-06-23T12:00:00Z', to: '2026-06-23T13:00:00Z' },
+        baseline: { from: '2026-06-16T12:00:00Z', to: '2026-06-16T13:00:00Z' },
+        timezone: 'UTC',
+    },
+    source: 'body_mining',
+    pattern_version: null,
+    sampled: false,
+    truncated: false,
+    notes: [],
+    next: [],
 }
 
 describe('logsPatternsLogic', () => {

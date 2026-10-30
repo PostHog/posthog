@@ -17,6 +17,24 @@ DEFAULT_LOOKBACK_DAYS = 730
 
 
 @dataclass(frozen=True)
+class DocusignFanOutConfig:
+    """A per-parent request made for each row of the endpoint's own listing."""
+
+    # Path under the account base URL, with `{parent_id}` standing in for the listed parent's id.
+    path: str
+    parent_id_key: str
+    # Column the parent id is copied into on every child row.
+    parent_id_column: str
+    data_key: str
+    params: dict[str, str] = field(default_factory=dict)
+    paginated: bool = False
+    # PowerForm form data nests one recipient list per submitted envelope.
+    flatten_envelope_recipients: bool = False
+    # Statuses that mean only this one parent is unreadable, so the table skips it instead of failing.
+    skip_statuses: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class DocusignEndpointConfig:
     name: str
     # Path under `/restapi/v2.1/accounts/{accountId}`.
@@ -45,6 +63,7 @@ class DocusignEndpointConfig:
     # API quota, so these endpoints should be synced incrementally.
     envelope_sub_resource: Optional[str] = None
     envelope_sub_resource_params: dict[str, str] = field(default_factory=dict)
+    fan_out: Optional[DocusignFanOutConfig] = None
     # False for endpoints that return everything in one response and ignore `start_position` —
     # re-requesting with an advanced offset would replay the same rows forever.
     supports_pagination: bool = True
@@ -107,6 +126,19 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         partition_key="envelopeCreatedDateTime",
         derived_from_envelopes="documents",
         envelope_child_keys=("envelopeDocuments", "documents"),
+    ),
+    "envelope_custom_fields": DocusignEndpointConfig(
+        name="envelope_custom_fields",
+        path="/envelopes",
+        data_key="envelopes",
+        # Text and list custom fields are separate collections, so the type is part of the key.
+        primary_key=["envelopeId", "customFieldType", "fieldId"],
+        params={"order_by": "status_changed", "order": "asc", "include": "custom_fields"},
+        date_filter_param="from_date",
+        incremental_fields=_DERIVED_INCREMENTAL_FIELDS,
+        partition_key="envelopeCreatedDateTime",
+        derived_from_envelopes="custom_fields",
+        envelope_child_keys=("customFields",),
     ),
     "envelope_form_data": DocusignEndpointConfig(
         name="envelope_form_data",
@@ -189,6 +221,61 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         # batch is submitted, and `from_date` filters on submission time.
         date_filter_param="from_date",
         partition_key="submittedDate",
+    ),
+    "bulk_send_batch_envelopes": DocusignEndpointConfig(
+        name="bulk_send_batch_envelopes",
+        path="/bulk_send_batch",
+        data_key="bulkBatchSummaries",
+        primary_key=["bulkSendBatchId", "envelopeId"],
+        # Same batch listing as `bulk_send_batches`. Full refresh only: envelope statuses keep
+        # changing after the batch is submitted, and the batch filter is on submission time.
+        date_filter_param="from_date",
+        partition_key="createdDateTime",
+        fan_out=DocusignFanOutConfig(
+            path="/bulk_send_batch/{parent_id}/envelopes",
+            parent_id_key="batchId",
+            parent_id_column="bulkSendBatchId",
+            data_key="envelopes",
+            params={"order_by": "created", "order": "asc"},
+            paginated=True,
+        ),
+    ),
+    "powerforms": DocusignEndpointConfig(
+        name="powerforms",
+        path="/powerforms",
+        data_key="powerForms",
+        primary_key=["powerFormId"],
+        # No from_date: DocuSign then applies no date filter, and usage counters change anyway.
+        params={"order_by": "created", "order": "asc"},
+        partition_key="createdDateTime",
+    ),
+    "powerform_form_data": DocusignEndpointConfig(
+        name="powerform_form_data",
+        path="/powerforms",
+        data_key="powerForms",
+        primary_key=["powerFormId", "envelopeId", "recipientId"],
+        params={"order_by": "created", "order": "asc"},
+        fan_out=DocusignFanOutConfig(
+            path="/powerforms/{parent_id}/form_data",
+            parent_id_key="powerFormId",
+            parent_id_column="powerFormId",
+            data_key="envelopes",
+            params={"data_layout": "Native"},
+            flatten_envelope_recipients=True,
+            # Only PowerForm administrators and the PowerForm's sender can read its form data, and
+            # the listing also returns PowerForms the user can see but not download.
+            skip_statuses=(403, 404),
+        ),
+    ),
+    "billing_invoices": DocusignEndpointConfig(
+        name="billing_invoices",
+        path="/billing_invoices",
+        data_key="billingInvoices",
+        primary_key=["invoiceId"],
+        # Without from_date DocuSign returns only the last 365 days. Full refresh only, because
+        # an invoice's balance changes when it is paid.
+        date_filter_param="from_date",
+        supports_pagination=False,
     ),
 }
 

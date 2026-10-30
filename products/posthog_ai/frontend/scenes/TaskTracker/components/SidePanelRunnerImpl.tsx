@@ -74,10 +74,12 @@ function SidePanelRunnerContent({
     const lemonChrome = useThreadSkin() === 'lemon'
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
-    // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
-    // re-pointed when it switches runs). The `/tasks` full-page run view registers its own entry via
-    // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
-    useForegroundStream(activeCreation?.streamKey ?? null)
+    // stream. Register the startup stream here; once a run exists, `TaskRunChat` registers the key it
+    // resolves, which can be a retained alias. Registrations are provider-keyed, so co-mounted surfaces
+    // don't clobber each other.
+    useForegroundStream(
+        activeCreation && !(activeCreation.taskId && activeCreation.runId) ? activeCreation.streamKey : null
+    )
 
     // Edit-capable hosts attach this before the first send, before a run exists. Question-only
     // hosts provide their own instructions instead of advertising edits to the open page.

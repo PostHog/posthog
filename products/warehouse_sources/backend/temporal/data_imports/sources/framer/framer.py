@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
     DEPLOYMENTS_MAX_PAGES,
     DEPLOYMENTS_PAGE_SIZE,
+    LOCALIZATION_GROUPS_MAX,
     PRIMARY_KEYS,
 )
 
@@ -50,6 +51,10 @@ COLLECTION_METHODS_BY_VERSION: dict[str, CollectionMethods] = {
     FRAMER_SDK_VERSION_0_1_29: {"fields": "getCollectionFields2", "items": "getCollectionItems2"},
     FRAMER_SDK_VERSION_5_1_0: {"fields": "getCollectionFields3", "items": "getCollectionItems3"},
 }
+
+# framer-api 5.x streams localization groups one at a time through a server-side cursor,
+# so a large project never arrives as one response. Older versions only have the bulk read.
+LOCALIZATION_GROUPS_STREAMED_VERSIONS = {FRAMER_SDK_VERSION_5_1_0}
 
 # The server boots a headless instance of the project on connect, which can take a while
 # for large projects — the official SDK allows 90s, so we do too.
@@ -493,6 +498,46 @@ def _deployments_rows(client: FramerClient, logger: Optional[FilteringBoundLogge
         logger.warning("Framer deployments page cap reached", max_pages=DEPLOYMENTS_MAX_PAGES)
 
 
+def _streamed_localization_groups_rows(
+    client: FramerClient, logger: Optional[FilteringBoundLogger]
+) -> Iterator[list[dict[str, Any]]]:
+    # The cursor belongs to this connection's session, which closes after the endpoint, so
+    # there is no releaseLocalizationGroupsCursor call.
+    cursor: Optional[str] = None
+    for _group_number in range(LOCALIZATION_GROUPS_MAX):
+        result = client.call("listLocalizationGroupsNext", {"cursor": cursor})
+        if not isinstance(result, dict) or "group" not in result:
+            raise FramerAPIError("Localization group response is missing its group", code="INVALID_RESPONSE")
+        group = result["group"]
+        if group is None:
+            return
+        if not isinstance(group, dict):
+            raise FramerAPIError("Localization group response has an invalid group", code="INVALID_RESPONSE")
+        cursor = result.get("cursor")
+        if not cursor:
+            raise FramerAPIError("Localization group response is missing its cursor", code="INVALID_RESPONSE")
+        yield [group]
+    if logger:
+        logger.warning("Framer localization groups cap reached", max_groups=LOCALIZATION_GROUPS_MAX)
+
+
+def _localization_groups_rows(
+    client: FramerClient, logger: Optional[FilteringBoundLogger]
+) -> Iterator[list[dict[str, Any]]]:
+    if client.protocol_version in LOCALIZATION_GROUPS_STREAMED_VERSIONS:
+        yield from _streamed_localization_groups_rows(client, logger)
+        return
+    rows = _as_dict_rows(client.call("getLocalizationGroups"))
+    if rows:
+        yield rows
+
+
+def _unpublished_page_changes_rows(client: FramerClient) -> Iterator[list[dict[str, Any]]]:
+    rows = _as_dict_rows(client.call("getUnpublishedPageChanges"))
+    if rows:
+        yield rows
+
+
 def _endpoint_rows(
     client: FramerClient, endpoint: str, logger: Optional[FilteringBoundLogger]
 ) -> Iterator[list[dict[str, Any]]]:
@@ -510,6 +555,10 @@ def _endpoint_rows(
         yield from _redirects_rows(client)
     elif endpoint == "Deployments":
         yield from _deployments_rows(client, logger)
+    elif endpoint == "LocalizationGroups":
+        yield from _localization_groups_rows(client, logger)
+    elif endpoint == "UnpublishedPageChanges":
+        yield from _unpublished_page_changes_rows(client)
     else:
         raise FramerAPIError(f"Unknown endpoint: {endpoint}", code="INVALID_REQUEST")
 

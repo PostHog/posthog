@@ -56,6 +56,25 @@ pub const PERCENTAGE_ROLLOUT_FIELDS: &[&str] = &[
     "seed",
     "assign_by",
 ];
+pub const EXPERIMENT_FIELDS: &[&str] = &[
+    "id",
+    "rule_type",
+    "targeting",
+    "description",
+    "metadata",
+    "paused",
+    "rollout_percentage",
+    "on_rollout_miss",
+    "assignment_algorithm",
+    "seed",
+    "assign_by",
+    "variants",
+    "holdout",
+];
+pub const VARIANT_FIELDS: &[&str] = &["key", "weight", "value"];
+pub const HOLDOUT_FIELDS: &[&str] = &["seed", "exclusion_percentage"];
+pub const MIN_VARIANTS: usize = 2;
+pub const MAX_VARIANTS: usize = 20;
 pub const TARGETING_FIELDS: &[&str] = &["properties"];
 pub const PROPERTY_FIELDS: &[&str] = &[
     "key",
@@ -129,6 +148,29 @@ pub enum Outcome {
         on_rollout_miss: RolloutMiss,
         seed: String,
     },
+    /// A weighted variant split. An Experiment points at its rule; the rule never names it.
+    Experiment {
+        paused: bool,
+        rollout_percentage: f64,
+        on_rollout_miss: RolloutMiss,
+        seed: String,
+        variants: Vec<Variant>,
+        holdout: Option<Holdout>,
+    },
+}
+
+#[derive(Clone)]
+pub struct Variant {
+    pub key: String,
+    pub weight: f64,
+    pub value: Value,
+}
+
+/// A holdout that belongs to its rule and has no identity of its own.
+#[derive(Clone)]
+pub struct Holdout {
+    pub seed: String,
+    pub exclusion_percentage: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,6 +201,7 @@ impl fmt::Debug for Outcome {
         f.write_str(match self {
             Self::TargetedRelease { .. } => "TargetedRelease { .. }",
             Self::PercentageRollout { .. } => "PercentageRollout { .. }",
+            Self::Experiment { .. } => "Experiment { .. }",
         })
     }
 }
@@ -232,7 +275,7 @@ impl Rule {
         let fields: &[&str] = match rule_type {
             "targeted_release" => TARGETED_RELEASE_FIELDS,
             "percentage_rollout" => PERCENTAGE_ROLLOUT_FIELDS,
-            "experiment" => return Err(ParseError::Unsupported("rule_type")),
+            "experiment" => EXPERIMENT_FIELDS,
             _ => return Err(ParseError::Malformed("rule_type")),
         };
         closed(rule, fields, "rule")?;
@@ -249,37 +292,32 @@ impl Rule {
             return Err(ParseError::Malformed("metadata"));
         }
         let targeting = properties::parse_targeting(required(rule, "targeting")?)?;
-        let value = required(rule, "value")?;
-        if !return_type.accepts(value) {
-            return Err(ParseError::Malformed("value"));
-        }
-        let value = value.clone();
-        let outcome = if rule_type == "targeted_release" {
-            Outcome::TargetedRelease { value }
-        } else {
-            if string(rule, "assignment_algorithm")? != "sha1_60_v1" {
-                return Err(ParseError::Malformed("assignment_algorithm"));
+        let outcome = match rule_type {
+            "targeted_release" => Outcome::TargetedRelease {
+                value: typed_value(rule, return_type)?,
+            },
+            "percentage_rollout" => {
+                let (rollout_percentage, on_rollout_miss, seed) = rollout(rule)?;
+                Outcome::PercentageRollout {
+                    value: typed_value(rule, return_type)?,
+                    rollout_percentage,
+                    on_rollout_miss,
+                    seed,
+                }
             }
-            if rule
-                .get("assign_by")
-                .is_some_and(|v| v.as_str() != Some("person"))
-            {
-                return Err(ParseError::Malformed("assign_by"));
-            }
-            let seed = string(rule, "seed")?;
-            if !(1..=MAX_SEED_LENGTH).contains(&seed.chars().count()) {
-                return Err(ParseError::Malformed("seed"));
-            }
-            let on_rollout_miss = match string(rule, "on_rollout_miss")? {
-                "continue" => RolloutMiss::Continue,
-                "return_default" => RolloutMiss::ReturnDefault,
-                _ => return Err(ParseError::Malformed("on_rollout_miss")),
-            };
-            Outcome::PercentageRollout {
-                value,
-                rollout_percentage: percentage(required(rule, "rollout_percentage")?)?,
-                on_rollout_miss,
-                seed: seed.to_owned(),
+            _ => {
+                let paused = required(rule, "paused")?
+                    .as_bool()
+                    .ok_or(ParseError::Malformed("paused"))?;
+                let (rollout_percentage, on_rollout_miss, seed) = rollout(rule)?;
+                Outcome::Experiment {
+                    paused,
+                    rollout_percentage,
+                    on_rollout_miss,
+                    seed,
+                    variants: variants(required(rule, "variants")?, return_type)?,
+                    holdout: rule.get("holdout").map(holdout).transpose()?,
+                }
             }
         };
         Ok(Self {
@@ -301,8 +339,107 @@ impl Rule {
                     seed.capacity() + estimate_json_heap_size(value)
                 }
                 Outcome::TargetedRelease { value } => estimate_json_heap_size(value),
+                Outcome::Experiment {
+                    seed,
+                    variants,
+                    holdout,
+                    ..
+                } => {
+                    seed.capacity()
+                        + variants.capacity() * std::mem::size_of::<Variant>()
+                        + variants
+                            .iter()
+                            .map(|v| v.key.capacity() + estimate_json_heap_size(&v.value))
+                            .sum::<usize>()
+                        + holdout.as_ref().map_or(0, |h| h.seed.capacity())
+                }
             }
     }
+}
+
+fn typed_value(object: &Map<String, Value>, return_type: ReturnType) -> Result<Value, ParseError> {
+    let value = required(object, "value")?;
+    if !return_type.accepts(value) {
+        return Err(ParseError::Malformed("value"));
+    }
+    Ok(value.clone())
+}
+
+fn rollout(rule: &Map<String, Value>) -> Result<(f64, RolloutMiss, String), ParseError> {
+    if string(rule, "assignment_algorithm")? != "sha1_60_v1" {
+        return Err(ParseError::Malformed("assignment_algorithm"));
+    }
+    if rule
+        .get("assign_by")
+        .is_some_and(|v| v.as_str() != Some("person"))
+    {
+        return Err(ParseError::Malformed("assign_by"));
+    }
+    let on_rollout_miss = match string(rule, "on_rollout_miss")? {
+        "continue" => RolloutMiss::Continue,
+        "return_default" => RolloutMiss::ReturnDefault,
+        _ => return Err(ParseError::Malformed("on_rollout_miss")),
+    };
+    Ok((
+        percentage(rule, "rollout_percentage")?,
+        on_rollout_miss,
+        seed(rule)?,
+    ))
+}
+
+fn seed(object: &Map<String, Value>) -> Result<String, ParseError> {
+    let seed = string(object, "seed")?;
+    if !(1..=MAX_SEED_LENGTH).contains(&seed.chars().count()) {
+        return Err(ParseError::Malformed("seed"));
+    }
+    Ok(seed.to_owned())
+}
+
+/// Weights are checked to two decimal places by the raw scan, so whole hundredths sum exactly.
+fn variants(value: &Value, return_type: ReturnType) -> Result<Vec<Variant>, ParseError> {
+    let items = value.as_array().ok_or(ParseError::Malformed("variants"))?;
+    if items.len() > MAX_VARIANTS {
+        return Err(ParseError::LimitExceeded("variants"));
+    }
+    if items.len() < MIN_VARIANTS {
+        return Err(ParseError::Malformed("variants"));
+    }
+    let mut keys = HashSet::with_capacity(items.len());
+    let mut hundredths = 0;
+    let mut variants = Vec::with_capacity(items.len());
+    for item in items {
+        let variant = object(item, "variant")?;
+        closed(variant, VARIANT_FIELDS, "variant")?;
+        let key = string(variant, "key")?;
+        if key.is_empty()
+            || !key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            || !keys.insert(key)
+        {
+            return Err(ParseError::Malformed("variant.key"));
+        }
+        let weight = percentage(variant, "weight")?;
+        hundredths += (weight * 100.0).round() as u32;
+        variants.push(Variant {
+            key: key.to_owned(),
+            weight,
+            value: typed_value(variant, return_type)?,
+        });
+    }
+    if hundredths != 10_000 {
+        return Err(ParseError::Malformed("variants"));
+    }
+    Ok(variants)
+}
+
+fn holdout(value: &Value) -> Result<Holdout, ParseError> {
+    let holdout = object(value, "holdout")?;
+    closed(holdout, HOLDOUT_FIELDS, "holdout")?;
+    Ok(Holdout {
+        seed: seed(holdout)?,
+        exclusion_percentage: percentage(holdout, "exclusion_percentage")?,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -345,9 +482,9 @@ fn is_nested_value(value: &Value, depth: usize) -> bool {
     }
 }
 
-fn percentage(value: &Value) -> Result<f64, ParseError> {
-    let error = ParseError::Malformed("rollout_percentage");
-    let Value::Number(number) = value else {
+fn percentage(object: &Map<String, Value>, field: &'static str) -> Result<f64, ParseError> {
+    let error = ParseError::Malformed(field);
+    let Value::Number(number) = required(object, field)? else {
         return Err(error);
     };
     let numeric = number.as_f64().ok_or(error)?;

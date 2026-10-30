@@ -35,9 +35,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
@@ -422,6 +424,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             checked_source,
             required_level="viewer",
         )
+
+    def test_preparation_deadline_includes_initial_parse(self) -> None:
+        parsed = parse_select("SELECT 1")
+        with (
+            patch("posthog.hogql.compilation.time.monotonic", return_value=0.0) as clock,
+            patch("posthog.hogql.query.sync_execute") as execute,
+        ):
+
+            def slow_parse(*args: object, **kwargs: object) -> ast.SelectQuery | ast.SelectSetQuery:
+                clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
+                return parsed
+
+            with patch("posthog.hogql.query.parse_select", side_effect=slow_parse):
+                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                    execute_hogql_query("SELECT 1", team=self.team)
+        execute.assert_not_called()
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
@@ -1055,6 +1073,52 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
 
+    @parameterized.expand(
+        [
+            ("array_raw", "JSONExtractArrayRaw(properties.list)", ["1", "2"], []),
+            ("array_raw_to_string", "JSONExtractArrayRaw(toString(properties.list))", ["1", "2"], []),
+            ("keys", "JSONExtractKeys(properties.obj)", ["a", "b"], []),
+            ("keys_and_values_raw", "JSONExtractKeysAndValuesRaw(properties.map)", [("k", '"v"')], []),
+            ("keys_and_values", "JSONExtractKeysAndValues(properties.map, 'String')", [("k", "v")], []),
+            ("extract_array", "JSONExtract(properties.list, 'Array(Int64)')", [1, 2], []),
+            ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
+            ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
+            ("null_literal_keeps_null", "JSONExtractArrayRaw(NULL)", None, None),
+            ("null_through_function_returns_empty", "JSONExtractArrayRaw(toString(NULL))", [], []),
+            ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
+            ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
+            ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
+            ("cte_equality_unchanged", "list = 'x'", False, None, "t"),
+            ("cte_inequality_unchanged", "list != 'x'", True, None, "t"),
+        ]
+    )
+    def test_json_container_functions_accept_nullable_input(
+        self,
+        _name: str,
+        expression: str,
+        expected_with: Any,
+        expected_without: Any,
+        source: str = "events",
+        cte_expression: str = "properties.list",
+    ) -> None:
+        _create_event(
+            distinct_id="d1",
+            event="with",
+            team=self.team,
+            properties={"list": [1, 2], "obj": {"a": 1, "b": 2}, "map": {"k": "v"}, "num": 7},
+        )
+        _create_event(distinct_id="d1", event="without", team=self.team, properties={})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"WITH t AS (SELECT event, {cte_expression} AS list FROM events) SELECT event, {expression} FROM {source}",
+            team=self.team,
+            pretty=False,
+        )
+
+        rows = sorted(response.results, key=lambda row: row[0])
+        self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
         # latest_os_version is Nullable, splitByChar does not access Nullable argument
@@ -1152,8 +1216,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [
                     (
-                        # The native-JSON table treats an empty value as absent, like a materialized column does.
-                        None if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "",
+                        "",
                         None,  # null
                         None,  # undefined
                         "0",  # zero string

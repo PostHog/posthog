@@ -1,3 +1,4 @@
+import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, reducers, afterMount, connect, kea, key, path, props } from 'kea'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -22,6 +23,7 @@ export interface infoTabLogicValues {
     posthogTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     metadata: HogQLMetadataResponse | null // sqlEditorLogic
     activeSection: 'lineage' | 'materialization' | 'quality'
+    lineageNodePositions: Record<string, XYPosition>
     lineageVisited: boolean
 }
 
@@ -30,6 +32,16 @@ export interface infoTabLogicActions {
     loadUpstream: (modelId: string) => {
         modelId: string
     } // sqlEditorLogic
+    lineageNodeDragStopped: (
+        nodeId: string,
+        position: XYPosition
+    ) => {
+        nodeId: string
+        position: XYPosition
+    }
+    resetLineageNodePositions: () => {
+        value: true
+    }
     setActiveSection: (section: 'lineage' | 'materialization' | 'quality') => {
         section: 'lineage' | 'materialization' | 'quality'
     }
@@ -61,8 +73,19 @@ export const infoTabLogic = kea<infoTabLogicType>([
         actions: [sqlEditorLogic({ tabId: props.tabId }), ['loadUpstream']],
         logic: props.viewId ? [materializationJobsLogic({ viewId: props.viewId })] : [],
     })),
-    actions({ setActiveSection: (section: 'materialization' | 'lineage' | 'quality') => ({ section }) }),
+    actions({
+        setActiveSection: (section: 'materialization' | 'lineage' | 'quality') => ({ section }),
+        lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetLineageNodePositions: true,
+    }),
     reducers({
+        lineageNodePositions: [
+            {} as Record<string, XYPosition>,
+            {
+                lineageNodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetLineageNodePositions: () => ({}),
+            },
+        ],
         lineageVisited: [false, { setActiveSection: (visited, { section }) => visited || section === 'lineage' }],
         activeSection: [
             'materialization' as 'materialization' | 'lineage' | 'quality',

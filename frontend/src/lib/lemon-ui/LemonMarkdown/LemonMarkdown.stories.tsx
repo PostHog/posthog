@@ -77,6 +77,26 @@ Here's a breakdown of our top traffic sources:
     },
 }
 
+export const MixedWidthTable: Story = {
+    render: (args) => (
+        <div className="flex flex-col gap-4">
+            {['w-[520px]', 'w-[1200px]'].map((widthClassName) => (
+                <div key={widthClassName} className={`border p-2 ${widthClassName}`}>
+                    <LemonMarkdownComponent {...args} />
+                </div>
+            ))}
+        </div>
+    ),
+    args: {
+        children: `A long prose cell does not squeeze the short columns. A table that does not fit scrolls sideways.
+
+| View | Grain | Materialized | Notes |
+| --- | --- | --- | --- |
+| some_long_view_name_here | 1 / run (task_run_id) | yes (24h -> 1h) | One row per task run, joined to its outputs. The view reads from \`example_task_runs_with_outputs\` and \`example_task_run_artifacts\`, and keeps the latest status for each run. Use it to count runs per day or to find runs that stopped before they wrote an output. |
+| daily_rollup | 1 / day | no | Short note. |`,
+    },
+}
+
 export const GitHubFlavoredMarkdown: Story = {
     args: {
         children: `# GitHub-flavored Markdown features

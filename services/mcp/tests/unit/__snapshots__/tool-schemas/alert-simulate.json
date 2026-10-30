@@ -1,6 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "alert": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the saved alert this preview is for. The AI detector reads the points that the alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert."
+        },
         "config": {
             "anyOf": [
                 {
@@ -2215,36 +2226,10 @@
                             ],
                             "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
                         },
-                        "threshold": {
-                            "anyOf": [
-                                {
-                                    "maximum": 1,
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"
-                        },
                         "type": {
                             "default": "llm",
                             "enum": ["llm"],
                             "type": "string"
-                        },
-                        "window": {
-                            "anyOf": [
-                                {
-                                    "maximum": 400,
-                                    "minimum": 5,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "How many recent points the model is shown (default: 90)"
                         }
                     },
                     "type": "object"

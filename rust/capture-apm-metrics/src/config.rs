@@ -11,6 +11,12 @@ pub struct Config {
     #[envconfig(from = "REDIS_URL")]
     pub redis_url: Option<String>,
 
+    /// Largest estimated row set one remote-write request may expand to. It is
+    /// separate from MAX_REQUEST_BODY_SIZE_BYTES, so the body limit can grow for
+    /// large vmagent blocks without raising the memory one request can hold.
+    #[envconfig(from = "REMOTE_WRITE_MAX_EXPANDED_BYTES", default = "167772160")] // 160 MiB
+    pub remote_write_max_expanded_bytes: u64,
+
     /// When false the gate still tracks series and reports metrics but leaves
     /// every row labelled, so the switch can flip once the metrics2 read path
     /// takes labels from the series rollup.

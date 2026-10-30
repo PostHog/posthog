@@ -112,6 +112,36 @@ IMPACT_ENDPOINTS: dict[str, ImpactEndpointConfig] = {
         primary_keys=["Id"],
         description="Partner invoices, returned most recent first. Full refresh only.",
     ),
+    "Ads": ImpactEndpointConfig(
+        name="Ads",
+        path="/Ads",
+        data_key="Ads",
+        primary_keys=["Id"],
+        incremental_start_param="DateLastUpdatedStart",
+        incremental_end_param="DateLastUpdatedEnd",
+        incremental_fields=[
+            {
+                "label": "DateLastUpdated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "DateLastUpdated",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        description=(
+            "The ad creatives (banners, text links, coupons) across your campaigns, with their names, "
+            "types, and landing pages. Join on AdId to see which creative drove each action."
+        ),
+    ),
+    "PromoCodes": ImpactEndpointConfig(
+        name="PromoCodes",
+        path="/PromoCodes",
+        data_key="PromoCodes",
+        primary_keys=["Id"],
+        description=(
+            "Promo codes used to credit partners, with the assigned partner, active dates, credit policy, "
+            "and linked deal. Join on the action PromoCode to attribute coupon conversions. Full refresh only."
+        ),
+    ),
     "Actions": ImpactEndpointConfig(
         name="Actions",
         path="/Actions",

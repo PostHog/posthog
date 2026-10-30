@@ -60,7 +60,7 @@ from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.outbound_proxy import internal_requests_session
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.token_bucket import (
     BucketDecision,
     BucketUnavailable,
@@ -144,6 +144,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
+    SandboxCustomImageListQuerySerializer,
     SandboxCustomImageSerializer,
     SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
@@ -201,9 +202,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
-    TaskRunPeerMessageRequestSerializer,
-    TaskRunPeerMessageResponseSerializer,
-    TaskRunPeersResponseSerializer,
+    TaskRunLogsQuerySerializer,
+    TaskRunLogsView,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -484,12 +484,12 @@ class _SignalReportTaskThrottle(UserRateThrottle):
 
 class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
-    rate = "10/hour"
+    rate = "20/hour"
 
 
 class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
-    rate = "30/day"
+    rate = "50/day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
@@ -550,7 +550,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
@@ -841,6 +841,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
+        validated_data["state"] = {"created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile"}
         start_run = validated_data.pop("start_run", False)
         run_data = validated_data.pop("run_data", {})
         origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
@@ -1597,6 +1598,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
+        if (
+            not result.run_error
+            and result.run_id is not None
+            and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+        ):
+            tasks_facade.record_task_mobile_pickup(task_id=str(pk), team_id=self.team_id, user_id=self._user_id())
         response_data = TaskSerializer(result.task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
@@ -2089,6 +2096,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list",
         "retrieve",
         "logs",
+        "log_entries",
         "session_logs",
         "task_session",
         "stream",
@@ -3323,86 +3331,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         return self._preview_unavailable_page(redirect.outcome, task_id)
 
-    def _peer_messaging_gate(self, task_id: str) -> Response | None:
-        """Server-side authorization for the peers endpoints. Tool gating in the
-        harness is UX, never authorization — everything is re-checked here.
-
-        - A sandbox-app OAuth token must be bound to exactly this task: the token's
-          user may well control other tasks too (same creator), so without this a
-          compromised sandbox for task A could send as task B's runs.
-        - The requester must be the task's creator: peer visibility and message
-          attribution derive entirely from the creating user, so broader task
-          access (e.g. the Slack same-team carve-out) must not let a teammate
-          enumerate or send as another user's runs.
-        - Both feature flags and the Pi runtime are enforced per request, mirroring
-          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
-          tool in a resumed sandbox can't outlive a rollback of either flag.
-        """
-        authenticator = self.request.successful_authenticator
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            access_token = authenticator.access_token
-            application = access_token.application
-            if (
-                application is not None
-                and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-                and access_token.sandbox_task_id != UUID(task_id)
-            ):
-                raise NotFound("Task not found")
-        user = cast(User, self.request.user)
-        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"error": "Peer messaging is only available to the task creator's runs"}
-                ).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.task_uses_pi_runtime(task_id, self.team_id):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging requires the Pi runtime"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "The Pi cloud runtime is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.agent_peer_messaging_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
-
-    @validated_request(
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeersResponseSerializer,
-                description="Active agent runs this run may message",
-            ),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="List peer agent runs",
-        description=(
-            "Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, "
-            "currently in progress or queued. Discovery and send validation share one visibility policy, "
-            "so a run can only message what it can list; the per-entry `sendable` flag is the liveness "
-            "contract."
-        ),
-    )
-    @action(detail=True, methods=["get"], url_path="peers", required_scopes=["task:read"])
-    def peers(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        peers = tasks_facade.list_task_run_peers(pk, task_id, self.team_id)
-        if peers is None:
-            raise NotFound()
-        return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
-
     @validated_request(
         responses={
             200: OpenApiResponse(
@@ -3500,51 +3428,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=TaskRunPeerMessageRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeerMessageResponseSerializer,
-                description="Synchronous send result (accepted / target_finished / rejected)",
-            ),
-            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid message payload"),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="Send a message to a peer agent run",
-        description=(
-            "Relay a message from this run to a peer agent run. The body is delivered below a "
-            "server-composed provenance envelope as a queued (non-steer) turn; attachments are copied "
-            "into the target run's own artifact storage. `accepted` means queued for delivery, never "
-            "delivered — the sandbox handoff happens later inside the target's workflow."
-        ),
-        strict_request_validation=True,
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path=r"peers/(?P<target_run_id>[^/]+)/message",
-        required_scopes=["task:write"],
-    )
-    def peers_message(self, request, pk=None, target_run_id=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        result = tasks_facade.signal_task_run_peer_message(
-            pk,
-            task_id,
-            self.team_id,
-            target_run_id=target_run_id,
-            content=request.validated_data["content"],
-            artifact_ids=list(request.validated_data.get("artifact_ids") or []),
-        )
-        if result is None:
-            raise NotFound()
-        return Response(TaskRunPeerMessageResponseSerializer(result).data)
-
-    @extend_schema(
+        query_serializer=TaskRunLogsQuerySerializer,
         extensions={"x-product": "logs"},
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
@@ -3557,19 +3441,62 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "concatenated first (oldest ancestor → ... → this run) so resume "
             "consumers see a single continuous history. A resumed Pi run "
             "includes the earlier runs of its task session the same way, each "
-            "preceded by a pi_run_started entry that names its run."
+            "preceded by a pi_run_started entry that names its run. For a live "
+            "presence-gated run, the request marks the stream as watched before "
+            "it reads the log, so events after the snapshot reach the live stream. Pass tail_bytes to read only "
+            "the latest turns first, add before to page back through older turns, or add start to read every "
+            "entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses "
+            "with different origins do not match. A Pi run returns its full log without the X-Log headers. Pass "
+            "view=thread to drop the duplicate tool response copy that a rendered conversation does not use."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
+    @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
+    def log_entries(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
+        query = request.validated_query_data
         timer = ServerTimingsGathered()
+        with timer("mark_watched"):
+            tasks_facade.mark_task_run_stream_watched(pk, task_id, self.team_id)
+        log_slice = None
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
+            if "tail_bytes" not in query:
+                log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
+            else:
+                log_slice = tasks_facade.read_task_run_conversation_log_slice(
+                    pk,
+                    task_id,
+                    self.team_id,
+                    tail_bytes=query["tail_bytes"],
+                    before=query.get("before"),
+                    start=query.get("start"),
+                )
+                log_content = log_slice.content if log_slice else None
         if log_content is None:
             raise NotFound()
-
+        if query["view"] == TaskRunLogsView.THREAD:
+            with timer("thread_view"):
+                log_content = tasks_facade.thread_view_of_log_content(log_content)
         response = HttpResponse(log_content, content_type="application/jsonl")
+        if log_slice is not None and log_slice.sliced:
+            response["X-Log-Offset"] = str(log_slice.offset)
+            response["X-Log-Count"] = str(log_slice.count)
+            response["X-Log-Preamble"] = str(log_slice.preamble)
+            response["X-Log-Turns-Before"] = str(log_slice.turns_before)
+            response["X-Log-Origin"] = log_slice.origin
+            # A cross-origin frontend (standalone OAuth mode) can read only exposed headers, and a page whose
+            # headers it cannot read looks like the whole log.
+            response["Access-Control-Expose-Headers"] = (
+                "X-Log-Offset, X-Log-Count, X-Log-Preamble, X-Log-Turns-Before, X-Log-Origin"
+            )
+
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
@@ -3649,15 +3576,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         client_can_resync = bool(getattr(request, "validated_query_data", {}).get("resync"))
         thin_tail_withheld = run_stream_thin_tail(stream_info.state) and not client_can_resync
-        stream_base_url = (
-            None
-            if thin_tail_withheld
-            else tasks_facade.resolve_stream_base_url(
-                distinct_id=request.user.distinct_id,
-                organization_id=self.team.organization_id,
-                force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
-            )
-        )
+        stream_base_url = None if thin_tail_withheld else tasks_facade.resolve_stream_base_url()
         route: StreamTokenRoute = "thin_tail_withheld"
         if not thin_tail_withheld:
             route = "proxy" if stream_base_url else "django"
@@ -3841,11 +3760,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
+            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
             # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
             try:
-                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+                tasks_facade.activate_warm_task_run(pk)
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
 
@@ -3995,6 +3917,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
+            if (
+                success
+                and method == "permission_response"
+                and request.headers.get("X-PostHog-Client-Platform") == "mobile"
+            ):
+                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4327,6 +4255,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
         return Response(TaskRunDetailSerializer(run).data)
 
     @staticmethod
@@ -5275,8 +5205,18 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if not tasks_facade.sandbox_custom_images_enabled(self.team_id, request.user.id):
             raise PermissionDenied("Custom sandbox images require the Modal VM runtime, which is not enabled")
 
-    @extend_schema(responses={200: SandboxCustomImageSerializer(many=True)})
+    @extend_schema(
+        parameters=[SandboxCustomImageListQuerySerializer],
+        responses={200: SandboxCustomImageSerializer(many=True)},
+    )
     def list(self, request, **kwargs):
+        query = SandboxCustomImageListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        origin_product = query.validated_data.get("origin_product")
+        if origin_product and not tasks_facade.sandbox_custom_images_enabled(
+            self.team_id, request.user.id, origin_product=origin_product
+        ):
+            raise PermissionDenied("Custom sandbox images cannot run for tasks from this origin")
         images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
         page = self.paginate_queryset(images)
         if page is not None:

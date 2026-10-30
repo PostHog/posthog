@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -294,21 +294,21 @@ export const FeatureFlagsCreateBody = () => zod.object({
                                             ),
                                         operator: zod
                                             .enum([
+                                                'semver_eq',
+                                                'semver_neq',
                                                 'semver_gt',
                                                 'semver_gte',
                                                 'semver_lt',
                                                 'semver_lte',
-                                                'semver_eq',
-                                                'semver_neq',
                                                 'semver_tilde',
                                                 'semver_caret',
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -368,6 +368,18 @@ export const FeatureFlagsCreateBody = () => zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -528,9 +540,36 @@ export const FeatureFlagsPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const featureFlagsPartialUpdateBodyRollbackReasonNoteMax = 1000
+
 export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
+export const featureFlagsPartialUpdateBodyVersionMin = 0
 
 export const FeatureFlagsPartialUpdateBody = () => zod.object({
+    ask_rollback_reason: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag."
+        ),
+    rollback_reason: zod
+        .union([
+            zod
+                .enum(['errors', 'metrics', 'planned', 'wrong_configuration', 'other'])
+                .describe(
+                    '\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.\n\n\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other"
+        ),
+    rollback_reason_note: zod
+        .string()
+        .max(featureFlagsPartialUpdateBodyRollbackReasonNoteMax)
+        .nullish()
+        .describe('A free-text note for `rollback_reason`. Requires `rollback_reason`.'),
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -676,21 +715,21 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
                                             ),
                                         operator: zod
                                             .enum([
+                                                'semver_eq',
+                                                'semver_neq',
                                                 'semver_gt',
                                                 'semver_gte',
                                                 'semver_lt',
                                                 'semver_lte',
-                                                'semver_eq',
-                                                'semver_neq',
                                                 'semver_tilde',
                                                 'semver_caret',
                                                 'semver_wildcard',
                                             ])
                                             .describe(
-                                                '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                '\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             )
                                             .describe(
-                                                'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                                'Semantic version comparison operator.\n\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                             ),
                                         value: zod.string().describe('Semantic version string.'),
                                     }),
@@ -750,6 +789,18 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -880,17 +931,12 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
-})
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const FeatureFlagsDestroyParams = () => zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
+    version: zod
+        .number()
+        .min(featureFlagsPartialUpdateBodyVersionMin)
+        .optional()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it."
         ),
 })
 
@@ -960,6 +1006,9 @@ export const FeatureFlagsDependentFlagsListParams = () => zod.object({
  *
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const FeatureFlagsDisableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -970,13 +1019,29 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
         ),
 })
 
+export const featureFlagsDisableCreateBodyVersionMin = 0
+
+export const FeatureFlagsDisableCreateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsDisableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
+        ),
+})
+
 /**
  * Enable a feature flag.
  *
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -984,6 +1049,18 @@ export const FeatureFlagsEnableCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagsEnableCreateBodyVersionMin = 0
+
+export const FeatureFlagsEnableCreateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsEnableCreateBodyVersionMin)
+        .nullish()
+        .describe(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out."
         ),
 })
 
@@ -1144,7 +1221,8 @@ export const FeatureFlagsTestEvaluationCreateBody = () => zod.object({
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),

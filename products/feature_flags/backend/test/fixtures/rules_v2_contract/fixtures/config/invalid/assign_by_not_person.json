@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": true,
+      "rollout_percentage": 33.33,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-preview",
+      "assign_by": "group"
+    }
+  ]
+}

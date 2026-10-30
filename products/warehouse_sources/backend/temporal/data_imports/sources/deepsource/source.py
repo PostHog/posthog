@@ -70,7 +70,7 @@ class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeC
             name=ExternalDataSourceType.DEEPSOURCE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DeepSource",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import your DeepSource static-analysis data — repositories, analysis runs, issues, code-quality metrics, and reports — into the PostHog Data warehouse.
 
 Generate a personal access token from the **Tokens** tab in your [DeepSource user settings](https://app.deepsource.com/). The token is scoped to your account, so it can read every account and repository you have access to.

@@ -27,7 +27,7 @@ permissions:
     pull-requests: read
 
 env:
-    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -66,7 +66,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -74,6 +74,8 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
@@ -89,6 +91,8 @@ jobs:
     # Job to decide if we should run dagster ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run dagster checks
@@ -132,7 +136,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -178,6 +182,8 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
+                        - 'posthog/api/embedding_worker.py'
+                        - 'posthog/security/outbound_proxy.py'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
@@ -189,6 +195,7 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'posthog/run_mode.py'
                         - 'posthog/ph_client.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
@@ -224,6 +231,10 @@ jobs:
                         - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
+                        # The activity summary DAG reads tasks through this one facade module.
+                        # Narrow on purpose: tasks is a busy backend that no other DAG imports.
+                        - 'products/tasks/backend/facade/user_task_summaries.py'
+                        - 'products/tasks/backend/logic/user_task_summaries.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
@@ -359,7 +370,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \

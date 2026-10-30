@@ -44,6 +44,7 @@ The real-agent training path additionally needs Tasks access, because it runs in
 Training never ends, but exploration comes first.
 The daily sweep starts research runs on scoring days until a run fails to promote a better model or 5 research runs have run, then one run every `research_interval_days` after the latest run (`backend/training/schedule.py`).
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
+Each run also records the runtime adapter, model and reasoning effort it was dispatched with (see `backend/training/AGENTS.md`).
 `iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
 
 ## Invariants that cross package boundaries

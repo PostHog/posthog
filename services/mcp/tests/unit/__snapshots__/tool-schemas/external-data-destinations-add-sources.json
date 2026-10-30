@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this external data destination.",
+            "type": "string"
+        },
+        "resync": {
+            "default": false,
+            "description": "Start a full resync for each enabled table newly attached.",
+            "type": "boolean"
+        },
+        "source_ids": {
+            "description": "IDs of up to 50 existing sources to attach to this destination.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+        }
+    },
+    "required": ["id", "source_ids"],
+    "type": "object"
+}

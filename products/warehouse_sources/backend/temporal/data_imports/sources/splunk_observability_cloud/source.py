@@ -70,7 +70,7 @@ class SplunkObservabilityCloudSource(
             name=ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk Observability Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your Splunk Observability Cloud (formerly SignalFx) detectors, alert history, dashboards, and metric metadata into the PostHog Data warehouse.
 
 You need an access token with **API** permission — an org access token or a user session token both work. Create one under **Settings > Access tokens** in Splunk Observability Cloud. Your realm (e.g. `us0`, `eu0`) is shown on your profile page.
@@ -100,6 +100,7 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
                     ),
                     SourceFieldInputConfig(
                         name="signalflow_program",
+                        sync_setting=True,
                         label="SignalFlow program (optional, for metric_time_series)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

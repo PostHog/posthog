@@ -20,11 +20,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardd
     ERROR_MESSAGES,
     GUARDDUTY_API_VERSION,
     MAX_RESULTS,
+    USAGE_FEATURES,
+    USAGE_STATISTIC_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsguardduty import (
     AwsGuarddutySourceConfig,
@@ -40,6 +43,7 @@ TRANSPORT_RETRY = BoundedRetry(
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"(?:us|eu|ap|sa|ca|me|af|il|mx|cn)-(?:gov-)?[a-z]+-\d+")
 _SORT_CRITERIA = {"AttributeName": "updatedAt", "OrderBy": "ASC"}
+_TIMESTAMP_COLUMNS = ("created_at", "updated_at", "invited_at", "scan_start_time", "scan_end_time")
 
 
 @frozen
@@ -47,12 +51,14 @@ class AwsGuarddutyResumeConfig:
     detector_ids: list[str] = field(default_factory=list)
     next_token: str | None = None
     updated_since_ms: int | None = None
+    usage_statistic_types: list[str] = field(default_factory=list)
 
 
 class AwsGuarddutyError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         self.code = code
         self.message = message
+        self.status_code = status_code
         super().__init__(f"AWS GuardDuty request failed: {code} - {message}")
 
 
@@ -82,7 +88,7 @@ def error_for_response(response: requests.Response) -> AwsGuarddutyError:
         if response.status_code == 400 and code in {"ThrottlingException", "TooManyRequestsException"}
         else AwsGuarddutyError
     )
-    return error_class(code, message)
+    return error_class(code, message, response.status_code)
 
 
 class AwsGuarddutyClient:
@@ -168,12 +174,33 @@ def normalize_row(item: dict[str, Any], detector_id: str, region: str) -> dict[s
     row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
     row["source_detector_id"] = detector_id
     row["region"] = region
-    for column in ("created_at", "updated_at", "invited_at"):
+    for column in _TIMESTAMP_COLUMNS:
         value = row.get(column)
         if isinstance(value, str) and value:
             parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
             row[column] = parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)
+        elif isinstance(value, int | float):
+            # Fields typed as timestamps in the service model arrive as epoch seconds.
+            row[column] = dt.datetime.fromtimestamp(value, tz=dt.UTC)
     return row
+
+
+def request_payload(endpoint: str, detector_id: str, usage_statistic_type: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"DetectorId": detector_id}
+    if ENDPOINTS[endpoint].result_key:
+        payload["MaxResults"] = MAX_RESULTS
+    if endpoint == "members":
+        payload["OnlyAssociated"] = "false"
+    elif endpoint == "usage_statistics":
+        payload["UsageStatisticType"] = usage_statistic_type
+        payload["UsageCriteria"] = {"Features": list(USAGE_FEATURES)}
+    return payload
+
+
+def usage_rows(body: dict[str, Any], usage_statistic_type: str) -> list[dict[str, Any]]:
+    list_key, key_field = USAGE_STATISTIC_TYPES[usage_statistic_type]
+    items = (body.get("usageStatistics") or {}).get(list_key) or []
+    return [{**item, "usageStatisticType": usage_statistic_type, "usageKey": item.get(key_field)} for item in items]
 
 
 def watermark_milliseconds(value: dt.datetime | str | None) -> int | None:
@@ -200,23 +227,21 @@ def get_rows(
             state = AwsGuarddutyResumeConfig(
                 detector_ids=list(client.detector_ids()),
                 updated_since_ms=watermark_milliseconds(updated_since) if endpoint == "findings" else None,
+                usage_statistic_types=list(USAGE_STATISTIC_TYPES) if endpoint == "usage_statistics" else [],
             )
         seen_tokens = {state.next_token} if state.next_token else set()
         while state.detector_ids:
             detector_id = state.detector_ids[0]
-            payload: dict[str, Any] = {"DetectorId": detector_id}
-            if endpoint_config.result_key:
-                payload["MaxResults"] = MAX_RESULTS
-                if state.next_token:
-                    payload["NextToken"] = state.next_token
+            usage_statistic_type = state.usage_statistic_types[0] if state.usage_statistic_types else None
+            payload = request_payload(endpoint, detector_id, usage_statistic_type)
+            if endpoint_config.result_key and state.next_token:
+                payload["NextToken"] = state.next_token
             if endpoint == "findings":
                 payload["SortCriteria"] = _SORT_CRITERIA
                 if state.updated_since_ms is not None:
                     payload["FindingCriteria"] = {
                         "Criterion": {"updatedAt": {"GreaterThanOrEqual": state.updated_since_ms}}
                     }
-            elif endpoint == "members":
-                payload["OnlyAssociated"] = "false"
             body = client.request(endpoint_config.operation, payload)
             next_token = body.get("nextToken")
             if next_token and next_token in seen_tokens:
@@ -234,6 +259,8 @@ def get_rows(
                         {"DetectorId": detector_id, "FindingIds": finding_ids, "SortCriteria": _SORT_CRITERIA},
                     )
                     items = findings.get("findings", [])
+            elif endpoint == "usage_statistics" and usage_statistic_type:
+                items = usage_rows(body, usage_statistic_type)
             elif endpoint_config.result_key:
                 items = body.get(endpoint_config.result_key, [])
             else:
@@ -241,11 +268,17 @@ def get_rows(
             rows = [normalize_row(item, detector_id, client.region) for item in items]
             if rows:
                 yield rows
-            state = replace(
-                state,
-                detector_ids=state.detector_ids if next_token else state.detector_ids[1:],
-                next_token=next_token or None,
-            )
+            if next_token:
+                state = replace(state, next_token=next_token)
+            elif len(state.usage_statistic_types) > 1:
+                state = replace(state, next_token=None, usage_statistic_types=state.usage_statistic_types[1:])
+            else:
+                state = replace(
+                    state,
+                    detector_ids=state.detector_ids[1:],
+                    next_token=None,
+                    usage_statistic_types=list(USAGE_STATISTIC_TYPES) if endpoint == "usage_statistics" else [],
+                )
             manager.save_state(state)
             manager.safe_point()
     finally:
@@ -277,20 +310,17 @@ def validate_credentials(
             detector_id = next(iter(body.get("detectorIds", [])), None)
             if detector_id is None:
                 return False, "Enable GuardDuty in the selected AWS region, then reconnect."
-            endpoint = ENDPOINTS[schema_name]
-            payload: dict[str, Any] = {"DetectorId": detector_id}
-            if endpoint.result_key:
+            payload = request_payload(schema_name, detector_id, next(iter(USAGE_STATISTIC_TYPES)))
+            if "MaxResults" in payload:
                 payload["MaxResults"] = 1
-            if schema_name == "members":
-                payload["OnlyAssociated"] = "false"
-            body = client.request(endpoint.operation, payload)
+            body = client.request(ENDPOINTS[schema_name].operation, payload)
             if schema_name == "findings" and body.get("findingIds"):
                 client.request("GetFindings", {"DetectorId": detector_id, "FindingIds": body["findingIds"]})
         return True, None
     except AwsGuarddutyError as error:
         if schema_name is None and error.code in {"AccessDenied", "AccessDeniedException", "ForbiddenException"}:
             return True, None
-        message = permission_message(error, schema_name)
+        message = permission_message(error, schema_name) or probe_status_message("AWS GuardDuty", error.status_code)
         if message:
             return False, message
         raise
@@ -313,8 +343,8 @@ def aws_guardduty_source(
         # Findings can change between listing IDs and retrieving details, so global ordering is not guaranteed.
         # "desc" saves the watermark once at job end, so unordered rows cannot strand older ones.
         sort_mode="desc",
-        partition_keys=["created_at"] if endpoint == "findings" else None,
-        partition_mode="datetime" if endpoint == "findings" else None,
-        partition_format="month" if endpoint == "findings" else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
         on_complete=manager.clear_state,
     )

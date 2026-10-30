@@ -117,7 +117,7 @@ class HyrosSource(ResumableSource[HyrosSourceConfig, HyrosResumeConfig]):
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["ad attribution", "ad tracking", "roas", "call tracking"],
             label="Hyros",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/hyros",
             iconPath="/static/services/hyros.png",
             fields=cast(

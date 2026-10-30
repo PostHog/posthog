@@ -60,7 +60,8 @@ export function BIDateControls(): JSX.Element {
                 )}
             />
             <LemonSwitch
-                label="Compare previous period"
+                label="Compare previous"
+                tooltip="Compare with the previous period"
                 checked={!!config.compareFilter?.compare && !config.compareFilter.compare_to}
                 onChange={(compare) => setCompareFilter({ compare })}
                 disabledReason={getBIComparisonDisabledReason(config)}

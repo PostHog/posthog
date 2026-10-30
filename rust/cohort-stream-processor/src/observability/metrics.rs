@@ -72,8 +72,8 @@ pub const WAL_FSYNC_ERRORS_TOTAL: &str = "wal_fsync_errors_total";
 /// On-disk partition slices kept (reopen-live) across a durable restart, because still assigned to
 /// this pod (counter).
 pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partitions_kept_total";
-/// On-disk partition slices wiped because no longer assigned to this pod — stale state to cold-rebuild
-/// from the committed offset (counter).
+/// On-disk partition slices wiped at boot because another pod owns them, counting only slices that
+/// held a key (counter). A boot that follows a reshard wipes some, and other boots wipe none.
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
 /// Partitions adopted as complete by opening a store without coverage records (counter).
@@ -93,13 +93,13 @@ pub const DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL: &str =
 /// Wall-clock duration of one whole-DB `Checkpoint::create_checkpoint` (histogram, seconds).
 /// Whole-DB checkpoint, so these are per-pod, not per-partition.
 pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
-/// On-disk size of a freshly-taken checkpoint directory (histogram, bytes).
+/// On-disk size of the newest local checkpoint directory (gauge, bytes).
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
-/// File count in a freshly-taken checkpoint directory (histogram).
+/// File count in the newest local checkpoint directory (gauge).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
 /// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`) and
-/// `trigger` (`periodic`|`final`), plus checkpoint ticks skipped by a failed WAL fsync
-/// (`result=flush_failed`) (counter). A cancelled final upload ran out of its budget.
+/// `trigger` (`periodic`|`requested`), plus checkpoint ticks skipped by a failed WAL fsync
+/// (`result=flush_failed`) (counter). A shutdown cancels an upload in flight.
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
 /// Bytes a successful upload sent, labelled by `kind` (`full`|`incremental`) (counter). Sizes the
 /// bucket's growth for its expiry setting.
@@ -108,15 +108,16 @@ pub const CHECKPOINT_UPLOADED_BYTES_TOTAL: &str = "checkpoint_uploaded_bytes_tot
 /// staleness alert fires only after its threshold passes.
 pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_capture_timestamp_seconds";
-/// Unix time of the last successful upload (gauge, seconds). Starts at the sweeper's start.
-/// **Alert on staleness**: no restorable checkpoint is getting newer.
+/// Capture time of the newest successful upload, in Unix seconds (gauge). Starts at the upload
+/// `uploaded.json` records, else at the sweeper's start. **Alert on staleness**: no restorable
+/// checkpoint is getting newer.
 pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_upload_timestamp_seconds";
 /// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
 pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_full_upload_timestamp_seconds";
-/// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
-/// (counter).
+/// Checkpoint ticks skipped before the checkpoint, labelled by `reason`
+/// (`positions`|`foreign`|`incomplete`) (counter). `foreign` is a position another split stamped.
 pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
@@ -139,7 +140,8 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`parent_s3`|`cold`)
+/// (counter). `parent_s3` is a reshard child restoring its parent's lineage.
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
 /// Checkpoint candidates a boot restore tried, labelled by `verdict`
 /// (`published`|`unusable`|`failed`) (counter).
@@ -221,6 +223,10 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+/// Bytes in the store directory and the local checkpoints, labelled by file `kind`
+/// (`sst`|`wal`|`info_log`|`manifest`|`other`|`checkpoint`) (gauge). `checkpoint` counts only the
+/// local checkpoint files that the live store does not share.
+pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
@@ -297,20 +303,23 @@ pub const PARTITIONS_PAUSED: &str = "partitions_paused";
 /// paused partition stops fetching — so a climbing value flags a stuck worker.
 pub const PENDING_HELD_EVENTS: &str = "pending_held_events";
 
-/// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
+/// Rebalance callbacks on the events consumer, labelled by `event_type`
+/// (`assign`|`revoke`|`error`) (counter). The consumer never subscribes, so any increase means a
+/// code change made it subscribe (see `partitions::rebalance`).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
-/// Partitions assigned to this consumer across all rebalances (counter).
+/// Partitions this pod took ownership of at boot (counter).
 pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
-/// Partitions revoked from this consumer across all rebalances (counter).
-pub const PARTITIONS_REVOKED_TOTAL: &str = "partitions_revoked_total";
-/// Empty rebalance callbacks short-circuited, labelled by `event_type` (counter).
-pub const REBALANCE_EMPTY_SKIPPED_TOTAL: &str = "rebalance_empty_skipped_total";
-/// Per-partition revoke drain latency (histogram, seconds).
-pub const REVOKE_DRAIN_DURATION_SECONDS: &str = "revoke_drain_duration_seconds";
-/// Per-partition RocksDB state slices reclaimed on revoke (counter).
-pub const PARTITION_STATE_DELETED_TOTAL: &str = "partition_state_deleted_total";
-/// Revoke cleanups skipped because the partition was re-acquired, labelled by `phase` (counter).
-pub const REBALANCE_CLEANUP_SKIPPED_TOTAL: &str = "rebalance_cleanup_skipped_total";
+/// Partitions this pod owns on every input (gauge).
+pub const OWNED_PARTITIONS: &str = "owned_partitions";
+/// This pod's place in the partition split, labelled by `pods` and `ordinal`. Always 1 (gauge).
+pub const PARTITION_OWNERSHIP_INFO: &str = "partition_ownership_info";
+/// 1 while the ownership fence holds the boot, labelled by `reason`
+/// (`foreign_split`|`unrecognized`|`parent_running`), else 0 (gauge). **Alert on it**: the pod reads
+/// not ready until the logged cause clears.
+pub const OWNERSHIP_FENCE_BLOCKED: &str = "ownership_fence_blocked";
+/// Commits by another split, or with unreadable metadata, that the run-time audit found on an owned
+/// partition, labelled by `topic` (counter). Each one stops the pod.
+pub const OWNERSHIP_FENCE_VIOLATIONS_TOTAL: &str = "ownership_fence_violations_total";
 
 /// Events fully processed (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
@@ -619,6 +628,12 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
+/// Composed-cohort membership changes a person seed apply emitted for a cohort it recomposed only
+/// because the cohort had no row for the person, labelled by `kind` (`entered`|`left`) (counter).
+/// Counted when the writes commit, like [`SEED_REGISTER_REPAIRS_TOTAL`]. Expect these in bulk on the
+/// first run of a composed cohort whose leaves earlier runs already seeded, and rarely after.
+pub const SEED_COMPOSED_ROW_REPAIRS_TOTAL: &str = "cohort_seed_composed_row_repairs_total";
+
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
 /// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
 /// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
@@ -863,6 +878,11 @@ mod tests {
             "durable_restore_pending_transfers_recovered_partitions_total",
         );
         // Alerts select on these.
+        assert_eq!(OWNERSHIP_FENCE_BLOCKED, "ownership_fence_blocked");
+        assert_eq!(
+            OWNERSHIP_FENCE_VIOLATIONS_TOTAL,
+            "ownership_fence_violations_total"
+        );
         assert_eq!(SLICES_ADOPTED_TOTAL, "cohort_slices_adopted_total");
         assert_eq!(SLICES_BEGUN_TOTAL, "cohort_slices_begun_total");
         assert_eq!(
@@ -930,6 +950,7 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_FILE_BYTES, "store_file_bytes");
         assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
         assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
         assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
@@ -1085,6 +1106,10 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_COMPOSED_ROW_REPAIRS_TOTAL,
+            "cohort_seed_composed_row_repairs_total"
         );
         assert_eq!(
             SEED_RECOMPUTE_PERSONS_TOTAL,

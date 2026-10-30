@@ -61,7 +61,7 @@ class FredSource(ResumableSource[FredSourceConfig, FredResumeConfig]):
 Request a free API key at [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html). FRED has around 800,000 series, so pick the ones you want: a series ID is the code at the end of its FRED page URL, such as `UNRATE` for the unemployment rate or `CPIAUCSL` for CPI.""",
             iconPath="/static/services/fred.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fred",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -75,6 +75,7 @@ Request a free API key at [fred.stlouisfed.org/docs/api/api_key.html](https://fr
                     ),
                     SourceFieldInputConfig(
                         name="series_ids",
+                        sync_setting=True,
                         label="Series IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

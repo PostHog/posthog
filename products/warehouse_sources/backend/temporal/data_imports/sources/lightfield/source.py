@@ -154,7 +154,7 @@ Custom objects need no extra scope. The field and relationship definitions table
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/lightfield",
             iconPath="/static/services/lightfield.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

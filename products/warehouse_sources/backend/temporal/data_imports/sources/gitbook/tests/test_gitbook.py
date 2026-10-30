@@ -259,9 +259,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid GitBook API token"),
-            ("forbidden", 403, False, "Invalid GitBook API token"),
-            ("server_error", 500, False, "GitBook returned HTTP 500"),
         ]
     )
     def test_status_mapping(

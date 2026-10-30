@@ -78,4 +78,35 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "package_version": "The package version the event applies to.",
         },
     },
+    "package_dependencies": {
+        "description": (
+            "One row per dependency of each version of the tracked packages, per target framework. "
+            "Flattened from the dependency groups in the NuGet registration index."
+        ),
+        "docs_url": "https://learn.microsoft.com/en-us/nuget/api/registration-base-url-resource",
+        "columns": {
+            "package_id": "The ID of the package that declares the dependency.",
+            "package_version": "The version of the package that declares the dependency.",
+            "target_framework": (
+                "The target framework the dependency applies to, for example net8.0. "
+                "Empty when the dependency applies to every target framework."
+            ),
+            "dependency_id": "The ID of the package depended on.",
+            "dependency_range": "The allowed version range of the dependency, in NuGet version range syntax.",
+        },
+    },
+    "vulnerabilities": {
+        "description": (
+            "Known security advisories for the tracked packages, from the NuGet vulnerability feed. "
+            "One row per advisory and affected version range."
+        ),
+        "docs_url": "https://learn.microsoft.com/en-us/nuget/api/vulnerability-info",
+        "columns": {
+            "package_id": "The ID of the affected package, in lowercase.",
+            "advisory_url": "URL of the security advisory.",
+            "severity": "The severity of the advisory: 0 is low, 1 is moderate, 2 is high, 3 is critical.",
+            "severity_label": "The severity of the advisory as text: Low, Moderate, High, or Critical.",
+            "affected_versions": "The affected version range of the package, in NuGet version range syntax.",
+        },
+    },
 }

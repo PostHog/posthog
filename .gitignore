@@ -54,10 +54,6 @@ docs/internal/logs-sampling-discovery.md
 docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
 ee/benchmarks/results
-ee/support_sidebar_max/.env
-ee/support_sidebar_max/.vscode
-ee/support_sidebar_max/.vscode/settings.json
-ee/support_sidebar_max/max-venv/
 frontend/storybook-static
 max-test-venv/
 mts_example_*.json
@@ -128,6 +124,9 @@ playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+# Temporary folders of the app build's per-chunk minify step
+frontend/.unminified-chunks/
+frontend/.stable-chunks-rewritten/
 frontend/dist-report/
 frontend/eager-graph-report*.json
 frontend/pnpm-error.log
@@ -245,3 +244,6 @@ corpora/
 /.context/
 # Rendered by the image build with `manage.py render_wizard_tool_catalog`
 /products/wizard/tool-catalog.json
+
+# Argent (simulator driver) writes recordings wherever its tool server starts.
+.argent/recordings/

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { urls } from 'scenes/urls'
 
 export interface ValidatedTokenResponse {

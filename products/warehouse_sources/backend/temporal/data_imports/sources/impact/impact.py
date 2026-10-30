@@ -214,6 +214,9 @@ def _get_rows_simple(
         cursor = _to_datetime(db_incremental_field_last_value)
         if cursor is not None:
             params[config.incremental_start_param] = _format_datetime(cursor)
+            # Impact's date range filters can require both ends of the range.
+            if config.incremental_end_param:
+                params[config.incremental_end_param] = _format_datetime(datetime.now(UTC))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_page = resume.page if resume and resume.page else 1

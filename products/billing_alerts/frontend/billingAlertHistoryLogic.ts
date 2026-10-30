@@ -5,9 +5,10 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 
+import { billingAlertsEventsList } from 'products/billing/frontend/generated/api'
+import type { PaginatedBillingAlertEventListApi } from 'products/billing/frontend/generated/api.schemas'
+
 import { offsetFromPageLink } from './billingAlertUtils'
-import { billingAlertsEventsList } from './generated/api'
-import type { PaginatedBillingAlertEventListApi } from './generated/api.schemas'
 
 export interface BillingAlertHistoryLogicProps {
     alertId: string

@@ -547,6 +547,37 @@
     }
 
     /* =========================================================================
+       Indicator
+       ========================================================================= */
+
+    /* The dot sits on the corner, outside the icon. The ring cuts it out of the
+       button border, so it defaults to the app background; set
+       `--quill-button-indicator-ring` when the button sits on another surface. */
+    .quill-button[data-indicator] {
+        position: relative;
+    }
+
+    .quill-button__indicator {
+        position: absolute;
+        inset-inline-end: -0.125rem;
+        top: -0.125rem;
+        width: 0.5rem;
+        height: 0.5rem;
+        pointer-events: none;
+        background-color: var(--primary);
+        border-radius: 9999px;
+        box-shadow: 0 0 0 2px var(--quill-button-indicator-ring, var(--background));
+    }
+
+    .quill-button__indicator[data-variant='warning'] {
+        background-color: var(--warning-foreground);
+    }
+
+    .quill-button__indicator[data-variant='destructive'] {
+        background-color: var(--destructive-foreground);
+    }
+
+    /* =========================================================================
        Loading
        ========================================================================= */
 

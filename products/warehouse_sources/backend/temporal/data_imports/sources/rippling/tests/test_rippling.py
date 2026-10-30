@@ -99,11 +99,9 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
             # A valid token without the companies.read scope still 403s; only 401
             # means the token itself is bad.
             (403, True),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):

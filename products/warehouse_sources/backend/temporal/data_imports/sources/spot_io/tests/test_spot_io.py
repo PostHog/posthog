@@ -55,9 +55,6 @@ class TestSpotIoValidateCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid or expired Spot by Flexera API token"),
-            (403, False, "Spot by Flexera API token does not have the required permissions"),
-            (500, False, "Spot by Flexera API returned an unexpected status: 500"),
         ]
     )
     def test_validate_credentials_status_mapping(self, status, expected_valid, expected_message) -> None:

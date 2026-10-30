@@ -16,7 +16,7 @@ export function ComposerDraftFeedback(): JSX.Element {
             surface="broadcasts-composer-draft"
             dismissKey="broadcasts-composer-draft-feedback"
             prompt="Did PostHog AI get this broadcast right?"
-            modalTitle="Help us improve AI drafts"
+            feedbackTitle="Help us improve AI drafts"
             feedbackPlaceholder="What did you have to change, or what did it get wrong?"
             className="m-0"
             data-attr="broadcasts-composer-draft-feedback"

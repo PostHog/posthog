@@ -93,7 +93,7 @@ class GiteaSource(
             name=ExternalDataSourceType.GITEA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Gitea",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect a repository on your Gitea (or Forgejo) instance to sync issues, pull requests, commits, and more.
 
 Create an access token under **Settings > Applications** on your instance with read access to the repository (the `read:repository` and `read:issue` scopes). The instance URL is your Gitea host, e.g. `https://gitea.example.com` — it must be reachable over https from the internet.""",

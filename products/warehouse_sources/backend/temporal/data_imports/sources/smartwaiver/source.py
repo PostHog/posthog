@@ -59,7 +59,7 @@ class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResu
             name=ExternalDataSourceType.SMARTWAIVER,
             category=DataWarehouseSourceCategory.SALES,
             label="Smartwaiver",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Smartwaiver API key to pull your digital waiver data into the PostHog Data warehouse.
 
 You can create an API key under **My Account → API keys** in [Smartwaiver](https://app.smartwaiver.com). The key is account-wide and grants read access to your waiver templates, signed waivers, and check-ins.

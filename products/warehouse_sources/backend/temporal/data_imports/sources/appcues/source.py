@@ -136,7 +136,7 @@ class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
             "This source syncs experience settings, segments, and tags. Event data and user profiles are not included.",
             docsUrl="https://posthog.com/docs/cdp/sources/appcues",
             iconPath="/static/services/appcues.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

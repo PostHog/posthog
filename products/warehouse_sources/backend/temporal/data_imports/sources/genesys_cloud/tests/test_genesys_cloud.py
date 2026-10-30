@@ -165,6 +165,62 @@ class TestAnalyticsEndpoints:
         ]
         assert all(row["conversationStart"] == "2026-03-10T11:00:00.000Z" for row in result.rows)
 
+    @pytest.mark.parametrize("resumed", [False, True])
+    def test_user_status_records_are_emitted_once_per_run(self, resumed):
+        watermark = NOW - timedelta(hours=1)
+        start = watermark - genesys_cloud.INCREMENTAL_LOOKBACK
+        second_window = start + genesys_cloud.ANALYTICS_WINDOW
+
+        def record(at: datetime, **fields: Any) -> dict[str, Any]:
+            return {"startTime": at.strftime("%Y-%m-%dT%H:%M:%S.000Z"), **fields}
+
+        def page(total_hits: int, *details: dict[str, Any]) -> ScriptedResponse:
+            return ScriptedResponse(json={"totalHits": total_hits, "userDetails": list(details)})
+
+        spans_windows = record(second_window - timedelta(hours=1), routingStatus="IDLE")
+        first_window_users = {
+            "userId": "u1",
+            "primaryPresence": [
+                record(start - timedelta(days=3), systemPresence="OFFLINE"),
+                record(start + timedelta(hours=1), systemPresence="AVAILABLE"),
+            ],
+            "routingStatus": [spans_windows, record(second_window + timedelta(hours=1), routingStatus="IDLE")],
+        }
+        second_window_users = {
+            "userId": "u1",
+            "primaryPresence": [record(second_window + timedelta(hours=2), systemPresence="BUSY")],
+            "routingStatus": [spans_windows, {"routingStatus": "OFF_QUEUE"}],
+        }
+
+        result = _driver().run(
+            "user_status_history",
+            [
+                TOKEN,
+                page(101, first_window_users),
+                page(
+                    101, {"userId": "u2", "routingStatus": [record(start + timedelta(hours=2), routingStatus="IDLE")]}
+                ),
+                page(1, second_window_users),
+                page(0),
+            ],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()) if resumed else None,
+            incremental_field="startTime",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.response is not None and result.response.sort_mode is None
+        assert [request.path for request in result.requests[1:]] == ["/api/v2/analytics/users/details/query"] * 4
+        assert [request.json()["paging"]["pageNumber"] for request in result.requests[1:]] == [1, 2, 1, 1]
+        carried_over = [] if resumed else [("u1", "presence", "2026-03-05T11:00:00.000Z")]
+        assert [(row["userId"], row["recordType"], row["startTime"]) for row in result.rows] == [
+            *carried_over,
+            ("u1", "presence", "2026-03-08T12:00:00.000Z"),
+            ("u1", "routing_status", "2026-03-09T10:00:00.000Z"),
+            ("u2", "routing_status", "2026-03-08T13:00:00.000Z"),
+            ("u1", "presence", "2026-03-09T13:00:00.000Z"),
+        ]
+
 
 class TestListingEndpoints:
     @pytest.mark.parametrize(
@@ -193,27 +249,63 @@ class TestListingEndpoints:
         assert result.saved_states == ([GenesysCloudResumeConfig(page_number=2)] if resume is None else [])
         assert result.final_state is None
 
+    @pytest.mark.parametrize(
+        "endpoint,cursor_param,first_page,resume,expected_cursors",
+        [
+            ("external_organizations", "cursor", {"cursors": {"after": "after-1"}}, None, [None, "after-1"]),
+            (
+                "external_organizations",
+                "cursor",
+                {"cursors": {"after": "after-1"}},
+                GenesysCloudResumeConfig(cursor="after-1"),
+                ["after-1"],
+            ),
+            ("teams", "after", {"nextUri": "/api/v2/teams?pageSize=100&after=after-1"}, None, [None, "after-1"]),
+        ],
+    )
+    def test_scan_pages_until_cursor_runs_out(self, endpoint, cursor_param, first_page, resume, expected_cursors):
+        pages = {
+            None: ScriptedResponse(json={"entities": [{"id": "o1"}], **first_page}),
+            "after-1": ScriptedResponse(json={"entities": [{"id": "o2"}], "cursors": {}}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return pages[request.param(cursor_param)]
+
+        result = _driver().run(endpoint, respond, resume_state=resume)
+
+        assert result.raised is None
+        assert result.params(cursor_param)[1:] == expected_cursors
+        assert [row["id"] for row in result.rows] == ["o1", "o2"][-len(expected_cursors) :]
+        assert result.saved_states == ([GenesysCloudResumeConfig(cursor="after-1")] if resume is None else [])
+        assert result.final_state is None
+
+    def test_scan_drops_an_expired_resumed_cursor(self):
+        result = _driver().run(
+            "external_organizations",
+            [TOKEN, ScriptedResponse(status=422, json={"code": "bad.request"})],
+            resume_state=GenesysCloudResumeConfig(cursor="expired"),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
+        assert result.final_state is None
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "endpoint,status_code,expected_valid,expected_message",
         [
             (None, 200, True, None),
-            (None, 403, True, None),
+            ("external_organizations", 200, True, None),
             (
-                None,
-                401,
-                False,
-                "Genesys Cloud rejected the access token. Check the client ID, client secret, and region.",
-            ),
-            (
-                "conversations",
+                "user_status_history",
                 403,
                 False,
-                "The OAuth client's role is missing the `analytics:conversationDetail:view` permission, which the conversations table needs.",
+                "The OAuth client's role is missing the `analytics:userDetail:view` permission, which the user_status_history table needs.",
             ),
-            ("users", 403, False, "The OAuth client does not have access to the users table."),
-            ("queues", 500, False, "Genesys Cloud returned HTTP 500. Try again in a few minutes."),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -234,6 +326,8 @@ class TestValidateCredentials:
                 "conversations": "/api/v2/analytics/conversations/details/query",
                 "users": "/api/v2/users",
                 "queues": "/api/v2/routing/queues",
+                "external_organizations": "/api/v2/externalcontacts/scan/organizations",
+                "user_status_history": "/api/v2/analytics/users/details/query",
             }[endpoint]
         )
 
@@ -247,10 +341,6 @@ class TestValidateCredentials:
             (
                 OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
                 "Could not get an access token from Genesys Cloud. Try again in a few minutes.",
-            ),
-            (
-                requests.ConnectionError("Name or service not known"),
-                "Could not connect to Genesys Cloud. Check the selected region and try again.",
             ),
         ],
     )

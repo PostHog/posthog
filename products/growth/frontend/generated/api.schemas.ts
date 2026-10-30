@@ -625,6 +625,13 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-convex` - posthog-convex
  * * `posthog-rails` - posthog-rails
  * * `posthog-aspnetcore` - posthog-aspnetcore
+ * * `posthog-rs` - posthog-rs
+ * * `posthog-rs-mcp` - posthog-rs-mcp
+ * * `posthog-godot` - posthog-godot
+ * * `posthog-unreal` - posthog-unreal
+ * * `posthog-go-mcp` - posthog-go-mcp
+ * * `posthog-ruby-mcp` - posthog-ruby-mcp
+ * * `js` - js
  */
 export type LibEnumApi = (typeof LibEnumApi)[keyof typeof LibEnumApi]
 
@@ -651,6 +658,13 @@ export const LibEnumApi = {
     PosthogConvex: 'posthog-convex',
     PosthogRails: 'posthog-rails',
     PosthogAspnetcore: 'posthog-aspnetcore',
+    PosthogRs: 'posthog-rs',
+    PosthogRsMcp: 'posthog-rs-mcp',
+    PosthogGodot: 'posthog-godot',
+    PosthogUnreal: 'posthog-unreal',
+    PosthogGoMcp: 'posthog-go-mcp',
+    PosthogRubyMcp: 'posthog-ruby-mcp',
+    Js: 'js',
 } as const
 
 /**
@@ -736,7 +750,14 @@ export interface SdkAssessmentApi {
      * * `posthog-edge` - posthog-edge
      * * `posthog-convex` - posthog-convex
      * * `posthog-rails` - posthog-rails
-     * * `posthog-aspnetcore` - posthog-aspnetcore */
+     * * `posthog-aspnetcore` - posthog-aspnetcore
+     * * `posthog-rs` - posthog-rs
+     * * `posthog-rs-mcp` - posthog-rs-mcp
+     * * `posthog-godot` - posthog-godot
+     * * `posthog-unreal` - posthog-unreal
+     * * `posthog-go-mcp` - posthog-go-mcp
+     * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `js` - js */
     lib: LibEnumApi
     /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
     readable_name: string

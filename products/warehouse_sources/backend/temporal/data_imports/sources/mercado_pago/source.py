@@ -122,5 +122,5 @@ class MercadoPagoSource(ResumableSource[MercadoPagoSourceConfig, MercadoPagoResu
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

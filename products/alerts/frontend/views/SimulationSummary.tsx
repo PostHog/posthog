@@ -18,7 +18,6 @@ import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
 const handleChartError = makeChartErrorHandler('alerts-simulation-chart')
@@ -51,12 +50,7 @@ function getThreshold(config: DetectorConfig | null | undefined): number | null 
     if (c.type === 'ensemble' || c.type === 'threshold') {
         return null
     }
-    if (typeof c.threshold === 'number' && !Number.isNaN(c.threshold)) {
-        return c.threshold
-    }
-    // An AI config created through the API or MCP can omit the threshold, and the simulation
-    // is judged against the same default. Draw the line the points were actually judged against.
-    return c.type === DetectorType.LLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null
+    return typeof c.threshold === 'number' && !Number.isNaN(c.threshold) ? c.threshold : null
 }
 
 // Sub-detector score line colors.
@@ -77,7 +71,9 @@ function SimulationChart({
 }): JSX.Element {
     const theme = useChartTheme()
     const triggeredSet = new Set(result.triggered_indices)
-    const threshold = getThreshold(detectorConfig)
+    // The AI detector has no score, so its preview plots the values and marks a fired latest point.
+    const isLLM = detectorConfig?.type === DetectorType.LLM
+    const threshold = isLLM ? null : getThreshold(detectorConfig)
 
     const subScores = result.sub_detector_scores
     const hasSubScores = !!subScores && subScores.length > 0
@@ -94,18 +90,19 @@ function SimulationChart({
               yAxisId: 'yScore',
               meta: { isScore: true },
           }))
-        : [
-              {
-                  key: 'score',
-                  label: detectorConfig?.type === DetectorType.LLM ? 'Model confidence' : 'Score',
-                  data: result.scores.map((s) => s ?? NaN),
-                  points: detectorConfig?.type === DetectorType.LLM ? { radius: 3 } : undefined,
-                  color: 'rgba(245, 158, 11, 0.8)',
-                  yAxisId: 'yScore',
-                  fill: { opacity: 0.1 },
-                  meta: { isScore: true },
-              },
-          ]
+        : isLLM
+          ? []
+          : [
+                {
+                    key: 'score',
+                    label: 'Score',
+                    data: result.scores.map((s) => s ?? NaN),
+                    color: 'rgba(245, 158, 11, 0.8)',
+                    yAxisId: 'yScore',
+                    fill: { opacity: 0.1 },
+                    meta: { isScore: true },
+                },
+            ]
 
     const series: Series<SimSeriesMeta>[] = [
         { key: 'value', label: 'Value', data: result.data, color: 'rgba(99, 102, 241, 0.9)', meta: { isScore: false } },
@@ -128,16 +125,20 @@ function SimulationChart({
                     xAxis: { hide: true },
                     yAxis: [
                         { id: DEFAULT_Y_AXIS_ID, position: 'left', tickFormatter: (v) => humanFriendlyNumber(v) },
-                        {
-                            id: 'yScore',
-                            position: 'right',
-                            format: 'percentage_scaled',
-                            label: detectorConfig?.type === DetectorType.LLM ? 'Confidence' : 'Anomaly score',
-                            // Floating it to the data max drops a threshold above every score: an
-                            // off-plot reference line doesn't draw at all.
-                            min: 0,
-                            max: 1,
-                        },
+                        ...(isLLM
+                            ? []
+                            : [
+                                  {
+                                      id: 'yScore',
+                                      position: 'right' as const,
+                                      format: 'percentage_scaled' as const,
+                                      label: 'Anomaly score',
+                                      // Floating it to the data max drops a threshold above every score: an
+                                      // off-plot reference line doesn't draw at all.
+                                      min: 0,
+                                      max: 1,
+                                  },
+                              ]),
                     ],
                     showGrid: true,
                     legend: hasSubScores ? { show: true, position: 'bottom' } : undefined,
@@ -226,6 +227,22 @@ function SimulationStats({
     )
 }
 
+/** The AI preview is one live check of the latest point, so it shows that verdict instead of an anomaly rate. */
+function LLMVerdict({ result }: { result: AlertSimulationResult }): JSX.Element {
+    const fires = result.triggered_indices.length > 0
+    const latestDate = result.dates.length > 0 ? formatSimDate(result.dates[result.dates.length - 1]) : null
+    return (
+        <div className="space-y-1 text-sm">
+            <div>
+                <strong className={fires ? 'text-danger' : undefined}>{fires ? 'Would fire' : 'Would not fire'}</strong>
+                {latestDate ? ` on the latest point (${latestDate})` : ' on the latest point'}
+                {fires && result.kind && result.kind !== 'none' ? ` · ${result.kind.replaceAll('_', ' ')}` : null}
+            </div>
+            {result.rationale ? <div className="text-muted">{result.rationale}</div> : null}
+        </div>
+    )
+}
+
 function BreakdownSimulation({
     breakdownResult,
     detectorConfig,
@@ -284,6 +301,15 @@ export function SimulationSummary({
                         <BreakdownSimulation key={br.label} breakdownResult={br} detectorConfig={detectorConfig} />
                     ))}
                 </div>
+            </div>
+        )
+    }
+
+    if (detectorConfig?.type === DetectorType.LLM) {
+        return (
+            <div className="rounded-lg p-3 space-y-2">
+                <SimulationChart result={result} detectorConfig={detectorConfig} />
+                <LLMVerdict result={result} />
             </div>
         )
     }

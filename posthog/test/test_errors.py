@@ -1,4 +1,4 @@
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from parameterized import parameterized
 
 from posthog.errors import (
@@ -7,6 +7,8 @@ from posthog.errors import (
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorMalformedCsvRow,
+    CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -179,6 +181,40 @@ class TestWrapClickhouseQueryError:
         assert wrapped.nested is None
         assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
 
+    @parameterized.expand(
+        [
+            (
+                "aggregate_state",
+                "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
+                "This query returns a column of type `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))`, "
+                "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the "
+                "matching -Merge function, for example `argMinMerge(column)`, to get the final value.",
+            ),
+            (
+                "mixed_value_types",
+                "Variant(Int64, UInt64)",
+                "This query returns a column of type `Variant(Int64, UInt64)`, which PostHog can't send back in "
+                "results. The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` "
+                "or `ifNull()` arguments, or `if()` branches that return different types. Make them return one "
+                "type, for example with `toString()` or `toFloat()`.",
+            ),
+            (
+                "other_type",
+                "JSON",
+                "This query returns a column of type `JSON`, which PostHog can't send back in results. Convert the "
+                "column to a basic type such as a string, number, or date, or leave it out of the results.",
+            ),
+        ]
+    )
+    def test_unreadable_result_type_names_the_fix_for_its_type(
+        self, _name: str, column_type: str, expected_message: str
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(UnknownTypeError(f"Unknown type {column_type}"))
+
+        assert isinstance(wrapped, CHQueryErrorUnknownType)
+        assert wrapped.code_name == "unknown_type"
+        assert str(wrapped) == expected_message
+
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(
             "DB::Exception: Bad get: has private-row-value, requested UInt64. While processing private-query-context.",
@@ -190,6 +226,43 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, CHQueryErrorBadGet)
         assert str(wrapped) == BAD_GET_FALLBACK_MESSAGE
         assert "private" not in wrapped.message
+
+    @parameterized.expand(
+        [
+            (
+                "with_row_and_file",
+                "DB::Exception: Expected end of line: (at row 115622)\n: Row 115621: private-row-value "
+                "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat. "
+                "Stack trace: private-stack-frame",
+                "A row in a CSV file backing this table is malformed at row 115622 of example-bucket/data/export.csv. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+            (
+                "with_file_uri_text_in_row",
+                "DB::Exception: Expected end of line: (at row 7)\n: Row 6: (in file/uri private-row-value) "
+                "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat.",
+                "A row in a CSV file backing this table is malformed at row 7 of example-bucket/data/export.csv. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+            (
+                "without_location",
+                "DB::Exception: Expected end of line: private-row-value",
+                "A row in a CSV file backing this table is malformed. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+        ]
+    )
+    def test_malformed_csv_row_is_exposed_without_row_contents(self, _name: str, raw: str, expected: str) -> None:
+        wrapped = wrap_clickhouse_query_error(
+            ServerException(raw, code=117, nested=ServerException("fake-nested-secret", code=1000))
+        )
+
+        assert isinstance(wrapped, CHQueryErrorMalformedCsvRow)
+        assert str(wrapped) == expected
+        assert "private" not in wrapped.message
+        assert wrapped.code == 117
+        assert wrapped.code_name == "malformed_csv_row"
+        assert wrapped.nested is None
 
     @parameterized.expand(
         [

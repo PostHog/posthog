@@ -83,6 +83,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -91,7 +92,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(

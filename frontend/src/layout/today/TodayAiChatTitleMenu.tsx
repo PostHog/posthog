@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import {
@@ -10,26 +11,65 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
     Spinner,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+    anchoredToast,
     cn,
 } from '@posthog/quill'
 
 import { todayAiChatLogic } from './todayAiChatLogic'
+import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodaySessionIcon } from './TodaySessionIcon'
 
-export function TodayAiChatTitleMenu(): JSX.Element {
+interface TodayAiChatTitleMenuProps {
+    showChevron?: boolean
+}
+
+export function TodayAiChatTitleMenu({ showChevron = true }: TodayAiChatTitleMenuProps): JSX.Element {
     const { chatTitle, recentGroups, recentLoading, activeItemId, unreadSessionIds } = useValues(todayAiChatLogic)
     const { openRecentItem } = useActions(todayAiChatLogic)
+    const { previousChatsHintQueued } = useValues(todayPanelChatSessionLogic)
+    const { previousChatsHintShown } = useActions(todayPanelChatSessionLogic)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+
+    // The hint can be queued while the panel is closed, so it shows when this menu mounts.
+    useEffect(() => {
+        if (previousChatsHintQueued && triggerRef.current) {
+            anchoredToast({
+                description: 'Previous chats can be found here',
+                anchor: triggerRef.current,
+                side: 'bottom',
+            })
+            previousChatsHintShown()
+        }
+    }, [previousChatsHintQueued, previousChatsHintShown])
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger
-                render={
-                    <Button className="min-w-0 shrink gap-1.5 px-1.5 font-semibold" data-attr="today-ai-chat-recents">
-                        <span className="min-w-0 truncate">{chatTitle}</span>
-                        <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
-                    </Button>
-                }
-            />
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <DropdownMenuTrigger
+                            render={
+                                <Button
+                                    ref={triggerRef}
+                                    className="min-w-0 shrink gap-1.5 px-1.5 font-semibold"
+                                    data-attr="today-ai-chat-recents"
+                                >
+                                    <span className="min-w-0 truncate">{chatTitle}</span>
+                                    {showChevron && (
+                                        <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                                    )}
+                                </Button>
+                            }
+                        />
+                    }
+                />
+                <TooltipContent side="bottom" align="start" className="max-w-80">
+                    {chatTitle}
+                </TooltipContent>
+            </Tooltip>
             <DropdownMenuContent className="w-72">
                 {recentGroups.length === 0 ? (
                     recentLoading ? (

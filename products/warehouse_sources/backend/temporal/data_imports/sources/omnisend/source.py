@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -28,12 +29,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import (
     UNSUPPORTED_ENDPOINT_ERROR,
+    OmnisendAnalyticsCursor,
     OmnisendResumeConfig,
     omnisend_source,
     validate_credentials as validate_omnisend_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
+    DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
     OMNISEND_2026_03_15,
     OMNISEND_ENDPOINTS,
     OMNISEND_V3,
@@ -43,7 +47,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class OmnisendSource(ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig]):
+class OmnisendSource(
+    ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig],
+    CursorSource[OmnisendAnalyticsCursor],
+):
     codebase_detection = detect(env=("^OMNISEND_",), script_hosts=("omnisnippet1.com",))
 
     supported_versions = (OMNISEND_V3, OMNISEND_2026_03_15)
@@ -64,7 +71,7 @@ class OmnisendSource(ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig]
             name=ExternalDataSourceType.OMNISEND,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Omnisend",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Omnisend API key to automatically pull your Omnisend data into the PostHog Data warehouse.
 
 You can create an API key in your [Omnisend account settings](https://app.omnisend.com/settings/integrations/api-keys).
@@ -103,7 +110,11 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            endpoints_for_version(self.resolve_api_version(api_version)), INCREMENTAL_FIELDS, names
+            endpoints_for_version(self.resolve_api_version(api_version)),
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
         )
 
     def validate_credentials(
@@ -134,6 +145,14 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
             UNSUPPORTED_ENDPOINT_ERROR: None,
         }
 
+    def cursor_class(self) -> type[OmnisendAnalyticsCursor]:
+        return OmnisendAnalyticsCursor
+
+    def merge_cursors(
+        self, current: OmnisendAnalyticsCursor, candidate: OmnisendAnalyticsCursor
+    ) -> OmnisendAnalyticsCursor:
+        return max(current, candidate, key=lambda cursor: cursor.read_through)
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OmnisendResumeConfig]:
         return ResumableSourceManager[OmnisendResumeConfig](inputs, OmnisendResumeConfig)
 
@@ -150,4 +169,7 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            analytics_cursor_manager=self.get_cursor_manager(inputs) if inputs.source_cursor is not None else None,
         )

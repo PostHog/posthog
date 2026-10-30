@@ -87,6 +87,8 @@ _ALERT_BATCH_SIZE: Final = 200
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
 _RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
+# Compiled code and drafts are large and never classified, so they stay unread.
+_UNCLASSIFIED_FIELDS: Final = ("bytecode", "transpiled", "draft")
 
 
 def classify_alert_destinations(
@@ -98,6 +100,7 @@ def classify_alert_destinations(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         )
         .filter(**_RECEIVES_ALERT_EVENTS)
+        .defer(*_UNCLASSIFIED_FIELDS)
         .order_by("created_at", "id")
     )
     return _classify(team_id, list(functions), allowed_event_ids)
@@ -115,6 +118,7 @@ def classify_destinations_by_alert(
                 team_id=team_id, alert_ids=batch, allowed_event_ids=allowed_event_ids, known_templates_only=False
             )
             .filter(**_RECEIVES_ALERT_EVENTS)
+            .defer(*_UNCLASSIFIED_FIELDS)
             .order_by("created_at", "id")
         )
         for function, eligibility in zip(functions, _classify(team_id, functions, allowed_event_ids)):
@@ -261,19 +265,23 @@ def _hold_backs(
             found.append(DestinationHoldBack.CUSTOM_INPUTS)
         if _without_derived(function.filters) != _without_derived(first_snapshot.get("filters")):
             found.append(DestinationHoldBack.FILTERS)
-        found.extend(_input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}))
+        found.extend(
+            _input_hold_backs(template_id, function.inputs or {}, first_snapshot.get("inputs") or {}, stock or {})
+        )
     # Ordered and unique, so a report reads the same for the same function.
     return tuple(dict.fromkeys(found))
 
 
 def _input_hold_backs(
-    template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any]
+    template_id: str, inputs: dict[str, Any], first_inputs: dict[str, Any], stock: dict[str, list[Any]]
 ) -> list[DestinationHoldBack]:
     found: list[DestinationHoldBack] = []
     for key in _compared_keys(template_id, set(inputs) | set(first_inputs)):
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
         same_mode = _is_webhook_headers(template_id, key) or _templating(inputs, key) == _templating(first_inputs, key)
-        if value == first_value and same_mode:
+        # A move from one shipped default to another, such as a bulk update to a newer stock
+        # message, is not an edit a person made.
+        if (value == first_value and same_mode) or _is_stock_value(inputs, key, stock):
             continue
         found.extend(_key_hold_backs(template_id, key, value))
     return found
@@ -286,10 +294,14 @@ def _stock_hold_backs(
     for key in _compared_keys(template_id, set(inputs)):
         value = input_value(inputs, key)
         # The templates skip an empty input, so it sends what a missing one sends.
-        if value in (None, "") or (value in stock.get(key, ()) and _templating(inputs, key) == "hog"):
+        if value in (None, "") or _is_stock_value(inputs, key, stock):
             continue
         found.extend(_key_hold_backs(template_id, key, value))
     return found
+
+
+def _is_stock_value(inputs: dict[str, Any], key: str, stock: dict[str, list[Any]]) -> bool:
+    return input_value(inputs, key) in stock.get(key, ()) and _templating(inputs, key) == "hog"
 
 
 def _compared_keys(template_id: str, keys: set[str]) -> list[str]:

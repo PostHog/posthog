@@ -68,8 +68,8 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
             name=ExternalDataSourceType.KONGKONNECT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kong Inc. (Kong Konnect)",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, and identity realm consumers behind them, into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter a Kong Konnect access token to pull your gateway's Advanced Analytics API request logs and daily service metrics, plus the control planes, gateway entities, consumer groups, API products, Service Catalog scorecards, identity realm consumers, and Metering & Billing meters and subscriptions behind them, into the PostHog Data warehouse.
 
 Create a **Personal Access Token** under **Konnect → Personal access tokens**, or a **System Account access token** for a service identity. Either is sent as a bearer token.
 
@@ -105,6 +105,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
                     ),
                     SourceFieldInputConfig(
                         name="lookback_days",
+                        sync_setting=True,
                         label="Initial sync window (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
@@ -125,7 +126,7 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized": "Your Kong Konnect access token is invalid or has expired. Create a new token in Konnect and reconnect.",
-            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, or Consumers), then reconnect.",
+            "403 Client Error: Forbidden": "Your Kong Konnect access token is missing the permissions needed to read this data. Grant the token or account read access to the Konnect area this table comes from (Advanced Analytics, control planes, API Products, Service Catalog, Consumers, or Metering & Billing), then reconnect.",
         }
 
     def get_schemas(
@@ -137,7 +138,14 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Each run re-reads the last synced day, so append would duplicate its rows.
+            merge_only=("daily_service_metrics",),
+            descriptions=DESCRIPTIONS,
+        )
 
     def validate_credentials(
         self,

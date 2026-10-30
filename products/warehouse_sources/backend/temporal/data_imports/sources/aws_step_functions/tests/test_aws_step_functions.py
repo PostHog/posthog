@@ -358,12 +358,14 @@ def test_body_throttle_retries_with_a_new_signature(config: AwsStepFunctionsSour
 
 
 @pytest.mark.parametrize("code", ["ServiceUnavailable", "UnknownError"])
-def test_validation_propagates_transient_and_unknown_errors(
+def test_validation_reports_an_unreachable_vendor_for_server_errors(
     config: AwsStepFunctionsSourceConfig, session: MagicMock, code: str
 ) -> None:
     session.post.return_value = response(500, {"__type": code})
-    with pytest.raises(AwsStepFunctionsError):
-        validate_credentials(config, None, API_VERSION)
+    assert validate_credentials(config, None, API_VERSION) == (
+        False,
+        "Couldn't reach AWS Step Functions to check your credentials. Try again in a few minutes.",
+    )
     session.close.assert_called_once()
 
 

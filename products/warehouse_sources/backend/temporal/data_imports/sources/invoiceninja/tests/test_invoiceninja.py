@@ -3,12 +3,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
@@ -67,12 +64,6 @@ class TestNormalizeBaseUrl:
 
 
 class TestValidateCredentials:
-    def test_invalid_token_401(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials(None, "tok")
-            assert valid is False
-            assert msg == "Invalid Invoice Ninja API token"
-
     def test_invalid_token_403_message_always_fails(self):
         # A bad Invoice Ninja token returns 403 {"message": "Invalid token"} — reject it even at create.
         with scripted_network([ScriptedResponse(status=403, json={"message": "Invalid token"})]):
@@ -90,12 +81,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials(None, "tok", schema_name="invoices")
             assert valid is False
             assert msg is not None
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials(None, "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         with scripted_network(

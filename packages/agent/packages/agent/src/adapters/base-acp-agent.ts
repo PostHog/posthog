@@ -19,6 +19,7 @@ import type {
 import {
   customModelMeta,
   isAnthropicModelId,
+  isRetiredModel,
   restrictedModelMeta,
 } from "@posthog/agent-contracts";
 import {
@@ -195,11 +196,21 @@ export abstract class BaseAcpAgent implements Agent {
       const rejectedByGateway = this.gatewayModels.some(
         (model) => model.id === currentModelId,
       );
-      if (rejectedByGateway || isServedModelId(currentModelId)) {
+      if (
+        !isRetiredModel(currentModelId) &&
+        (rejectedByGateway || isServedModelId(currentModelId))
+      ) {
         const fallbackOption =
           options.find((option) => option.value === DEFAULT_GATEWAY_MODEL) ??
           options.find((option) => option._meta === undefined);
         if (fallbackOption) {
+          this.logger.warn(
+            "Requested model is not offered on Claude adapter; falling back to default model",
+            {
+              requestedModel: currentModelId,
+              fallbackModel: fallbackOption.value,
+            },
+          );
           currentModelId = fallbackOption.value;
         }
       } else if (!isClaudeAdapterModelId(currentModelId)) {

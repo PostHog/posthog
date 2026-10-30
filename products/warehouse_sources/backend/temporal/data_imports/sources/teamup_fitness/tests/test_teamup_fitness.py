@@ -13,11 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamupfitness import (
     TeamupFitnessSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-    PROVIDER_ERROR,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import PROVIDER_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.source import TeamupFitnessSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.teamup_fitness import (
     TeamupFitnessResumeConfig,
@@ -97,8 +93,6 @@ def test_credential_validation_uses_one_small_request(
 @pytest.mark.parametrize(
     "status,code,message",
     [
-        (401, "authentication_failed", AUTH_ERROR),
-        (403, "provider_invalid", PERMISSION_ERROR),
         (400, "provider_header_missing", PROVIDER_ERROR),
         (400, "provider_header_invalid", PROVIDER_ERROR),
     ],

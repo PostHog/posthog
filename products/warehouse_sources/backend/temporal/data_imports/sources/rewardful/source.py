@@ -108,7 +108,7 @@ class RewardfulSource(ResumableSource[RewardfulSourceConfig, RewardfulResumeConf
             caption="Sync affiliates, referrals, commissions and payouts from your Rewardful affiliate program.",
             docsUrl="https://posthog.com/docs/cdp/sources/rewardful",
             iconPath="/static/services/rewardful.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

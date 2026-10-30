@@ -18,10 +18,14 @@ Do NOT:
 
 from __future__ import annotations
 
+from collections import defaultdict
+from copy import copy
 from typing import cast
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
+from django.db.models.signals import post_save
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -29,11 +33,15 @@ from django.utils import timezone
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
+from products.access_control.backend.activity_logging import get_access_control_log_entry
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import effective_project_id_expr
 
@@ -198,6 +206,34 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def person_property_names_with_access_rules(*, team_id: int) -> frozenset[str]:
+    """Person properties with any access rule on the team, for callers that share a result across users."""
+    return frozenset(
+        PropertyAccessControl.objects.filter(
+            team_id=team_id, property_definition__type=PropertyDefinition.Type.PERSON
+        ).values_list("property_definition__name", flat=True)
+    )
+
+
+def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
+    return (
+        AccessControl.objects.filter(
+            team_id=team_id,
+            resource__in=[
+                "project",
+                "dashboard",
+                "notebook",
+                "insight",
+                "external_data_source",
+                "warehouse_objects",
+                "warehouse_table",
+                "warehouse_view",
+            ],
+        ).exists()
+        or PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+    )
+
+
 def user_organizations_use_access_controls(*, user_id: int) -> bool:
     """Whether access rules can narrow what the user reaches in one of their organizations.
 
@@ -360,6 +396,28 @@ def object_ids_restricted_from_any_member(
     return {resource_id for resource_id in restricted if resource_id}
 
 
+def object_ids_with_rules(*, team_id: int, resource: APIScopeObject) -> set[str]:
+    """Ids of `resource` objects that carry any object-level rule, whatever its level.
+
+    For a caller that copies an object into a new one that can't carry the same rules. It skips
+    every object with a rule rather than judging which rules restrict, and it ignores whether
+    the organization enforces rules today, because the rules apply again when it does.
+    """
+    resource_ids = AccessControl.objects.filter(
+        team_id=team_id, resource=resource, resource_id__isnull=False
+    ).values_list("resource_id", flat=True)
+    return {resource_id for resource_id in resource_ids if resource_id}
+
+
+def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
+    """Whether the team has any resource-level rule for `resource`, whatever its level.
+
+    For a caller about to make objects inherit from `resource`, which changes what those rules
+    reach. Like `object_ids_with_rules`, it ignores whether the organization enforces rules today.
+    """
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=True).exists()
+
+
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
     """Whether the role is a role of that organization.
 
@@ -462,7 +520,7 @@ def upsert_property_access_control(
             team_id=team_id,
             property_definition=prop_def,
             organization_member_id=input.organization_member_id,
-            role_id=input.role_id,
+            role_id=input.role_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
             defaults={
                 "access_level": input.access_level.value,
             },
@@ -512,9 +570,7 @@ def _to_object_rule(rule: AccessControl) -> contracts.ObjectAccessControlRule:
     )
 
 
-def _validate_object_access_control(
-    *, organization_id: UUID, input: contracts.SetObjectAccessControlInput
-) -> APIScopeObject:
+def _validate_object_access_control_level(input: contracts.SetObjectAccessControlInput) -> APIScopeObject:
     resource = input.resource
     if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
         raise InvalidObjectAccessControlError(f"{resource} is not an access controlled resource.")
@@ -534,6 +590,13 @@ def _validate_object_access_control(
         if level_index > levels.index(highest_access_level(scoped_resource)):
             raise InvalidObjectAccessControlError(f"Access level is above the maximum for {resource}.")
 
+    return scoped_resource
+
+
+def _validate_object_access_control(
+    *, organization_id: UUID, input: contracts.SetObjectAccessControlInput
+) -> APIScopeObject:
+    resource = _validate_object_access_control_level(input)
     if (
         input.organization_member_id is not None
         and not OrganizationMembership.objects.filter(
@@ -546,7 +609,118 @@ def _validate_object_access_control(
         and not Role.objects.filter(id=input.role_id, organization_id=organization_id).exists()
     ):
         raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
-    return scoped_resource
+    return resource
+
+
+@frozen
+class _ObjectAccessControlKey:
+    resource: str
+    resource_id: str | None
+    organization_member_id: UUID | None
+    role_id: UUID | None
+
+
+def _object_access_control_key(
+    rule: contracts.SetObjectAccessControlInput | AccessControl,
+) -> _ObjectAccessControlKey:
+    return _ObjectAccessControlKey(
+        resource=rule.resource,
+        resource_id=rule.resource_id,
+        organization_member_id=rule.organization_member_id,
+        role_id=rule.role_id,
+    )
+
+
+def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetObjectAccessControlInput]) -> None:
+    if not inputs:
+        return
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    requested = {_object_access_control_key(input): input for input in inputs}
+    if len(requested) != len(inputs):
+        raise InvalidObjectAccessControlError("Provide each object and subject only once.")
+    for input in inputs:
+        _validate_object_access_control_level(input)
+    member_ids = {input.organization_member_id for input in inputs if input.organization_member_id is not None}
+    role_ids = {input.role_id for input in inputs if input.role_id is not None}
+    if member_ids != set(
+        OrganizationMembership.objects.filter(organization_id=team.organization_id, id__in=member_ids).values_list(
+            "id", flat=True
+        )
+    ):
+        raise InvalidObjectAccessControlError("organization_member does not belong to this team's organization.")
+    if role_ids != set(
+        Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", flat=True)
+    ):
+        raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
+
+    requested_pairs = Q()
+    for key in requested:
+        requested_pairs |= Q(
+            resource=key.resource,
+            resource_id=key.resource_id,
+            organization_member_id=key.organization_member_id,
+            role_id=key.role_id,
+        )
+    with transaction.atomic():
+        existing: dict[_ObjectAccessControlKey, list[AccessControl]] = defaultdict(list)
+        for existing_rule in (
+            AccessControl.objects.select_for_update().filter(requested_pairs, team_id=team_id).order_by("id")
+        ):
+            existing[_object_access_control_key(existing_rule)].append(existing_rule)
+        created: list[AccessControl] = []
+        updated: list[AccessControl] = []
+        deleted_ids: list[UUID] = []
+        entries: list[LogActivityEntry] = []
+        now = timezone.now()
+        for key, input in requested.items():
+            matching_rules: list[AccessControl | None] = [*existing.get(key, [])] or [None]
+            for rule in matching_rules:
+                before = copy(rule) if rule is not None else None
+                if before is not None:
+                    before.team = team
+                if input.access_level is None:
+                    if rule is None:
+                        continue
+                    deleted_ids.append(rule.id)
+                    activity = "deleted"
+                    rule = None
+                elif rule is None:
+                    rule = AccessControl(
+                        team=team,
+                        resource=input.resource,
+                        resource_id=input.resource_id,
+                        organization_member_id=input.organization_member_id,
+                        role_id=input.role_id,
+                        access_level=input.access_level,
+                        created_by_id=input.created_by_id,
+                    )
+                    created.append(rule)
+                    activity = "created"
+                else:
+                    if rule.access_level == input.access_level:
+                        continue
+                    rule.team = team
+                    rule.access_level = input.access_level
+                    rule.updated_at = now
+                    updated.append(rule)
+                    activity = "updated"
+                entry = get_access_control_log_entry(
+                    before_update=before,
+                    after_update=rule,
+                    activity=activity,
+                    user=get_current_user(),
+                    was_impersonated=get_was_impersonated(),
+                )
+                if entry is not None:
+                    entries.append(entry)
+        AccessControl.objects.bulk_create(created)
+        AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
+        AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()
+        for rule in created:
+            post_save.send(sender=AccessControl, instance=rule, created=True)
+        for rule in updated:
+            post_save.send(sender=AccessControl, instance=rule, created=False)
+        bulk_log_activity(entries)
 
 
 def set_object_access_control(
@@ -569,13 +743,15 @@ def set_object_access_control(
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
     if input.access_level is None:
-        AccessControl.objects.filter(
+        # Deleted one by one because a queryset delete writes no activity log row.
+        for rule in AccessControl.objects.filter(
             team_id=team_id,
             resource=resource,
             resource_id=input.resource_id,
             organization_member_id=input.organization_member_id,
             role_id=cast(UUID | str, input.role_id),
-        ).delete()
+        ):
+            rule.delete()
         return None
 
     rule, _created = AccessControl.objects.update_or_create(

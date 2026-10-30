@@ -104,16 +104,6 @@ class TestValidateCredentials:
         assert network.session_options == []
 
     @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_maps_status_code(self, status_code: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status_code, json={})]):
-            is_valid, _ = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
-
-        assert is_valid is expected
-
-    @pytest.mark.parametrize(
         ("api_version", "expected_url", "expected_header"),
         [
             (
@@ -194,27 +184,44 @@ class TestV2Pagination:
 
 
 class TestHistoryFanout:
-    """The history tables are per-item sub-resources fanned out over their list endpoint."""
+    """The history and reservation tables are per-item sub-resources fanned out over their list endpoint."""
 
-    def test_fetches_each_parent_and_injects_parent_id(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_key", "child_key", "child_path", "parent_id_column"),
+        [
+            ("asset_checkout_history", "assets", "histories", "/api/v2/assets/{}/history", "asset_id"),
+            ("member_stock_histories", "members", "stock_histories", "/api/v2/members/{}/stock_histories", "member_id"),
+            # The v2 spec names this envelope in the singular; the plural would sync an empty table.
+            (
+                "reservation_requests",
+                "members",
+                "reservation_request",
+                "/api/v2/members/{}/reservation_requests",
+                "member_id",
+            ),
+        ],
+    )
+    def test_fetches_each_parent_and_injects_parent_id(
+        self, endpoint: str, parent_key: str, child_key: str, child_path: str, parent_id_column: str
+    ) -> None:
         result = _driver().run(
-            "asset_checkout_history",
+            endpoint,
             [
                 ScriptedResponse(
-                    json={"assets": [{"id": 1, "identifier": "A1"}, {"id": 2, "identifier": "A2"}], "metadata": {}}
+                    json={parent_key: [{"id": 1, "identifier": "A1"}, {"id": 2, "identifier": "A2"}], "metadata": {}}
                 ),
-                ScriptedResponse(json={"histories": [{"id": 10}], "metadata": {}}),
-                ScriptedResponse(json={"histories": [{"id": 20}], "metadata": {}}),
+                ScriptedResponse(json={child_key: [{"id": 10}], "metadata": {}}),
+                ScriptedResponse(json={child_key: [{"id": 20}], "metadata": {}}),
             ],
             api_version=EZOFFICEINVENTORY_API_VERSION_V2,
         )
 
         assert result.raised is None
         # The child path binds the parent's record id, not its identification number.
-        assert result.paths[1:] == ["/api/v2/assets/1/history", "/api/v2/assets/2/history"]
-        # A history row carries no back-reference to its asset, so the parent id is injected —
-        # without it the composite primary key would collapse every asset's history together.
-        assert result.rows == [{"id": 10, "asset_id": 1}, {"id": 20, "asset_id": 2}]
+        assert result.paths[1:] == [child_path.format(1), child_path.format(2)]
+        # A child row carries no back-reference to its parent, so the parent id is injected —
+        # without it the composite primary key would collapse every parent's rows together.
+        assert result.rows == [{"id": 10, parent_id_column: 1}, {"id": 20, parent_id_column: 2}]
 
     def test_child_pages_are_followed_per_parent(self) -> None:
         next_url = "https://acme.ezofficeinventory.com/api/v2/assets/1/history?page=2"

@@ -56,7 +56,7 @@ class SentineloneSource(ResumableSource[SentineloneSourceConfig, SentinelOneResu
             name=ExternalDataSourceType.SENTINELONE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SentinelOne",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SentinelOne management console URL and an API token to pull your SentinelOne data into the PostHog Data warehouse.
 
 You can generate an API token in your management console under **My User > Actions > API Token Operations**. The token inherits your user's role and scope (account, site, or group), which determines which records sync.

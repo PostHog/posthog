@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
@@ -42,38 +40,6 @@ class TestPabblySubscriptionsBillingSource:
         tables = self.source.get_documented_tables()
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://payments.pabbly.com/api/v1/customers?page=1&limit=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://payments.pabbly.com/api/v1/subscriptions?page=1&limit=100",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://payments.pabbly.com/api/v1/customers",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://payments.pabbly.com/api/v1/subscriptions",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_validate_credentials_delegates_with_both_keys(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]) as network:

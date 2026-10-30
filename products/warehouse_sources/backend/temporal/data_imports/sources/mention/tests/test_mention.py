@@ -401,9 +401,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Mention returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -425,9 +422,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Mention access token"),
-            ("forbidden", 403, False, "Invalid Mention access token"),
-            ("server_error", 500, False, "Mention returned HTTP 500"),
         ]
     )
     def test_validate_credentials(

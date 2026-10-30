@@ -2,6 +2,8 @@ import base64
 from datetime import UTC, date, datetime
 from typing import Any
 
+import time_machine
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -103,6 +105,41 @@ class TestOwnerrezSourceTransport:
 
         assert result.raised is None
         assert result.requests[0].param("since_utc") == "2026-03-04T02:58:14Z"
+
+    @time_machine.travel("2026-03-04T23:30:00Z", tick=False)
+    def test_calendar_requests_forward_window_and_emits_one_row_per_night(self) -> None:
+        result = _driver().run(
+            "Calendar",
+            [
+                _page(
+                    [
+                        {
+                            "property_id": 7,
+                            "currency_code": "USD",
+                            "days": [
+                                {"date": "2026-03-04", "status": "booked", "booking_id": 11},
+                                {"date": "2026-03-05", "status": "available", "rate": {"amount": 120.0}},
+                            ],
+                        },
+                        {"property_id": 8, "currency_code": "EUR"},
+                    ]
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("from") == "2026-03-04"
+        assert result.requests[0].param("to") == "2026-06-01"
+        assert result.rows == [
+            {"property_id": 7, "currency_code": "USD", "date": "2026-03-04", "status": "booked", "booking_id": 11},
+            {
+                "property_id": 7,
+                "currency_code": "USD",
+                "date": "2026-03-05",
+                "status": "available",
+                "rate": {"amount": 120.0},
+            },
+        ]
 
     def test_resumes_from_saved_next_url(self) -> None:
         result = _driver().run(

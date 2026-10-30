@@ -6,9 +6,12 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.settings import (
@@ -89,7 +92,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     return False, f"Nebius AI API returned status {response.status_code}, try reconnecting shortly."
 
 
-@retry(
+@retry_with_deadline(
     # ChunkedEncodingError is a mid-stream connection break, transient like ConnectionError/ReadTimeout.
     retry=retry_if_exception_type(
         (

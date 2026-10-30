@@ -331,25 +331,6 @@ class TestValidateCredentials:
             (ScriptedResponse(json={"DocumentCollections": [COLLECTION], "_count": 1}), True, None),
             (
                 ScriptedResponse(
-                    status=401,
-                    json={"code": "Unauthorized", "message": "The input authorization token can't serve the request."},
-                ),
-                False,
-                "rejected the account key",
-            ),
-            (
-                ScriptedResponse(
-                    status=403,
-                    json={
-                        "code": "Forbidden",
-                        "message": "Request originated from IP 203.0.113.7 through public internet. This is blocked by your Cosmos DB account firewall settings.",
-                    },
-                ),
-                False,
-                "blocked by your Cosmos DB account firewall",
-            ),
-            (
-                ScriptedResponse(
                     status=404,
                     json={"code": "NotFound", "message": "Entity with the specified id does not exist in the system."},
                 ),

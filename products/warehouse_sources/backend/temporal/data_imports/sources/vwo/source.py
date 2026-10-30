@@ -69,7 +69,7 @@ class VWOSource(ResumableSource[VWOSourceConfig, VWOResumeConfig]):
             keywords=["visual website optimizer", "wingify"],
             iconPath="/static/services/vwo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vwo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token in [VWO developer settings](https://app.wingify.com/#/developers/tokens). "
                 "Select Browse permissions for the workspace and tables you want to import. "

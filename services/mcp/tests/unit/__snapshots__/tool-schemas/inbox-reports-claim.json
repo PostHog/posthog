@@ -33,6 +33,10 @@
             "default": false,
             "description": "Explicitly end another actor's claim and take ownership.",
             "type": "boolean"
+        },
+        "takeover_claim_id": {
+            "description": "With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim.",
+            "type": "string"
         }
     },
     "required": ["id"],

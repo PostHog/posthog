@@ -72,12 +72,10 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     """
     # Deferred: feature_flags' serializer/actions transitively import posthog.tasks, which imports
     # this module — eager imports would create a circular import at startup.
-    from products.approvals.backend.actions.feature_flags import (  # noqa: PLC0415
-        DisableFeatureFlagAction,
-        EnableFeatureFlagAction,
-        UpdateFeatureFlagAction,
+    from products.feature_flags.backend.api.feature_flag import (  # noqa: PLC0415
+        FLAG_WRITE_APPROVAL_ACTIONS,
+        FeatureFlagSerializer,
     )
-    from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer  # noqa: PLC0415
 
     team = flag.team
     organization = team.organization
@@ -89,7 +87,9 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     if serializer_data is None:
         return None
 
-    feature_flag_actions = [EnableFeatureFlagAction, DisableFeatureFlagAction, UpdateFeatureFlagAction]
+    # The actions the request-time gate offers. The product that owns the flag decides which family
+    # evaluates, so a schedule on an experiment's flag reaches the experiment family here as well.
+    feature_flag_actions = decorators._resolve_actions(list(FLAG_WRITE_APPROVAL_ACTIONS))
 
     # Build a partial-update serializer over the real flag so detect()/extract_intent() read the
     # change out of validated_data exactly as they do for an API-driven update.

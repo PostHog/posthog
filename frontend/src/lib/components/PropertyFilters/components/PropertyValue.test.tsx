@@ -312,6 +312,26 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('shows a new date when the date value changes after mount', () => {
+        const editor = (value: string): JSX.Element => (
+            <Provider>
+                <PropertyValue
+                    propertyKey="signup_date"
+                    type={PropertyFilterType.Person}
+                    operator={PropertyOperator.IsDateBefore}
+                    onSet={jest.fn()}
+                    value={value}
+                />
+            </Provider>
+        )
+
+        const { rerender } = render(editor('2000-01-01'))
+        expect(screen.getByTestId('filter-date-picker')).toHaveTextContent('2000-01-01')
+
+        rerender(editor('2010-06-15'))
+        expect(screen.getByTestId('filter-date-picker')).toHaveTextContent('2010-06-15')
+    })
+
     it('keeps the suggested values when it mounts with values already loaded and a refresh changes them', async () => {
         const editor = (
             <Provider>

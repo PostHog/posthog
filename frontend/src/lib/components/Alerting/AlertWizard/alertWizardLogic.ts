@@ -14,7 +14,6 @@ import {
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import {
-    CyclotronJobFilterPropertyFilter,
     CyclotronJobFiltersType,
     CyclotronJobInputType,
     CyclotronJobInvocationGlobals,
@@ -70,14 +69,6 @@ export interface AlertWizardLogicProps {
     // to one or more health-check kinds. Pass an empty array to mean "all kinds"
     // explicitly; omit the prop to leave filters untouched.
     presetTriggerKinds?: string[]
-    // Property filters merged into `filters.properties` of the created HogFunction,
-    // after the `kind` filter from `presetTriggerKinds`. Used to scope an alert to
-    // one record, for example `source_id = <id>`.
-    presetPropertyFilters?: CyclotronJobFilterPropertyFilter[]
-    // Text appended to the generated alert name, for example the name of a source.
-    nameSuffix?: string
-    // Event name sent when an alert is created.
-    createdEventName?: string
     // When set, the "Test" button populates the test event via the matching
     // SAMPLE_GLOBALS_CONTEXTS loader (real product data) instead of a stub event.
     contextId?: HogFunctionConfigurationContextId
@@ -160,21 +151,6 @@ export function applyKindFilter(
     }
 }
 
-export function applyPresetFilters(
-    baseFilters: CyclotronJobFiltersType | null | undefined,
-    selectedKinds: string[] | null,
-    presetPropertyFilters: CyclotronJobFilterPropertyFilter[] | null | undefined
-): CyclotronJobFiltersType | null | undefined {
-    const withKinds = applyKindFilter(baseFilters, selectedKinds)
-    if (!withKinds || !presetPropertyFilters || presetPropertyFilters.length === 0) {
-        return withKinds
-    }
-    return {
-        ...withKinds,
-        properties: [...(withKinds.properties ?? []), ...presetPropertyFilters],
-    }
-}
-
 // Renders a selectedKinds list as a short, human-readable parenthetical suffix
 // (e.g. "(SDK outdated)" or "(SDK outdated, External data failures)") that can
 // be appended to a sub-template's generic name/description, so the created
@@ -187,12 +163,8 @@ function formatKindsSuffix(selectedKinds: string[] | null | undefined): string {
     return ` (${labels.join(', ')})`
 }
 
-export function decorateAlertName(
-    baseName: string,
-    selectedKinds: string[] | null | undefined,
-    nameSuffix?: string
-): string {
-    return `${baseName}${formatKindsSuffix(selectedKinds)}${nameSuffix ? ` ${nameSuffix}` : ''}`
+export function decorateAlertName(baseName: string, selectedKinds: string[] | null | undefined): string {
+    return `${baseName}${formatKindsSuffix(selectedKinds)}`
 }
 
 function lastErrorLogMessage(logs: readonly unknown[]): string | null {
@@ -243,7 +215,7 @@ export interface AlertHogFunctionConfiguration {
     description: string
     filters: CyclotronJobFiltersType | null | undefined
     enabled: true
-    masking: HogFunctionSubTemplateType['masking'] | null
+    masking: null
     inputs: Record<string, CyclotronJobInputType>
 }
 
@@ -254,14 +226,12 @@ export function buildAlertHogFunctionConfiguration({
     description,
     filters,
     inputs,
-    masking,
 }: {
     templateId: string
     name: string
     description: string
     filters: CyclotronJobFiltersType | null | undefined
     inputs: Record<string, CyclotronJobInputType>
-    masking?: HogFunctionSubTemplateType['masking'] | null
 }): AlertHogFunctionConfiguration {
     return {
         type: 'internal_destination',
@@ -270,7 +240,7 @@ export function buildAlertHogFunctionConfiguration({
         description,
         filters,
         enabled: true,
-        masking: masking ?? null,
+        masking: null,
         inputs,
     }
 }
@@ -796,7 +766,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 template_id: destination.templateId,
                 filters: subTemplate.filters,
                 enabled: true,
-                masking: subTemplate.masking ?? null,
+                masking: null,
                 inputs: mergedInputs,
                 inputs_schema: selectedTemplate.inputs_schema,
                 hog: selectedTemplate.code,
@@ -831,7 +801,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 try {
                     globals = await sampleGlobalsLoader(
                         globals,
-                        applyPresetFilters(subTemplate.filters, values.selectedKinds, logicProps.presetPropertyFilters)
+                        applyKindFilter(subTemplate.filters, values.selectedKinds)
                     )
                 } catch {
                     // Fall back to the stub test event
@@ -889,12 +859,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     values.inputValues
                 )
 
-                const filters = applyPresetFilters(
-                    subTemplate.filters,
-                    values.selectedKinds,
-                    logicProps.presetPropertyFilters
-                )
-                const name = decorateAlertName(subTemplate.name ?? '', values.selectedKinds, logicProps.nameSuffix)
+                const filters = applyKindFilter(subTemplate.filters, values.selectedKinds)
+                const name = decorateAlertName(subTemplate.name ?? '', values.selectedKinds)
                 const description = decorateAlertName(subTemplate.description ?? '', values.selectedKinds)
 
                 const configuration = buildAlertHogFunctionConfiguration({
@@ -903,12 +869,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     description,
                     filters,
                     inputs: mergedInputs,
-                    masking: subTemplate.masking,
                 })
 
                 await api.hogFunctions.create(configuration)
-                // pinned: analytics event name, renaming breaks dashboards
-                posthog.capture(logicProps.createdEventName ?? 'error_tracking_alert_created', {
+                posthog.capture('error_tracking_alert_created', {
                     ui_source: 'wizard',
                     trigger_event: subTemplate.filters?.events?.[0]?.id ?? null,
                     subtemplate_id: triggerKey,

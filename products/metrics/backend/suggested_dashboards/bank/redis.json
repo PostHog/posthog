@@ -1,6 +1,20 @@
 {
     "name": "Redis",
     "description": "Commands, memory, hit rate and keys of Redis servers that run the Redis exporter.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "clients",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "redis_connected_clients",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -35,7 +56,14 @@
                     {
                         "name": "a",
                         "metricName": "redis_commands_processed_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -60,12 +88,26 @@
                     {
                         "name": "a",
                         "metricName": "redis_keyspace_hits_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "redis_keyspace_misses_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -105,7 +147,14 @@
                     {
                         "name": "a",
                         "metricName": "redis_memory_used_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -135,6 +184,13 @@
                             {
                                 "key": "instance"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -159,12 +215,26 @@
                     {
                         "name": "used",
                         "metricName": "redis_memory_used_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "limit",
                         "metricName": "redis_memory_max_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -188,12 +258,26 @@
                     {
                         "name": "hits",
                         "metricName": "redis_keyspace_hits_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "misses",
                         "metricName": "redis_keyspace_misses_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -217,12 +301,26 @@
                     {
                         "name": "evicted",
                         "metricName": "redis_evicted_keys_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "expired",
                         "metricName": "redis_expired_keys_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -250,6 +348,13 @@
                             {
                                 "key": "db"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -273,12 +378,26 @@
                     {
                         "name": "input",
                         "metricName": "redis_net_input_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "output",
                         "metricName": "redis_net_output_bytes_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {

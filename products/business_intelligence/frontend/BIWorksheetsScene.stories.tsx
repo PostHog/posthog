@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -47,12 +49,14 @@ const meta: Meta = {
                                 id: 1,
                                 short_id: 'revenue',
                                 name: 'Revenue by country',
+                                created_by: MOCK_DEFAULT_BASIC_USER,
                                 last_modified_at: '2026-01-01T12:00:00Z',
                             },
                             {
                                 id: 2,
                                 short_id: 'activity',
                                 name: 'Weekly activity',
+                                created_by: MOCK_SECOND_BASIC_USER,
                                 last_modified_at: '2026-01-01T10:00:00Z',
                             },
                         ],

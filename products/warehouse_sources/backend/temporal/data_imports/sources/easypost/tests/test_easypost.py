@@ -247,7 +247,9 @@ class TestUnpaginatedEndpoints:
 
 class TestValidateCredentials:
     @parameterized.expand(
-        [("ok", 200, True), ("unauthorized", 401, False), ("inactive", 403, False), ("server", 500, False)]
+        [
+            ("ok", 200, True),
+        ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:

@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import time_machine
@@ -6,6 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -512,6 +514,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         else:
             return actual_data
+
+    def test_retrieve_records_terraform_read_at_most_once_a_day(self):
+        function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
+        url = f"/api/projects/{self.team.id}/hog_functions/{function.id}/"
+        terraform_ua = "posthog/terraform-provider; version: 1.0.22"
+
+        def stored() -> tuple:
+            return HogFunction.objects.values_list("last_terraform_read_at", "updated_at").get(pk=function.pk)
+
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            self.client.get(url)
+            assert stored() == (None, function.updated_at)
+
+            response = self.client.get(url, headers={"user-agent": terraform_ua})
+            assert response.status_code == status.HTTP_200_OK
+            assert "last_terraform_read_at" not in response.json()
+
+        with time_machine.travel("2026-01-01T23:00:00Z", tick=False):
+            self.client.get(url, headers={"user-agent": terraform_ua})
+        assert stored() == (datetime(2026, 1, 1, tzinfo=UTC), function.updated_at)
+
+        with time_machine.travel("2026-01-02T01:00:00Z", tick=False):
+            self.client.get(url, headers={"user-agent": terraform_ua})
+        assert stored() == (datetime(2026, 1, 2, 1, tzinfo=UTC), function.updated_at)
+
+    def test_retrieve_succeeds_when_recording_terraform_read_fails(self):
+        function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
+
+        with patch.object(HogFunction, "record_terraform_read", side_effect=Exception("db down")):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+                headers={"user-agent": "posthog/terraform-provider; version: 1.0.22"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(function.id)
 
     def _create_hidden_template(self) -> None:
         HogFunctionTemplate.objects.create(
@@ -1178,10 +1216,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "value": "I AM SECRET",
                     "order": 0,
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI57CYnHc8Meh0Qo-Ii9TRkDbxtU0E48PqNx6eqhGROrzCtN2rORP2bj-BM983QSq6ufd6CpPUqUUvSHhvhP0klo",
+                {"secret": True},
+                [],
             ),
             (
-                "dictionary_without_templating",
+                "dictionary_paired_with_plain_dictionary",
                 {
                     "key": "secret_headers",
                     "type": "dictionary",
@@ -1193,20 +1233,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"Authorization": "Bearer I AM SECRET"},
                 {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
                 None,
+                {"secret": True, "value": {"Authorization": "********"}},
+                [{"key": "headers", "type": "dictionary", "label": "Headers", "required": False}],
+            ),
+            (
+                "dictionary_without_plain_pair",
+                {
+                    "key": "account_lookup",
+                    "type": "dictionary",
+                    "label": "Account lookup",
+                    "secret": True,
+                    "required": False,
+                    "templating": False,
+                },
+                {"I AM SECRET": "account-1"},
+                {"value": {"I AM SECRET": "account-1"}, "order": 0},
+                None,
+                {"secret": True},
+                [],
             ),
         ]
     )
     def test_secret_inputs_not_returned(
-        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, *args
+        self,
+        _name,
+        schema,
+        secret_value,
+        expected_encrypted_input,
+        expected_ciphertext,
+        expected_masked,
+        other_schemas,
+        *args,
     ):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
-            "inputs_schema": [schema],
+            "inputs_schema": [schema, *other_schemas],
             "inputs": {schema["key"]: {"value": secret_value}},
             "type": "destination",
         }
-        expectation = {schema["key"]: {"secret": True}}
+        unset_inputs = {other["key"]: None for other in other_schemas}
+        expectation = {schema["key"]: expected_masked, **unset_inputs}
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
         with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
@@ -1219,7 +1286,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
-        assert obj.inputs == {}
+        assert obj.inputs == unset_inputs
         assert obj.encrypted_inputs == {schema["key"]: expected_encrypted_input}
 
         raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
@@ -2736,6 +2803,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "PostHog connection" in json.dumps(response.json())
         mock_create_hog_invocation_test.assert_not_called()
 
+    def test_test_invocation_of_unsaved_function_cannot_borrow_a_hidden_templates_reserved_calls(self):
+        self._create_email_template()
+
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        "type": "destination",
+                        "name": "Sneaky",
+                        "template_id": "template-email-test",
+                        "hog": "sendEmail({'to': {'email': 'someone@example.com'}, 'subject': 'hi'})",
+                        "inputs": {},
+                    },
+                    "mock_async_functions": False,
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is internal and cannot be used" in json.dumps(response.json())
+        mock_create_hog_invocation_test.assert_not_called()
+
     @parameterized.expand(
         [
             ("errors_list", {"errors": ["Missing event"]}, ["Missing event"]),
@@ -3702,6 +3793,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
+
+    def _create_functions_from_template(self, count: int) -> None:
+        template = HogFunctionTemplate.get_template(template_slack.id)
+        for i in range(count):
+            HogFunction.objects.create(
+                team=self.team,
+                name=f"Query count function {i}",
+                hog="return event",
+                type="destination",
+                enabled=False,
+                created_by=self.user,
+                template_id=template_slack.id,
+                hog_function_template=template,
+            )
+
+    def _list_query_count(self, expected_results: int) -> int:
+        url = f"/api/projects/{self.team.id}/hog_functions/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == expected_results
+        return len(ctx.captured_queries)
+
+    def test_list_query_count_does_not_grow_with_function_count(self):
+        self._create_functions_from_template(2)
+        few = self._list_query_count(2)
+        self._create_functions_from_template(4)
+        many = self._list_query_count(6)
+
+        assert few == many, f"listing 6 functions cost {many} queries vs {few} for 2, so something N+1s"
 
     @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
     def test_enable_backfills_blocked_without_feature_flag(self, mock_feature_enabled):

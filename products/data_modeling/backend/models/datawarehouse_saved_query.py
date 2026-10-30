@@ -115,6 +115,11 @@ class NoSchedulableDagError(Exception):
     bootstrap one from."""
 
 
+class SchedulingUnavailableError(Exception):
+    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
+    The caller decides what to keep, because the saved query itself is not at fault."""
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -155,6 +160,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     # Null on rows that predate the column; the write path accepts any token for those until their first edit.
     query_revision = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
+    query_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
@@ -308,9 +314,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller. Any other failure disables
-        materialization, because the alternative is a query that reports itself materialized
-        while nothing is scheduled to materialize it.
+        A rejected frequency propagates to the caller. A Temporal outage propagates as
+        SchedulingUnavailableError and leaves is_materialized as it is: an outage says nothing
+        about the query, and the schedules that already back it keep running. Any other failure
+        disables materialization, because the alternative is a query that reports itself
+        materialized while nothing is scheduled to materialize it.
         """
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
@@ -322,14 +330,23 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             bootstrap_dag_to_tiers,
         )
         from products.data_modeling.backend.models.node import Node
-        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids, is_transient_temporal_error
 
         node: Node | None = None
         try:
             # If this query's DAG runs on cadence tiers, those tiers materialize it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
             # contract below rather than leaving is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            # An unreachable Temporal is the exception: it goes to the caller, which knows whether
+            # a schedule already backs the query.
+            try:
+                on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            except Exception as e:
+                if is_transient_temporal_error(e):
+                    raise SchedulingUnavailableError(
+                        f"Temporal is unavailable to schedule saved query {self.id}"
+                    ) from e
+                raise
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
@@ -383,6 +400,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # The query is fine — the requested frequency is not. Surface it to the caller
             # instead of silently disabling materialization.
             raise
+        except SchedulingUnavailableError as e:
+            capture_exception(e, {"saved_query_id": self.id, "team_id": self.team_id})
+            logger.warning("schedule_materialization_temporal_unavailable", saved_query_id=str(self.id))
+            raise
         except Exception as e:
             capture_exception(
                 e,
@@ -418,7 +439,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 saved_query_id=str(self.id),
             )
 
-    def revert_materialization(self):
+    def revert_materialization(self, *, delete_joins: bool = True):
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
 
@@ -429,9 +450,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.is_materialized = False
 
         with transaction.atomic():
+            self.table_id = (
+                DataWarehouseSavedQuery.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("table_id", flat=True)
+                .first()
+            )
             # delete the materialized table reference
             if self.table is not None:
-                self.table.soft_delete()
+                self.table.soft_delete(delete_joins=delete_joins)
                 self.table_id = None
 
             self.save()
@@ -485,6 +512,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def stores_columns(self, columns: dict[str, Any]) -> bool:
+        """Whether ``set_columns(columns)`` would leave this view's stored columns unchanged."""
+        return columns == self.columns and list(columns.keys()) == self.column_order
+
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
@@ -503,7 +534,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+                response = execute_hogql_query(
+                    select_query,
+                    team=self.team,
+                    user=user,
+                    query_type="HogQLQuery",
+                    refresh_stale_view_columns=False,
+                )
         result = response.types
 
         if result is None:

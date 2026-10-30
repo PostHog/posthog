@@ -115,7 +115,7 @@ class BackMarketSource(ResumableSource[BackMarketSourceConfig, BackMarketResumeC
             category=DataWarehouseSourceCategory.E_COMMERCE,
             keywords=["marketplace", "orders", "refurbished"],
             label="Back Market (Back Market SAS)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Back Market seller API token to pull your orders and listings into the PostHog Data warehouse.
 
 Generate a token from your Back Market Back Office under **Support & Technical Support**. The token stays valid until you reset your account password.""",

@@ -53,7 +53,7 @@ class CodacySource(SimpleSource[CodacySourceConfig]):
             name=ExternalDataSourceType.CODACY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codacy",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["code quality", "static analysis", "code coverage"],
             caption="""Enter your Codacy account API token to automatically pull your Codacy code quality data into the PostHog Data warehouse.
 

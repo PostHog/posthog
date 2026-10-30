@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -32,6 +34,10 @@ const pipeline = {
     iteration_budget_remaining: 6,
     iterations_per_run: 5,
     research_interval_days: 7,
+    agent_model: null,
+    agent_reasoning_effort: null,
+    effective_agent_model: 'claude-opus-5-5',
+    effective_agent_reasoning_effort: 'medium',
     training_phase: 'maintain',
     next_research_at: '2026-11-12T00:00:00Z',
     success_auc: null,
@@ -142,44 +148,82 @@ function iteration(
     }
 }
 
+const PERFORMANCE_DATES = ['2026-02-10', '2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14']
+
+/** Top 10% counts out of 47,000 people scored, 1,410 of whom did it. */
+function topTenCounts(tp: number): Record<string, number> {
+    return {
+        tp,
+        fp: 4700 - tp,
+        fn: 1410 - tp,
+        tn: 47000 - 4700 - (1410 - tp),
+        n_flagged: 4700,
+        precision: tp / 4700,
+        recall: tp / 1410,
+    }
+}
+
+function performanceRow(prediction_date: string, index: number): { prediction_date: string } & Record<string, unknown> {
+    return {
+        validation_run_id: `validate-${index}`,
+        prediction_date,
+        horizon_days: 7,
+        weekday: 1,
+        model_id: champion.id,
+        emitted_role: 'champion',
+        current_role: 'champion',
+        n_scored: 47000,
+        n_positive: 1410,
+        base_rate: 0.03,
+        mean_p_y: 0.033,
+        realized_auc: [0.78, 0.8, 0.79, 0.82, 0.81][index],
+        realized_auc_ci_low: [0.76, 0.78, 0.77, 0.8, 0.79][index],
+        realized_auc_ci_high: [0.8, 0.82, 0.81, 0.84, 0.83][index],
+        brier_score: 0.06,
+        calibration_error: 0.04,
+        lift_at_10: 3.4,
+        lift_at_20: 2.6,
+        average_precision: 0.21,
+        confusion: {
+            top_10: topTenCounts([440, 480, 470, 510, 455][index]),
+            top_20: { tp: 735, fp: 8665, fn: 675, tn: 36925, n_flagged: 9400, precision: 0.0782, recall: 0.5213 },
+            likely: { tp: 700, fp: 3700, fn: 710, tn: 41890, n_flagged: 4400, precision: 0.1591, recall: 0.4965 },
+        },
+        likely_threshold: 0.09,
+        calibration_bins: [
+            { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
+            { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
+            { n: 2350, mean_p_y: 0.3, positive_rate: 0.27 },
+            { n: 2350, mean_p_y: 0.68, positive_rate: 0.6 },
+        ],
+        warning: null,
+        validated_at: '2026-02-21T03:00:00Z',
+    }
+}
+
+// The challenger started scoring next to the champion on Feb 12, so its line covers the last three dates.
+const challengerPerformance = PERFORMANCE_DATES.slice(2).map((prediction_date, index) => ({
+    ...performanceRow(prediction_date, index + 2),
+    validation_run_id: `validate-challenger-${index}`,
+    model_id: challenger.id,
+    emitted_role: 'challenger',
+    current_role: 'challenger',
+    mean_p_y: 0.031,
+    realized_auc: [0.82, 0.84, 0.83][index],
+    realized_auc_ci_low: [0.8, 0.82, 0.81][index],
+    realized_auc_ci_high: [0.84, 0.86, 0.85][index],
+    lift_at_10: [3.6, 3.9, 3.8][index],
+    confusion: {
+        top_10: { tp: 520, fp: 4180, fn: 890, tn: 41410, n_flagged: 4700, precision: 0.1106, recall: 0.3688 },
+        top_20: { tp: 760, fp: 8640, fn: 650, tn: 36950, n_flagged: 9400, precision: 0.0809, recall: 0.539 },
+        likely: { tp: 720, fp: 3600, fn: 690, tn: 41990, n_flagged: 4320, precision: 0.1667, recall: 0.5106 },
+    },
+}))
+
 const onlinePerformance = {
-    rows: ['2026-02-10', '2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14']
-        .map((prediction_date, index) => ({
-            validation_run_id: `validate-${index}`,
-            prediction_date,
-            horizon_days: 7,
-            weekday: 1,
-            model_id: champion.id,
-            emitted_role: 'champion',
-            current_role: 'champion',
-            n_scored: 47000,
-            n_positive: 1410,
-            base_rate: 0.03,
-            mean_p_y: 0.033,
-            realized_auc: [0.78, 0.8, 0.79, 0.82, 0.81][index],
-            realized_auc_ci_low: [0.76, 0.78, 0.77, 0.8, 0.79][index],
-            realized_auc_ci_high: [0.8, 0.82, 0.81, 0.84, 0.83][index],
-            brier_score: 0.06,
-            calibration_error: 0.04,
-            lift_at_10: 3.4,
-            lift_at_20: 2.6,
-            average_precision: 0.21,
-            confusion: {
-                top_10: { tp: 480, fp: 4220, fn: 930, tn: 41370, n_flagged: 4700, precision: 0.1021, recall: 0.3404 },
-                top_20: { tp: 735, fp: 8665, fn: 675, tn: 36925, n_flagged: 9400, precision: 0.0782, recall: 0.5213 },
-                likely: { tp: 700, fp: 3700, fn: 710, tn: 41890, n_flagged: 4400, precision: 0.1591, recall: 0.4965 },
-            },
-            likely_threshold: 0.09,
-            calibration_bins: [
-                { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
-                { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
-                { n: 2350, mean_p_y: 0.3, positive_rate: 0.27 },
-                { n: 2350, mean_p_y: 0.68, positive_rate: 0.6 },
-            ],
-            warning: null,
-            validated_at: '2026-02-21T03:00:00Z',
-        }))
-        .reverse(),
+    rows: [...PERFORMANCE_DATES.map(performanceRow), ...challengerPerformance].sort((a, b) =>
+        b.prediction_date.localeCompare(a.prediction_date)
+    ),
     segment_thresholds: {
         likely_threshold: 0.09,
         possible_threshold: 0.03,
@@ -273,6 +317,9 @@ const trainingRuns = [
         id: 'training-2',
         pipeline: PIPELINE_ID,
         kickoff_reason: 'explore',
+        agent_model: 'claude-opus-5-5',
+        agent_model_label: 'Claude Opus 5.5',
+        agent_reasoning_effort: 'medium',
         task_url: null,
         status: 'completed',
         iteration_count: 5,
@@ -297,6 +344,9 @@ const trainingRuns = [
         id: 'training-1',
         pipeline: PIPELINE_ID,
         kickoff_reason: 'manual',
+        agent_model: 'claude-opus-5-5',
+        agent_model_label: 'Claude Opus 5.5',
+        agent_reasoning_effort: 'medium',
         task_url: null,
         status: 'completed',
         iteration_count: 4,
@@ -391,6 +441,26 @@ export const Accuracy: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
         testOptions: { viewportWidths: ['wide', 'narrow'] },
+    },
+}
+
+export const AccuracyHitRateWithChallengers: Story = {
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
+        testOptions: {
+            viewportWidths: ['wide'],
+            waitForSelector: '[data-attr="autoresearch-model-accuracy-trend-cutoff-top_10"]',
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('Accuracy over time', {}, { timeout: 15000 })
+        await userEvent.click(
+            canvasElement.querySelector(
+                '[data-attr="autoresearch-model-accuracy-trend-metric-hit_rate"]'
+            ) as HTMLElement
+        )
+        await userEvent.click(await canvas.findByText('Compare challengers'))
     },
 }
 

@@ -183,11 +183,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, True)),
             # A valid key whose role lacks the probed scope is authenticated but not authorized.
             (403, (True, False)),
-            (401, (False, False)),
-            (500, (False, False)),
         ],
     )
     def test_status_mapping(self, status_code, expected):

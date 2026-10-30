@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconPalette, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -9,7 +10,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -79,9 +80,9 @@ function CanvasesList(): JSX.Element {
                 name="Canvases"
                 resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }}
                 actions={
-                    <LemonButton size="small" type="primary" to={urls.canvasNew()} data-attr="canvases-new">
+                    <Button variant="primary" render={<LinkPrimitive to={urls.canvasNew()} />} data-attr="canvases-new">
                         New canvas
-                    </LemonButton>
+                    </Button>
                 }
             />
             <LemonInput

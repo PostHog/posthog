@@ -60,12 +60,16 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
         return ExternalDataSourceType.GNEWS
 
     @property
+    def credential_kind(self) -> str | None:
+        return "gnews"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.GNEWS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="GNews",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your GNews API key to pull worldwide news articles into the PostHog Data warehouse.
 
 You can find your API key in your [GNews dashboard](https://gnews.io/dashboard).
@@ -86,6 +90,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -94,6 +99,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldSelectConfig(
                         name="category",
+                        sync_setting=True,
                         label="Category",
                         required=True,
                         defaultValue="general",
@@ -104,6 +110,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="language",
+                        sync_setting=True,
                         label="Language (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -112,6 +119,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

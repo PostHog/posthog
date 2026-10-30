@@ -1,4 +1,4 @@
-import { MetricsQuery, Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import { DashboardTile } from '~/types'
 
@@ -9,7 +9,6 @@ export type DashboardControl =
     | 'properties'
     | 'breakdown'
     | 'testAccounts'
-    | 'metricLabels'
     | 'metricVariables'
 
 export interface DashboardControlScope {
@@ -25,7 +24,6 @@ const ALL_CONTROLS: DashboardControl[] = [
     'properties',
     'breakdown',
     'testAccounts',
-    'metricLabels',
     'metricVariables',
 ]
 
@@ -40,17 +38,12 @@ const CONTROLS_BY_QUERY_KIND: Partial<Record<NodeKind, DashboardControl[]>> = {
     [NodeKind.StickinessQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
     [NodeKind.LifecycleQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
     [NodeKind.CalendarHeatmapQuery]: ['dateRange', 'interval', 'properties', 'testAccounts'],
-    [NodeKind.MetricsQuery]: ['dateRange', 'metricLabels', 'metricVariables'],
-    [NodeKind.MetricsHistogramQuery]: ['dateRange', 'metricLabels', 'metricVariables'],
+    [NodeKind.MetricsQuery]: ['dateRange', 'metricVariables'],
+    [NodeKind.MetricsHistogramQuery]: ['dateRange', 'metricVariables'],
 }
 
 export function dashboardControlsForQuery(query: Node | null | undefined): DashboardControl[] {
     const source = isNodeWithSource(query) ? query.source : query
-    // Label filters reach builder clauses only, because PromQL and SQL text is not rewritten for them. Variables reach all three languages.
-    const metricsLanguage = source?.kind === NodeKind.MetricsQuery ? (source as MetricsQuery).language : undefined
-    if (metricsLanguage && metricsLanguage !== 'builder') {
-        return ['dateRange', 'metricVariables']
-    }
     return (source?.kind && CONTROLS_BY_QUERY_KIND[source.kind as NodeKind]) || DEFAULT_CONTROLS
 }
 

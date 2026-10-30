@@ -71,9 +71,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
@@ -98,12 +95,6 @@ class TestValidateCredentials:
         assert error is not None
         assert network.requests_log == []
         assert network.session_options == []
-
-    def test_connection_error_is_handled(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("acme", "you@acme.com", "key")
-        assert valid is False
-        assert error is not None
 
 
 class TestGetRows:

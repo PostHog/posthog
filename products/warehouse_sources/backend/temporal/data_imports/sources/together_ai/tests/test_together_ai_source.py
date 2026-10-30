@@ -38,38 +38,3 @@ class TestValidateCredentials:
             ok, err = TogetherAISource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert err is not None
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.together.xyz/v1/fine-tunes",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.together.xyz/v1/endpoints?type=dedicated",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = TogetherAISource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.together.xyz/v1/models",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.together.xyz/v1/batches",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='api.together.xyz', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = TogetherAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

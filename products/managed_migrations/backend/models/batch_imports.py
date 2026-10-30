@@ -2,7 +2,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Self
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -15,6 +16,16 @@ if TYPE_CHECKING:
 
 
 DEFAULT_SEND_RATE = 5_000
+
+# The worker before pending_commit wrote this status message while it sent a chunk.
+LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX = "Starting commit of part "
+
+
+class CommitInFlightError(ValueError):
+    """A worker is sending a chunk of this import, so a resume now could skip that chunk."""
+
+    def __init__(self) -> None:
+        super().__init__("A worker is sending a chunk of this import. Try again in a few minutes.")
 
 
 def get_aws_external_id(team: "Team") -> str:
@@ -61,6 +72,9 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)
+    # Worker-owned marker for the chunk being sent. A value on a row no worker holds means a worker
+    # stopped mid-commit, so the chunk may not have reached the sink.
+    pending_commit = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_batchimport"
@@ -116,9 +130,18 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         offset, use `resume_with_inflight_part_reset` instead. Raises ValueError if
         the job is not paused.
         """
-        if self.status != BatchImport.Status.PAUSED:
-            raise ValueError(f"Only paused imports can be resumed (status: {self.status})")
-        self._flip_to_running("Resumed by admin")
+        self.resume_from_pause("Resumed by admin")
+
+    def resume_from_pause(self, status_message: str) -> None:
+        """Resume this paused import under a row lock. Raises ValueError if it is not paused, or
+        CommitInFlightError while a worker still sends a chunk."""
+        with transaction.atomic():
+            row = BatchImport.objects.select_for_update().get(pk=self.pk)
+            if row.status != BatchImport.Status.PAUSED:
+                raise ValueError(f"Only paused imports can be resumed (status: {row.status})")
+            row.raise_if_commit_in_flight()
+            row.save(update_fields=row.reset_for_resume(status_message))
+        self.refresh_from_db()
 
     def resume_with_inflight_part_reset(self) -> str:
         """Resume a paused import whose in-flight part has a poisoned byte offset.
@@ -135,25 +158,51 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         `resume_after_pause` does. Returns the key of the reset part. Raises
         ValueError if the job is not paused or has no unfinished part.
         """
-        if self.status != BatchImport.Status.PAUSED:
-            raise ValueError(f"Only paused imports can be reset and resumed (status: {self.status})")
+        with transaction.atomic():
+            row = BatchImport.objects.select_for_update().get(pk=self.pk)
+            if row.status != BatchImport.Status.PAUSED:
+                raise ValueError(f"Only paused imports can be reset and resumed (status: {row.status})")
+            row.raise_if_commit_in_flight()
 
-        _done, _total, inflight = self.parts_progress()
-        if inflight is None:
-            raise ValueError("No unfinished part to reset - the job has no resumable work")
+            _done, _total, inflight = row.parts_progress()
+            if inflight is None:
+                raise ValueError("No unfinished part to reset - the job has no resumable work")
 
-        inflight["current_offset"] = 0
-        # A stale total from a previous download would be wrong too: each download of
-        # a nondeterministic export can have a different decompressed size.
-        inflight["total_size"] = None
+            inflight["current_offset"] = 0
+            # A stale total from a previous download would be wrong too: each download of
+            # a nondeterministic export can have a different decompressed size.
+            inflight["total_size"] = None
 
-        # Redacted: url_list part keys are full source URLs whose query string /
-        # userinfo can carry credentials, and status_message is broadly visible.
-        redacted_key = str(redact_part_key(inflight.get("key")))
-        self._flip_to_running(f"Resumed by admin with part {redacted_key} reset to offset 0")
+            # Redacted: url_list part keys are full source URLs whose query string /
+            # userinfo can carry credentials, and status_message is broadly visible.
+            redacted_key = str(redact_part_key(inflight.get("key")))
+            row.save(
+                update_fields=[
+                    *row.reset_for_resume(f"Resumed by admin with part {redacted_key} reset to offset 0"),
+                    "state",
+                ]
+            )
+        self.refresh_from_db()
         return redacted_key
 
-    def _flip_to_running(self, status_message: str) -> None:
+    def commit_in_flight(self) -> bool:
+        """True while a worker holds a live lease and is between saving a chunk's offset and the
+        sink accepting it, the window in which clearing its lease can lose that chunk."""
+        if self.leased_until is None or self.leased_until <= timezone.now():
+            return False
+        return self.pending_commit is not None or (self.status_message or "").startswith(
+            LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX
+        )
+
+    def raise_if_commit_in_flight(self) -> None:
+        if self.commit_in_flight():
+            raise CommitInFlightError()
+
+    def reset_for_resume(self, status_message: str) -> list[str]:
+        """Set the fields every resume path resets, and return their names for `save(update_fields=...)`.
+
+        Clears the lease so a worker can claim the row at once, and `pending_commit` because a resume
+        accepts the saved offsets."""
         self.status = BatchImport.Status.RUNNING
         self.status_message = status_message
         self.display_status_message = None
@@ -161,19 +210,18 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         self.leased_until = None
         self.backoff_attempt = 0
         self.backoff_until = None
-        self.save(
-            update_fields=[
-                "state",
-                "status",
-                "status_message",
-                "display_status_message",
-                "lease_id",
-                "leased_until",
-                "backoff_attempt",
-                "backoff_until",
-                "updated_at",
-            ]
-        )
+        self.pending_commit = None
+        return [
+            "status",
+            "status_message",
+            "display_status_message",
+            "lease_id",
+            "leased_until",
+            "backoff_attempt",
+            "backoff_until",
+            "pending_commit",
+            "updated_at",
+        ]
 
 
 # Mostly used for manual job creation

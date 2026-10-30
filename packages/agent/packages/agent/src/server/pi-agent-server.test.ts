@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentConversationEvent } from "@posthog/agent-contracts";
+import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import { describe, expect, it, vi } from "vitest";
+import * as localTools from "../adapters/codex-app-server/local-tools-mcp";
+import * as piRpc from "../pi/rpc-client";
 import { PiAgentServer } from "./pi-agent-server";
 import type { AgentServerConfig } from "./types";
 
@@ -29,6 +32,8 @@ describe("PiAgentServer", () => {
     const server = new PiAgentServer(
       config({ model: "anthropic/claude-opus-5" }),
     ) as unknown as {
+      start(): Promise<void>;
+      stop(): Promise<void>;
       logger: { error: ReturnType<typeof vi.fn> };
       createSession(sessionPayload: typeof payload): Promise<void>;
       initializeSession(
@@ -36,7 +41,10 @@ describe("PiAgentServer", () => {
         sseController: null,
       ): Promise<void>;
       createRunTelemetry: ReturnType<typeof vi.fn>;
+      posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+      app: { fetch(request: Request): Promise<Response> };
     };
+    server.posthogAPI.updateTaskRun = vi.fn().mockResolvedValue({});
     const append = vi.fn();
     const shutdown = vi.fn(async () => {});
     server.createRunTelemetry = vi.fn(() => ({ append, shutdown }));
@@ -45,40 +53,120 @@ describe("PiAgentServer", () => {
     });
     const errorSpy = vi.spyOn(server.logger, "error");
 
-    await expect(server.initializeSession(payload, null)).rejects.toThrow(
-      "Pi RPC startup failed",
-    );
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      "Pi session initialization failed",
-      expect.objectContaining({
-        runtimeAdapter: "pi",
-        initializationPhase: "session_setup",
-        initMs: expect.any(Number),
-        requestedModel: "anthropic/claude-opus-5",
-        gatewayConfigured: true,
-        taskId: "task-1",
-        taskRunId: "run-1",
-        errorDetail: expect.objectContaining({
-          message: "Pi RPC startup failed",
-        }),
-      }),
-    );
-    expect(append).toHaveBeenCalledWith(
-      "run-1",
-      expect.objectContaining({
-        notification: expect.objectContaining({
-          method: "_posthog/initialization_failed",
-          params: expect.objectContaining({
-            runtimeAdapter: "pi",
-            initializationPhase: "session_setup",
-            errorType: "error",
+    try {
+      await server.start();
+      const failed = await server.app.fetch(
+        new Request("http://localhost/health"),
+      );
+      expect(await failed.json()).toMatchObject({
+        readiness: "failed",
+        startupFailure: {
+          provider: "pi",
+          phase: "session_setup",
+          reason: null,
+          retryability: "unknown",
+        },
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Pi session initialization failed",
+        expect.objectContaining({
+          runtimeAdapter: "pi",
+          initializationPhase: "session_setup",
+          initMs: expect.any(Number),
+          requestedModel: "anthropic/claude-opus-5",
+          gatewayConfigured: true,
+          taskId: "task-1",
+          taskRunId: "run-1",
+          errorDetail: expect.objectContaining({
+            message: "Pi RPC startup failed",
           }),
         }),
-      }),
-    );
-    expect(shutdown).toHaveBeenCalledOnce();
+      );
+      expect(append).toHaveBeenCalledWith(
+        "run-1",
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: "_posthog/initialization_failed",
+            params: expect.objectContaining({
+              runtimeAdapter: "pi",
+              initializationPhase: "session_setup",
+              errorType: "error",
+            }),
+          }),
+        }),
+      );
+      expect(shutdown).toHaveBeenCalledOnce();
+    } finally {
+      await server.stop();
+    }
   });
+
+  it.each(["start", "setThinkingLevel", "getState"] as const)(
+    "stops the partial Pi client when %s fails",
+    async (operation) => {
+      const client = {
+        start: vi.fn(async () => {}),
+        setThinkingLevel: vi.fn(async () => {}),
+        getState: vi.fn(async () => ({})),
+        stop: vi.fn(async () => {}),
+        onEvent: vi.fn(() => vi.fn()),
+        onMcpToolPermissionRequest: vi.fn(() => vi.fn()),
+      };
+      const failure = new Error("Synthetic Pi setup failure");
+      client[operation].mockRejectedValueOnce(failure);
+      const createClient = vi
+        .spyOn(piRpc, "createPiRpcClient")
+        .mockReturnValue(client as unknown as piRpc.PiRpcClient);
+      const syncInstructions = vi
+        .spyOn(AgentInstructionFiles.prototype, "sync")
+        .mockResolvedValue(null);
+      const buildLocalTools = vi
+        .spyOn(localTools, "buildLocalToolsServer")
+        .mockReturnValue(null);
+      const server = new PiAgentServer(
+        config({
+          model: "anthropic/claude-opus-5",
+          reasoningEffort: "low",
+          repositoryPath: tmpdir(),
+        }),
+      ) as unknown as {
+        createSession(payload: Record<string, unknown>): Promise<void>;
+        posthogAPI: Record<string, unknown>;
+        session: unknown;
+      };
+      server.posthogAPI = {
+        getTaskSession: vi.fn(async () => ({
+          id: "session-1",
+          content_sha256: null,
+        })),
+        downloadTaskSession: vi.fn(async () => null),
+        getMcpRuntimeConfiguration: vi.fn(async () => ({
+          servers: [],
+          policies: [],
+        })),
+        getTask: vi.fn(async () => null),
+        getTaskRun: vi.fn(async () => null),
+      };
+      try {
+        await expect(
+          server.createSession({
+            task_id: "task-1",
+            run_id: "run-1",
+            team_id: 1,
+          }),
+        ).rejects.toBe(failure);
+        expect(client.stop).toHaveBeenCalledOnce();
+        expect(
+          client.onMcpToolPermissionRequest.mock.results[0].value,
+        ).toHaveBeenCalledOnce();
+        expect(server.session).toBeNull();
+      } finally {
+        createClient.mockRestore();
+        syncInstructions.mockRestore();
+        buildLocalTools.mockRestore();
+      }
+    },
+  );
 
   it("emits RTK savings for a cloud Pi run", async () => {
     const enqueue = vi.fn();
@@ -1253,7 +1341,9 @@ describe("PiAgentServer", () => {
         sseController: TestController,
       ): Promise<void>;
       cancelSseController(sseController: TestController): void;
+      posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
     };
+    server.posthogAPI.updateTaskRun = vi.fn().mockResolvedValue({});
     server.createSession = vi.fn(async (sessionPayload) => {
       await initializationGate;
       server.session = { payload: sessionPayload, sseController: null };

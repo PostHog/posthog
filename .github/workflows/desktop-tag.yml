@@ -22,9 +22,10 @@ jobs:
         # A manual run can start from any ref, and a break-glass run tags that ref's head. Only
         # master and an existing release tag hold code that already merged.
         if: >-
-            github.event_name == 'schedule' ||
-            (github.event_name == 'workflow_dispatch' &&
-             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v')))
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name == 'schedule' ||
+             (github.event_name == 'workflow_dispatch' &&
+              (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v'))))
         # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
         environment: desktop-tagging
         permissions:

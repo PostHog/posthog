@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar import polar as polar_module
@@ -45,6 +46,47 @@ class TestGetPolarSession:
         # pagination fail the whole sync activity instead of being absorbed here.
         session = polar_module._get_polar_session()
         assert session.adapters["https://"].max_retries is DEFAULT_RETRY
+
+
+class TestPolarRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "service_unavailable",
+                "503 Server Error: Service Unavailable for url: https://api.polar.sh/v1/orders/?limit=100&page=1&sorting=created_at",
+                True,
+            ),
+            (
+                "bad_gateway",
+                "502 Server Error: Bad Gateway for url: https://api.polar.sh/v1/customers/?limit=100&page=1",
+                True,
+            ),
+            (
+                "internal_server_error",
+                "500 Server Error: Internal Server Error for url: https://api.polar.sh/v1/products/?limit=100&page=1",
+                True,
+            ),
+            (
+                "gateway_timeout",
+                "504 Server Error: Gateway Timeout for url: https://api.polar.sh/v1/subscriptions/?limit=100&page=1",
+                True,
+            ),
+            (
+                "different_host",
+                "503 Server Error: Service Unavailable for url: https://example.com/v1/orders/?limit=100&page=1",
+                False,
+            ),
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.polar.sh/v1/orders/?limit=100&page=1",
+                False,
+            ),
+        ]
+    )
+    def test_get_retryable_errors_match_only_polar_server_errors(
+        self, _name: str, error_msg: str, retryable: bool
+    ) -> None:
+        assert error_message_matches(error_msg, PolarSource().get_retryable_errors()) is retryable
 
 
 class TestPolarValidateCredentials:

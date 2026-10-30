@@ -7,12 +7,11 @@ import { cn } from 'lib/utils/css-classes'
 import { SIDE_PANEL_MIN_WIDTH_COMPACT, useSidePanelFrame } from '~/layout/navigation-3000/sidepanel/useSidePanelFrame'
 
 import { TodayContextPanelCard } from './TodayContextPanelCard'
+import { TODAY_SIDE_PANEL_DEFAULT_WIDTH } from './todayContextPanelLogic'
 import { todayShellLogic } from './todayShellLogic'
 
 // The Today layout gives the panel its own grid column, so a wider panel takes the space from the scene.
 const TODAY_SIDE_PANEL_MAX_WIDTH = 720
-// Matches the floating card, so docking keeps the panel's width.
-const TODAY_SIDE_PANEL_DEFAULT_WIDTH = 340
 // The scene keeps at least this much width beside a wide panel, so a narrow window never collapses it.
 const TODAY_SCENE_MIN_WIDTH = 320
 
