@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 import dagster
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common.staged_dictionary import (
     StageableDictionary,
     StagedDictionary,
+    create_on_every_cluster,
     load_and_verify_on_every_cluster,
 )
 
@@ -75,3 +77,67 @@ class TestLoadAndVerifyOnEveryCluster:
 
         assert "posthog=[1]" in str(failure.value.description)
         assert "events=[2]" in str(failure.value.description)
+
+
+class _Done:
+    def __init__(self, value: Any = None) -> None:
+        self._value = value
+
+    def result(self) -> Any:
+        return self._value
+
+
+class _RecordingCluster:
+    """A handle whose single host is a client named after the cluster, so calls say where they ran."""
+
+    def __init__(self, name: str) -> None:
+        self.data_cluster_name = name
+
+    def map_all_hosts(self, fn: Any, concurrency: int | None = None) -> _Done:
+        return _Done({self.data_cluster_name: fn(self.data_cluster_name)})
+
+    def any_host_by_role(self, fn: Any, role: Any) -> _Done:
+        return _Done(fn(self.data_cluster_name))
+
+
+class _RecordingDictionary:
+    name = "snapshot_dictionary"
+    query = "SELECT FROM source"
+
+    def __init__(self) -> None:
+        self.source_by_cluster: dict[str, str] = {}
+
+    def staged(self) -> StagedDictionary:
+        return StagedDictionary(key="snapshot_dictionary.parquet", columns="id", structure="id Int64")
+
+    def create(self, client: Any, shards: int, max_execution_time: int, max_memory_usage: int, query: Any = None):
+        self.source_by_cluster[client] = query or self.query
+
+    def recreate(self, client: Any, shards: int, max_execution_time: int, max_memory_usage: int, query: Any = None):
+        self.create(client, shards, max_execution_time, max_memory_usage, query)
+
+
+class TestCreateOnEveryCluster:
+    @parameterized.expand(
+        [
+            ("one cluster reads the source table", ["posthog"], False),
+            ("every cluster reads the staged object, the source cluster too", ["posthog", "events"], True),
+        ]
+    )
+    def test_the_dictionary_source_on_each_cluster(self, _name: str, names: list[str], staged: bool) -> None:
+        # A source cluster that reads the live table sees rows written after the export while its
+        # hosts load one by one, so its hosts disagree with each other and with the other cluster.
+        dictionary = _RecordingDictionary()
+        expected = dictionary.staged().query if staged else dictionary.query
+
+        with patch.object(StagedDictionary, "export"):
+            create_on_every_cluster(
+                MagicMock(),
+                cast(list[ClickhouseCluster], [_RecordingCluster(name) for name in names]),
+                cast(StageableDictionary, dictionary),
+                shards=1,
+                max_execution_time=0,
+                max_memory_usage=0,
+            )
+
+        assert dictionary.source_by_cluster == dict.fromkeys(names, expected)

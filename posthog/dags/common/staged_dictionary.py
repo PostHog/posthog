@@ -86,24 +86,26 @@ def create_on_every_cluster(
 ) -> None:
     """Create ``dictionary`` on every cluster a mutation joining it will run on.
 
-    ``clusters`` leads with the handle that can see the source table; the rest read a staged object,
-    because they share no Keeper with it and so never receive the replicated table.
+    ``clusters`` leads with the handle that can see the source table; the rest share no Keeper with
+    it and so never receive the replicated table. With more than one cluster, every cluster reads
+    the staged object, the first one too. Hosts load one at a time, so a host that read the source
+    table would see rows written after the export, and the hosts would not agree.
     """
     first, *rest = clusters
-    first.map_all_hosts(
-        partial(
-            dictionary.create,
-            shards=shards,
-            max_execution_time=max_execution_time,
-            max_memory_usage=max_memory_usage,
-        )
-    ).result()
     if not rest:
+        first.map_all_hosts(
+            partial(
+                dictionary.create,
+                shards=shards,
+                max_execution_time=max_execution_time,
+                max_memory_usage=max_memory_usage,
+            )
+        ).result()
         return
 
     staged = dictionary.staged()
     first.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
-    for cluster in rest:
+    for cluster in clusters:
         cluster.map_all_hosts(
             partial(
                 dictionary.recreate,
@@ -114,7 +116,7 @@ def create_on_every_cluster(
             )
         ).result()
 
-    context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in rest]}")
+    context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in clusters]}")
 
 
 def load_and_verify_on_every_cluster(clusters: Sequence[ClickhouseCluster], dictionary: StageableDictionary) -> None:
