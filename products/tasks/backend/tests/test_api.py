@@ -56,7 +56,11 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT, FINAL_MESSAGE_MAX_CHARS
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    DEV_STACK_PREVIEW_PORT,
+    FINAL_MESSAGE_MAX_CHARS,
+)
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
