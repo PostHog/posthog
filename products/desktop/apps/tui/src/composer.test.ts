@@ -108,4 +108,25 @@ describe("Composer", () => {
     expect(text(editor)).not.toContain("model");
     expect(text(editor)).toContain("/");
   });
+
+  it("offers the run's own commands alongside the built-in ones", async () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    composer.setCommands([
+      { name: "review-pr", description: "Review a pull request" },
+    ]);
+    composer.handleInput("/");
+    await vi.waitFor(() =>
+      expect(composer.render(60, true).popup.length).toBeGreaterThan(0),
+    );
+
+    const popup = composer
+      .render(60, true)
+      .popup.map((line) => stripTerminalSequences(line))
+      .join("\n");
+    expect(popup).toContain("review-pr");
+    expect(popup).toContain("model");
+  });
 });

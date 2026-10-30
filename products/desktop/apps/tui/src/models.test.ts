@@ -84,4 +84,36 @@ describe("piControl", () => {
       modelId: "claude-opus-5-5",
     });
   });
+
+  it("lists the run's own slash commands", async () => {
+    const sendCommand = vi.fn(
+      async ({
+        params,
+      }: {
+        params: { command: { id: string; type: string } };
+      }) => ({
+        success: true,
+        result: {
+          id: params.command.id,
+          type: "response",
+          command: params.command.type,
+          success: true,
+          data: {
+            commands: [
+              {
+                name: "review-pr",
+                description: "Review a pull request",
+                source: "skill",
+                sourceInfo: {},
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(
+      await piControl(sendCommand as never, "t1", "r1").commands(),
+    ).toEqual([{ name: "review-pr", description: "Review a pull request" }]);
+  });
 });

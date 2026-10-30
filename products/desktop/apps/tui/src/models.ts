@@ -19,6 +19,13 @@ export type PiCommand = (input: {
 export interface PiControl {
   models(): Promise<{ available: ModelChoice[]; current: ModelChoice | null }>;
   setModel(model: ModelChoice): Promise<void>;
+  // The run's own slash commands: extension commands, prompt templates and skills.
+  commands(): Promise<RunCommand[]>;
+}
+
+export interface RunCommand {
+  name: string;
+  description?: string;
 }
 
 const choice = (model: {
@@ -65,6 +72,11 @@ export function piControl(
     setModel: async (model) => {
       await client.setModel(model.provider, model.id);
     },
+    commands: async () =>
+      (await client.getCommands()).map(({ name, description }) => ({
+        name,
+        description,
+      })),
   };
 }
 

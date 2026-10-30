@@ -38,6 +38,7 @@ import {
   modelSheet,
   type PiControl,
   parseSlash,
+  type RunCommand,
 } from "../models";
 import {
   type Click,
@@ -344,8 +345,39 @@ export function App({
     );
   };
 
+  // Each live run's slash commands, fetched once and handed to the composer of the pane showing it.
+  const runCommands = useRef(new Map<string, RunCommand[] | "loading">());
+  const commandsShown = useRef(new Map<string, string>());
+  const showRunCommands = (
+    paneId: string,
+    taskId: string,
+    runId: string,
+  ): void => {
+    if (!control) return;
+    const commands = runCommands.current.get(runId);
+    if (commands === undefined) {
+      runCommands.current.set(runId, "loading");
+      control(taskId, runId)
+        .commands()
+        .then(
+          (loaded) => {
+            runCommands.current.set(runId, loaded);
+            showRunCommands(paneId, taskId, runId);
+          },
+          // No retry: a run that cannot list commands just gets the built-in ones.
+          () => runCommands.current.set(runId, []),
+        );
+      return;
+    }
+    if (commands === "loading" || commandsShown.current.get(paneId) === runId)
+      return;
+    commandsShown.current.set(paneId, runId);
+    composerFor(paneId).setCommands(commands);
+  };
+
   // A pick made while the run was not live is applied as soon as its sandbox is.
   const onRunLive = (paneId: string, taskId: string, runId: string): void => {
+    showRunCommands(paneId, taskId, runId);
     const held = heldModels.get(paneId);
     if (!held || !control || appliedHolds.current.has(runId)) return;
     appliedHolds.current.add(runId);
