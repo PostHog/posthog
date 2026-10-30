@@ -11,7 +11,7 @@ import {
   runNotice,
   withListedRun,
 } from "../runs";
-import { transcriptFrom } from "../transcript";
+import { transcriptFrom, withPending } from "../transcript";
 import { Spinner } from "./Spinner";
 
 function useRunView(
@@ -44,6 +44,7 @@ export function Pane({
   runs,
   chat,
   composer,
+  pending,
   focused,
 }: {
   title: string;
@@ -52,6 +53,8 @@ export function Pane({
   runs: CloudRuns;
   chat: ChatView;
   composer: Composer;
+  // A message just sent from this pane that the run has not echoed yet.
+  pending: string | null;
   focused: boolean;
 }): ReactElement {
   const body = useRef(null);
@@ -59,14 +62,17 @@ export function Pane({
   const { view, loadOlder } = useRunView(runs, task);
   const lines = useMemo(
     () =>
-      task
-        ? transcriptFrom(
-            task.runtime,
-            view.entries,
-            task.description || task.description_preview,
-          )
-        : [],
-    [task, view.entries],
+      withPending(
+        task
+          ? transcriptFrom(
+              task.runtime,
+              view.entries,
+              task.description || task.description_preview,
+            )
+          : [],
+        pending,
+      ),
+    [task, view.entries, pending],
   );
   const hasOlder = view.windowStart > 0;
   // Set before this render draws the chat, so a frame never shows the previous transcript.
@@ -91,20 +97,25 @@ export function Pane({
   const run = task?.latest_run;
 
   const composerLines = width > 0 ? composer.render(width, focused) : [];
+  // A new chat shows its message and start-up state before the run even exists.
   const notice = task?.latest_run
     ? runNotice(withListedRun(view, task.latest_run), lines)
-    : null;
+    : pending
+      ? ({ text: "Starting cloud run…", tone: "working" } as const)
+      : null;
   const chatHeight =
     height - composerLines.length - (view.error ? 1 : 0) - (notice ? 1 : 0);
 
   let content: ReactElement;
-  if (!paneTaskId)
+  if (!paneTaskId && !pending)
     content = <Text dimColor>Type a message to start a cloud run.</Text>;
-  else if (!task) content = <Spinner label="Loading chat" />;
-  else if (!run) content = <Text dimColor>This task has no runs yet.</Text>;
-  else if (run.environment === "local")
+  else if (paneTaskId && !task && !pending)
+    content = <Spinner label="Loading chat" />;
+  else if (task && !run)
+    content = <Text dimColor>This task has no runs yet.</Text>;
+  else if (run?.environment === "local")
     content = <Text dimColor>Local runs can't be opened here yet.</Text>;
-  else if (!view.loaded && !view.error)
+  else if (!view.loaded && !view.error && lines.length === 0)
     content = <Spinner label="Loading chat" />;
   else {
     // pi renders at the pane's measured size; each line is already styled and fitted to the width.

@@ -80,3 +80,14 @@ function toLine(item: ConversationItem): TranscriptLine[] {
       return [];
   }
 }
+
+// A message the user just sent shows at once, until the run's log echoes it back as its latest user message.
+export function withPending(
+  lines: TranscriptLine[],
+  pending: string | null,
+): TranscriptLine[] {
+  if (!pending) return lines;
+  const lastUser = lines.findLast((line) => line.kind === "user");
+  if (lastUser?.kind === "user" && lastUser.text === pending) return lines;
+  return [...lines, { kind: "user", id: "pending", text: pending }];
+}
