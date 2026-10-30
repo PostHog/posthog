@@ -6,7 +6,6 @@ import { Logo as BrandLogo } from '@posthog/brand/logo'
 import type { LogoProps, LogomarkProps } from '@posthog/brand/logo'
 
 import { cn } from 'lib/utils/css-classes'
-import { currentHoliday } from 'lib/utils/holidays'
 
 /**
  * Named logo sizes. Callers pick one of these instead of hand-tuning pixel dimensions per surface —
