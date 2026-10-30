@@ -46,6 +46,25 @@ const TYPED_RUNNER_TOOLS = [
     'query-lifecycle',
 ]
 
+// SQL constructs that no typed runner can express. A query that uses one of them needs SQL, so
+// the typed-runner hint stays silent: per-actor rows, exact first or last timestamps, time
+// between events, array work, HAVING filters, joins, CTEs, window functions, unions,
+// subqueries and system tables. A first or last timestamp grouped by event is an event
+// inventory, which `read-data-schema` answers, so it still matches.
+const SQL_ONLY_CONSTRUCTS = [
+    String.raw`\b(JOIN|WITH|OVER|UNION|HAVING)\b`,
+    String.raw`\bsystem\.`,
+    String.raw`\(\s*SELECT\b`,
+    String.raw`\barray\w*\s*\(`,
+    String.raw`\b(groupArray|groupUniqArray|argMax|argMin|dateDiff|date_diff)\w*\s*\(`,
+    String.raw`\b(max|min)(If)?\s*\(\s*timestamp\b(?![\s\S]*\bGROUP\s+BY\s+event\b)`,
+    String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S])*\b(person_id|distinct_id|session_id)\b`,
+]
+const SIMPLE_EVENTS_AGGREGATE = new RegExp(
+    String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
+    'i'
+)
+
 const RULES: GuidanceRule[] = [
     {
         id: 'replay-sql-to-vision',
@@ -103,9 +122,7 @@ const RULES: GuidanceRule[] = [
         trigger: {
             tool: 'execute-sql',
             argPath: 'query',
-            // Joins, CTEs, window functions, unions, subqueries and system tables usually need SQL, so they never match.
-            argPattern:
-                /^(?![\s\S]*(\b(JOIN|WITH|OVER|UNION)\b|\bsystem\.|\barrayJoin\s*\(|\(\s*SELECT\b))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()/i,
+            argPattern: SIMPLE_EVENTS_AGGREGATE,
             outcome: 'success',
             presets: ['user'],
         },
