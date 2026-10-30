@@ -37,6 +37,10 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Warehouse destination',
         alertUrl: () => urls.warehouseDestinations(),
     },
+    [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
+        label: 'Metrics',
+        alertUrl: () => urls.metrics(),
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {

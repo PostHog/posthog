@@ -5,7 +5,7 @@ import time
 import uuid
 import posixpath
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -565,11 +566,13 @@ class CHQueries:
 
         user = cast(User, request.user)
 
-        with suppress(Exception):
-            if request_id := structlog.contextvars.get_contextvars().get("request_id"):
-                tag_queries(http_request_id=uuid.UUID(request_id))
+        http_request_id: uuid.UUID | None = None
+        with suppress(ValueError):
+            if isinstance(request_id := structlog.contextvars.get_contextvars().get("request_id"), str):
+                http_request_id = uuid.UUID(request_id)
 
         tag_queries(
+            http_request_id=http_request_id,
             user_id=user.pk,
             kind="request",
             id=request.path,
@@ -636,20 +639,31 @@ class QueryTimeCountingMiddleware:
         "properties",
         "person",
     ]
+    LABELLED_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
+        add_server_timing = settings.CAPTURE_TIME_TO_SEE_DATA and self._should_instrument(request)
+        record_pg_queries = request.path.startswith("/api/")
+        if not add_server_timing and not record_pg_queries:
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         start_time = time.perf_counter()
-        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+        with (
+            connection.execute_wrapper(pg_query_counter),
+            clickhouse_query_counter(ch_query_counter) if add_server_timing else nullcontext(),
+        ):
             response: HttpResponse = self.get_response(request)
 
-        response.headers["Server-Timing"] = self._construct_header(
+        if record_pg_queries:
+            self._record_pg_queries(request, response, pg_query_counter.count)
+        if not add_server_timing:
+            return response
+
+        server_timing = self._construct_header(
             durations_ms={
                 "django": (time.perf_counter() - start_time) * 1000,
                 "pg": pg_query_counter.query_time_ms,
@@ -664,7 +678,29 @@ class QueryTimeCountingMiddleware:
                 "ch_slow": ch_query_counter.slow_count,
             },
         )
+        if existing_server_timing := response.headers.get("Server-Timing"):
+            server_timing = f"{existing_server_timing}, {server_timing}"
+        response.headers["Server-Timing"] = server_timing
         return response
+
+    def _record_pg_queries(self, request: HttpRequest, response: HttpResponse, query_count: int) -> None:
+        match = request.resolver_match
+        client = posthoganalytics.default_client
+        if match is None or client is None:
+            return
+        method = request.method or ""
+        client.metrics.histogram(
+            "api.request.pg_queries",
+            query_count,
+            unit="{query}",
+            attributes={
+                # The URLconf bounds view_name. The raw path carries ids, so it must never be a label.
+                "route": match.view_name,
+                # A client can send any method token, so unknown methods share one label.
+                "method": method if method in self.LABELLED_METHODS else "other",
+                "status_class": f"{response.status_code // 100}xx",
+            },
+        )
 
     def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
         parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]

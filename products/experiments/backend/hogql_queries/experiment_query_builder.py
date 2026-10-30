@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -298,12 +298,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().timeseries_query()
 
-    def get_exposure_segments_query(self, top_values: int) -> ast.SelectQuery:
+    def get_exposure_segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
         """
-        Persons or groups by variant and by the SDK library and the page of their first exposure. Columns:
-        dimension, segment, variant, exposed_count. It scans the events, also when precomputed exposures exist.
+        Persons or groups by variant and by the SDK library, the library version, and the page or screen of their
+        first exposure. Columns: dimension, library, segment, variant, exposed_count. It scans the events, also when
+        precomputed exposures exist.
         """
-        return self._exposure_query_builder().segments_query(top_values)
+        return self._exposure_query_builder().segments_query(top_values, first_exposed_after)
 
     def get_exposed_count_query(self) -> ast.SelectQuery:
         """The persons or groups exposed, in one row. Column: exposed_count."""

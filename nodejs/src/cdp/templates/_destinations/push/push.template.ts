@@ -17,7 +17,12 @@ let payload := {
 }
 
 if (inputs.image) payload.image := inputs.image
-if (inputs.data) payload.data := inputs.data
+
+// The link and group travel as data so an app that draws its own notifications can read them too.
+let data := inputs.data ?? {}
+if (inputs.link) data.link := inputs.link
+if (inputs.group) data.group := inputs.group
+if (length(keys(data)) > 0) payload.data := data
 if (inputs.collapseKey) payload.collapseKey := inputs.collapseKey
 if (inputs.ttlSeconds) payload.ttlSeconds := inputs.ttlSeconds
 
@@ -37,7 +42,11 @@ let apns := {}
 if (inputs.ios_sound) apns.sound := inputs.ios_sound
 if (inputs.ios_badge != null) apns.badge := inputs.ios_badge
 if (inputs.ios_category) apns.category := inputs.ios_category
-if (inputs.ios_threadId) apns.threadId := inputs.ios_threadId
+if (inputs.ios_threadId) {
+    apns.threadId := inputs.ios_threadId
+} else if (inputs.group) {
+    apns.threadId := inputs.group
+}
 if (inputs.ios_interruptionLevel) apns.interruptionLevel := inputs.ios_interruptionLevel
 if (inputs.ios_subtitle) apns.subtitle := inputs.ios_subtitle
 if (inputs.ios_mutableContent) apns.mutableContent := inputs.ios_mutableContent
@@ -105,6 +114,24 @@ if (not res.success) {
             secret: false,
             required: false,
             description: 'URL of an image to display in the notification.',
+        },
+        {
+            key: 'link',
+            type: 'string',
+            label: 'Link',
+            secret: false,
+            required: false,
+            description:
+                'Where a tap should take the person, such as myapp://chat/123 or a web URL. Sent to the app as the "link" key in the custom data, for the app to open.',
+        },
+        {
+            key: 'group',
+            type: 'string',
+            label: 'Group',
+            secret: false,
+            required: false,
+            description:
+                'Notifications with the same group are bundled together, such as one conversation. Used as the iOS thread ID, and sent to the app as the "group" key in the custom data for Android.',
         },
         {
             key: 'data',
