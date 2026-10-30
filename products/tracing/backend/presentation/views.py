@@ -292,7 +292,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
 class _TracingBodyPagingSerializer(serializers.Serializer):
     # Validates only the paging keys of a raw query body; the other keys pass through untouched.
     limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
-    offset = serializers.IntegerField(required=False, allow_null=True, help_text="Pagination offset.")
+    offset = serializers.IntegerField(required=False, allow_null=True, min_value=0, help_text="Pagination offset.")
     prefetchSpans = serializers.IntegerField(
         required=False, allow_null=True, help_text="Number of child spans to prefetch per trace."
     )
@@ -526,14 +526,11 @@ class _TracingAttributesQuerySerializer(_TracingDateQueryParamsSerializer):
         help_text='Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
     limit = serializers.IntegerField(
-        required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
+        required=False, default=100, min_value=1, max_value=100, help_text="Max results (default: 100)."
     )
-    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
-
-
-class _TracingPagingQuerySerializer(serializers.Serializer):
-    limit = serializers.IntegerField(required=False, default=100, min_value=1, help_text="Max results.")
-    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Pagination offset.")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Pagination offset (default: 0)."
+    )
 
 
 class _TracingAttributeEntrySerializer(serializers.Serializer):
@@ -572,9 +569,11 @@ class _TracingValuesQuerySerializer(_TracingDateQueryParamsSerializer):
     )
     value = serializers.CharField(required=False, help_text="Search filter for attribute values.")
     limit = serializers.IntegerField(
-        required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
+        required=False, default=100, min_value=1, max_value=100, help_text="Max results (default: 100)."
     )
-    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Pagination offset (default: 0)."
+    )
 
 
 class _CompareFilterSerializer(serializers.Serializer):
@@ -1393,7 +1392,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         paging = _TracingBodyPagingSerializer(data=query_data)
         paging.is_valid(raise_exception=True)
-        offset = max(paging.validated_data.get("offset") or 0, 0)
+        offset = paging.validated_data.get("offset") or 0
         limit = paging.validated_data.get("limit")
         requested_limit = min(100 if limit is None else limit, 1000)
         prefetch_spans = paging.validated_data.get("prefetchSpans")
@@ -2005,9 +2004,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        paging = _TracingBodyPagingSerializer(data=query_data)
-        paging.is_valid(raise_exception=True)
-        offset = max(paging.validated_data.get("offset") or 0, 0)
+        trace_request = _TracingTraceRequestSerializer(data=query_data)
+        trace_request.is_valid(raise_exception=True)
+        offset: int = trace_request.validated_data.get("offset", 0)
 
         # The waterfall loads a trace one page at a time, earliest spans first, with infinite scroll
         # fetching the next page. Order by start time ASC so a page is the first N spans by start
@@ -2116,10 +2115,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         search_values = request.GET.get("search_values", "false").lower() == "true"
-        paging = _TracingPagingQuerySerializer(data=request.GET)
-        paging.is_valid(raise_exception=True)
-        limit: int = paging.validated_data["limit"]
-        offset: int = paging.validated_data["offset"]
+        params = _TracingAttributesQuerySerializer(data=request.GET)
+        params.is_valid(raise_exception=True)
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
 
         date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
@@ -2148,10 +2147,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response({"error": "key is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         search = request.GET.get("value", "")
-        paging = _TracingPagingQuerySerializer(data=request.GET)
-        paging.is_valid(raise_exception=True)
-        limit: int = paging.validated_data["limit"]
-        offset: int = paging.validated_data["offset"]
+        params = _TracingValuesQuerySerializer(data=request.GET)
+        params.is_valid(raise_exception=True)
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
 
         date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
