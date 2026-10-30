@@ -307,6 +307,7 @@ export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -323,6 +324,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -333,6 +335,7 @@ export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, str
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
