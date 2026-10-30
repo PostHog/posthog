@@ -393,12 +393,14 @@ describe('reportCheckPresentation', () => {
         )
 
         it.each([
-            ['metric_threshold', 480, 'At least 8 hours after monitoring starts · Waits for a full query window'],
-            ['metric_threshold', 720, 'At least 12 hours after monitoring starts · Waits for a full query window'],
-            ['metric_threshold', 0, 'Starts when monitoring starts · Waits for a full query window'],
-            ['agent', 480, 'Starts 8 hours after monitoring starts · The follow-up scout runs it'],
-            ['agent', 0, 'Starts when monitoring starts · The follow-up scout runs it'],
-        ])('describes a pending %s check during monitoring with a %i minute soak', (kind, soakMinutes, detail) => {
+            ['metric_threshold', 480, 'Final evaluation after 8 hours of monitoring'],
+            ['metric_threshold', 720, 'Final evaluation after 12 hours of monitoring'],
+            ['metric_threshold', 95, 'Final evaluation after 1 hour 35 minutes of monitoring'],
+            ['metric_threshold', 0, 'Final evaluation when monitoring starts'],
+            ['metric_threshold', null, 'Final evaluation during monitoring'],
+            ['agent', 480, 'Final evaluation after 8 hours of monitoring · The follow-up scout runs it'],
+            ['agent', 0, 'Final evaluation when monitoring starts · The follow-up scout runs it'],
+        ])('describes final evaluation for a pending %s check (soak_minutes=%s)', (kind, soakMinutes, detail) => {
             expect(checkScheduledEntry({ kind, arms_on_resolve: true, soak_minutes: soakMinutes }, true)).toEqual({
                 tag: { label: 'Runs during monitoring', type: 'muted' },
                 detail,

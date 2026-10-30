@@ -60,7 +60,7 @@ Archive and restore preserve the attempt and original start, including expiry re
 
 ## Follow-up checks
 
-With `signals-report-monitoring` enabled, pending check activity says the check runs during monitoring and describes its wait from the start of monitoring. With the flag disabled, the activity retains the Resolved trigger wording.
+With `signals-report-monitoring` enabled, pending check activity says the check runs during monitoring and describes the wait before final evaluation from the start of monitoring. Interim metric measurements may run during that wait. With the flag disabled, the activity retains the Resolved trigger wording.
 
 Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
 A count can justify a metric without a chart or a change over time.

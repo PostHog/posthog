@@ -371,6 +371,21 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     monitoring_completed: 'Stopped because this Monitoring attempt ended',
 }
 
+function pendingCheckTiming(content: CheckScheduledContent, monitoringEnabled: boolean): string {
+    if (monitoringEnabled) {
+        if (content.soak_minutes == null) {
+            return 'Final evaluation during monitoring'
+        }
+        return content.soak_minutes === 0
+            ? 'Final evaluation when monitoring starts'
+            : `Final evaluation after ${monitoringPeriodLabel(content.soak_minutes)} of monitoring`
+    }
+    if (!content.soak_minutes) {
+        return 'Starts when this report is resolved'
+    }
+    return `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
+}
+
 /**
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
@@ -380,15 +395,11 @@ export function checkScheduledEntry(content: CheckScheduledContent, monitoringEn
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
-        const trigger = monitoringEnabled ? 'monitoring starts' : 'this report is resolved'
-        const start = content.soak_minutes
-            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after ${trigger}`
-            : `Starts when ${trigger}`
         return {
             tag: { label: monitoringEnabled ? 'Runs during monitoring' : 'Waiting for resolve', type: 'muted' },
             detail: joinDetail([
-                start,
-                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                pendingCheckTiming(content, monitoringEnabled),
+                content.kind === 'metric_threshold' && !monitoringEnabled ? 'Waits for a full query window' : null,
                 lane,
                 runs,
             ]),
