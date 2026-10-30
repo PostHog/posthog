@@ -18,6 +18,7 @@ import { initKeaTests } from '~/test/init'
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
+import { replayFiltersScannerLogic } from './replayFiltersScannerLogic'
 import {
     buildObservationListParams,
     goalSpendChoice,
@@ -30,6 +31,7 @@ import {
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import type { ScannerHandoffFromFilters } from './scannerHandoffFromFilters'
 import {
     consumeScannerHandoffIntent,
     markScannerGoalDraftIntent,
@@ -593,6 +595,34 @@ describe('replayScannerLogic', () => {
                 'replay_vision_scanner_creation_started',
                 expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
             )
+        })
+
+        it.each([
+            ['after an SSO reauthentication round trip', false, 1],
+            ['never, once the person dismisses consent', true, 0],
+        ])('a draft stored while asking for consent starts %s', async (_, dismissed, drafts) => {
+            const popover = replayFiltersScannerLogic()
+            popover.mount()
+            popover.actions.setGoal('find rage clicks')
+            popover.actions.requestConsent(
+                { chosenQuery: { kind: NodeKind.RecordingsQuery } } as ScannerHandoffFromFilters,
+                {
+                    freeOnly: true,
+                }
+            )
+            if (dismissed) {
+                popover.actions.cancelConsent()
+            }
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 1000)
+            try {
+                router.actions.push(urls.replayVisionScannerGoal('new'))
+                await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            } finally {
+                clock.mockRestore()
+            }
+
+            expect(draftSpy).toHaveBeenCalledTimes(drafts)
+            popover.unmount()
         })
 
         // A value the create API rejects would block the save, so it is dropped rather than sent.

@@ -67,12 +67,26 @@ export interface ScannerGoalDraftIntent {
 
 /** One-shot "draft this goal now" from an in-app click, kept out of the URL so a link cannot
  * start a draft on its own. Returns false when storage is unavailable. */
-export function markScannerGoalDraftIntent(intent: ScannerGoalDraftIntent): boolean {
+export function markScannerGoalDraftIntent(
+    intent: ScannerGoalDraftIntent,
+    { ttlMs = SCANNER_GOAL_DRAFT_INTENT_TTL_MS }: { ttlMs?: number } = {}
+): boolean {
     try {
-        sessionStorage.setItem(SCANNER_GOAL_DRAFT_INTENT_KEY, JSON.stringify({ ...intent, at: Date.now() }))
+        sessionStorage.setItem(
+            SCANNER_GOAL_DRAFT_INTENT_KEY,
+            JSON.stringify({ ...intent, expiresAt: Date.now() + ttlMs })
+        )
         return true
     } catch {
         return false
+    }
+}
+
+export function clearScannerGoalDraftIntent(): void {
+    try {
+        sessionStorage.removeItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
+    } catch {
+        // Nothing was stored without storage, so there is nothing to clear.
     }
 }
 
@@ -84,10 +98,10 @@ export function consumeScannerGoalDraftIntent(): ScannerGoalDraftIntent | null {
             return null
         }
         const parsed = JSON.parse(raw)
-        if (typeof parsed?.goal !== 'string' || typeof parsed.at !== 'number') {
+        if (typeof parsed?.goal !== 'string' || typeof parsed.expiresAt !== 'number') {
             return null
         }
-        if (Date.now() - parsed.at > SCANNER_GOAL_DRAFT_INTENT_TTL_MS) {
+        if (Date.now() > parsed.expiresAt) {
             return null
         }
         const goal = parsed.goal.trim()

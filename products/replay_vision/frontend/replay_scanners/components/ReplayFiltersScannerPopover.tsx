@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
@@ -7,11 +6,11 @@ import { LemonButton, LemonInput, LemonSegmentedButton, LemonTag, LemonTextArea 
 import { pluralize } from 'lib/utils/strings'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { type ReplayFiltersCreditCap, replayFiltersScannerLogic } from '../replayFiltersScannerLogic'
-import type { GoalDraftSpend } from '../replayScannerLogic'
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import type { ReplayScanner } from '../types'
 import { eligibleFilterGroups } from './ScannerGoalOverview'
@@ -20,12 +19,11 @@ const GOAL_PLACEHOLDER =
     'For example: Where do people give up before they pay?\nOr: Watch for errors and buttons that do nothing on the payment step.'
 
 export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHandoffFromFilters }): JSX.Element {
-    const { goal, budget, spendChoice, freeCreditsLeft, draftInputDisabledReason } =
+    const { goal, budget, spendChoice, freeCreditsLeft, draftInputDisabledReason, consentSpend } =
         useValues(replayFiltersScannerLogic)
-    const { setGoal, setCreditCap, setBudget, draftWithAi, setUpManually } = useActions(replayFiltersScannerLogic)
+    const { setGoal, setCreditCap, setBudget, draftWithAi, setUpManually, requestConsent, cancelConsent } =
+        useActions(replayFiltersScannerLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const [consentRequested, setConsentRequested] = useState(false)
-    const [pendingSpend, setPendingSpend] = useState<GoalDraftSpend | null>(null)
 
     const editDisabledReason = getReplayVisionEditDisabledReason()
     const draftDisabledReason = editDisabledReason ?? draftInputDisabledReason
@@ -48,10 +46,9 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
     const draft = (): void => {
         if (dataProcessingAccepted) {
             draftWithAi(handoff)
-            return
+        } else if (spendChoice.spend) {
+            requestConsent(handoff, spendChoice.spend)
         }
-        setPendingSpend(spendChoice.spend)
-        setConsentRequested(true)
     }
 
     return (
@@ -168,12 +165,10 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     showArrow
                     ignoreDismissal
                     hideTrainingDisclaimer
-                    hidden={!consentRequested}
-                    onApprove={() => {
-                        setConsentRequested(false)
-                        draftWithAi(handoff, pendingSpend ?? undefined)
-                    }}
-                    onDismiss={() => setConsentRequested(false)}
+                    pendingRedirectUrl={urls.replayVisionNewScanner()}
+                    hidden={!consentSpend}
+                    onApprove={() => draftWithAi(handoff, consentSpend ?? undefined)}
+                    onDismiss={cancelConsent}
                 >
                     <LemonButton
                         type="primary"
