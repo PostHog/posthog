@@ -113,7 +113,9 @@ export default defineCommand({
             )
         }
 
-        let host = ctx.globals.host?.replace(/\/+$/, '') ?? (options.region ? REGIONS[options.region] : undefined)
+        let host =
+            (ctx.globals.host ?? (await ctx.config())?.config.host)?.replace(/\/+$/, '') ??
+            (options.region ? REGIONS[options.region] : undefined)
         if (!host) {
             if (!prompts) {
                 throw new HogError(

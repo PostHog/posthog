@@ -134,22 +134,27 @@ describe('telemetry', () => {
         expect(result.files['/home/test/.posthog/hog-telemetry-id']).toBeUndefined()
     })
 
-    test('a failure sends its code, status and message', async () => {
+    test.each([
+        ['a missing endpoint', 404, 'not_found', 'hog:endpoints get:not_found:404'],
+        ['a key without the scope', 403, 'permission_denied', 'hog:endpoints get:permission_denied:403'],
+    ])('%s sends its code and status, never the message', async (_name, status, code, fingerprint) => {
         const result = await runHog(['endpoints', 'get', 'missing'], {
             ...ON,
             env: AGENT,
             respond: (url) =>
                 url === TELEMETRY
                     ? { status: 200, body: {} }
-                    : { status: 404, body: { type: 'invalid_request', code: 'not_found', detail: 'No missing here' } },
+                    : { status, body: { type: 'invalid_request', code, detail: 'Private detail /Users/me/app' } },
         })
+
         const [exception, run] = events(result)
         expect(exception!.properties).toMatchObject({
-            $exception_list: [{ type: 'not_found', value: expect.stringContaining('No missing here') }],
-            $exception_fingerprint: 'hog:endpoints get:not_found:404',
-            http_status: 404,
+            $exception_list: [{ type: code, value: code }],
+            $exception_fingerprint: fingerprint,
+            http_status: status,
         })
-        expect(run!.properties).toMatchObject({ success: false, error_code: 'not_found', exit_code: 1 })
+        expect(JSON.stringify(events(result))).not.toContain('Private detail')
+        expect(run!.properties).toMatchObject({ success: false, error_code: code, exit_code: 1 })
     })
 
     test('a posthog.json hog cannot parse stops the command, and telemetry still reports it', async () => {

@@ -598,13 +598,10 @@ export async function upload(
     try {
         for (const group of groups.values()) {
             const client = await session.getClient()
-            const outcome = await client.upload(
+            await client.upload(
                 group.map((item) => item.upload),
-                { concurrency: options.concurrency, ...group[0]!.policy }
+                { concurrency: options.concurrency, ...group[0]!.policy, progress: statuses }
             )
-            for (const [chunkId, status] of outcome.status) {
-                statuses.set(chunkId, status)
-            }
         }
     } catch (error) {
         finished(error)

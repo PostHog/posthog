@@ -445,6 +445,8 @@ function stackFrames(error: unknown): Record<string, unknown>[] {
         .reverse()
 }
 
+// Messages and hints can hold paths, setting values and API response text, so like posthog-cli the
+// event carries only the error code, its HTTP details and, for a bug, the stack.
 function captureFailure(telemetry: Telemetry, command: string | undefined, error: HogError, cause: unknown): void {
     const status = error instanceof ApiError ? error.status : undefined
     const bug = !(cause instanceof HogError)
@@ -452,14 +454,16 @@ function captureFailure(telemetry: Telemetry, command: string | undefined, error
         $exception_list: [
             {
                 type: bug && cause instanceof Error ? cause.name : error.code,
-                value: error.message,
+                value: error.code,
                 mechanism: { type: 'generic', handled: !bug },
                 ...(bug ? { stacktrace: { type: 'raw', frames: stackFrames(cause) } } : {}),
             },
         ],
-        $exception_fingerprint: ['hog', command ?? 'unknown', error.code, status].filter(Boolean).join(':'),
+        // A bug groups by its stack, so two different bugs in one command stay apart.
+        ...(bug
+            ? {}
+            : { $exception_fingerprint: ['hog', command ?? 'unknown', error.code, status].filter(Boolean).join(':') }),
         error_code: error.code,
-        error_hint: error.hint ?? null,
         http_status: status ?? null,
         api_error_type: error instanceof ApiError ? (error.type ?? null) : null,
     })
@@ -518,7 +522,8 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     telemetry.capture('posthog cli command run', {
         command_path: state.command ?? null,
         exit_code: exitCode,
-        success: failure === undefined && exitCode === 0,
+        // Before --no-fail, so a push that reports failures still counts as one.
+        success: failure === undefined && state.exitCode === 0,
         error_code: failure?.code ?? null,
         duration_ms: runtime.now() - started,
         options: state.options ?? [],

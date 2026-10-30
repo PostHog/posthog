@@ -24,6 +24,8 @@ export interface UploadOptions {
     force: boolean
     skipOnConflict: boolean
     concurrency?: number
+    // Filled as chunks finish, so a caller still sees what a failed run uploaded.
+    progress?: Map<string, UploadStatus>
 }
 
 export interface UploadOutcome {
@@ -167,7 +169,7 @@ export class SymbolSetClient {
                     'User-Agent': USER_AGENT,
                 },
                 body: body === undefined ? undefined : JSON.stringify(body),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                timeoutMs: REQUEST_TIMEOUT_MS,
             })
         } catch (error) {
             throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
@@ -202,7 +204,7 @@ export class SymbolSetClient {
         options: UploadOptions,
         runId: string
     ): Promise<UploadOutcome> {
-        const status = new Map<string, UploadStatus>()
+        const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
         const kept: (SymbolSetUpload & { hash: string })[] = []
         for (const upload of uploads) {
@@ -407,7 +409,7 @@ export class SymbolSetClient {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
                 body: data as BodyInit,
-                signal: AbortSignal.timeout(transferTimeout(data.length)),
+                timeoutMs: transferTimeout(data.length),
             })
         }
         const form = new FormData()
@@ -419,7 +421,7 @@ export class SymbolSetClient {
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            signal: AbortSignal.timeout(transferTimeout(data.length)),
+            timeoutMs: transferTimeout(data.length),
         })
     }
 }
