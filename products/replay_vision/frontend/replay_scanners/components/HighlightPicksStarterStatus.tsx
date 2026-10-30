@@ -13,7 +13,8 @@ export function HighlightPicksStarterStatus(): JSX.Element | null {
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { picks } = useValues(picksLogic)
     const logic = highlightPicksStarterLogic(picksLogic.props)
-    const { startedScanner, burstSessionIds, burstCounts, burstDone, burstStalled, scannedAnyway } = useValues(logic)
+    const { startedScanner, burstSessionIds, burstCounts, burstDone, burstStalled, scannedAnyway, feedWindowOpen } =
+        useValues(logic)
     const { showScannedAnyway } = useActions(logic)
 
     if (!startedScanner) {
@@ -33,14 +34,18 @@ export function HighlightPicksStarterStatus(): JSX.Element | null {
                 <LemonBanner type="info">
                     <div className="flex flex-col gap-2">
                         <span className="font-semibold">
-                            {total > 0
-                                ? `${pluralize(burstCounts.succeeded, 'recording')} scanned, nothing stood out`
-                                : 'Your scanner is on'}
+                            {total === 0
+                                ? 'Your scanner is on'
+                                : feedWindowOpen
+                                  ? `${pluralize(burstCounts.succeeded, 'recording')} scanned`
+                                  : `${pluralize(burstCounts.succeeded, 'recording')} scanned, nothing stood out`}
                         </span>
                         <span className="text-xs">
                             {burstStalled && burstCounts.pending > 0
                                 ? `${pluralize(burstCounts.pending, 'scan')} still running. New recordings are scanned as they finish and picks show up here.`
-                                : 'That happens on a quiet day. New recordings are scanned as they finish and picks show up here.'}
+                                : feedWindowOpen
+                                  ? 'Highlights show up here a few minutes after scans finish.'
+                                  : 'That happens on a quiet day. New recordings are scanned as they finish and picks show up here.'}
                         </span>
                         <div className="flex flex-wrap gap-2">
                             {burstCounts.succeeded > 0 && scannedAnyway === null && (

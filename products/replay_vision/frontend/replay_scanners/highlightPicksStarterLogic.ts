@@ -57,6 +57,8 @@ const BURST_POLL_MS = 10_000
 const BURST_POLL_MAX = 60
 const BURST_STALL_MS = 3 * 60_000
 const BURST_RESUME_MAX_AGE_MS = 30 * 60_000
+const SETTLED_REFRESH_MS = 60_000
+const SETTLED_REFRESH_MAX = 10
 
 export interface BurstCounts {
     pending: number
@@ -86,6 +88,7 @@ export interface highlightPicksStarterLogicValues {
     burstTeamId: number | null
     candidateRecordings: CandidateRecording[]
     creditsPerObservation: number
+    feedWindowOpen: boolean
     freeAvailable: boolean
     scannedAnyway: ReplayObservationApi[] | null
     spendMode: StarterSpendMode
@@ -104,6 +107,9 @@ export interface highlightPicksStarterLogicActions {
     }
     chooseBudget: (budgetChosen: boolean) => {
         budgetChosen: boolean
+    }
+    feedWindowElapsed: () => {
+        value: true
     }
     pollBurst: () => {
         value: true
@@ -187,6 +193,7 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
             pollBurst: true,
             burstPolled: (counts: BurstCounts) => ({ counts }),
             burstSettled: (stalled: boolean = false) => ({ stalled }),
+            feedWindowElapsed: true,
             resumeBurst: true,
             showScannedAnyway: true,
             scannedAnywayLoaded: (observations: ReplayObservationApi[]) => ({ observations }),
@@ -277,6 +284,14 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
                 {
                     scannerStarted: () => false,
                     burstSettled: (_, { stalled }) => stalled,
+                    reset: () => false,
+                },
+            ],
+            feedWindowOpen: [
+                false,
+                {
+                    burstSettled: () => true,
+                    feedWindowElapsed: () => false,
                     reset: () => false,
                 },
             ],
@@ -475,6 +490,17 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
             },
             burstSettled: ({ stalled }) => {
                 cache.disposables.dispose('burst-poll')
+                let refreshes = 0
+                cache.disposables.add(() => {
+                    const timer = window.setInterval(() => {
+                        refreshes += 1
+                        highlightPicksLogic.findMounted(props)?.actions.loadPicks()
+                        if (refreshes >= SETTLED_REFRESH_MAX) {
+                            actions.feedWindowElapsed()
+                        }
+                    }, SETTLED_REFRESH_MS)
+                    return () => clearInterval(timer)
+                }, 'settled-refresh')
                 const picksLogicMounted = highlightPicksLogic.findMounted(props)
                 if (
                     values.startedScanner &&
@@ -518,6 +544,7 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
             },
             reset: () => {
                 cache.disposables.dispose('burst-poll')
+                cache.disposables.dispose('settled-refresh')
             },
         })),
 

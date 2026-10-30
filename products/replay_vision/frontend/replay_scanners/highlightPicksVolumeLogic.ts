@@ -14,7 +14,6 @@ import { DEFAULT_MODEL } from './types'
 export interface highlightPicksVolumeLogicValues {
     currentTeamId: number | null // teamLogic
     cachedSnapshot: VolumeSnapshot | null
-    noRecordings: boolean
     volumeEstimate: EstimateResponseApi | null
     volumeEstimateLoading: boolean
     volumeSnapshot: VolumeSnapshot | null
@@ -54,7 +53,6 @@ export interface highlightPicksVolumeLogicMeta {
             currentTeamId: number | null
         ) => EstimateResponseApi | null
         volumeEstimateLoading: (volumeSnapshotLoading: boolean) => boolean
-        noRecordings: (volumeEstimate: EstimateResponseApi | null) => boolean
     }
 }
 
@@ -66,7 +64,6 @@ export type highlightPicksVolumeLogicType = MakeLogicType<
 >
 
 const ESTIMATE_TTL_MS = 6 * 60 * 60 * 1000
-const EMPTY_ESTIMATE_TTL_MS = 10 * 60 * 1000
 
 export interface VolumeSnapshot {
     teamId: number
@@ -78,8 +75,7 @@ function freshSnapshot(snapshot: VolumeSnapshot | null, teamId: number | null): 
     if (!snapshot || snapshot.teamId !== teamId) {
         return null
     }
-    const ttl = snapshot.estimate.matched_sessions_in_window > 0 ? ESTIMATE_TTL_MS : EMPTY_ESTIMATE_TTL_MS
-    return Date.now() - snapshot.fetchedAt < ttl ? snapshot : null
+    return Date.now() - snapshot.fetchedAt < ESTIMATE_TTL_MS ? snapshot : null
 }
 
 export const highlightPicksVolumeLogic: LogicWrapper<highlightPicksVolumeLogicType> =
@@ -144,11 +140,6 @@ export const highlightPicksVolumeLogic: LogicWrapper<highlightPicksVolumeLogicTy
                     snapshot && snapshot.teamId === teamId ? snapshot.estimate : null,
             ],
             volumeEstimateLoading: [(s) => [s.volumeSnapshotLoading], (loading: boolean): boolean => loading],
-            noRecordings: [
-                (s) => [s.volumeEstimate],
-                (estimate: EstimateResponseApi | null): boolean =>
-                    estimate !== null && estimate.matched_sessions_in_window === 0,
-            ],
         }),
 
         subscriptions(({ actions }) => ({

@@ -9,19 +9,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import type { HighlightFeedEmptyReason } from '../highlightFeedEmptyState'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { HighlightPicksStateFrame } from './HighlightPicksStateFrame'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
-export function HighlightPicksNoRecordingsState({
-    size,
-    reason,
-}: {
-    size: 'small' | 'large'
-    reason: HighlightFeedEmptyReason
-}): JSX.Element {
+export function HighlightPicksNoRecordingsState({ size }: { size: 'small' | 'large' }): JSX.Element {
     const { emptyStateAction } = useActions(useMountedLogic(highlightPicksLogic))
     return (
         <HighlightPicksStateFrame
@@ -35,7 +28,7 @@ export function HighlightPicksNoRecordingsState({
                     to="https://posthog.com/docs/session-replay"
                     target="_blank"
                     className="mt-1"
-                    onClick={() => emptyStateAction(reason, 'replay_docs')}
+                    onClick={() => emptyStateAction('no-recordings', 'replay_docs')}
                     data-attr="vision-highlight-picks-no-recordings-docs"
                 >
                     Session replay docs
@@ -48,7 +41,7 @@ export function HighlightPicksNoRecordingsState({
                 fullWidth
                 center
                 to={urls.onboarding({ productKey: ProductKey.SESSION_REPLAY, stepKey: OnboardingStepKey.INSTALL })}
-                onClick={() => emptyStateAction(reason, 'setup_replay')}
+                onClick={() => emptyStateAction('no-recordings', 'setup_replay')}
                 data-attr="vision-highlight-picks-no-recordings-setup"
             >
                 Set up session replay

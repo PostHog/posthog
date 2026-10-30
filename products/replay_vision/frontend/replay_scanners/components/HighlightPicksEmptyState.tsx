@@ -3,14 +3,16 @@ import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { resolveHighlightFeedEmptyReason } from '../highlightFeedEmptyState'
 import { highlightPicksLogic } from '../highlightPicksLogic'
-import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
 import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
 import { HighlightPicksNoRecordingsState } from './HighlightPicksNoRecordingsState'
 import { HighlightPicksQuietState } from './HighlightPicksQuietState'
@@ -24,9 +26,9 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     const { currentTeam } = useValues(teamLogic)
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { emptyStateShown } = useActions(picksLogic)
-    const { noRecordings, volumeEstimate, volumeEstimateLoading } = useValues(highlightPicksVolumeLogic)
+    const { status: replayStatus } = useValues(productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY }))
     const large = size === 'large'
-    const loading = scannersLoading || quotaLoading || (volumeEstimateLoading && !volumeEstimate)
+    const loading = scannersLoading || quotaLoading
 
     const reason = loading
         ? null
@@ -35,6 +37,12 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
               quota,
               sessionRecordingOptIn: currentTeam?.session_recording_opt_in ?? null,
               hasFeedFilters: false,
+              hasRecordings:
+                  replayStatus === 'has-data'
+                      ? true
+                      : replayStatus === 'needs-setup' || replayStatus === 'waiting-for-data'
+                        ? false
+                        : null,
           })
 
     useEffect(() => {
@@ -49,10 +57,10 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     if (reason === 'replay-off') {
         return <HighlightPicksReplayOffState size={size} />
     }
-    if ((reason === 'no-scanners' || reason === 'quiet-window') && noRecordings) {
+    if (reason === 'no-recordings') {
         return (
             <>
-                <HighlightPicksNoRecordingsState size={size} reason={reason} />
+                <HighlightPicksNoRecordingsState size={size} />
                 <HighlightPicksShadowPreview />
             </>
         )
