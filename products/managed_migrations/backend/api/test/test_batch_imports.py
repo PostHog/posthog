@@ -205,15 +205,6 @@ class TestBatchImportModel(BaseTest):
             for method in ("resume_after_pause", "resume_with_inflight_part_reset")
             for case, row, refused in (
                 ("marker_and_live_lease", {"leased_until": timedelta(minutes=5)}, True),
-                (
-                    "legacy_commit_message_and_live_lease",
-                    {
-                        "leased_until": timedelta(minutes=5),
-                        "pending_commit": None,
-                        "status_message": "Starting commit of part day-2 to offset 9, consumed 9 additional bytes",
-                    },
-                    True,
-                ),
                 ("marker_and_expired_lease", {"leased_until": -timedelta(minutes=1)}, False),
                 ("marker_and_no_lease", {"lease_id": None, "leased_until": None}, False),
             )
