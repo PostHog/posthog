@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BILLINGS,
+  billingBlocker,
+  billingNotice,
   billingSheet,
   cloudHarnessFor,
   localStartFor,
@@ -39,5 +41,26 @@ describe("billing", () => {
       BILLINGS.map((billing) => billing === "chatgpt"),
     );
     expect(sheet.items[2].label).toBe("Anthropic");
+  });
+
+  it("names what a plan still needs before it can pay", () => {
+    const nothing = { chatgptAccount: null, claudeToken: false };
+    expect(billingBlocker("posthog", nothing)).toBeNull();
+    expect(billingBlocker("chatgpt", nothing)).toBe(
+      "Log in to ChatGPT in settings (Ctrl+;) first",
+    );
+    expect(billingBlocker("anthropic", nothing)).toBe(
+      "Add your Claude token in settings (Ctrl+;) first",
+    );
+    expect(
+      billingBlocker("anthropic", { chatgptAccount: null, claudeToken: true }),
+    ).toBeNull();
+  });
+
+  it("says what new chats run on", () => {
+    expect(billingNotice("posthog")).toBe("New chats run on PostHog credits");
+    expect(billingNotice("anthropic")).toBe(
+      "New chats use your Anthropic subscription",
+    );
   });
 });

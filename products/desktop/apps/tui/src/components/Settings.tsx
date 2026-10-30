@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactElement } from "react";
+import { billingNotice } from "../billing";
 import type { SettingsState } from "../hooks/useSettings";
 import { settingsItems } from "../settings";
 
@@ -8,12 +9,6 @@ const LABELS = {
   logout: "Log out of ChatGPT",
   token: "Claude token",
   removeToken: "Remove token",
-} as const;
-
-const BILLING_LABELS = {
-  posthog: "PostHog",
-  chatgpt: "ChatGPT",
-  anthropic: "Anthropic",
 } as const;
 
 export function Settings({
@@ -36,7 +31,7 @@ export function Settings({
       <Text bold>Settings</Text>
       <Text> </Text>
       <Text>
-        New chats are paid by <Text bold>{BILLING_LABELS[view.billing]}</Text>
+        {billingNotice(view.billing)}
         <Text dimColor> · change with /billing</Text>
       </Text>
       <Text dimColor wrap="wrap">
