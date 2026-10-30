@@ -94,7 +94,7 @@ import {
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { PendingAsk, SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
@@ -145,6 +145,17 @@ function showTicketIneligibleToast(): void {
     })
 }
 
+/** Sends a deep-linked prompt once this thread is the active one. Returns whether it sent one. */
+function sendPendingAsk({ actions, values }: Pick<maxThreadLogicType, 'actions' | 'values'>): boolean {
+    const { pendingAsk } = values
+    if (!pendingAsk || values.conversationId !== values.activeThreadKey) {
+        return false
+    }
+    actions.setPendingAsk(null)
+    actions.askMax(pendingAsk.prompt, true, pendingAsk.uiContext)
+    return true
+}
+
 async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<boolean> {
     try {
         const pendingTask = await api.tasks.get(pendingBindTaskId)
@@ -176,6 +187,7 @@ export interface maxThreadLogicValues {
     activeThreadKey: string // maxLogic
     autoRun: boolean // maxLogic
     parentConversationId: string | null // maxLogic
+    pendingAsk: PendingAsk | null // maxLogic
     pendingBindTaskId: string | null // maxLogic
     question: string // maxLogic
     isCurrentOrganizationNew: boolean // organizationLogic
@@ -300,6 +312,9 @@ export interface maxThreadLogicActions {
     } // maxLogic
     setConversationId: (conversationId: string) => {
         conversationId: string
+    } // maxLogic
+    setPendingAsk: (pendingAsk: PendingAsk | null) => {
+        pendingAsk: PendingAsk | null
     } // maxLogic
     setPendingBindTaskId: (taskId: string | null) => {
         taskId: string | null
@@ -779,6 +794,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'threadLogicKey as activeThreadKey',
                 'activeStreamingThreads',
                 'conversationId as parentConversationId',
+                'pendingAsk',
                 'pendingBindTaskId',
             ],
             maxContextLogic,
@@ -816,6 +832,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
+                'setPendingAsk',
                 'setPendingBindTaskId',
             ],
             maxGlobalLogic,
@@ -1260,6 +1277,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     listeners((logic) => ({
+        setPendingAsk: () => {
+            sendPendingAsk(logic)
+        },
         streamConversation: async (
             {
                 streamData: { agent_mode: agentMode, is_sandbox: isSandbox, ...streamData },
@@ -3039,6 +3059,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         if (values.queueingEnabled && values.conversation?.id) {
             actions.loadQueueData()
+        }
+
+        if (sendPendingAsk(logic)) {
+            return
         }
 
         if (values.autoRun && values.question) {
