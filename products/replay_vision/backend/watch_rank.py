@@ -361,6 +361,7 @@ def _group_reach(
         current_ranks(team_id)
         .filter(Q(feed_group_id__in=root_ids) | Q(observation_id__in=root_ids, feed_group_id__isnull=True))
         .filter(
+            ranked_at__lte=window.as_of,
             created_at__gte=window.start,
             created_at__lte=window.end,
             scanner_id__in=list(scanner_ids),

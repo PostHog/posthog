@@ -214,10 +214,11 @@ def build_highlight_feed(team_id: int, anchor_version: int, *, wait: bool = True
 def stored_generation(team_id: int, anchor_version: int, as_of: datetime) -> int | None:
     """The stored build a load at `as_of` reads: the newest kept build that was current by then, so later pages stay on
     the build the first page read. A team without a build gets one first, and a stale build is served as is and asks
-    for a rebuild."""
+    for a rebuild. None when the team's first build is still running elsewhere."""
     state = ReplayHighlightFeedState.objects.for_team(team_id).first()
     if state is None or state.built_at is None:
-        return build_highlight_feed(team_id, anchor_version)
+        # A first build another request already runs is not waited on; this load ranks its window on the spot.
+        return build_highlight_feed(team_id, anchor_version, wait=False)
     if state.built_at < timezone.now() - STALE_AFTER and state.changes <= state.built_changes:
         mark_changed(team_id)
     current_by_then = [build[0] for build in state.builds if datetime.fromisoformat(build[1]) <= as_of]
