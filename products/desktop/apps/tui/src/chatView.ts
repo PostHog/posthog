@@ -636,6 +636,11 @@ export class ChatView {
     return true;
   }
 
+  // Scrolled away from the latest message, so the chat stops following new ones.
+  isScrolledUp(): boolean {
+    return !this.scroll.isFollowingEnd;
+  }
+
   isAtTop(): boolean {
     return this.scroll.scrollTop === 0;
   }
