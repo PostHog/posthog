@@ -153,6 +153,14 @@ class TestJudgeAttachmentsContent:
                 id="audio_on_an_openai_model_without_audio_input",
             ),
             pytest.param(
+                "openai",
+                "gpt-4o-audio-preview",
+                "image%2Fpng",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="image_on_an_openai_audio_model",
+            ),
+            pytest.param(
                 "openrouter",
                 "any",
                 "application%2Fpdf",

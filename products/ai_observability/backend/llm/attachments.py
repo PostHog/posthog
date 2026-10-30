@@ -47,9 +47,13 @@ class AttachmentPart:
 
 def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["url", "inline"] | None:
     """How a provider accepts an attachment of this type: a link, inline base64, or not at all."""
+    openai_audio_model = provider == "openai" and "audio" in model
     if mime_type in AUDIO_FORMATS:
         # OpenAI takes audio only as inline base64, and only on its audio models, so audio always goes inline.
-        return "inline" if provider == "gemini" or (provider == "openai" and "audio" in model) else None
+        return "inline" if provider == "gemini" or openai_audio_model else None
+    if openai_audio_model:
+        # OpenAI's audio models reject images and PDFs, and the rejection would drop the audio too.
+        return None
     is_pdf = mime_type == PDF_MIME_TYPE
     if not is_pdf and mime_type not in IMAGE_MIME_TYPES:
         return None

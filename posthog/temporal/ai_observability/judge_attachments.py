@@ -1,4 +1,4 @@
-"""Images and PDFs an LLM judge sees next to the transcript that refers to them as `[image N]` and `[file N]`."""
+"""Images, PDFs and audio an LLM judge gets next to the transcript, which refers to them by markers such as `[image N]`."""
 
 import re
 import base64
@@ -51,7 +51,7 @@ _NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio) \d+\]")
 
 @frozen
 class AttachmentPrompt:
-    """The judge transcript with `[image N]` and `[file N]` markers, and the attachments they refer to."""
+    """The judge transcript with attachment markers, and the attachments they refer to."""
 
     text: str
     attachments: "JudgeAttachments"
@@ -87,7 +87,7 @@ class _Media:
 
 
 class JudgeAttachments:
-    """Numbers the images and PDFs found while formatting a transcript, then attaches them to the judge request."""
+    """Numbers the attachments found while formatting a transcript, then attaches them to the judge request."""
 
     def __init__(self, team_id: int) -> None:
         self._team_id = team_id
