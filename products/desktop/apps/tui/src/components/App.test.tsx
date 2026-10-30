@@ -106,10 +106,25 @@ describe("App", () => {
     expect(runs.watch).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a local chat that has a task row and no run, and an empty new chat after Ctrl+N", async () => {
+  it("shows a local chat from its session file without starting its agent, and an empty new chat after Ctrl+N", async () => {
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
-    writeFileSync(join(sessions, "t2.jsonl"), "");
+    writeFileSync(
+      join(sessions, "t2.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "s2", timestamp: "2026-10-09T09:04:45.006Z", cwd: "/tmp" })}\n${JSON.stringify(
+        {
+          type: "message",
+          id: "m1",
+          parentId: null,
+          timestamp: "2026-10-09T09:04:46.000Z",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "from the saved session" }],
+            timestamp: 1,
+          },
+        },
+      )}\n`,
+    );
     saveLayout(openTask(initialLayout(), "t2"));
     savePrefs({ newChatPlace: "local" });
     const work = {
@@ -130,6 +145,7 @@ describe("App", () => {
       watchPrompts: () => () => {},
       stop: async () => {},
     } as unknown as LocalSession;
+    const startLocal = vi.fn(async () => local);
 
     const { instance, output, type } = renderInTerminal(
       <App
@@ -141,7 +157,7 @@ describe("App", () => {
           } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
-          startLocal: async () => local,
+          startLocal,
         }}
         login={async () => {}}
         logout={() => {}}
@@ -149,8 +165,9 @@ describe("App", () => {
     );
     try {
       await vi.waitFor(() =>
-        expect(output()).toContain("from the local agent"),
+        expect(output()).toContain("from the saved session"),
       );
+      expect(startLocal).not.toHaveBeenCalled();
       type("\x0e");
       await vi.waitFor(() =>
         expect(output()).toContain("Type a message to start a local chat"),
@@ -263,6 +280,7 @@ describe("App", () => {
         return () => {};
       },
       watchPrompts: () => () => {},
+      prompt: async () => {},
       stop: async () => {},
       control: {
         models: async () => ({
@@ -274,6 +292,7 @@ describe("App", () => {
       },
     } as unknown as LocalSession;
 
+    const mouse: MouseEvents = new EventEmitter();
     const { instance, output } = renderInTerminal(
       <App
         session={{
@@ -293,9 +312,14 @@ describe("App", () => {
         }}
         login={async () => {}}
         logout={() => {}}
+        mouse={mouse}
       />,
     );
     try {
+      // The first message starts the agent, which then reports its model.
+      await vi.waitFor(() => expect(output()).toContain("Local"));
+      mouse.emit("keys", "hi");
+      mouse.emit("keys", "\r");
       await vi.waitFor(() =>
         expect(output()).toContain("Local · Sol 6.1 (high)"),
       );
@@ -340,6 +364,7 @@ describe("App", () => {
         return () => watchers.delete(onView);
       },
       watchPrompts: () => () => {},
+      prompt: async () => {},
       stop: async () => {},
       control: {
         models: async () => ({ available: [], current: null }),
@@ -347,6 +372,7 @@ describe("App", () => {
         commands: async () => [],
       },
     } as unknown as LocalSession;
+    const mouse: MouseEvents = new EventEmitter();
     const { instance, output, type } = renderInTerminal(
       <App
         session={{
@@ -366,12 +392,17 @@ describe("App", () => {
         }}
         login={async () => {}}
         logout={() => {}}
+        mouse={mouse}
       />,
     );
     const spinning = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Local/;
     const drawnSince = (mark: number): string =>
       stripTerminalSequences(output().slice(mark));
     try {
+      // The message starts the agent; its log already echoes it, so only the agent's turn keeps the spinner.
+      await vi.waitFor(() => expect(output()).toContain("Local"));
+      mouse.emit("keys", "Rename the helper");
+      mouse.emit("keys", "\r");
       await vi.waitFor(() => expect(drawnSince(0)).toMatch(spinning), {
         timeout: 3_000,
       });
@@ -732,11 +763,12 @@ describe("App", () => {
         return { tokensBefore: 150_000, estimatedTokensAfter: 32_000 };
       });
       const local = {
-        watch: (onView: (view: typeof emptyRunView) => void) => {
+        watch: vi.fn((onView: (view: typeof emptyRunView) => void) => {
           onView({ ...emptyRunView, loaded: true, status: "in_progress" });
           return () => {};
-        },
+        }),
         watchPrompts: () => () => {},
+        prompt: async () => {},
         stop: async () => {},
         control: {
           models: async () => ({ available: [], current: null }),
@@ -770,6 +802,10 @@ describe("App", () => {
       );
       try {
         await vi.waitFor(() => expect(output()).toContain("Local"));
+        // The first message starts the agent; the pane watches it once it is up.
+        mouse.emit("keys", "hi");
+        mouse.emit("keys", "\r");
+        await vi.waitFor(() => expect(local.watch).toHaveBeenCalled());
         mouse.emit("keys", "/compact keep the test plan");
         mouse.emit("keys", "\r");
         await vi.waitFor(() =>
@@ -1012,10 +1048,10 @@ describe("App", () => {
     saveLayout(openTask(initialLayout(), taskId), layoutPath("user-1"));
     const agent = () =>
       ({
-        watch: (onView: (view: typeof emptyRunView) => void) => {
+        watch: vi.fn((onView: (view: typeof emptyRunView) => void) => {
           onView({ ...emptyRunView, loaded: true, status: "in_progress" });
           return () => {};
-        },
+        }),
         watchPrompts: () => () => {},
         prompt: async () => {},
         stop: vi.fn(async () => {}),
@@ -1058,13 +1094,23 @@ describe("App", () => {
       </Box>
     );
     const { instance, output, type } = renderInTerminal(app(first));
+    const press = (bytes: string): void => {
+      mouse.emit("keys", bytes);
+      type(bytes);
+    };
     return {
       output,
       first,
       signIn: () => instance.rerender(app(agent())),
-      press: (bytes: string): void => {
-        mouse.emit("keys", bytes);
-        type(bytes);
+      press,
+      // Sends a first message, which starts the chat's agent, and waits for the pane to watch it.
+      start: async (): Promise<void> => {
+        await vi.waitFor(() =>
+          expect(stripTerminalSequences(output())).toContain("Local ·"),
+        );
+        press("hi");
+        press("\r");
+        await vi.waitFor(() => expect(first.watch).toHaveBeenCalled());
       },
       drawnSince: (mark: number): string =>
         stripTerminalSequences(output().slice(mark)),
@@ -1094,9 +1140,9 @@ describe("App", () => {
   });
 
   it("stops running local agents on a new sign-in", async () => {
-    const { first, signIn, drawnSince, close } = localApp();
+    const { first, signIn, start, close } = localApp();
     try {
-      await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      await start();
       signIn();
       await vi.waitFor(() => expect(first.stop).toHaveBeenCalled());
     } finally {
@@ -1162,7 +1208,7 @@ describe("App", () => {
     const setMode = vi.fn(async (id: string) => {
       current = id;
     });
-    const { output, press, drawnSince, close } = localApp(
+    const { output, press, start, drawnSince, close } = localApp(
       {},
       {
         runtime: "acp",
@@ -1177,7 +1223,8 @@ describe("App", () => {
       "t9",
     );
     try {
-      // The agent starts and reports its modes first, which takes a moment.
+      // The first message starts the agent, which reports its modes first; that takes a moment.
+      await start();
       await vi.waitFor(
         () => expect(drawnSince(0)).toContain("⏵⏵ Auto Mode • $0.00"),
         { timeout: 3000 },

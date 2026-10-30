@@ -46,17 +46,12 @@ export function useWorkList({
   // Whose chats the list holds; a switch starts the list over from its first page.
   scope?: ChatScope;
 }): WorkListState {
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [page, setPage] = useState<WorkPage>(EMPTY_PAGE);
+  // The limit and the page belong to the tab they were fetched for; another tab starts over from its first page.
+  const [paged, setPaged] = useState({ scope, limit: PAGE_SIZE });
+  const limit = paged.scope === scope ? paged.limit : PAGE_SIZE;
+  const [loaded, setLoaded] = useState({ scope, page: EMPTY_PAGE });
+  const page = loaded.scope === scope ? loaded.page : EMPTY_PAGE;
   const [known, setKnown] = useState<Map<string, Task>>(new Map());
-
-  const scopeShown = useRef(scope);
-  useEffect(() => {
-    if (scopeShown.current === scope) return;
-    scopeShown.current = scope;
-    setPage(EMPTY_PAGE);
-    setLimit(PAGE_SIZE);
-  }, [scope]);
 
   useEffect(() => {
     if (!work) return;
@@ -66,15 +61,21 @@ export function useWorkList({
       work.listRecent(limit, scope).then(
         ({ tasks, hasMore, me }) => {
           if (!cancelled) {
-            setPage({ tasks, hasMore, me, loadingMore: false, error: null });
+            setLoaded({
+              scope,
+              page: { tasks, hasMore, me, loadingMore: false, error: null },
+            });
           }
         },
         (error: unknown) => {
           if (!cancelled) {
-            setPage((current) => ({
-              ...current,
-              loadingMore: false,
-              error: messageOf(error),
+            setLoaded((current) => ({
+              scope,
+              page: {
+                ...(current.scope === scope ? current.page : EMPTY_PAGE),
+                loadingMore: false,
+                error: messageOf(error),
+              },
             }));
           }
         },
@@ -136,11 +137,11 @@ export function useWorkList({
     known,
     taskOf: (taskId) => findTask(taskId, { listed: page.tasks, known, fresh }),
     loadMore: () => {
-      setPage((current) => ({ ...current, loadingMore: true }));
-      setLimit((current) => current + PAGE_SIZE);
+      setLoaded({ scope, page: { ...page, loadingMore: true } });
+      setPaged({ scope, limit: limit + PAGE_SIZE });
     },
     reset: () => {
-      setPage(EMPTY_PAGE);
+      setLoaded({ scope, page: EMPTY_PAGE });
       setKnown(new Map());
     },
   };

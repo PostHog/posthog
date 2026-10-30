@@ -9,11 +9,13 @@ import {
 import { localHarnessFor } from "../billing";
 import { currentRepository, type PiChats, type StartPick } from "../chats";
 import { messageOf } from "../errors";
-import { allPanes, type LayoutState, renameTask } from "../layout";
+import { type LayoutState, renameTask } from "../layout";
 import { type LocalAgent, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
+import { localHistory } from "../localHistory";
 import { loadPrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
+import type { RunView } from "../runs";
 import type { FlashNotice } from "./useNotice";
 
 export interface LocalChatsState {
@@ -21,6 +23,8 @@ export interface LocalChatsState {
   isLocal: (taskId: string | null) => taskId is string;
   // The chat's agent, started on first use.
   localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
+  // A chat's saved conversation from its files, for a pane that shows it before its agent has started.
+  historyOf: (id: string) => Promise<RunView | null>;
   // Agents that have started, by task id.
   localSessions: Map<string, LocalAgent>;
   // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
@@ -37,7 +41,8 @@ export interface LocalChatsState {
   setPromptCursor: (promptId: string, index: number) => void;
 }
 
-// Local chats: each is a task with a pi session file on this machine and an agent process started on first use and stopped when the app quits.
+// Local chats: each is a task with a pi session file on this machine and an agent process started by its first message and stopped when the app quits.
+// A pane that opens one shows the saved conversation from disk, so opening chats never starts agents.
 export function useLocalChats({
   startLocal,
   chats,
@@ -166,22 +171,10 @@ export function useLocalChats({
     setPrompts(new Map());
   }, [startLocal, watched]);
 
-  // Local chats in the layout come back after a restart, from their saved pi sessions.
-  const localIds = allPanes(layout)
-    .flatMap((pane) => (isLocal(pane.taskId) ? [pane.taskId] : []))
-    .join();
-  const startLocalChat = useRef(localFor);
-  startLocalChat.current = localFor;
-  useEffect(() => {
-    if (!startLocal || !localLinked) return;
-    for (const id of localIds ? localIds.split(",") : []) {
-      void startLocalChat.current(id).catch(() => {});
-    }
-  }, [localIds, startLocal, localLinked]);
-
   return {
     isLocal,
     localFor,
+    historyOf: (id) => localHistory(localChats, id),
     localSessions,
     clear,
     localActive,

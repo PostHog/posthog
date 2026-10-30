@@ -19,6 +19,7 @@ import {
   selectionKey,
   sidebarRows,
   type WorkPage,
+  windowOffset,
   workspaceOf,
 } from "./sidebar";
 
@@ -440,6 +441,20 @@ describe("indicatorFor", () => {
     expect(indicatorFor(subject, turn === "working", turn === "waiting")).toBe(
       expected,
     );
+  });
+});
+
+describe("windowOffset", () => {
+  // Ten list rows under the heading, four lines to show them in.
+  it.each([
+    ["shows the list from its top while it fits", 0, 3, 5, 10, 0],
+    ["stays put while the cursor is on screen", 2, 4, 11, 4, 2],
+    ["follows the cursor down", 0, 7, 11, 4, 3],
+    ["follows the cursor back up", 4, 2, 11, 4, 1],
+    ["never runs past the last row", 9, 10, 11, 4, 6],
+    ["shows everything before the screen is measured", 3, 9, 11, 0, 0],
+  ])("%s", (_, previous, selected, count, lines, expected) => {
+    expect(windowOffset(previous, selected, count, lines)).toBe(expected);
   });
 });
 

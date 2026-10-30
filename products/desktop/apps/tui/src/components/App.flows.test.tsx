@@ -1098,6 +1098,7 @@ describe("App flows", () => {
           onPrompts([prompt]);
           return () => {};
         },
+        prompt: async () => {},
         answer,
         stop: async () => {},
         control: {
@@ -1135,6 +1136,12 @@ describe("App flows", () => {
         </Box>,
       );
       try {
+        // The first message starts the agent, whose request then lands on the sheet.
+        await vi.waitFor(() =>
+          expect(stripTerminalSequences(output())).toContain("Local"),
+        );
+        mouse.emit("keys", "hi");
+        mouse.emit("keys", "\r");
         await vi.waitFor(() =>
           expect(stripTerminalSequences(output())).toContain("Run pnpm test"),
         );

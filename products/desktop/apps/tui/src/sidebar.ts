@@ -398,6 +398,24 @@ export function selectionKey(row: SidebarRow | undefined): string | null {
   }
 }
 
+// The rows under the heading the sidebar has lines for, scrolled so the cursor stays on screen. The heading row
+// stays put, so the window starts at row 1; an offset of 0 shows the list from its top.
+export function windowOffset(
+  previous: number,
+  selectedIndex: number,
+  count: number,
+  lines: number,
+): number {
+  const listCount = Math.max(0, count - 1);
+  if (lines <= 0 || listCount <= lines) return 0;
+  const most = listCount - lines;
+  const cursor = selectedIndex - 1;
+  let offset = Math.min(previous, most);
+  if (cursor < offset) offset = cursor;
+  else if (cursor >= offset + lines) offset = cursor - lines + 1;
+  return Math.max(0, Math.min(offset, most));
+}
+
 export function cursorIndex(rows: SidebarRow[], key: string | null): number {
   const found =
     key === null ? -1 : rows.findIndex((row) => selectionKey(row) === key);
