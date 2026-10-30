@@ -5853,6 +5853,33 @@ def _stored_reviewer_entry(entry: dict) -> dict:
     }
 
 
+def _with_carried_default_owner(
+    content: SuggestedReviewers, prior: Sequence[SuggestedReviewerEntry]
+) -> SuggestedReviewers:
+    """`is_default_owner` taken from the stored entry rather than from the request.
+
+    Only the fallback writes the flag, and it tells the removal paths that the entry is routing and
+    not an ownership verdict. A caller that could set it on someone else's entry could suppress the
+    correction their removal should record, so the write API carries the stored value the same way
+    the add/remove endpoints do.
+    """
+    stored = ReviewerPayloadIndex.build([entry.model_dump(mode="json") for entry in prior])
+    return SuggestedReviewers(
+        root=[
+            entry.model_copy(
+                update={
+                    "is_default_owner": bool(
+                        (stored.get(user_uuid=entry.user_uuid, github_login=entry.github_login) or {}).get(
+                            "is_default_owner"
+                        )
+                    )
+                }
+            )
+            for entry in content.root
+        ]
+    )
+
+
 def _default_owner_labels(payloads: list[dict]) -> list[str]:
     return [
         label
@@ -6555,9 +6582,9 @@ class SignalReportArtefactViewSet(
                 reviewer_outcome = request.validated_data.get("reviewer_outcome", "selected")
                 with transaction.atomic():
                     SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
-                    previous = ReviewerRules.read_for_report(
-                        team_id=self.team.id, report_id=report_id
-                    ).state.reviewers_id
+                    snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=report_id)
+                    previous = snapshot.state.reviewers_id
+                    parsed_content = _with_carried_default_owner(parsed_content, snapshot.reviewers)
                     artefact = SignalReportArtefact.append_status(
                         team_id=self.team.id,
                         report_id=report_id,

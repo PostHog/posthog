@@ -44,6 +44,19 @@ class TestDefaultOwner(BaseTest):
             team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
         )
 
+    def _deny_reports_for(self, user: User) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="task",
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=user),
+        )
+
     def _activated_by(self, user: User) -> None:
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"onboarding": {"activated_by": user.pk}})
 
@@ -125,6 +138,19 @@ class TestDefaultOwner(BaseTest):
 
         assert owner is not None
         assert owner.id != enabler.id
+
+    def test_skips_a_candidate_who_cannot_read_reports(self) -> None:
+        # Project access is not report access: the entry puts the report in front of whoever it names,
+        # so a candidate whose report access was revoked must be passed over for the next one.
+        enabler = self._member("enabler@example.com")
+        admin = self._member("admin@example.com", level=OrganizationMembership.Level.ADMIN)
+        self._enabled_source(enabler)
+        self._deny_reports_for(enabler)
+
+        owner = resolve_default_owner(self.team, str(self.report.id))
+
+        assert owner is not None
+        assert owner.id == admin.id
 
     def test_assigns_an_owner_outside_team_scope(self) -> None:
         self._authored_by_scout_of(self._member("scout-owner@example.com"))

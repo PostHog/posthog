@@ -28,6 +28,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
 )
+from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.reviewer_rules import (
     ReviewerRules,
     ReviewerWriteError,
@@ -135,8 +136,10 @@ def resolve_default_owner(team: Team, report_id: str) -> User | None:
     """The first eligible person among the authoring scout's owners, the Self-Driving activator, and the enablers.
 
     The scout owners come first because those people asked for this kind of report. Every candidate
-    must be an active member with access to the project when the fallback runs, not only when the
-    candidate was recorded, so each tier offers everyone it has rather than only its best pick.
+    must be an active member who can read the project's reports when the fallback runs, not only
+    when the candidate was recorded, so each tier offers everyone it has rather than only its best
+    pick. Report access is checked as well as project access, because the entry puts the report in
+    front of whoever it names: a Slack card, a push, and a "For you" row.
     """
     candidate_ids = [
         *_scout_owner_ids(team, report_id),
@@ -152,7 +155,15 @@ def resolve_default_owner(team: Team, report_id: str) -> User | None:
     eligible = {
         user.id for user in team.all_users_with_access(user_uuids={str(user.uuid) for user in candidates.values()})
     }
-    return next((candidates[user_id] for user_id in candidate_ids if user_id in eligible), None)
+    # Lazily, so a report whose first candidate is eligible costs one access-control resolution.
+    return next(
+        (
+            candidates[user_id]
+            for user_id in candidate_ids
+            if user_id in eligible and may_read_reports(user=candidates[user_id], team=team)
+        ),
+        None,
+    )
 
 
 def _reviewers_were_curated(team_id: int, report_id: str) -> bool:

@@ -1446,6 +1446,26 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         forward.assert_not_called()
         assert _recent_reviewer_corrections(self.team)["corrections"] == []
 
+    def test_posting_reviewers_cannot_forge_the_default_owner_flag(self):
+        # Only the fallback may set is_default_owner: it is the mark the removal paths read to skip a
+        # routing correction, so a client that could set it could suppress someone else's correction.
+        report = self._create_report()
+        teammate = self._create_org_member("teammate@example.com")
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {
+                "artefact_type": "suggested_reviewers",
+                "content": [{"user_uuid": str(teammate.uuid), "is_default_owner": True}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        reviewers = self._latest_reviewers(report)
+        assert [entry["user_uuid"] for entry in reviewers] == [str(teammate.uuid)]
+        assert all(entry["is_default_owner"] is False for entry in reviewers)
+
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
         _attach_github_login(self.user, "CallerCase")
         teammate = self._create_org_member("teammate@example.com", github_login=None)
