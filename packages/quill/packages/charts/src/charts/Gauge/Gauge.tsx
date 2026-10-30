@@ -21,7 +21,6 @@ import {
     computeGaugeLayout,
     DEFAULT_GAUGE_THICKNESS,
     fractionToAngle,
-    GAUGE_VALUE_FONT_WEIGHT,
     gaugeFraction,
     isOverGauge,
     layoutGaugeText,
@@ -31,6 +30,8 @@ import {
     thresholdIndexAt,
 } from './gauge-layout'
 import type { GaugeLayout, GaugeThreshold } from './gauge-layout'
+import { GaugeLabels } from './GaugeLabels'
+import type { GaugeEndLabel, GaugeEnds } from './GaugeLabels'
 import { GAUGE_EMPTY_VALUE, GaugeTooltip } from './GaugeTooltip'
 import type { GaugeTooltipContext, GaugeTooltipThreshold } from './GaugeTooltip'
 
@@ -111,19 +112,6 @@ const EMPTY_LABELS: string[] = []
 // The ring's top-right shoulder, as a fraction of the outer radius, so the tooltip sits beside the value.
 const TOOLTIP_ANCHOR = 0.72
 
-const TEXT_BASE_STYLE: React.CSSProperties = {
-    position: 'absolute',
-    transform: 'translate(-50%, -50%)',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    lineHeight: 1.2,
-    textAlign: 'center',
-    pointerEvents: 'none',
-}
-
-const MUTED_STYLE: React.CSSProperties = { opacity: 0.65 }
-
 export function Gauge({ onError, ...rest }: GaugeProps): React.ReactElement {
     return (
         <ChartErrorBoundary onError={onError}>
@@ -151,18 +139,13 @@ function minMaxFontSize(width: number, height: number): number {
     return Math.min(13, Math.max(9, Math.min(width, height * 1.3) * 0.045))
 }
 
-interface MinMaxLabel {
-    text: string
-    x: number
-}
-
 function placeMinMax(
     layout: GaugeLayout,
     width: number,
     minText: string,
     maxText: string,
     font: string
-): [MinMaxLabel, MinMaxLabel] | null {
+): { min: GaugeEndLabel; max: GaugeEndLabel } | null {
     const { cx, radius, angles } = layout
     const minWidth = measureLabelWidth(minText, font)
     const maxWidth = measureLabelWidth(maxText, font)
@@ -172,10 +155,7 @@ function placeMinMax(
     if (minX + minWidth / 2 + 6 > maxX - maxWidth / 2) {
         return null
     }
-    return [
-        { text: minText, x: minX },
-        { text: maxText, x: maxX },
-    ]
+    return { min: { text: minText, x: minX }, max: { text: maxText, x: maxX } }
 }
 
 function GaugeInner({
@@ -261,7 +241,7 @@ function GaugeInner({
     const maxText = formatValue(bounds.max)
     const hasTarget = target !== null
 
-    const { layout, ends } = useMemo<{ layout: GaugeLayout | null; ends: [MinMaxLabel, MinMaxLabel] | null }>(() => {
+    const { layout, ends } = useMemo<{ layout: GaugeLayout | null; ends: GaugeEnds | null }>(() => {
         if (!dimensions) {
             return { layout: null, ends: null }
         }
@@ -281,7 +261,13 @@ function GaugeInner({
         }
         const withFooter = fit(minMaxFont * 1.6)
         const placed = placeMinMax(withFooter, dimensions.width, minText, maxText, `${minMaxFont}px ${fontFamily}`)
-        return placed ? { layout: withFooter, ends: placed } : { layout: fit(0), ends: null }
+        if (!placed) {
+            return { layout: fit(0), ends: null }
+        }
+        return {
+            layout: withFooter,
+            ends: { ...placed, top: withFooter.bottom + minMaxFont * 0.3, fontSize: minMaxFont },
+        }
     }, [
         dimensions,
         sweep,
@@ -448,7 +434,6 @@ function GaugeInner({
         .filter(Boolean)
         .join(' ')
 
-    const mutedStyle = theme.axisColor ? { color: theme.axisColor } : MUTED_STYLE
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
             <ChartShell
@@ -462,67 +447,13 @@ function GaugeInner({
                 handlers={handlers}
                 showOverlay={!!layout}
             >
-                {text ? (
-                    <>
-                        <div
-                            aria-hidden="true"
-                            data-attr="hog-chart-gauge-value"
-                            title={text.value.text}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                ...TEXT_BASE_STYLE,
-                                left: text.value.x,
-                                top: text.value.y,
-                                maxWidth: text.value.maxWidth,
-                                fontSize: text.value.fontSize,
-                                fontWeight: value === null ? 400 : GAUGE_VALUE_FONT_WEIGHT,
-                                lineHeight: 1.1,
-                                ...(value === null ? mutedStyle : { color: valueColor }),
-                            }}
-                        >
-                            {text.value.text}
-                        </div>
-                        {text.label ? (
-                            <div
-                                aria-hidden="true"
-                                data-attr="hog-chart-gauge-label"
-                                title={text.label.text}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    ...TEXT_BASE_STYLE,
-                                    ...mutedStyle,
-                                    left: text.label.x,
-                                    top: text.label.y,
-                                    maxWidth: text.label.maxWidth,
-                                    fontSize: text.label.fontSize,
-                                }}
-                            >
-                                {text.label.text}
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
-                {ends && layout
-                    ? ends.map((end, i) => (
-                          <div
-                              key={i}
-                              aria-hidden="true"
-                              data-attr={i === 0 ? 'hog-chart-gauge-min' : 'hog-chart-gauge-max'}
-                              // eslint-disable-next-line react/forbid-dom-props
-                              style={{
-                                  ...TEXT_BASE_STYLE,
-                                  ...mutedStyle,
-                                  transform: 'translate(-50%, 0)',
-                                  left: end.x,
-                                  top: layout.bottom + minMaxFont * 0.3,
-                                  fontSize: minMaxFont,
-                                  fontVariantNumeric: 'tabular-nums',
-                              }}
-                          >
-                              {end.text}
-                          </div>
-                      ))
-                    : null}
+                <GaugeLabels
+                    text={text}
+                    ends={ends}
+                    empty={value === null}
+                    valueColor={valueColor}
+                    mutedColor={theme.axisColor}
+                />
                 {tooltipCtx && showTooltip ? (
                     <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
                 ) : null}
