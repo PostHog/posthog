@@ -3502,7 +3502,7 @@ def _apply_account_table_sort(
 
 class _PercentileCont(Aggregate):
     function = "PERCENTILE_CONT"
-    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
     output_field = FloatField()
 
 
