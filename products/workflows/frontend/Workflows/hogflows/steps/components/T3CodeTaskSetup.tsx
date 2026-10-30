@@ -41,16 +41,18 @@ export function T3CodeTaskSetup({
         createdWebhookUrl,
         error,
     } = useValues(logic)
-    const { setMachine, setProject, createTask, allowPendingCall, loadMachines } = useActions(logic)
+    const { setMachine, setProject, createTask, allowPendingCall, loadMachines, loadProjects } = useActions(logic)
     const { workflow } = useValues(workflowLogic)
+    const hasWebhookUrl = Boolean(inputs.webhook_url?.value || inputs.webhook_url?.secret)
 
     return (
         <div className="flex flex-col gap-2 rounded border p-3 mb-2">
             <div>
                 <div className="font-semibold">Start new threads on a T3 Code machine</div>
                 <div className="text-secondary text-xs">
-                    Pick a machine and a project. PostHog creates a task there, and each run of this step starts a new
-                    thread in that project.
+                    {hasWebhookUrl && !createdWebhookUrl
+                        ? 'This step already sends its runs to a T3 Code task. Pick a machine and a project to send them to a new task instead.'
+                        : 'Pick a machine and a project. PostHog creates a task there, and each run of this step starts a new thread in that project.'}
                 </div>
             </div>
             {machinesLoading && machines === null ? (
@@ -77,7 +79,23 @@ export function T3CodeTaskSetup({
                         />
                     </LemonField.Pure>
                     {machine && (
-                        <LemonField.Pure label="Project">
+                        <LemonField.Pure
+                            label="Project"
+                            help={
+                                projects?.length && projects.every(({ has_default_model }) => !has_default_model) ? (
+                                    <>
+                                        T3 Code starts threads only in a project with a default model. Set one in the
+                                        project's settings in T3 Code.{' '}
+                                        <Link
+                                            onClick={() => loadProjects()}
+                                            data-attr="workflow-t3-code-reload-projects"
+                                        >
+                                            Check again
+                                        </Link>
+                                    </>
+                                ) : undefined
+                            }
+                        >
                             <LemonSelect<string | null>
                                 fullWidth
                                 value={project}
