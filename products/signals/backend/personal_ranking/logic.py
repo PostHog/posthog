@@ -46,8 +46,8 @@ from products.signals.backend.personal_ranking.validation import (
 
 logger = structlog.get_logger(__name__)
 
-# Models that rejected `reasoning_effort` in this process. Later calls to them leave it out.
-_NO_REASONING_EFFORT_MODELS: set[str] = set()
+# (model, effort) pairs the API rejected in this process. Later calls with that pair leave the effort out.
+_REJECTED_REASONING_EFFORTS: set[tuple[str, str]] = set()
 
 AI_PRODUCT = "personal_inbox_ranking"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -91,8 +91,6 @@ class PersonalRankingBuild:
     candidates: tuple[Candidate, ...]
     counts: ValidationCounts
     limit: int
-    rank_top: int
-    reasoning_effort: ReasoningEffort
     input_hash: str | None
     activity_summary_version: int | None
     model: str
@@ -191,7 +189,7 @@ def _create_completion(
             reasoning_effort=reasoning_effort,
         )
 
-    if config.model in _NO_REASONING_EFFORT_MODELS:
+    if (config.model, config.reasoning_effort) in _REJECTED_REASONING_EFFORTS:
         return create()
     try:
         return create(config.reasoning_effort)
@@ -199,8 +197,12 @@ def _create_completion(
         if "reasoning_effort" not in str(error):
             raise
     # A rejected parameter fails fast, so the retry stays inside the timeout.
-    _NO_REASONING_EFFORT_MODELS.add(config.model)
-    logger.warning("signals.personal_ranking.reasoning_effort_unsupported", model=config.model)
+    _REJECTED_REASONING_EFFORTS.add((config.model, config.reasoning_effort))
+    logger.warning(
+        "signals.personal_ranking.reasoning_effort_rejected",
+        model=config.model,
+        reasoning_effort=config.reasoning_effort,
+    )
     return create()
 
 
@@ -239,7 +241,9 @@ def _call_model(
     )
 
 
-def _capture(team: Team, user: User, build: PersonalRankingBuild, *, has_focus: bool) -> None:
+def _capture(
+    team: Team, user: User, build: PersonalRankingBuild, config: PersonalRankingConfig, *, has_focus: bool
+) -> None:
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
         pools: dict[str, int] = {}
@@ -261,8 +265,8 @@ def _capture(team: Team, user: User, build: PersonalRankingBuild, *, has_focus: 
                 "activity_summary_version": build.activity_summary_version,
                 "has_focus": has_focus,
                 "limit": build.limit,
-                "rank_top": build.rank_top,
-                "reasoning_effort": build.reasoning_effort,
+                "rank_top": config.rank_top,
+                "reasoning_effort": config.reasoning_effort,
                 "candidate_count": len(build.candidates),
                 "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                 "folded_count": len(build.folded),
@@ -321,8 +325,6 @@ def build_personal_ranking(
             candidates=(),
             counts=ValidationCounts(),
             limit=limit,
-            rank_top=config.rank_top,
-            reasoning_effort=config.reasoning_effort,
             input_hash=None,
             activity_summary_version=None,
             model=config.model,
@@ -388,8 +390,6 @@ def build_personal_ranking(
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
         limit=limit,
-        rank_top=config.rank_top,
-        reasoning_effort=config.reasoning_effort,
         input_hash=input_hash(candidates, activity_summary_version=summary_version, focus=focus),
         activity_summary_version=summary_version,
         model=config.model,
@@ -400,5 +400,5 @@ def build_personal_ranking(
     if dry_run:
         return build
     build = _store(team, user, build)
-    _capture(team, user, build, has_focus=focus is not None)
+    _capture(team, user, build, config, has_focus=focus is not None)
     return build

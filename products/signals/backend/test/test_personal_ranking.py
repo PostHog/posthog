@@ -443,7 +443,7 @@ class TestBuildPersonalRanking(BaseTest):
         answer = _response(_answer([_entry("c1", 1)]))
         self.create.side_effect = [rejection, answer, answer]
 
-        with patch("products.signals.backend.personal_ranking.logic._NO_REASONING_EFFORT_MODELS", set()):
+        with patch("products.signals.backend.personal_ranking.logic._REJECTED_REASONING_EFFORTS", set()):
             first = self._build(dry_run=True)
             second = self._build(dry_run=True)
 

@@ -5,7 +5,7 @@ a large one to its maximum, so no value is unbounded. `"enabled": false` in the 
 switch: it stops every build.
 """
 
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 
 import structlog
 
@@ -105,7 +105,7 @@ def _model(value: Any) -> str:
 
 
 def _reasoning_effort(value: Any) -> ReasoningEffort:
-    return next((effort for effort in REASONING_EFFORTS if effort == value), DEFAULTS.reasoning_effort)
+    return cast(ReasoningEffort, value) if value in REASONING_EFFORTS else DEFAULTS.reasoning_effort
 
 
 def _reason_limits(value: Any) -> ReasonLimits:
