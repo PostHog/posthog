@@ -64,8 +64,9 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 # Each commit since the last computation is one small object-store read; past this many the full
 # Add-action scan is the cheaper path again.
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
-# Files x columns cap for the Add-action scan: a synthetic 20k x 100 scan took 0.9 GB, so 1M stays under 500 MB.
-MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "1000000"))
+# Files x columns cap for the Add-action scan. The Arrow stats table measured ~12 bytes per cell on a
+# synthetic 245k x 26 table, so 25M cells is ~300 MB with headroom for wide string bounds.
+MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "25000000"))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
