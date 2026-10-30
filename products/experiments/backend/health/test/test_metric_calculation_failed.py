@@ -24,6 +24,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
     ExperimentHealthReaderAccess,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
     ExposureFilterWithoutColumn,
@@ -68,6 +69,7 @@ def _failure(
     retriable: bool = True,
     can_quote_evaluation_rules: bool = False,
     skips_precomputed_exposures: bool = False,
+    exposures_path: ExposuresPath | None = None,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -80,6 +82,7 @@ def _failure(
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
         skips_precomputed_exposures=skips_precomputed_exposures,
+        exposures_path=exposures_path,
     )
 
 
@@ -389,6 +392,27 @@ class TestMetricCalculationFailed(TestCase):
                 ("exposure_criteria", 'filter on the group property "plan"'),
             ),
             (
+                "failed_precompute_sent_the_query_to_the_events",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", exposures_path=ExposuresPath.DIRECT_SCAN),),
+                0,
+                READS_PRECOMPUTED,
+                ("exposure_criteria", 'filter on the group property "plan"'),
+            ),
+            (
+                "stored_path_outranks_the_settings",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", exposures_path=ExposuresPath.PRECOMPUTED),),
+                0,
+                READS_EVENTS,
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+            ),
+            (
+                "completed_metric_can_have_read_precomputed_exposures",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", exposures_path=ExposuresPath.DIRECT_SCAN),),
+                1,
+                READS_PRECOMPUTED,
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+            ),
+            (
                 "another_metric_completed",
                 (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
                 1,
@@ -612,7 +636,9 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
 
-    def _reach_a_read_limit(self, metric_uuids: tuple[str, ...], completed_rows: tuple[str, ...] = ()) -> None:
+    def _reach_a_read_limit(
+        self, metric_uuids: tuple[str, ...], completed_rows: tuple[str, ...] = (), exposures_path: str | None = None
+    ) -> None:
         self.experiment.exposure_criteria = {
             "exposure_config": {
                 "kind": "ExperimentEventExposureConfig",
@@ -623,7 +649,12 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
             }
         }
         self.experiment.save()
-        read_limit = {"step": "calculation", "message": "Query read too much data", "error_type": "byte_limit"}
+        read_limit = {
+            "step": "calculation",
+            "message": "Query read too much data",
+            "error_type": "byte_limit",
+            "exposures_path": exposures_path,
+        }
         self._run(
             status=ExperimentMetricsRecalculation.Status.FAILED,
             created_at=timezone.now() - timedelta(hours=2),
@@ -633,19 +664,31 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_metric_reached_a_limit", (), ("exposure_criteria", 'filter on the group property "plan"')),
+            ("every_metric_reached_a_limit", (), False, ("exposure_criteria", 'filter on the group property "plan"')),
             (
                 "other_metrics_completed",
                 ("rejected", "secondary"),
+                False,
                 ("metric", "while other metrics of the experiment returned results"),
+            ),
+            (
+                "failed_precompute_sent_the_queries_to_the_events",
+                (),
+                True,
+                ("exposure_criteria", 'filter on the group property "plan"'),
             ),
         ]
     )
     def test_names_the_cause_of_a_query_limit_from_the_stored_run(
-        self, _name: str, completed_rows: tuple[str, ...], expected: tuple[str, str]
+        self, _name: str, completed_rows: tuple[str, ...], precomputes: bool, expected: tuple[str, str]
     ) -> None:
+        TeamExperimentsConfig.objects.update_or_create(
+            team=self.team, defaults={"experiment_precomputation_enabled": precomputes}
+        )
         self._reach_a_read_limit(
-            tuple(uuid for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows), completed_rows
+            tuple(uuid for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows),
+            completed_rows,
+            exposures_path="direct_scan",
         )
 
         [finding] = [finding for finding in self._health().findings if finding.code == CODE]

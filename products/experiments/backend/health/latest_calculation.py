@@ -3,6 +3,7 @@ from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
 from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
 from products.experiments.backend.hogql_queries.precompute_policy import has_uncalculated_cohorts
@@ -95,6 +96,7 @@ def _shown_failure(
         return None
     error_type = error.get("error_type")
     step = error.get("step")
+    exposures_path = error.get("exposures_path")
     return MetricCalculationFailure(
         metric_id=calculation_config.metric_id,
         name=calculation_metric_name(experiment, calculation_config),
@@ -107,4 +109,7 @@ def _shown_failure(
         definition=calculation_config.definition,
         skips_precomputed_exposures=metric_dict_reads_data_warehouse(calculation_config.definition)
         or has_uncalculated_cohorts(experiment.team, calculation_config.definition),
+        exposures_path=ExposuresPath(exposures_path)
+        if isinstance(exposures_path, str) and exposures_path in ExposuresPath
+        else None,
     )

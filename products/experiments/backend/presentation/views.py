@@ -1029,9 +1029,8 @@ class EnterpriseExperimentsViewSet(
         when another metric of the same calculation completed the same read of the exposures, or
         `exposure_criteria` when every metric reached a limit and an exposure or test account filter
         makes each query read all the properties of an event, person or group. `evidence.properties`
-        then names the filters. In a project that precomputes exposures, only metrics that can't use
-        them can get `exposure_criteria`, because the stored failure doesn't say when a precompute
-        failed and a query read the events. It is null otherwise.
+        then names the filters. A query that read precomputed exposures doesn't apply those filters,
+        so it can't get `exposure_criteria`. It is null otherwise.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from

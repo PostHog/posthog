@@ -34,6 +34,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -329,6 +330,9 @@ class MetricCalculationFailure:
     # Whether the metric's query can't use precomputed exposures, because the metric reads a data warehouse table or a
     # cohort that isn't calculated yet.
     skips_precomputed_exposures: bool
+    # Where the query read the exposures. None for a failure stored before calculations stored it, and for a query that
+    # failed before it was built.
+    exposures_path: ExposuresPath | None
 
 
 @frozen
@@ -373,7 +377,7 @@ class ExposureReads:
     """How the metric queries read the exposures, as far as the settings say."""
 
     # Whether a metric query reads precomputed exposures, which apply the filters once, unless the failure says that it
-    # skips them. When a precompute fails, any query reads the events, but the stored failure doesn't say so.
+    # skips them. Any query reads the events when a precompute fails.
     precomputed: bool
     filters_without_column: tuple[ExposureFilterWithoutColumn, ...]
 

@@ -22,6 +22,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.events_received import joined
 from products.experiments.backend.health.checks.metric_cannot_compile import MetricCompileError, word_compile_error
 from products.experiments.backend.health.context import (
@@ -336,7 +337,7 @@ def _with_query_limit_cause(
         and len(limited) == calculation.metric_count
         and reads is not None
         and reads.filters_without_column
-        and all(_applies_exposure_filters(failure, reads) for failure, _ in worded)
+        and all(_read_the_events(failure, reads) for failure, _ in worded)
     ):
         # With one metric the words name it, as for a failure of the metric.
         every_metric = calculation.metric_count > 1
@@ -359,14 +360,19 @@ def _with_query_limit_cause(
     return worded
 
 
+def _read_the_events(failure: MetricCalculationFailure, reads: ExposureReads | None) -> bool:
+    """Whether the failed query read the exposures from the events, so it applied the exposure filters itself. A failure
+    stored before calculations stored the path leaves this to the settings, which can't show a failed precompute."""
+    if failure.exposures_path is not None:
+        return failure.exposures_path == ExposuresPath.DIRECT_SCAN
+    return failure.skips_precomputed_exposures or reads is None or not reads.precomputed
+
+
 def _shares_exposure_read(failure: MetricCalculationFailure, reads: ExposureReads | None) -> bool:
     """Whether a completed metric read the exposures as this metric did. In a project that precomputes exposures, it
-    can have read them precomputed while this metric reads the events."""
-    return not failure.skips_precomputed_exposures or (reads is not None and not reads.precomputed)
-
-
-def _applies_exposure_filters(failure: MetricCalculationFailure, reads: ExposureReads) -> bool:
-    return failure.skips_precomputed_exposures or not reads.precomputed
+    can have read them precomputed while this metric read the events."""
+    project_precomputes = reads is None or reads.precomputed
+    return not (project_precomputes and _read_the_events(failure, reads))
 
 
 def _metric_cause(failure: MetricCalculationFailure, limit: str, completed_count: int) -> _Wording:
