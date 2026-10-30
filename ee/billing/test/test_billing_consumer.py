@@ -173,7 +173,6 @@ def _funding_added(**overrides):
         "operation_id": "ai_credit:in_1",
         "amount_cents": 2000,
         "kind": "top_up",
-        "reload_request_id": None,
         **overrides,
     }
 
