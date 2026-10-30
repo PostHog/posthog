@@ -14,6 +14,7 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 from posthog.hogql.visitor import GetFieldsTraverser
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.schema_enums import MaterializationMode
 
 from products.experiments.backend.health.context import (
@@ -82,10 +83,12 @@ def _filters_without_column(
     if not any(named_by_filter):
         return ()
     modifiers = create_default_modifiers_for_team(team)
+    # The runner resolves this modifier, and the catalog cache key includes it, so a health read shares the compile's entry.
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
     context = HogQLContext(
         team_id=team.pk,
         team=team,
-        database=Database.create_for(team=team, modifiers=modifiers),
+        database=Database.create_for(team=team, modifiers=modifiers, use_cached_sources=True),
         enable_select_queries=True,
         modifiers=modifiers,
     )
