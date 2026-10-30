@@ -3,7 +3,19 @@ import { useValues } from 'kea'
 import { workflowLogic } from '../../workflowLogic'
 
 const READING_CONTROLS = '.LemonCollapsePanel__header, a[href]'
-const READING_KEYS = new Set(['Tab', 'Escape'])
+const READING_KEYS = new Set([
+    'Tab',
+    'Escape',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+])
+const READING_SHORTCUTS = new Set(['a', 'c'])
 
 function isReadingControl(event: React.SyntheticEvent): boolean {
     return event.target instanceof Element && event.target.closest(READING_CONTROLS) !== null
@@ -16,8 +28,13 @@ function blockEditing(event: React.SyntheticEvent): void {
     }
 }
 
+function isReadingKey(event: React.KeyboardEvent): boolean {
+    const isShortcut = event.metaKey || event.ctrlKey
+    return READING_KEYS.has(event.key) || (isShortcut && READING_SHORTCUTS.has(event.key.toLowerCase()))
+}
+
 function blockEditingKeys(event: React.KeyboardEvent): void {
-    if (!READING_KEYS.has(event.key)) {
+    if (!isReadingKey(event)) {
         blockEditing(event)
     }
 }

@@ -124,6 +124,21 @@ describe('view-only workflow', () => {
     })
 
     it.each([
+        ['copies', { key: 'c', ctrlKey: true }],
+        ['selects all', { key: 'a', metaKey: true }],
+        ['moves the cursor', { key: 'ArrowLeft' }],
+        ['tabs onward', { key: 'Tab' }],
+    ])('lets a viewer who %s read a step field', (_, keyPress) => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <input aria-label="Subject" />
+            </ViewOnlyArea>
+        )
+
+        expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
+    })
+
+    it.each([
         [AccessControlLevel.Editor, true],
         [AccessControlLevel.Viewer, false],
     ])('offers Duplicate to a viewer with %s access to workflows: %s', (resourceLevel, offersDuplicate) => {
