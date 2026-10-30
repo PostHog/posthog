@@ -4,10 +4,8 @@ name: Desktop CI
 # (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
 # workflows counts once, so the whole desktop suite costs one slot per push.
 #
-# The suites themselves stay unfiltered here on purpose: each child gates its
-# own work on an internal `changes` job, so a non-desktop PR pays a handful of
-# short detector jobs and skips everything else. A trigger-level `paths:`
-# filter would stop the `Desktop * Pass` checks from ever reporting, leaving
+# Suite-specific filters keep unrelated pull requests from running Desktop jobs.
+# A trigger-level `paths:` filter would stop the `Desktop * Pass` checks from ever reporting, leaving
 # any PR that requires them stuck waiting for status.
 
 on:
@@ -32,22 +30,111 @@ permissions:
     pull-requests: read
 
 jobs:
+    changes:
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        if: github.event_name == 'pull_request'
+        permissions:
+            pull-requests: read
+        outputs:
+            build: ${{ steps.filter.outputs.agent == 'true' || steps.filter.outputs.code == 'true' || steps.filter.outputs.build == 'true' }}
+            quality: ${{ steps.filter.outputs.agent == 'true' || steps.filter.outputs.quality_code == 'true' || steps.filter.outputs.quality == 'true' }}
+            typecheck: ${{ steps.filter.outputs.agent == 'true' || steps.filter.outputs.code == 'true' || steps.filter.outputs.typecheck == 'true' }}
+            test: ${{ steps.filter.outputs.agent == 'true' || steps.filter.outputs.code == 'true' || steps.filter.outputs.test == 'true' }}
+            test_e2e: ${{ steps.filter.outputs.agent == 'true' || steps.filter.outputs.packages == 'true' || steps.filter.outputs.test == 'true' }}
+        steps:
+            # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              # forks can't read org secrets, so fall back to github.token
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+            - name: Detect relevant changes
+              id: filter
+              if: github.event_name == 'pull_request'
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: every
+                  filters: |
+                      # Wider excludes than desktop-quality.yml, which keeps .vscode and
+                      # .claude in scope because Biome lints them. Only documentation
+                      # markdown is excluded: the app loads markdown under src/ at runtime.
+                      code:
+                        - "products/desktop/**"
+                        - "!products/desktop/*.md"
+                        - "!products/desktop/**/README.md"
+                        - "!products/desktop/**/AGENTS.md"
+                        - "!products/desktop/**/CLAUDE.md"
+                        - "!products/desktop/docs/**"
+                        - "!products/desktop/.vscode/**"
+                        - "!products/desktop/.claude/**"
+                        - "!products/desktop/.husky/**"
+                        - "!products/desktop/LICENSE"
+                        - "!products/desktop/.gitignore"
+                        - "!products/desktop/.env.example"
+                      # Biome lints tracked JSON in .vscode/.claude, so only workflow YAML and
+                      # documentation markdown are ignored: the app loads markdown under src/ at runtime.
+                      quality_code:
+                        - "products/desktop/**"
+                        - "!products/desktop/*.md"
+                        - "!products/desktop/**/README.md"
+                        - "!products/desktop/**/AGENTS.md"
+                        - "!products/desktop/**/CLAUDE.md"
+                        - "!products/desktop/docs/**"
+                        - "!products/desktop/.husky/**"
+                        - "!products/desktop/LICENSE"
+                        - "!products/desktop/.gitignore"
+                        - "!products/desktop/.env.example"
+                      agent:
+                        - "packages/agent/**"
+                      packages:
+                        - "products/desktop/packages/**"
+                      build:
+                        - ".github/workflows/desktop-build.yml"
+                      quality:
+                        - ".github/workflows/desktop-quality.yml"
+                      typecheck:
+                        - ".github/workflows/desktop-typecheck.yml"
+                      test:
+                        - ".github/workflows/desktop-test.yml"
+
     build:
+        needs: changes
+        if: ${{ !cancelled() }}
+        with:
+            run-suite: ${{ needs.changes.outputs.build }}
         uses: ./.github/workflows/desktop-build.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     quality:
+        needs: changes
+        if: ${{ !cancelled() }}
+        with:
+            run-suite: ${{ needs.changes.outputs.quality }}
         uses: ./.github/workflows/desktop-quality.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     typecheck:
+        needs: changes
+        if: ${{ !cancelled() }}
+        with:
+            run-suite: ${{ needs.changes.outputs.typecheck }}
         uses: ./.github/workflows/desktop-typecheck.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     test:
+        needs: changes
+        if: ${{ !cancelled() }}
+        with:
+            run-suite: ${{ needs.changes.outputs.test }}
+            run-e2e: ${{ needs.changes.outputs.test_e2e }}
         uses: ./.github/workflows/desktop-test.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -96,13 +183,17 @@ jobs:
     # not branch protection.
     tests-pass:
         name: Desktop Tests Pass
-        needs: [build, quality, typecheck, test, backend-coupling]
+        needs: [changes, build, quality, typecheck, test, backend-coupling]
         if: ${{ !cancelled() }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Check results
               run: |
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Desktop change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Desktop build did not succeed (result: ${{ needs.build.result }})."
                     exit 1
