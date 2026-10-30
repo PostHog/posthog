@@ -254,6 +254,14 @@ class SuggestedReviewerEntry(BaseModel):
         default=False,
         description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
     )
+    is_default_owner: bool = Field(
+        default=False,
+        description=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence: removing it is not a routing "
+            "correction, and it never selects the autostart task identity."
+        ),
+    )
     source_skill: str | None = Field(
         default=None,
         description=(
@@ -1187,7 +1195,12 @@ class CheckCancelled(CheckLifecycleEntry):
     """
 
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ] = Field(description="Which path stopped the check.")
 
 

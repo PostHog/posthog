@@ -355,9 +355,7 @@ class TestForcedVariantReleaseCondition(TestCase):
         finding = forced_variant_release_condition(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(
-            (finding.evidence.get("reason"), "can't measure" in finding.detail), (expected_reason, says_not_measurable)
-        )
+        self.assertEqual((finding.reason, "can't measure" in finding.detail), (expected_reason, says_not_measurable))
 
     @parameterized.expand(
         [

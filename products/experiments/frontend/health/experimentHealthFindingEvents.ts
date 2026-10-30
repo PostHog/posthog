@@ -39,14 +39,11 @@ export type ExperimentHealthFindingCode =
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
-    /** The sub-case of the code, for example the warning key. It must not hold customer text. */
-    variant?: string
+    /** The server finding's subcode, or the warning key of a separate warning. It must not hold customer text. */
+    subcode?: string
     /** Set for a server finding. The separate warnings have none. */
     severity?: ExperimentHealthFindingApi['severity']
-    /**
-     * Why a check was not checked, or the cause the server's finding names in its `reason` evidence. Both are
-     * pinned server values, never customer text.
-     */
+    /** The server finding's reason: a pinned qualifier below the subcode, never customer text. */
     reason?: string
 }
 
@@ -91,7 +88,7 @@ export function experimentHealthUi(experiment: Experiment, showsServerHealth: bo
 }
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
-    return { code: EXPERIMENT_WARNING_FINDING_CODES[warningKey], variant: warningKey }
+    return { code: EXPERIMENT_WARNING_FINDING_CODES[warningKey], subcode: warningKey }
 }
 
 function isExperimentWarningKey(subcode: string | null): subcode is ExperimentWarningKey {
@@ -126,7 +123,7 @@ function healthFindingEventProperties(
         experiment_status: getExperimentStatus(experiment),
         experiment_days_since_start: experiment.start_date ? dayjs().diff(experiment.start_date, 'day') : null,
         finding_code: finding.code,
-        finding_variant: finding.variant ?? null,
+        finding_subcode: finding.subcode ?? null,
         finding_severity: finding.severity ?? null,
         finding_reason: finding.reason ?? null,
         health_ui: healthUi,
@@ -136,14 +133,10 @@ function healthFindingEventProperties(
     }
 }
 
-export function healthFindingReason(evidence: ExperimentHealthFindingApi['evidence'] | undefined): string | undefined {
-    return typeof evidence?.reason === 'string' ? evidence.reason : undefined
-}
-
-function trackedHealthFinding({ code, subcode, severity, evidence }: ExperimentHealthFindingApi): string {
+function trackedHealthFinding({ code, subcode, severity, reason }: ExperimentHealthFindingApi): string {
     // pinned: `code:subcode:severity:reason`, as on the server's `experiment launched`. Insights split each string
     // on `:`, so every field is present, empty when the finding has none.
-    return [code, subcode ?? '', severity, healthFindingReason(evidence) ?? ''].join(':')
+    return [code, subcode ?? '', severity, reason ?? ''].join(':')
 }
 
 export function captureExperimentHealthFindingShown(
@@ -251,8 +244,7 @@ export function captureExperimentHealthChecked(
  * `has_srm`, `has_bias_risk` and a zero `exposures_total` are the page's own rules. The `_server` values are
  * the server's checks on the same answer, null when the answer holds no server findings (a cached answer
  * from before the server ran them). `srm_subcode` and `zero_exposures_subcode` are the `subcode` of those findings, and
- * `srm_reason` and `zero_exposures_reason` the `reason` in their evidence, each null without the finding or when it
- * names none.
+ * `srm_reason` and `zero_exposures_reason` their `reason`, each null without the finding or when it names none.
  */
 export function exposureHealthEventProperties(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -302,12 +294,12 @@ export function exposureHealthEventProperties(
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned subcodes.
         srm_subcode: srmFinding?.subcode ?? null,
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned reasons.
-        srm_reason: healthFindingReason(srmFinding?.evidence) ?? null,
+        srm_reason: srmFinding?.reason ?? null,
         zero_exposures_server: serverCodes ? serverCodes.has('zero_exposures') : null,
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned subcodes.
         zero_exposures_subcode: zeroExposuresFinding?.subcode ?? null,
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned reasons.
-        zero_exposures_reason: healthFindingReason(zeroExposuresFinding?.evidence) ?? null,
+        zero_exposures_reason: zeroExposuresFinding?.reason ?? null,
         bias_risk_server: serverCodes ? serverCodes.has('bias_risk_multiple_excluded') : null,
     }
 }

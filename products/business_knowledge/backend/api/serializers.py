@@ -492,6 +492,15 @@ class KnowledgeSourceDocumentSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeAvailabilitySerializer(serializers.Serializer):
+    has_sources = serializers.BooleanField(
+        read_only=True, help_text="True when the project has at least one business knowledge source."
+    )
+    has_repositories = serializers.BooleanField(
+        read_only=True, help_text="True when this environment has at least one GitHub repository selected."
+    )
+
+
 class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     """
     One chunk in a drill-down window over a single knowledge document.

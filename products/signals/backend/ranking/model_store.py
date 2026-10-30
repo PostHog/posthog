@@ -10,13 +10,15 @@ model is cached in the process by key with no invalidation. The manifest itself 
 call, because a promotion changes it in place.
 
 A model that reads its team's project vectors reads them from the one day the manifest names
-(`load_project_vectors`). The sweep reads that day once per pass, for the teams it scores.
+(`load_project_vectors`). The sweep reads that day once per pass, for the teams it scores. User
+vectors follow the same path (`load_user_vectors`), for the users a pass scores.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import datetime
 import threading
 from collections import OrderedDict
 from collections.abc import Collection, Mapping, Sequence
@@ -34,6 +36,7 @@ from posthog.storage import object_storage
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.features import (
+    ALL_PROJECT_VECTOR_KINDS,
     EMBEDDING_DIMENSIONS,
     PROJECT_VECTOR_KINDS,
     FeatureSet,
@@ -69,14 +72,16 @@ ONNX_OUTPUT = "probabilities"
 ONNX_OUTPUT_HEADS_KEY = "output_heads"
 # The input that takes the feature set's matrix, the report vector.
 ONNX_REPORT_INPUT = "report"
-# The inputs that take the team's project vectors and their history flags, in
-# `PROJECT_VECTOR_KINDS` order. Only a graph whose `metadata.json` lists the kinds under
-# `ONNX_PROJECT_VECTOR_KINDS_KEY` takes them.
+# The inputs that take the team's project vectors and their history flags, in the order of the kinds
+# the graph's `metadata.json` lists under `ONNX_PROJECT_VECTOR_KINDS_KEY`. Only a graph that lists
+# kinds takes them.
 ONNX_PROJECT_INPUT = "project"
 ONNX_HAS_HISTORY_INPUT = "has_history"
 ONNX_PROJECT_VECTOR_KINDS_KEY = "project_vector_kinds"
 # The `inbox_project_vectors` columns `project_inputs` reads.
 PROJECT_VECTORS_COLUMNS = ["team_id", "kind", "vector", "n_reports"]
+# The `inbox_user_vectors` columns `load_user_vectors` reads.
+USER_VECTORS_COLUMNS = ["organization_id", "user_distinct_id", "kind", "vector", "n_reports", "last_at", "user_hash"]
 # Threads one ONNX session may use for one operator. The sweep shares the worker with other
 # activities, so a model must not take every core.
 ONNX_INTRA_OP_THREADS = 2
@@ -101,8 +106,13 @@ class LoadedModel:
     metadata: Mapping[str, Any]
     # A matrix in `feature_set.feature_names` order to the probabilities of each head.
     predict: Predict
-    # True when `predict` also needs the team's project vectors.
-    reads_project_vectors: bool = False
+    # The project vector kinds `predict` also needs, in the graph's input order. Empty when the
+    # model reads no project vectors.
+    project_vector_kinds: tuple[str, ...] = ()
+
+    @property
+    def reads_project_vectors(self) -> bool:
+        return bool(self.project_vector_kinds)
 
 
 @frozen
@@ -184,14 +194,13 @@ class ONNXHandler:
         except Exception as error:
             raise ModelLoadError(f"{entry.key} {ONNX_MODEL_FILE} does not load: {error}") from error
         kinds = tuple(metadata.get(ONNX_PROJECT_VECTOR_KINDS_KEY) or ())
-        if kinds and kinds != PROJECT_VECTOR_KINDS:
+        if len(set(kinds)) != len(kinds) or not set(kinds) <= set(ALL_PROJECT_VECTOR_KINDS):
             raise ModelLoadError(
-                f"{entry.key} {METADATA_FILE} {ONNX_PROJECT_VECTOR_KINDS_KEY} {list(kinds)} are not {list(PROJECT_VECTOR_KINDS)}"
+                f"{entry.key} {METADATA_FILE} {ONNX_PROJECT_VECTOR_KINDS_KEY} {list(kinds)} are not distinct "
+                f"kinds of {list(ALL_PROJECT_VECTOR_KINDS)}"
             )
         reads_project_vectors = bool(kinds)
-        mismatch = _onnx_input_mismatch(
-            session.get_inputs(), _onnx_input_shapes(feature_set, reads_project_vectors=reads_project_vectors)
-        )
+        mismatch = _onnx_input_mismatch(session.get_inputs(), _onnx_input_shapes(feature_set, kinds))
         if mismatch is not None:
             raise ModelLoadError(f"{entry.key} {mismatch}")
         output_heads = list(metadata.get(ONNX_OUTPUT_HEADS_KEY) or ())
@@ -215,16 +224,16 @@ class ONNXHandler:
             feature_set=feature_set,
             metadata=metadata,
             predict=predict,
-            reads_project_vectors=reads_project_vectors,
+            project_vector_kinds=kinds,
         )
 
 
-def _onnx_input_shapes(feature_set: FeatureSet, *, reads_project_vectors: bool) -> dict[str, tuple[int, ...]]:
+def _onnx_input_shapes(feature_set: FeatureSet, project_vector_kinds: Sequence[str]) -> dict[str, tuple[int, ...]]:
     """The shape after the batch axis of each ONNX input the scorer feeds for `feature_set`."""
     shapes: dict[str, tuple[int, ...]] = {ONNX_REPORT_INPUT: (len(feature_set.feature_names),)}
-    if reads_project_vectors:
-        shapes[ONNX_PROJECT_INPUT] = (len(PROJECT_VECTOR_KINDS), EMBEDDING_DIMENSIONS)
-        shapes[ONNX_HAS_HISTORY_INPUT] = (len(PROJECT_VECTOR_KINDS),)
+    if project_vector_kinds:
+        shapes[ONNX_PROJECT_INPUT] = (len(project_vector_kinds), EMBEDDING_DIMENSIONS)
+        shapes[ONNX_HAS_HISTORY_INPUT] = (len(project_vector_kinds),)
     return shapes
 
 
@@ -364,14 +373,25 @@ class ProjectVectors:
 
     # False when the manifest names no object or the object is missing, so no team has vectors.
     available: bool
+    # One row per team, in `ALL_PROJECT_VECTOR_KINDS` order.
     by_team: Mapping[int, ProjectInputs]
+    # The kinds the day has rows for. A day written before `fixed` was stored has no `fixed` rows.
+    kinds: frozenset[str] = frozenset()
 
-    def for_team(self, team_id: int) -> ProjectInputs | None:
-        """One row of the team's vectors, all zero when the day has no row for the team, or None
-        when the pass has no project vectors at all."""
+    def missing_kinds(self, kinds: Sequence[str]) -> list[str]:
+        """The kinds of `kinds` the day has no rows for. A model must not read them as all-zero vectors."""
+        return [kind for kind in kinds if kind not in self.kinds]
+
+    def for_team(self, team_id: int, kinds: Sequence[str] = PROJECT_VECTOR_KINDS) -> ProjectInputs | None:
+        """One row of the team's vectors in `kinds` order, all zero when the day has no row for the
+        team, or None when the pass has no project vectors at all."""
         if not self.available:
             return None
-        return self.by_team.get(team_id) or project_inputs(pd.DataFrame(columns=PROJECT_VECTORS_COLUMNS), [team_id])
+        inputs = self.by_team.get(team_id) or project_inputs(
+            pd.DataFrame(columns=PROJECT_VECTORS_COLUMNS), [team_id], ALL_PROJECT_VECTOR_KINDS
+        )
+        positions = [ALL_PROJECT_VECTOR_KINDS.index(kind) for kind in kinds]
+        return ProjectInputs(vectors=inputs.vectors[:, positions], has_history=inputs.has_history[:, positions])
 
 
 def load_project_vectors(manifest: ServingManifest, team_ids: Collection[int]) -> ProjectVectors:
@@ -388,15 +408,75 @@ def load_project_vectors(manifest: ServingManifest, team_ids: Collection[int]) -
         if key is not None and teams:
             logger.warning("inbox_ranking_project_vectors_missing", project_vectors_key=key)
         return ProjectVectors(available=False, by_team={})
+    # The kinds come from every row, so a day without rows for these teams still says what it carries.
+    kinds = frozenset(pd.read_parquet(io.BytesIO(body), columns=["kind"])["kind"].unique())
     rows = pd.read_parquet(io.BytesIO(body), columns=PROJECT_VECTORS_COLUMNS, filters=[("team_id", "in", teams)])
-    inputs = project_inputs(rows, teams)
+    inputs = project_inputs(rows, teams, ALL_PROJECT_VECTOR_KINDS)
     by_team = {
         team_id: ProjectInputs(
             vectors=inputs.vectors[index : index + 1], has_history=inputs.has_history[index : index + 1]
         )
         for index, team_id in enumerate(teams)
     }
-    return ProjectVectors(available=True, by_team=by_team)
+    return ProjectVectors(available=True, by_team=by_team, kinds=kinds)
+
+
+@frozen
+class UserKindVector:
+    vector: np.ndarray
+    n_reports: int
+    last_at: datetime.datetime
+
+
+@frozen
+class UserVectors:
+    """The user vectors one pass reads, for the users it scores."""
+
+    # False when the manifest names no object or the object is missing, so no user has vectors.
+    available: bool
+    # (organization id, user distinct id) to the user's vector of each kind with history. A user
+    # without history has no entry.
+    by_user: Mapping[tuple[str, str], Mapping[str, UserKindVector]]
+    # The same key to the hash of the user's kinds, counts and vectors. It changes only when one of them changes.
+    hashes: Mapping[tuple[str, str], str]
+
+
+def load_user_vectors(manifest: ServingManifest, users: Collection[tuple[str, str]]) -> UserVectors:
+    """The vectors of `users`, each an (organization id, user distinct id), from the day the manifest
+    names, read once.
+
+    Only the rows of `users` are kept. A missing object is no vectors at all rather than an empty
+    day, like `load_project_vectors`.
+    """
+    key = manifest.user_vectors
+    wanted = {(str(organization_id), str(user)) for organization_id, user in users}
+    body = None if key is None or not wanted else object_storage.read_bytes(key, missing_ok=True)
+    if body is None:
+        if key is not None and wanted:
+            logger.warning("inbox_ranking_user_vectors_missing", user_vectors_key=key)
+        return UserVectors(available=False, by_user={}, hashes={})
+    # Both filters reach the Parquet reader, so only rows of the requested organizations and users are decoded.
+    rows = pd.read_parquet(
+        io.BytesIO(body),
+        columns=USER_VECTORS_COLUMNS,
+        filters=[
+            ("organization_id", "in", sorted({organization_id for organization_id, _ in wanted})),
+            ("user_distinct_id", "in", sorted({user for _, user in wanted})),
+        ],
+    )
+    by_user: dict[tuple[str, str], dict[str, UserKindVector]] = {}
+    hashes: dict[tuple[str, str], str] = {}
+    for row in rows.itertuples(index=False):
+        user = (row.organization_id, row.user_distinct_id)
+        if user not in wanted:
+            continue
+        by_user.setdefault(user, {})[row.kind] = UserKindVector(
+            vector=np.asarray(row.vector, dtype=np.float32),
+            n_reports=int(row.n_reports),
+            last_at=row.last_at.to_pydatetime(),
+        )
+        hashes[user] = row.user_hash
+    return UserVectors(available=True, by_user=by_user, hashes=hashes)
 
 
 def served_override_rejection(serving: ServingSet, key: str) -> str | None:

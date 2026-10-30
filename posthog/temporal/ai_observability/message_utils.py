@@ -3,10 +3,12 @@
 import json
 from typing import Any, Union
 
-from products.ai_observability.backend.text_repr.formatters.otel_parts import flatten_parts_message
+from products.ai_observability.backend.text_repr.formatters.constants import RESPONSES_TOOL_OUTPUT_TYPES
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker, parse_media_block
+from products.ai_observability.backend.text_repr.formatters.otel_parts import MEDIA_PART_KEY, flatten_parts_message
 
 
-def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
+def extract_text_from_messages(messages: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
     """
     Extract readable text from LLM message structures.
 
@@ -22,6 +24,8 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
     Returns formatted string like:
     "user: Hello\\nassistant: Hi there"
+
+    With `media_marker`, media blocks render as the markers it returns, such as `[image 1]`.
     """
     if not messages:
         return ""
@@ -36,7 +40,7 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         for msg in messages:
             if isinstance(msg, dict):
                 for flattened in flatten_parts_message(msg):
-                    rendered_msg = _render_message(flattened)
+                    rendered_msg = _render_message(flattened, media_marker)
                     if rendered_msg is not None:
                         formatted_parts.append(rendered_msg)
             elif isinstance(msg, str):
@@ -47,7 +51,7 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     # Handle single dict message — render it the same way as a one-element
     # list so that role prefixes and tool_call_id correlation are surfaced
     # consistently regardless of the wrapper shape.
-    rendered_messages = [_render_message(flattened) for flattened in flatten_parts_message(messages)]
+    rendered_messages = [_render_message(flattened, media_marker) for flattened in flatten_parts_message(messages)]
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
@@ -75,15 +79,25 @@ def _only_tool_results(msg: dict) -> bool:
     )
 
 
-def _render_message(msg: dict) -> str | None:
+def _render_message(msg: dict, media_marker: MediaMarker | None) -> str | None:
     """Render a single message dict into a `role: body` line.
 
     Returns None when the message has neither a role nor any body to render
     (so the caller can skip it).
     """
+    item_type = msg.get("type")
+    if media_marker is not None and isinstance(item_type, str) and item_type in RESPONSES_TOOL_OUTPUT_TYPES:
+        # A Responses API tool output has no role or content, so render it as a tool message to reach its images.
+        msg = {"role": "tool", "tool_call_id": msg.get("call_id"), "content": msg.get("output")}
     role = msg.get("role", "")
     content = msg.get("content", "")
-    text = _extract_content_text(content)
+    part = msg.get(MEDIA_PART_KEY)
+    media = parse_media_block(part) if media_marker is not None and isinstance(part, dict) else None
+    text = (
+        media_marker(media)
+        if media_marker is not None and media is not None
+        else _extract_content_text(content, media_marker)
+    )
     tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
 
     rendered = " ".join(part for part in (text, tool_calls_text) if part)
@@ -112,13 +126,14 @@ def _render_message(msg: dict) -> str | None:
     return None
 
 
-def _extract_content_text(content: Union[str, list, dict, None]) -> str:
+def _extract_content_text(content: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
     """Extract text from message content, handling nested structures.
 
     Handles multiple provider formats:
     - Anthropic: [{"type": "text", "text": "..."}]
     - OpenAI Responses API: [{"text": "...", "annotations": [...]}]
     - Generic: [{"content": "..."}]
+    - With `media_marker`, image, audio and file blocks, as markers such as `[image 1]`
     - Plain strings
 
     Always falls back to str() rather than returning empty — an LLM judge
@@ -139,13 +154,23 @@ def _extract_content_text(content: Union[str, list, dict, None]) -> str:
                 if "text" in block:
                     text_parts.append(str(block["text"]))
                 elif "content" in block:
-                    text_parts.append(str(block["content"]))
+                    # Tool results can hold image blocks, which only a judge with images unpacks.
+                    nested = block["content"]
+                    if media_marker is not None and isinstance(nested, list):
+                        text_parts.append(_extract_content_text(nested, media_marker))
+                    else:
+                        text_parts.append(str(nested))
+                elif media_marker is not None and (media := parse_media_block(block)) is not None:
+                    text_parts.append(media_marker(media))
                 else:
                     # Unknown block shape — stringify rather than silently drop
                     text_parts.append(str(block))
             elif isinstance(block, str):
                 text_parts.append(block)
         return " ".join(text_parts)
+
+    if media_marker is not None and isinstance(content, dict) and (media := parse_media_block(content)) is not None:
+        return media_marker(media)
 
     # Fallback: convert to string
     return str(content)

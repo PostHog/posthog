@@ -61,7 +61,7 @@ class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
             name=ExternalDataSourceType.SIGNOZ,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SigNoz",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your SigNoz workspace to sync logs, traces, alert rules, dashboards, and notification channels into the PostHog Data warehouse.
 
 Enter your SigNoz host (your SigNoz Cloud tenant, e.g. `example.signoz.io`, or your self-hosted URL) and an API key.

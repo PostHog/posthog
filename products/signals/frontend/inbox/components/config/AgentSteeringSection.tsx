@@ -4,8 +4,6 @@ import { router } from 'kea-router'
 import { IconCode, IconCompass, IconSearch } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { InstructionsEditor } from 'scenes/settings/environment/InstructionsEditor'
 import { urls } from 'scenes/urls'
@@ -20,10 +18,6 @@ export function AgentSteeringSection(): JSX.Element {
         useValues(agentSteeringLogic)
     const { selectRole, setDraft, discardDraft, submitInstructions, loadSteeringConfig } =
         useActions(agentSteeringLogic)
-    const restrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
     const roles: Record<SteeringRole, { title: string; description: string; placeholder: string }> = {
         scout: {
             title: 'Scout instructions',
@@ -127,7 +121,6 @@ export function AgentSteeringSection(): JSX.Element {
                         onSave={submitInstructions}
                         onDiscard={() => discardDraft(selectedRole)}
                         discardDataAttr="signals-steering-discard"
-                        restrictionReason={restrictionReason}
                         dataAttr="signals-steering-instructions"
                         ariaLabel={role.title}
                     />
@@ -135,9 +128,6 @@ export function AgentSteeringSection(): JSX.Element {
                         <LemonButton onClick={loadSteeringConfig} size="small" data-attr="signals-steering-retry">
                             Retry
                         </LemonButton>
-                    )}
-                    {restrictionReason && (
-                        <p className="m-0 text-xs text-secondary">Only project admins can edit these instructions.</p>
                     )}
                 </div>
             </div>

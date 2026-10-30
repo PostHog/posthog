@@ -1,16 +1,24 @@
 import logging
 
 import pytest
-from posthog.test.base import reset_clickhouse_database_if_dirty
 
 from django.core.management import call_command
 
 from semantic_version.base import Version
 
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def truncate_events():
+    # Events another test left without person data make 0007 required, and it can't run against the
+    # test ClickHouse, so start from an empty events table.
+    sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
 
 
 def test_run_async_migrations_doesnt_raise():
@@ -79,9 +87,7 @@ def set_log_level(caplog):
 
 
 @pytest.fixture(autouse=True)
-def clean_clickhouse():
-    # Whether a migration is required depends on ClickHouse data, which persists across test files.
-    # Events left by an earlier test would make 0007 run its full backfill, so start and end clean.
-    reset_clickhouse_database_if_dirty()
-    yield
-    reset_clickhouse_database_if_dirty()
+def empty_events_table():
+    # The backfill migrations check every event in ClickHouse, and earlier tests in a shard can
+    # leave events without person data, which fails their postcheck.
+    sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
