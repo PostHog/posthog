@@ -531,6 +531,14 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
         select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
+def _select_expr_name(expr: ast.Expr) -> Optional[str]:
+    if isinstance(expr, ast.Alias):
+        return expr.alias
+    if isinstance(expr, ast.Field):
+        return str(expr.chain[-1])
+    return None
+
+
 def _wrap_select_query_with_column(
     select_query: ast.SelectQuery,
     source_column: str,
@@ -550,17 +558,19 @@ def _wrap_select_query_with_column(
     if not (keep_distinct or _is_bounded(inner)):
         inner.distinct = None
     inner.ctes = None
-    # The outer query selects `source_column` by its bare name, so a dotted field such as
-    # `person.id` needs an alias for the subquery to expose that column.
-    inner.select = [
-        ast.Alias(alias=source_column, expr=expr)
-        if isinstance(expr, ast.Field) and len(expr.chain) > 1 and str(expr.chain[-1]) == source_column
-        else expr
-        for expr in inner.select
-    ]
+    # `print_cohort_hogql_query` picks the last select expression named `source_column`. A dotted field such
+    # as `person.id` has no output name the outer query can select, so only that expression gets a unique alias.
+    source_name = source_column
+    select = list(inner.select)
+    selected_index = max(i for i, expr in enumerate(select) if _select_expr_name(expr) == source_column)
+    selected = select[selected_index]
+    if isinstance(selected, ast.Field) and len(selected.chain) > 1:
+        source_name = f"__cohort_{source_column}"
+        select[selected_index] = ast.Alias(alias=source_name, expr=selected)
+    inner.select = select
 
     wrapper = ast.SelectQuery(
-        select=[ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_column]))],
+        select=[ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_name]))],
         select_from=ast.JoinExpr(table=inner),
         ctes=select_query.ctes,
     )

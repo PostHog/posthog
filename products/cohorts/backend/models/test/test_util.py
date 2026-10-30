@@ -982,6 +982,14 @@ class TestCohortUtils(BaseTest):
                 "SELECT person.id, count() AS msd FROM events GROUP BY person.id HAVING msd >= 1",
             ),
             (
+                "joined_persons_repeated_qualified_id",
+                "SELECT p.id, q.id FROM persons AS p JOIN persons AS q ON p.id = q.id",
+            ),
+            (
+                "joined_persons_qualified_id_with_id_alias_sibling",
+                "SELECT p.id AS id, q.id FROM persons AS p JOIN persons AS q ON p.id = q.id",
+            ),
+            (
                 "events_distinct_id_aggregating_with_having",
                 "SELECT distinct_id, count() AS n FROM events GROUP BY distinct_id HAVING n >= 3",
             ),
