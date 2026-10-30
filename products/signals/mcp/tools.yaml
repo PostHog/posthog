@@ -426,9 +426,9 @@ tools:
             personal: only the user it describes can read it. The call returns at once and never waits on the model. A
             current stored list comes back as is. Otherwise the call starts a background build and returns the last
             stored list with `stale: true`, or the reports in inbox order with `fallback_reason: building`, and sets
-            `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. When `building` is
-            true, call again a little later, or pass `wait_seconds` (up to 30) to wait for the new list in the same call.
-            `personalized: false` means the user has no activity summary yet or the list is in inbox order (see
+            `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. When `building`
+            is true, call again a little later, or pass `wait_seconds` (up to 30) to wait for the new list in the same
+            call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see
             `fallback_reason`). `stale: true` without `building` means the build limit was reached and the list may miss
             recent changes. `status: unavailable` means personal ranking is off for now.
         feature_flag: personal-inbox-ranking
