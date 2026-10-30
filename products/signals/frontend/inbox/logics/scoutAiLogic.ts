@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -13,9 +14,6 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 
 import { REPORT_AI_PANEL_ID } from '../inboxTaskKickoffLogic'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-
-/** The side panel option that shows the scout chat. It round-trips through the URL hash. */
-export const SCOUT_AI_PANEL = 'inbox-scout'
 
 /** The tool the agent calls to save steering as a note on the scout. */
 export const SCOUT_NOTE_CREATE_TOOL = 'scout-notes-create'
