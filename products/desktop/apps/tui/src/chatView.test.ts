@@ -1,0 +1,50 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { beforeAll, describe, expect, it } from "vitest";
+import { ChatView } from "./chatView";
+import type { TranscriptLine } from "./transcript";
+
+const plain = (lines: string[]): string[] =>
+  lines.map((line) => stripTerminalSequences(line).trimEnd());
+
+const replies = (count: number): TranscriptLine[] =>
+  Array.from({ length: count }, (_, index) => ({
+    kind: "assistant" as const,
+    id: `a${index}`,
+    text: `Reply ${index}`,
+  }));
+
+describe("ChatView", () => {
+  beforeAll(() => initTheme("dark"));
+
+  it("renders messages with pi's components, without shell-integration markers", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      { kind: "user", id: "u1", text: "Rename the helper" },
+      { kind: "assistant", id: "a1", text: "On **it**." },
+      { kind: "tool", id: "t1", title: "Edit src/a.ts", status: "completed" },
+    ]);
+    const lines = chat.render(40, 20);
+
+    expect(lines.join("\n")).not.toContain("\x1b]133");
+    const text = plain(lines).join("\n");
+    expect(text).toContain("Rename the helper");
+    expect(text).toContain("On it.");
+    expect(text).toContain("Edit src/a.ts");
+    expect(lines).toHaveLength(20);
+  });
+
+  it("follows new messages, and holds position once scrolled up", () => {
+    const chat = new ChatView();
+    chat.setTranscript(replies(30));
+    expect(plain(chat.render(40, 5)).join("\n")).toContain("Reply 29");
+
+    chat.scrollBy(-20);
+    const held = plain(chat.render(40, 5));
+    chat.setTranscript(replies(31));
+    expect(plain(chat.render(40, 5))).toEqual(held);
+
+    chat.scrollToEnd();
+    expect(plain(chat.render(40, 5)).join("\n")).toContain("Reply 30");
+  });
+});
