@@ -27,27 +27,32 @@ const MOUSE_REPORT = new RegExp(
 const LEFT_BUTTON = 0;
 const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
-// Reports presses and releases, in SGR form so columns past 223 still parse.
+// Set on a report the pointer's motion sent rather than a button.
+const MOTION = 32;
+// Reports presses, releases and pointer motion, in SGR form so columns past 223 still parse.
 // Plus bracketed paste, so a pasted block reaches a composer as one paste.
-const ENABLE = "\x1b[?1000h\x1b[?1006h\x1b[?2004h";
-const DISABLE = "\x1b[?1000l\x1b[?1006l\x1b[?2004l";
+const ENABLE = "\x1b[?1003h\x1b[?1006h\x1b[?2004h";
+const DISABLE = "\x1b[?1003l\x1b[?1006l\x1b[?2004l";
 
 export function extractMouse(text: string): {
   keys: string;
   clicks: Click[];
   wheels: Wheel[];
+  moves: Click[];
 } {
   const clicks: Click[] = [];
   const wheels: Wheel[] = [];
+  const moves: Click[] = [];
   const keys = text.replace(MOUSE_REPORT, (_, button, column, row, kind) => {
     const at = { column: Number(column), row: Number(row) };
     if (kind !== "M") return "";
-    if (Number(button) === LEFT_BUTTON) clicks.push(at);
+    if (Number(button) & MOTION) moves.push(at);
+    else if (Number(button) === LEFT_BUTTON) clicks.push(at);
     else if (Number(button) === WHEEL_UP) wheels.push({ ...at, delta: -1 });
     else if (Number(button) === WHEEL_DOWN) wheels.push({ ...at, delta: 1 });
     return "";
   });
-  return { keys, clicks, wheels };
+  return { keys, clicks, wheels, moves };
 }
 
 export function hitTest<T>(
@@ -70,6 +75,7 @@ export function hitTest<T>(
 export type MouseEvents = EventEmitter<{
   click: [Click];
   wheel: [Wheel];
+  move: [Click];
   keys: [string];
 }>;
 
@@ -100,8 +106,11 @@ export class MouseInput {
       return stream;
     };
     this.onData = (data) => {
-      const { keys, clicks, wheels } = extractMouse(data.toString("utf8"));
+      const { keys, clicks, wheels, moves } = extractMouse(
+        data.toString("utf8"),
+      );
       for (const click of clicks) this.events.emit("click", click);
+      for (const move of moves) this.events.emit("move", move);
       for (const wheel of wheels) this.events.emit("wheel", wheel);
       if (keys) {
         this.events.emit("keys", keys);

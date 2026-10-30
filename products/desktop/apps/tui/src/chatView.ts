@@ -99,12 +99,15 @@ class ToolGroup implements Component {
   constructor(
     private readonly tools: ToolLine[],
     private readonly isOpen: () => boolean,
+    private readonly isHovered: () => boolean,
   ) {}
 
   render(width: number): string[] {
     const open = this.isOpen();
     const failed = this.tools.filter((tool) => tool.status === "failed").length;
-    const summary = `${DIM(`${open ? "▾" : "▸"} ${toolSummary(this.tools)}`)}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
+    const label = `${open ? "▾" : "▸"} ${toolSummary(this.tools)}`;
+    // Under the pointer it goes from grey to full colour, so it reads as clickable.
+    const summary = `${this.isHovered() ? label : DIM(label)}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
     const lines = [truncateToWidth(` ${summary}`, width)];
     if (!open) return lines;
     for (const tool of this.tools) {
@@ -160,6 +163,7 @@ export class ChatView {
   // Tool groups the reader opened, and where each item sat in the last render, for clicks.
   private readonly expanded = new Set<string>();
   private groups = new Set<string>();
+  private hovered: string | null = null;
   private rows: { id: string; start: number; end: number }[] = [];
 
   setTranscript(
@@ -177,7 +181,11 @@ export class ChatView {
     this.items = shown.flatMap((block, index) => {
       const component =
         block.kind === "tools"
-          ? new ToolGroup(block.tools, () => this.expanded.has(block.id))
+          ? new ToolGroup(
+              block.tools,
+              () => this.expanded.has(block.id),
+              () => this.hovered === block.id,
+            )
           : new Trimmed(componentFor(block));
       const item = { id: block.id, component };
       return needsGap(shown[index - 1], block)
@@ -233,12 +241,26 @@ export class ChatView {
     return [...visible, ...Array<string>(height - visible.length).fill(" ")];
   }
 
-  // A click on a tool group, by row within the chat, opens or closes it; false when it hit something else.
-  toggleAt(row: number): boolean {
+  private groupAt(row: number | null): string | null {
+    if (row === null) return null;
     const at = this.scroll.scrollTop + row;
     const hit = this.rows.find(({ start, end }) => at >= start && at < end);
-    if (!hit || !this.groups.has(hit.id)) return false;
-    if (!this.expanded.delete(hit.id)) this.expanded.add(hit.id);
+    return hit && this.groups.has(hit.id) ? hit.id : null;
+  }
+
+  // A click on a tool group, by row within the chat, opens or closes it; false when it hit something else.
+  toggleAt(row: number): boolean {
+    const id = this.groupAt(row);
+    if (!id) return false;
+    if (!this.expanded.delete(id)) this.expanded.add(id);
+    return true;
+  }
+
+  // The pointer's row within the chat, or null once it leaves; true when the highlighted group changed.
+  hoverAt(row: number | null): boolean {
+    const id = this.groupAt(row);
+    if (id === this.hovered) return false;
+    this.hovered = id;
     return true;
   }
 
