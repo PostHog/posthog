@@ -53,6 +53,12 @@ This accounting is not a limit on Python process memory.
 The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
 Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
 
+Saved views allow at most 100 nested views and 1,000 expansions per compilation, including repeated references to the same view.
+Their cumulative expanded SQL source is limited to 4 MiB (UTF-8), charged before each parse; this is not a Python memory limit.
+Circular dependencies fail with a query error. Soft saves skip column inference but still validate view dependencies.
+Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
+AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
