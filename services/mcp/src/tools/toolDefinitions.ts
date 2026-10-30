@@ -233,6 +233,25 @@ function normalizeFeatureName(name: string): string {
     return name.replace(/-/g, '_')
 }
 
+// `insights` is the query surface. Saved-insight CRUD is declared under `product_analytics`
+// because that YAML category has a single feature, so `features=insights` would otherwise
+// drop insight-create/get/update/delete and insights-list. The list is those five tools only:
+// the rest of product analytics (heatmaps, activity, trending) is a different surface.
+// One-way — `product_analytics` does not include `insights` tools such as insight-query.
+const FEATURE_INCLUDED_TOOLS: Record<string, readonly string[]> = {
+    insights: ['insight-create', 'insight-delete', 'insight-get', 'insight-update', 'insights-list'],
+}
+
+function includedToolsForFeatures(features: string[]): Set<string> {
+    const included = new Set<string>()
+    for (const feature of features) {
+        for (const toolName of FEATURE_INCLUDED_TOOLS[normalizeFeatureName(feature)] ?? []) {
+            included.add(toolName)
+        }
+    }
+    return included
+}
+
 /**
  * Predicate: does a tool's `feature_flag` configuration permit it under the
  * given evaluation map? An undefined map is treated as "no flags evaluated".
@@ -301,7 +320,8 @@ function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate
     let entries = Object.entries(toolDefinitions)
 
     // Filter by features and/or tools allowlist (OR union).
-    // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
+    // When both are provided, a tool is included if it matches a feature category,
+    // is named by FEATURE_INCLUDED_TOOLS, or is in the tools list.
     // Normalize hyphens to underscores so that both "error-tracking" and "error_tracking" match.
     // Tools marked `always_available` bypass this allowlist so utility tools
     // (e.g. feedback) stay discoverable for every client.
@@ -309,6 +329,7 @@ function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate
     const hasTools = tools && tools.length > 0
     if (hasFeatures || hasTools) {
         const normalizedFeatures = hasFeatures ? new Set(features.map(normalizeFeatureName)) : null
+        const includedTools = hasFeatures ? includedToolsForFeatures(features) : null
         const allowedTools = hasTools ? new Set(tools) : null
 
         entries = entries.filter(([toolName, definition]) => {
@@ -318,8 +339,9 @@ function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate
             const matchesFeature = normalizedFeatures
                 ? definition.feature && normalizedFeatures.has(normalizeFeatureName(definition.feature))
                 : false
+            const matchesIncludedTool = includedTools ? includedTools.has(toolName) : false
             const matchesTool = allowedTools ? allowedTools.has(toolName) : false
-            return matchesFeature || matchesTool
+            return matchesFeature || matchesIncludedTool || matchesTool
         })
     }
 
