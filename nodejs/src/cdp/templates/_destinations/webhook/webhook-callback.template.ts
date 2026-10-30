@@ -67,7 +67,7 @@ return {'await': {'max_wait': inputs.max_wait, 'label': 'callback'}}
             secret: false,
             required: false,
             description:
-                'JSON object to send in the request body. The step adds a `callback_url` field. Post the reply to that URL as `{"result": {...}}`.',
+                'JSON object to send in the request body. The step adds a `callback_url` field. Post the reply to that URL as `{"result": {...}}`. A 409 answer means the step is not ready yet, so try again a few seconds later.',
         },
         {
             key: 'headers',

@@ -2176,8 +2176,10 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['the step is not parked yet', 'job_running', 409],
+            ['the step is still running', 'job_running', 409],
+            ['the step is waiting to retry its request', 'not_parked', 409],
             ['the step already took a reply', 'stale_key', 410],
+            ['the wait ran out', 'expired', 410],
             ['the run is gone', 'job_missing', 410],
         ])('answers %s with the status the caller acts on', async (_desc, outcome, status) => {
             mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, outcome]]))
@@ -2218,6 +2220,8 @@ describe('CDP API', () => {
         it.each([
             ['a status the caller may not set', { status: 'cancelled' }, 400],
             ['a result that is not an object', { result: 'approved' }, 400],
+            ['a reply without a result', { status: 'completed' }, 400],
+            ['a body that is not JSON', 'approved', 400],
             ['a body over the size cap', { result: { note: 'x'.repeat(20_000) } }, 413],
         ])('rejects %s', async (_desc, body, status) => {
             const res = await supertest(app).post(callbackPath()).send(body)

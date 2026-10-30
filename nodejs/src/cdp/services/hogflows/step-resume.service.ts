@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
+import { buildWorkflowStepDispatchKey } from '../../utils/workflow-step-dispatch-key'
+
 export const WorkflowStepResumeSchema = z.object({
     origin_key: z.string().min(1),
     status: z.enum(['completed', 'failed', 'cancelled']),
@@ -17,7 +19,22 @@ export const AWAITED_STEP_MAX_WAIT = Duration.fromObject({ hours: 24 })
 export type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
 
 // `job_<status>` covers every non-parked cyclotron status; `delivered` is the only success.
-export type StepResumeOutcome = 'delivered' | 'stale_key' | 'job_missing' | `job_${string}`
+export type StepResumeOutcome = 'delivered' | 'stale_key' | 'not_parked' | 'expired' | 'job_missing' | `job_${string}`
+
+type StepResumeRejection = 'stale_key' | 'not_parked' | 'expired'
+
+type ResumableJobState = {
+    actionStepCount?: number
+    rerunAttempts?: number
+    currentAction?: {
+        id: string
+        awaitingResume?: { key: string; deadlineAt: string }
+        resumeResult?: { key: string }
+    }
+}
+
+export const isRetryableStepResumeOutcome = (outcome: StepResumeOutcome): boolean =>
+    outcome === 'job_running' || outcome === 'not_parked'
 
 export const counterStepResume = new Counter({
     name: 'cdp_hogflow_step_resume',
@@ -25,24 +42,17 @@ export const counterStepResume = new Counter({
     labelNames: ['outcome'],
 })
 
-// Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
-// key: the step already advanced, the wake belongs to an earlier visit of the same step, or an
-// earlier wake for this key is waiting to run, so a replayed callback cannot replace the reply.
-export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
+export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | StepResumeRejection {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
-        const currentAction = parsed.state?.currentAction
-        if (
-            currentAction?.id !== resume.actionId ||
-            currentAction.awaitingResume?.key !== resume.origin_key ||
-            currentAction.resumeResult?.key === resume.origin_key
-        ) {
-            return null
+        const rejection = stepResumeRejection(parsed.state, resume)
+        if (rejection) {
+            return rejection
         }
         parsed.state = {
             ...parsed.state,
             currentAction: {
-                ...currentAction,
+                ...parsed.state.currentAction,
                 resumeResult: {
                     key: resume.origin_key,
                     status: resume.status,
@@ -53,8 +63,35 @@ export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume):
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
         logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
-        return null
+        return 'stale_key'
     }
+}
+
+function stepResumeRejection(state: ResumableJobState | undefined, resume: StepResume): StepResumeRejection | null {
+    const currentAction = state?.currentAction
+    if (!state || currentAction?.id !== resume.actionId) {
+        return 'stale_key'
+    }
+    const awaiting = currentAction.awaitingResume
+    if (!awaiting) {
+        return isCurrentVisit(state, resume) ? 'not_parked' : 'stale_key'
+    }
+    const replyAlreadyTaken = currentAction.resumeResult?.key === resume.origin_key
+    if (awaiting.key !== resume.origin_key || replyAlreadyTaken) {
+        return 'stale_key'
+    }
+    if (Date.parse(awaiting.deadlineAt) <= Date.now()) {
+        return 'expired'
+    }
+    return null
+}
+
+function isCurrentVisit(state: ResumableJobState, resume: StepResume): boolean {
+    return (
+        typeof state.actionStepCount === 'number' &&
+        buildWorkflowStepDispatchKey(resume.jobId, resume.actionId, state.actionStepCount, state.rerunAttempts) ===
+            resume.origin_key
+    )
 }
 
 // Hands each resume to its parked job. `teamId` narrows the lookup for callers whose auth is
@@ -93,18 +130,12 @@ export async function processStepResumes(
                 outcomes.set(row.id, `job_${row.status}`)
                 continue
             }
-            // One batch can carry a stale wake from an earlier visit next to the current one.
-            const state = row.state
-                ? jobResumes.reduce<Buffer | null>(
-                      (applied, resume) => applied ?? applyStepResumeToState(row.state, resume),
-                      null
-                  )
-                : null
-            if (!state) {
-                outcomes.set(row.id, 'stale_key')
+            const applied = row.state ? applyFirstStepResume(row.state, jobResumes) : 'stale_key'
+            if (!Buffer.isBuffer(applied)) {
+                outcomes.set(row.id, applied)
                 continue
             }
-            updates.push({ id: row.id, state })
+            updates.push({ id: row.id, state: applied })
         }
         for (const jobId of byJob.keys()) {
             outcomes.set(jobId, 'job_missing')
@@ -134,4 +165,17 @@ export async function processStepResumes(
         counterStepResume.labels({ outcome }).inc()
     }
     return outcomes
+}
+
+// One batch can carry a stale wake from an earlier visit next to the current one.
+function applyFirstStepResume(state: Buffer, resumes: StepResume[]): Buffer | StepResumeRejection {
+    const rejections: StepResumeRejection[] = []
+    for (const resume of resumes) {
+        const applied = applyStepResumeToState(state, resume)
+        if (Buffer.isBuffer(applied)) {
+            return applied
+        }
+        rejections.push(applied)
+    }
+    return rejections.find((rejection) => rejection !== 'stale_key') ?? 'stale_key'
 }

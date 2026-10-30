@@ -22,9 +22,11 @@ const PUBLIC_WEBHOOKS_HOSTS: Record<string, string> = {
 export const WORKFLOW_STEP_CALLBACK_PATH = '/public/webhooks/workflow_callbacks'
 export const WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES = 16_384
 
+const CALLBACK_TOKEN_TTL = AWAITED_STEP_MAX_WAIT.plus({ hours: 1 })
+
 export const WorkflowStepCallbackSchema = z.object({
     status: z.enum(['completed', 'failed']).default('completed'),
-    result: z.record(z.string(), z.unknown()).optional(),
+    result: z.record(z.string(), z.unknown()),
 })
 
 export type WorkflowStepCallbackConfig = Pick<CdpConfig, 'WORKFLOWS_STEP_CALLBACK_JWT_SECRET'> &
@@ -40,7 +42,7 @@ export class WorkflowStepCallbacks {
         this.jwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_STEP_CALLBACK,
             config.WORKFLOWS_STEP_CALLBACK_JWT_SECRET || '',
-            AWAITED_STEP_MAX_WAIT.as('seconds')
+            CALLBACK_TOKEN_TTL.as('seconds')
         )
         this.publicWebhooksUrl = PUBLIC_WEBHOOKS_HOSTS[(config.CLOUD_DEPLOYMENT ?? '').toUpperCase()] ?? config.SITE_URL
     }

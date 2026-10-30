@@ -821,7 +821,14 @@ describe('Cyclotron V2', () => {
                 Buffer.from(
                     JSON.stringify({
                         state: {
-                            currentAction: { id: actionId, awaitingResume: { key: `${jobId}:${actionId}:3` } },
+                            actionStepCount: 3,
+                            currentAction: {
+                                id: actionId,
+                                awaitingResume: {
+                                    key: `${jobId}:${actionId}:3`,
+                                    deadlineAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+                                },
+                            },
                         },
                     })
                 )
@@ -854,6 +861,48 @@ describe('Cyclotron V2', () => {
                     status: 'completed',
                     result: { final_message: 'done' },
                 })
+            })
+
+            it.each([
+                [
+                    'not_parked',
+                    'the step is still sending its request',
+                    () => ({ actionStepCount: 3, currentAction: { id: 'task_node' } }),
+                ],
+                [
+                    'stale_key',
+                    'the run moved on to a later visit of the step',
+                    () => ({ actionStepCount: 5, currentAction: { id: 'task_node' } }),
+                ],
+                [
+                    'expired',
+                    'the wait ran out before the timeout ran',
+                    (jobId: string) => ({
+                        actionStepCount: 3,
+                        currentAction: {
+                            id: 'task_node',
+                            awaitingResume: {
+                                key: `${jobId}:task_node:3`,
+                                deadlineAt: new Date(Date.now() - 60 * 1000).toISOString(),
+                            },
+                        },
+                    }),
+                ],
+            ])('reports %s when %s', async (outcome, _desc, state) => {
+                const jobId = uuidv7()
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: Buffer.from(JSON.stringify({ state: state(jobId) })),
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe(outcome)
+                expect(await jobIsDue(jobId)).toBe(false)
             })
 
             it("reports another team's job as missing rather than waking it", async () => {

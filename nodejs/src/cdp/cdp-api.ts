@@ -58,7 +58,7 @@ import {
     WorkflowStepCallbackSchema,
     WorkflowStepCallbacks,
 } from './services/hogflows/step-callback'
-import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
+import { WorkflowStepResumeSchema, isRetryableStepResumeOutcome } from './services/hogflows/step-resume.service'
 import {
     TransactionalEmailOutcome,
     TransactionalEmailRequestSchema,
@@ -403,25 +403,16 @@ export class CdpApi {
             asyncHandler(this.handleBatchExportHogFunction())
         )
 
-        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
-            if (req.rawBody && req.rawBody.length > 512_000) {
-                res.status(413).json({ error: 'Request entity too large' })
-                return
+        const bodySizeLimit =
+            (maxBytes: number) =>
+            (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+                if (req.rawBody && req.rawBody.length > maxBytes) {
+                    res.status(413).json({ error: 'Request entity too large' })
+                    return
+                }
+                next()
             }
-            next()
-        }
-
-        const callbackBodySizeLimit = (
-            req: ModifiedRequest,
-            res: express.Response,
-            next: express.NextFunction
-        ): void => {
-            if (req.rawBody && req.rawBody.length > WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES) {
-                res.status(413).json({ error: 'Request entity too large' })
-                return
-            }
-            next()
-        }
+        const publicBodySizeLimit = bodySizeLimit(512_000)
 
         // Public routes (excluded from authentication by middleware)
         router.post(
@@ -431,7 +422,7 @@ export class CdpApi {
         )
         router.post(
             `${WORKFLOW_STEP_CALLBACK_PATH}/:token`,
-            callbackBodySizeLimit,
+            bodySizeLimit(WORKFLOW_STEP_CALLBACK_MAX_BODY_BYTES),
             asyncHandler(this.postWorkflowStepCallback)
         )
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
@@ -1558,7 +1549,7 @@ export class CdpApi {
 
             const outcomes = await this.batchResolverProducer.resumeParkedSteps(teamId, [{ ...parsed.data, ...key }])
             const outcome = outcomes.get(key.jobId) ?? 'job_missing'
-            return res.status(outcome === 'job_running' ? 409 : 200).json({ outcome })
+            return res.status(isRetryableStepResumeOutcome(outcome) ? 409 : 200).json({ outcome })
         } catch (e) {
             logger.error('Error resuming workflow step', {
                 error: e instanceof Error ? e.message : String(e),
@@ -1588,7 +1579,7 @@ export class CdpApi {
             if (outcome === 'delivered') {
                 return res.status(200).json({ status: 'accepted' })
             }
-            if (outcome === 'job_running') {
+            if (isRetryableStepResumeOutcome(outcome)) {
                 return res.status(409).json({ error: 'The step is not waiting yet. Retry shortly.' })
             }
             return res.status(410).json({ error: 'This callback URL was already used or has expired' })
