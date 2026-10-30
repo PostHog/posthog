@@ -13,7 +13,7 @@ from products.batch_exports.backend.temporal.destinations import (
 from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
 
 
-def _map_snowflake(schema: pa.Schema) -> object:
+def _map_snowflake(schema: pa.Schema) -> snowflake_batch_export.SnowflakeTable:
     return snowflake_batch_export.SnowflakeTable.from_arrow_schema(
         schema, name="t", table_schema="s", database="d", primary_key=(), version_key=()
     )
@@ -63,3 +63,15 @@ def test_schema_mapping_raises_a_non_retryable_error_for_an_unsupported_column_t
     # Each destination matches its non-retryable errors by class name, so a rename that misses
     # these lists restores the unlimited retrying this error exists to stop, and does it silently.
     assert UnsupportedColumnTypeError.__name__ in non_retryable_error_types
+
+
+@pytest.mark.parametrize("column_type", [pa.date32(), pa.date64()], ids=str)
+def test_snowflake_maps_a_date_column_to_date_and_reads_it_back(column_type: pa.DataType) -> None:
+    table = _map_snowflake(pa.schema([pa.field("day", column_type, nullable=True)]))
+
+    field = table["day"]
+    assert field.snowflake_type_name == "DATE"
+    # Every run after the one that creates the table reads the column back from the destination
+    # table, so a forward mapping without a matching reverse mapping fails every later run.
+    read_back = snowflake_batch_export.SnowflakeField.from_destination_field(field.to_destination_field())
+    assert read_back.data_type == pa.date32()
