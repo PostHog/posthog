@@ -640,6 +640,31 @@ jobs:
                   fi
                   node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
 
+            # Eager graph trend -> DevEx project, from master pushes only. The build above already
+            # wrote the report, so this costs no extra build. Telemetry never reds CI, and a
+            # re-run does not send the same commit twice.
+            - name: Summarize eager graph for PostHog
+              id: eager-trend
+              if: >-
+                  !cancelled() && github.run_attempt == '1'
+                  && github.event_name == 'push' && github.ref == 'refs/heads/master'
+                  && github.repository == 'PostHog/posthog'
+              continue-on-error: true
+              run: |
+                  properties=$(node frontend/bin/eager-graph-trend-properties.mjs "frontend/eager-graph-report-${GITHUB_SHA}.json" |
+                      jq -c --arg sha "$GITHUB_SHA" --arg branch "$GITHUB_REF_NAME" --arg run_id "$GITHUB_RUN_ID" \
+                          '. + {sha: $sha, branch: $branch, run_id: $run_id}')
+                  echo "properties=$properties" >> "$GITHUB_OUTPUT"
+
+            - name: Capture eager graph to DevEx PostHog
+              if: steps.eager-trend.outputs.properties != ''
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-eager-graph'
+                  properties: ${{ steps.eager-trend.outputs.properties }}
+
             - name: Calculate dist folder size
               id: dist-size
               # After the base build the workspace's dist/ holds the BASE branch's build, so
