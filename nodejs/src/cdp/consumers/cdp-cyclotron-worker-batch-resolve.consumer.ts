@@ -51,6 +51,7 @@ const audienceFailureReason = (error: unknown): string => {
 
 const RETRY_BACKOFF_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 10_000
+const AUDIENCE_SNAPSHOT_POLL_INTERVAL_MS = 15_000
 
 const counterBatchHogFlowAudienceTruncated = new Counter({
     name: 'cdp_batch_hog_flow_audience_truncated',
@@ -68,6 +69,12 @@ const counterBatchHogFlowResolverCohortWait = new Counter({
     name: 'cdp_batch_hog_flow_resolver_cohort_wait',
     help: 'Batch resolvers parked on a realtime cohort that is still calculating, by what woke them',
     labelNames: ['outcome'], // early_wake | timed_out
+})
+
+const counterBatchHogFlowResolverSnapshotWait = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_snapshot_wait',
+    help: 'Batch resolvers that asked Django about their audience snapshot, by what the answer was',
+    labelNames: ['outcome'], // resolving | ready | failed | timed_out | request_failed
 })
 
 const counterBatchHogFlowResolverJobs = new Counter({
@@ -164,7 +171,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // guard because a first-page fetch failure reschedules with the same
         // cursor/pagesProcessed/pendingTerminal but bumps attempts — without
         // it, `started` would fire again on every retry of the first page.
-        if (!state.pendingTerminal && state.cursor === null && state.pagesProcessed === 0 && state.attempts === 0) {
+        if (
+            !state.pendingTerminal &&
+            state.cursor === null &&
+            state.pagesProcessed === 0 &&
+            state.attempts === 0 &&
+            !state.audienceSnapshot?.requested
+        ) {
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
@@ -205,6 +218,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             const waitUntil = state.realtimeCohort?.waitUntil
             if (waitUntil) {
                 await this.handleCohortWait(job, state, new Date(waitUntil))
+                return
+            }
+
+            if (state.audienceSnapshot && !state.audienceSnapshot.ready) {
+                await this.handleAudienceSnapshotWait(job, state)
                 return
             }
 
@@ -253,6 +271,94 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             state,
             "the cohort didn't finish calculating in time, so nobody was sent this run. Start it again once the cohort is ready."
         )
+    }
+
+    /**
+     * Asks Django to resolve the whole audience once, then polls until it is ready. Django's failure
+     * reason is written for the customer, so it goes to the run's log stream as is.
+     */
+    private async handleAudienceSnapshotWait(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
+        const snapshot = state.audienceSnapshot!
+        const team = await this.deps.teamManager.getTeam(state.teamId)
+        if (!team) {
+            await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            return
+        }
+
+        let response: Awaited<ReturnType<HogFlowBatchPersonQueryService['requestAudienceSnapshot']>>
+        try {
+            response = await instrumentFn('cdpBatchResolve.requestAudienceSnapshot', () =>
+                this.hogFlowBatchPersonQueryService.requestAudienceSnapshot(team, state.batchJobId, {
+                    dedupeKey: state.dedupeKey,
+                    maxAudienceSize: state.maxAudienceSize,
+                })
+            )
+        } catch (err) {
+            counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'request_failed' }).inc()
+            const nextAttempts = state.attempts + 1
+            if (nextAttempts >= MAX_RESOLVER_ATTEMPTS) {
+                logger.error(
+                    '🔴',
+                    `${this.name} - audience snapshot request failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`,
+                    { batchJobId: state.batchJobId, error: serializeError(err) }
+                )
+                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
+                return
+            }
+            logger.warn('⚠️', `${this.name} - audience snapshot request failed, will retry`, {
+                batchJobId: state.batchJobId,
+                attempts: nextAttempts,
+                error: serializeError(err),
+            })
+            await job.reschedule({
+                scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS),
+                state: serializeResolverState({ ...state, attempts: nextAttempts }),
+            })
+            return
+        }
+
+        if (response.status === 'ready') {
+            counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'ready' }).inc()
+            logger.info('📝', `${this.name} - audience snapshot ready for batch ${state.batchJobId}`, {
+                audienceSize: response.audience_size,
+            })
+            await job.reschedule({
+                scheduledAt: new Date(),
+                state: serializeResolverState({
+                    ...state,
+                    audienceSnapshot: { ...snapshot, requested: true, ready: true },
+                    attempts: 0,
+                }),
+            })
+            return
+        }
+
+        if (response.status === 'failed') {
+            counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'failed' }).inc()
+            await this.transitionToFailedTerminal(job, state, response.error || 'Audience query failed')
+            return
+        }
+
+        const waitUntil = new Date(snapshot.waitUntil)
+        if (Date.now() >= waitUntil.getTime()) {
+            counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'timed_out' }).inc()
+            await this.transitionToFailedTerminal(
+                job,
+                state,
+                "the audience didn't finish resolving in time, so nobody was sent this run. Use fewer or simpler audience filters, or start it again later."
+            )
+            return
+        }
+        counterBatchHogFlowResolverSnapshotWait.labels({ outcome: 'resolving' }).inc()
+        const nextPoll = Math.min(Date.now() + AUDIENCE_SNAPSHOT_POLL_INTERVAL_MS, waitUntil.getTime())
+        await job.reschedule({
+            scheduledAt: new Date(nextPoll),
+            state: serializeResolverState({
+                ...state,
+                audienceSnapshot: { ...snapshot, requested: true },
+                attempts: 0,
+            }),
+        })
     }
 
     /**
@@ -357,6 +463,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                             state.cursor
                         )
                     )
+                } else if (state.audienceSnapshot?.ready) {
+                    const snapshotPage = await instrumentFn('cdpBatchResolve.getAudienceSnapshotPage', () =>
+                        this.hogFlowBatchPersonQueryService.getAudienceSnapshotPage(
+                            team,
+                            state.batchJobId,
+                            state.cursor
+                        )
+                    )
+                    page = {
+                        ids: snapshotPage.users_affected,
+                        cursor: snapshotPage.cursor,
+                        has_more: snapshotPage.has_more,
+                    }
                 } else {
                     const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
                         this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
