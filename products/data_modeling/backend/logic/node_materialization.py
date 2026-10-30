@@ -5,10 +5,10 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql.database.database import Database
 
@@ -22,7 +22,6 @@ from posthog.temporal.data_modeling.workflows.execute_dag import (
     TRINO_SHADOW_RUN_TIMEOUT,
     ExecuteDAGInputs,
     manual_trino_workflow_id,
-    trino_runs_of_dag_query,
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
@@ -37,7 +36,7 @@ from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-from products.data_modeling.backend.models import DataModelingJobEngine, Node
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
@@ -48,9 +47,8 @@ RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this ru
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
-TRINO_RUN_ALREADY_RUNNING_REFUSAL = (
-    "A managed warehouse run is already in progress for this project's models. Try again once it finishes."
-)
+TRINO_RUN_ALREADY_RUNNING_REFUSAL = "Already building on the managed warehouse: {names}. Try again once they finish."
+MODEL_NAMES_IN_REFUSAL = 5
 
 
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
@@ -187,11 +185,12 @@ def run_trino_node_materializations(
     """Build the node, and optionally its upstreams or downstreams, on the managed warehouse only.
 
     Runs the same managed_warehouse_only DAG run as the scheduled Trino shadow, so ClickHouse is not
-    touched. Refuses while any Trino run of the DAG is in progress, because two runs would write the
-    same Trino tables at once.
+    touched. Refuses while any of the selected models is already building on Trino: the run's preempt
+    step would cancel that build, and two builds would write the same Trino table at once. Runs over
+    other models of the DAG don't block it.
 
-    `full_refresh` drops the node's Trino watermark, and only after every refusal, including losing the
-    race for the run slot, so a refused run does not turn the next scheduled shadow into a full rebuild.
+    `full_refresh` drops the node's Trino watermark, and only after every refusal, so a refused run does
+    not turn the next scheduled shadow into a full rebuild.
     The run starts a few seconds late, so the state changes commit before the workflow reads them.
     """
     node = _get_node(team_id, node_id)
@@ -214,30 +213,25 @@ def run_trino_node_materializations(
         shadow=True,
         manually_triggered_by_id=user.pk,
     )
-    # The scheduled shadow guards overlap only per tier, by its fixed id, so ask Temporal about every tier.
-    running = asyncio.run(temporal.count_workflows(query=trino_runs_of_dag_query(dag_id)))
-    if running.count > 0:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
-
-    # Take the run slot before changing any state, so a run that loses the race for it changes nothing. The
-    # start is delayed so that the changes below commit before the workflow reads them.
-    try:
-        handle = asyncio.run(
-            temporal.start_workflow(
-                "data-modeling-execute-dag",
-                asdict(inputs),
-                # A fixed id makes Temporal refuse a second manual run that slipped past the count above.
-                id=manual_trino_workflow_id(dag_id),
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                start_delay=MANUAL_TRINO_RUN_START_DELAY,
-            )
+    busy = _models_building_on_trino(node.team_id, node_ids)
+    if busy:
+        raise MaterializationAlreadyRunningError(
+            TRINO_RUN_ALREADY_RUNNING_REFUSAL.format(names=", ".join(busy[:MODEL_NAMES_IN_REFUSAL]))
         )
-    except WorkflowAlreadyStartedError:
-        raise MaterializationAlreadyRunningError(TRINO_RUN_ALREADY_RUNNING_REFUSAL)
+
+    # Start before changing any state, so a run that fails to start changes nothing. The start is delayed
+    # so that the changes below commit before the workflow reads them.
+    handle = asyncio.run(
+        temporal.start_workflow(
+            "data-modeling-execute-dag",
+            asdict(inputs),
+            id=manual_trino_workflow_id(dag_id, str(uuid4())),
+            task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            start_delay=MANUAL_TRINO_RUN_START_DELAY,
+        )
+    )
 
     try:
         with transaction.atomic():
@@ -253,6 +247,24 @@ def run_trino_node_materializations(
         asyncio.run(handle.terminate("Could not prepare the models for the run"))
         raise
     return sorted(node_ids)
+
+
+def _models_building_on_trino(team_id: int, node_ids: set[str]) -> list[str]:
+    """Names of the given nodes' models that have a Trino build running now, sorted.
+
+    A row older than the longest Trino run is left over from a crashed worker, so it doesn't count.
+    """
+    return sorted(
+        set(
+            DataModelingJob.objects.filter(
+                team_id=team_id,
+                engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+                status=DataModelingJobStatus.RUNNING,
+                created_at__gte=timezone.now() - TRINO_SHADOW_RUN_TIMEOUT,
+                saved_query__in=Node.objects.filter(team_id=team_id, id__in=node_ids).values("saved_query_id"),
+            ).values_list("saved_query__name", flat=True)
+        )
+    )
 
 
 def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:

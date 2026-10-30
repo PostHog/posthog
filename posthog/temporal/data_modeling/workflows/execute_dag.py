@@ -77,18 +77,12 @@ def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     return f"execute-dag-trino-{dag_id}"
 
 
-def manual_trino_workflow_id(dag_id: str) -> str:
-    """The fixed id of a Trino run that a person starts by hand.
+def manual_trino_workflow_id(dag_id: str, run_id: str) -> str:
+    """The id of a Trino run that a person starts by hand.
 
-    It shares the `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one
-    visibility query finds every Trino run of the DAG.
+    Each manual run gets its own id, because runs that build different models can run side by side.
     """
-    return f"execute-dag-trino-{dag_id}-manual"
-
-
-def trino_runs_of_dag_query(dag_id: str) -> str:
-    prefix = f"execute-dag-trino-{dag_id}"
-    return f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" AND ExecutionStatus = "Running"'
+    return f"execute-dag-trino-{dag_id}-manual-{run_id}"
 
 
 async def _kill_switch_child_limit(team_id: int) -> int:

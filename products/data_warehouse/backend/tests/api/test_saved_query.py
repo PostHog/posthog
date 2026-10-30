@@ -18,7 +18,6 @@ from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -2952,7 +2951,6 @@ class TestSavedQueryRun(APIBaseTest):
         node.save()
         mock_eligible.return_value = True
         mock_client = AsyncMock()
-        mock_client.count_workflows.return_value = mock.Mock(count=0)
         mock_sync_connect.return_value = mock_client
         body: dict[str, Any] = {"engine": "trino"}
         if direction:
@@ -2973,9 +2971,8 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertTrue(inputs["managed_warehouse_only"])
         self.assertTrue(inputs["shadow"])
         self.assertEqual(inputs["manually_triggered_by_id"], self.user.pk)
-        self.assertEqual(call.kwargs["id"], f"execute-dag-trino-{dag.id}-manual")
+        self.assertTrue(call.kwargs["id"].startswith(f"execute-dag-trino-{dag.id}-manual-"))
         self.assertGreater(call.kwargs["start_delay"], timedelta(0))
-        self.assertIn(f"execute-dag-trino-{dag.id}", mock_client.count_workflows.call_args.kwargs["query"])
         node.refresh_from_db()
         self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
@@ -3000,7 +2997,6 @@ class TestSavedQueryRun(APIBaseTest):
         saved_query, _dag, _node = self._make_saved_query_with_node("restricted_view")
         mock_eligible.return_value = True
         mock_client = AsyncMock()
-        mock_client.count_workflows.return_value = mock.Mock(count=0)
         mock_sync_connect.return_value = mock_client
 
         with patch(
@@ -3015,20 +3011,37 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 403, response.content)
         mock_client.start_workflow.assert_not_called()
 
-    @parameterized.expand([("another_run_listed", 1, False), ("start_races_a_manual_run", 0, True)])
+    @parameterized.expand(
+        [
+            # The preempt step would cancel the running build, so the selected model blocks the run.
+            ("selected_model_building", "busy_view", 0, 409),
+            # A build of a model outside the selection doesn't stop this one.
+            ("other_model_building", "other_view", 0, 200),
+            # A row older than the longest Trino run was left by a crashed worker.
+            ("stale_row", "busy_view", 30, 200),
+        ]
+    )
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_on_trino_while_a_trino_run_is_in_progress_conflicts(
-        self, _name, running_count, start_conflicts, mock_sync_connect, mock_eligible
+    def test_run_on_trino_conflicts_only_with_builds_of_the_selected_models(
+        self, _name, building_view, row_age_hours, expected_status, mock_sync_connect, mock_eligible
     ):
-        saved_query, _dag, node = self._make_saved_query_with_node("busy_view")
+        saved_query, dag, node = self._make_saved_query_with_node("busy_view")
+        other_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="other_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=other_saved_query, type=NodeType.VIEW)
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query if building_view == "busy_view" else other_saved_query,
+            status=DataModelingJob.Status.RUNNING,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=row_age_hours))
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
         node.save()
         mock_eligible.return_value = True
         mock_client = AsyncMock()
-        mock_client.count_workflows.return_value = mock.Mock(count=running_count)
-        if start_conflicts:
-            mock_client.start_workflow.side_effect = WorkflowAlreadyStartedError("id", "data-modeling-execute-dag")
         mock_sync_connect.return_value = mock_client
 
         response = self.client.post(
@@ -3036,11 +3049,16 @@ class TestSavedQueryRun(APIBaseTest):
             {"engine": "trino", "full_refresh": True},
         )
 
-        self.assertEqual(response.status_code, 409, response.content)
-        self.assertEqual(mock_client.start_workflow.call_count, 1 if start_conflicts else 0)
-        # A refused run must leave the model as it found it, even when the refusal came after the changes.
+        self.assertEqual(response.status_code, expected_status, response.content)
         node.refresh_from_db()
-        self.assertIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+        if expected_status == 409:
+            self.assertIn("busy_view", response.json()["detail"])
+            mock_client.start_workflow.assert_not_called()
+            # A refused run must leave the model as it found it.
+            self.assertIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+        else:
+            mock_client.start_workflow.assert_called_once()
+            self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
