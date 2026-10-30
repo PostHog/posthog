@@ -25,7 +25,7 @@ PRs with no frontend or user-facing impact should explain why screenshots do not
 
 Use device screenshots or available device tooling, such as Argent or Device Hub, with the physical device selected explicitly.
 Simulator, emulator, and web screenshots are useful during development but do not satisfy the physical-device requirement.
-A recording may supplement the screenshot pairs to show an interaction; it does not replace them.
+A recording may supplement the screenshot pairs to show an interaction.
 Before uploading screenshots, read the [repository PR guidance](../../AGENTS.md#pr-descriptions) for public asset requirements.
 Use demo or invented data.
 
