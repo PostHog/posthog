@@ -21,6 +21,8 @@ export interface PiControl {
   setModel(model: ModelChoice): Promise<void>;
   // The run's own slash commands: extension commands, prompt templates and skills.
   commands(): Promise<RunCommand[]>;
+  // Stops the agent's current turn.
+  abort(): Promise<void>;
 }
 
 export interface RunCommand {
@@ -72,6 +74,7 @@ export function piControl(
     setModel: async (model) => {
       await client.setModel(model.provider, model.id);
     },
+    abort: () => client.abort(),
     commands: async () =>
       (await client.getCommands()).map(({ name, description }) => ({
         name,
