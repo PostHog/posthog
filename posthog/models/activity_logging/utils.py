@@ -389,6 +389,18 @@ class ActivityLogVisibilityManager:
 activity_visibility_manager = ActivityLogVisibilityManager()
 
 
+def is_uncached_reverse_one_to_one(field: Any, *instances: models.Model | None) -> bool:
+    """True for a reverse one-to-one that no instance holds in its cache.
+
+    Each side then reads the same related row with its own query, so the two values cannot differ.
+    """
+    return (
+        field.one_to_one
+        and not field.concrete
+        and not any(instance is not None and field.is_cached(instance) for instance in instances)
+    )
+
+
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:
     """
     Get the fields that have changed on a model.
@@ -418,6 +430,9 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
 
         # Skip deferred fields to avoid triggering DB refresh which would lose pending changes
         if field.name in before_deferred or field.name in after_deferred:
+            continue
+
+        if is_uncached_reverse_one_to_one(field, before_update, after_update):
             continue
 
         if hasattr(before_update, field.name) and hasattr(after_update, field.name):
