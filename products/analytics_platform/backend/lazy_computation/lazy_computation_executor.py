@@ -747,6 +747,13 @@ def get_daily_windows(start: datetime, end: datetime) -> list[tuple[datetime, da
     """
     windows = []
 
+    # Windows are UTC days, so a team-local bound must become UTC before its date is taken. Otherwise the
+    # edge hours of a local day fall into UTC windows that are never built or served.
+    if start.tzinfo is not None:
+        start = start.astimezone(UTC)
+    if end.tzinfo is not None:
+        end = end.astimezone(UTC)
+
     # Normalize to start of day in UTC
     current = datetime(start.year, start.month, start.day, tzinfo=UTC)
     end_normalized = datetime(end.year, end.month, end.day, tzinfo=UTC)
