@@ -7,7 +7,11 @@ from django.db.models import F
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    AccessSource,
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -150,7 +154,7 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         raise WorkflowNotFound() from None
 
 
-_SHARED_ACCESS_SOURCES = frozenset({"creator", "org_admin", "object"})
+_OWNER_ACCESS_SOURCES = frozenset({AccessSource.CREATOR, AccessSource.ORGANIZATION_ADMIN})
 
 
 def may_act_for_workflow_owner(*, team_id: int, workflow_id: UUID, user_access_control: UserAccessControl) -> bool:
@@ -158,9 +162,14 @@ def may_act_for_workflow_owner(*, team_id: int, workflow_id: UUID, user_access_c
         flow = HogFlow.objects.only("id", "team_id", "created_by_id").get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
-    resolved = user_access_control.resolve_most_specific_object_access(flow)
-    shared = resolved is not None and resolved.source in _SHARED_ACCESS_SOURCES
-    return shared and user_access_control.check_access_level_for_object(flow, "editor")
+    if user_access_control.get_access_source_for_object(flow, "hog_flow") in _OWNER_ACCESS_SOURCES:
+        return True
+    shared_level = user_access_control.access_level_for_object(flow, "hog_flow", specific_only=True)
+    return (
+        shared_level is not None
+        and access_level_satisfied_for_resource("hog_flow", shared_level, "editor")
+        and user_access_control.check_access_level_for_object(flow, "editor")
+    )
 
 
 def get_workflow_static_cohort_ids(*, team_id: int, workflow_id: UUID) -> set[int]:

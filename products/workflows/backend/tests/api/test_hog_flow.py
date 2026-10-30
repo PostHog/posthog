@@ -8558,44 +8558,58 @@ class TestT3CodeStepOwnership(APIBaseTest):
             ],
         )
 
+    _RULES: dict[str, list[tuple[bool, bool, str]]] = {
+        "shared_editor": [(True, True, "editor")],
+        "shared_with_everyone": [(True, False, "editor")],
+        "workflow_viewer_and_editor_of_all_workflows": [(True, True, "viewer"), (False, True, "editor")],
+        "everyone_viewer_and_editor_of_all_workflows": [(True, False, "viewer"), (False, False, "editor")],
+    }
+
     def _log_in_as(self, who: str) -> User:
         if who == "owner":
             return self.owner
         level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
         teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
-        if who in ("shared_editor", "shared_with_everyone"):
+        membership = OrganizationMembership.objects.get(user=teammate)
+        for on_this_workflow, for_them, access_level in self._RULES.get(who, []):
             AccessControl.objects.create(
                 team=self.team,
                 resource="hog_flow",
-                resource_id=str(self.flow.id),
-                organization_member=(
-                    OrganizationMembership.objects.get(user=teammate) if who == "shared_editor" else None
-                ),
-                access_level="editor",
+                resource_id=str(self.flow.id) if on_this_workflow else None,
+                organization_member=membership if for_them else None,
+                access_level=access_level,
             )
         self.client.force_login(teammate)
         return teammate
 
     @parameterized.expand(
         [
-            ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
-            ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
-            ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_200_OK),
-            ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
-            ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
-            ("teammate", {"status": "archived"}, status.HTTP_200_OK),
+            (who, change, expected, most_specific)
+            for who, change, expected in [
+                ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
+                ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
+                ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
+                ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+                ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+                ("workflow_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+                ("everyone_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+                ("teammate", {"status": "archived"}, status.HTTP_200_OK),
+            ]
+            for most_specific in (True, False)
         ]
     )
     def test_only_the_owner_or_someone_they_share_with_can_change_it(
-        self, who: str, change: dict, expected: int
+        self, who: str, change: dict, expected: int, most_specific: bool
     ) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
         self._log_in_as(who)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", change, format="json")
 
         assert response.status_code == expected, response.json()
         if expected == status.HTTP_403_FORBIDDEN:
-            assert "T3 Code step" in response.json()["detail"]
+            assert HogFlow.objects.get(id=self.flow.id).name == "Fix signup errors"
 
     @parameterized.expand(
         [
