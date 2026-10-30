@@ -4,6 +4,7 @@ import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, canRun, openActions } from "../actions";
 import type { ChatView } from "../chatView";
 import type { Composer } from "../composer";
+import { faint } from "../faint";
 import {
   type CloudRuns,
   emptyRunView,
@@ -117,7 +118,10 @@ export function Pane({
   });
   const run = task?.latest_run;
 
-  const composerLines = width > 0 ? composer.render(width, focused) : [];
+  // Panes without focus fade back, so the eye lands on the one being typed into.
+  const shade = (line: string): string => (focused ? line : faint(line));
+  const composerLines =
+    width > 0 ? composer.render(width, focused).map(shade) : [];
   const offer = openActions(lines);
   useEffect(() => {
     onOffer(offer);
@@ -143,7 +147,7 @@ export function Pane({
     content = (
       <>
         {(width > 0 && chatHeight > 0
-          ? chat.render(width, chatHeight)
+          ? chat.render(width, chatHeight).map(shade)
           : []
         ).map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
@@ -177,7 +181,7 @@ export function Pane({
               <Text
                 key={`${offer.id}:${action.label}`}
                 wrap="truncate-end"
-                dimColor={!canRun(action)}
+                dimColor={!focused || !canRun(action)}
               >
                 {selected ? "› " : "  "}
                 <Text inverse={selected}>{action.label}</Text>
