@@ -207,16 +207,33 @@ test('lost submission response retains staged IDs and rerunning the workflow can
     assert.equal(receipt.state, 'claimed')
     assert.equal(receipt.staged.builds.length, 2)
     assert.equal(f.state().pointer, null)
+    const state = f.state()
+    state.extraReleases = Array.from({ length: 100 }, (_, index) => ({
+        id: index + 100,
+        tag_name: `example-release-${index}`,
+        draft: false,
+        body: '{}',
+    }))
+    writeFileSync(f.stateFile, JSON.stringify(state))
+    const effectsBefore = state.commands.filter(({ tool }) => tool === 'eas').length
     const retry = f.invoke(['publish'])
     assert.notEqual(retry.status, 0)
     assert.match(retry.stderr, /already claimed/)
     assert.equal(f.state().submissions.length, 1)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
     f.addRequest('native-150', 'native', null, '1.5.0')
     const bypass = f.invoke(['publish'], { MOBILE_FAKE_VERSION: '1.5.0' })
     assert.notEqual(bypass.status, 0)
     assert.match(bypass.stderr, /sharing this predecessor/)
     assert.equal(f.state().submissions.length, 1)
     assert.equal(f.state().releases['mobile-release/native-150'], undefined)
+    const duplicate = f.state()
+    duplicate.extraReleases.push({ ...duplicate.releases['mobile-release/native-140'], id: 1000 })
+    writeFileSync(f.stateFile, JSON.stringify(duplicate))
+    const ambiguous = f.invoke(['publish'])
+    assert.notEqual(ambiguous.status, 0)
+    assert.match(ambiguous.stderr, /Multiple GitHub receipts/)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
 })
 
 test('plan uses actual git additions and PR validation rejects unchanged native versions before claiming', (t) => {
