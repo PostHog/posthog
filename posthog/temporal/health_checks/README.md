@@ -230,7 +230,8 @@ Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
-The `get_team_id_page` activity returns an empty page, and the workflow completes with `total_teams: 0`.
+The `get_team_id_page` activity returns a page marked `stopped_by_kill_switch`, also in the middle of a run.
+The workflow then stops and sends no metrics, so the last-run timestamp still shows the last run that checked every team.
 
 ## Admin UI
 

@@ -62,6 +62,9 @@ class HealthCheckWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
+            if page.stopped_by_kill_switch:
+                # The run sends no metrics, so monitoring still shows the last run that checked every team.
+                return {"kind": inputs.kind, "total_teams": progress.totals.batch_size, "stopped_by_kill_switch": True}
             batches = [
                 page.team_ids[start : start + inputs.batch_size]
                 for start in range(0, len(page.team_ids), inputs.batch_size)

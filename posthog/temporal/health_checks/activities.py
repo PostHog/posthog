@@ -107,7 +107,7 @@ def build_team_id_page(inputs: HealthCheckWorkflowInputs, after_team_id: int) ->
             kind=inputs.kind,
             kill_switch_level=kill_switch_level.value,
         )
-        return TeamIdPage(team_ids=[], next_after_team_id=None)
+        return TeamIdPage(team_ids=[], next_after_team_id=None, stopped_by_kill_switch=True)
 
     page_size = team_id_page_size(inputs.batch_size)
     team_ids = _next_team_ids(inputs, after_team_id, page_size)

@@ -75,6 +75,7 @@ class HealthCheckRunProgress:
 class TeamIdPage:
     team_ids: list[int]
     next_after_team_id: int | None
+    stopped_by_kill_switch: bool = False
 
 
 @dataclass(frozen=True)
