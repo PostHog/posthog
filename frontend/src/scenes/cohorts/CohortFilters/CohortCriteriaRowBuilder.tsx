@@ -8,7 +8,11 @@ import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import {
+    eventsWithMoveNotice,
+    moveAnnouncementUrl,
+    readsFlagCallsFromFlagEvaluations,
+} from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -75,7 +79,7 @@ export function CohortCriteriaRowBuilder({
         (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
             moveNoticeEvents.includes(String(criteria.seq_event)))
     // Without the rewrite, the batch calculation reads every flag-call criterion from events.
-    const flagCallsReadFromFlagEvaluations = useFeatureFlag('HOGQL_FLAG_CALLS_FROM_FLAG_EVALUATIONS')
+    const flagCallsReadFromFlagEvaluations = readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
     const flagCallProblem =
         namesMovingEvent && flagCallsReadFromFlagEvaluations ? flagCallCriterionProblem(criteria) : null
     const showsMoveNotice = namesMovingEvent && (!flagCallsReadFromFlagEvaluations || flagCallProblem !== null)
