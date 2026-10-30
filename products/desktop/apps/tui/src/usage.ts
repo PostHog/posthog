@@ -74,22 +74,19 @@ export function donut(fill: ContextFill): string {
   return tint(percent, DONUT[Math.round(percent / 25)]);
 }
 
-// The composer's corner: the context donut, then the task's cost so far, or a note that the user's own plan pays.
-// A zero cost is usually spend not attributed yet, so it stays hidden like an unknown one.
+// The composer's corner: the context donut, then the task's cost so far ($0.00 until spend is attributed), or the user's own plan that pays instead.
 // Background shells come first, as the agent's own status line names them, such as "2 shells · 1 monitor".
 export function usageStatus(
   fill: ContextFill | null,
-  costUsd: number | "plan" | null,
+  costUsd: number | { plan: string } | null,
   shells?: string,
 ): string {
   const cost =
-    costUsd === "plan"
-      ? "using sub"
-      : costUsd !== null && costUsd > 0
-        ? formatCostUsd(costUsd)
-        : null;
+    typeof costUsd === "object" && costUsd !== null
+      ? costUsd.plan
+      : formatCostUsd(costUsd ?? 0);
   // The cost is faint like the rule it sits on; only the donut's colour should catch the eye.
-  const faint = cost ? `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m` : "";
+  const faint = `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m`;
   const usage = `${fill ? donut(fill) : ""}${faint}`;
   if (!shells) return usage;
   return `\u001b[2m${shells}${usage ? " • " : ""}\u001b[22m${usage}`;

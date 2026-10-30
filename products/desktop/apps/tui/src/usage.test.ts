@@ -86,15 +86,15 @@ describe("contextFill", () => {
 
 describe("usageStatus", () => {
   it.each([
-    [null, null, ""],
-    [null, 0, ""],
-    [{ tokens: 10, window: 100 }, 0, "○"],
-    [{ tokens: 0, window: 100 }, null, "○"],
+    [null, null, "$0.00"],
+    [null, 0, "$0.00"],
+    [{ tokens: 10, window: 100 }, 0, "○ • $0.00"],
+    [{ tokens: 0, window: 100 }, null, "○ • $0.00"],
     [{ tokens: 50, window: 100 }, 3.12, "◑ • $3.12"],
     [{ tokens: 100, window: 100 }, 0.001, "● • <$0.01"],
     [null, 12, "$12.00"],
-    [{ tokens: 50, window: 100 }, "plan" as const, "◑ • using sub"],
-    [null, "plan" as const, "using sub"],
+    [{ tokens: 50, window: 100 }, { plan: "Claude Max" }, "◑ • Claude Max"],
+    [null, { plan: "ChatGPT Plus" }, "ChatGPT Plus"],
   ])("draws %o and %o as %s", (fill, cost, expected) => {
     expect(stripTerminalSequences(usageStatus(fill, cost))).toBe(expected);
   });

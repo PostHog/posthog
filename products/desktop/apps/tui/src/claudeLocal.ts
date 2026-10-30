@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
@@ -24,6 +27,24 @@ type Choice = { value: string; name: string };
 type ConfigOptions = Awaited<
   ReturnType<AgentService["startSession"]>
 >["configOptions"];
+
+const capitalised = (word: string): string =>
+  word.charAt(0).toUpperCase() + word.slice(1);
+
+// The plan Claude Code is signed in on ("Claude Max"), from its account file; "Claude plan" when that says nothing.
+export function claudePlan(
+  path: string = join(homedir(), ".claude.json"),
+): string {
+  try {
+    const { oauthAccount } = JSON.parse(readFileSync(path, "utf8")) as {
+      oauthAccount?: { organizationType?: string };
+    };
+    const tier = oauthAccount?.organizationType?.replace(/^claude_/, "");
+    return tier ? `Claude ${capitalised(tier)}` : "Claude plan";
+  } catch {
+    return "Claude plan";
+  }
+}
 
 const NOT_ON_CLAUDE = "Not available on a Claude Code chat";
 const unavailable = (): Promise<never> =>

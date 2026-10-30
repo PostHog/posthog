@@ -499,7 +499,7 @@ describe("App", () => {
       // With no notice, the row is kept blank, so a notice never moves the chat.
       await vi.waitFor(() => {
         const rows = stripTerminalSequences(output()).split("\n");
-        const rule = rows.findLastIndex((row) => /│ ─+ │/.test(row));
+        const rule = rows.findLastIndex((row) => /│ ─+ \$0\.00 │/.test(row));
         expect(rows[rule - 2]).toContain("Loading chat");
         expect(rows[rule - 1].split("│")[1].trim()).toBe("");
       });
@@ -535,7 +535,7 @@ describe("App", () => {
         const end = rows.findLastIndex((row) => row.includes("forbidden"));
         expect(rows[end - 1]).toContain("Couldn't rename this chat: │");
         expect(rows[end]).toContain("forbidden │");
-        expect(rows[end + 1]).toMatch(/│ ─+ │/);
+        expect(rows[end + 1]).toMatch(/│ ─+ \$0\.00 │/);
         expect(rows[end + 2]).toContain("^N new");
       });
       // The latest frames draw the old name again.

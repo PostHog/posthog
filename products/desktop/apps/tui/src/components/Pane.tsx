@@ -3,7 +3,9 @@ import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
+import { chatgptPlan } from "../chatgpt";
 import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
+import { claudePlan } from "../claudeLocal";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
 import type { LocalAgent } from "../local";
@@ -299,16 +301,28 @@ export function Pane({
   const access = run?.state as
     | { claude_model_access?: string; codex_model_access?: string }
     | undefined;
+  // Which of the user's own plans pays for this chat, if any: a local Claude Code chat is the ACP one.
   const onPlan = local
     ? local.plan
-    : access?.claude_model_access === "own-subscription" ||
-      access?.codex_model_access === "own-subscription";
+      ? local.runtime === "acp"
+        ? "claude"
+        : "chatgpt"
+      : null
+    : access?.claude_model_access === "own-subscription"
+      ? "claude"
+      : access?.codex_model_access === "own-subscription"
+        ? "chatgpt"
+        : null;
   const spent = useTaskCost(
     runs,
     onPlan ? null : paneTaskId,
     transcript.turnOpen,
   );
-  const cost = onPlan ? "plan" : spent;
+  const plan = useMemo(
+    () => (onPlan === "claude" ? claudePlan() : chatgptPlan()),
+    [onPlan],
+  );
+  const cost = onPlan ? { plan } : spent;
   // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
