@@ -17,6 +17,7 @@ from semantic_version.base import SimpleSpec
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from posthog.enums import LabeledStrEnum
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
@@ -324,7 +325,7 @@ class PluginLogEntrySource(StrEnum):
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(StrEnum):
+class PluginLogEntryType(LabeledStrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"
@@ -591,7 +592,8 @@ def count_plugin_log_entries(
         search=search,
         type_filter=type_filter,
     )
-    rows = cast(list, sync_execute(f"SELECT count() FROM plugin_log_entries WHERE {where}", clickhouse_kwargs))
+    clickhouse_query = f"SELECT count() FROM plugin_log_entries WHERE {where}"
+    rows = cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
     return int(rows[0][0])
 
 

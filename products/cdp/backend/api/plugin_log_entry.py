@@ -32,7 +32,7 @@ class PluginLogEntryRequestSerializer(serializers.Serializer):
     before = serializers.DateTimeField(required=False, help_text="Only return entries before this ISO 8601 timestamp.")
     search = serializers.CharField(required=False, help_text="Case-insensitive substring search across log messages.")
     type_filter = serializers.ListField(
-        child=serializers.ChoiceField(choices=[entry_type.name for entry_type in PluginLogEntryType]),
+        child=serializers.ChoiceField(choices=PluginLogEntryType.choices),
         required=False,
         help_text="Log types to include. Repeat the parameter to include more than one type.",
     )
