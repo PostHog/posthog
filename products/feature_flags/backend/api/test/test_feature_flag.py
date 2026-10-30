@@ -15128,9 +15128,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             created_by=self.user,
             version=1,
         )
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         create_person(team=self.team, distinct_ids=["test-user"])
 
         delete_response = self.client.patch(
@@ -15181,9 +15179,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             created_by=self.user,
             version=1,
         )
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         create_person(team=self.team, distinct_ids=["test-user"])
 
         delete_response = self.client.patch(
