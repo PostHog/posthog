@@ -55,6 +55,11 @@ function Row({
           <Text bold> PostHog</Text>
         </Text>
       );
+    case "section":
+      return <Text bold>{row.label}</Text>;
+    case "gap":
+      // Ink gives an empty string no height, so the gap carries a space.
+      return <Text> </Text>;
     case "workspace":
       return (
         <Text wrap="truncate-end">

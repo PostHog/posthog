@@ -5,7 +5,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 
 ## What it does
 
-- Sidebar: Tasks and Work lists with run status dots, workspace groups drawn as a tree, and keyboard or mouse selection.
+- Sidebar: split workspaces drawn as trees, each followed by a gap, then an All tasks list with run status dots, and keyboard or mouse selection.
 - Search: a full-screen search over your tasks, each with its sidebar status and when it was last active.
 - Panes: tmux-like splits, nested splits, focus by key or click, and a header with where the chat runs, its repo, its PR and its status.
 - Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one, and a pane shows a new run's first message, start-up state and failure reason.
