@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -21,6 +20,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
+from posthog.temporal.ai_observability.judge_images import JudgeImages
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
@@ -141,6 +141,18 @@ class TestFormatSessionForJudge:
         # the caller must skip the session instead of judging a partial transcript.
         traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
         assert format_session_for_judge(traces) is None
+
+    def test_numbers_an_image_once_across_the_session(self):
+        image = {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"}}
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(2)]
+        for trace in traces:
+            trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+
+        rendered = format_session_for_judge(traces, JudgeImages(team_id=1).marker)
+
+        assert rendered is not None
+        assert rendered.count("[image 1]") == 2
+        assert "[image 2]" not in rendered
 
     def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
         """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.
@@ -293,14 +305,6 @@ class TestRunHogEvalOverRecentSessions:
 
 
 class TestFetchSessionForEvaluation:
-    @pytest.fixture(autouse=True)
-    def unrestricted_project_defaults(self) -> Iterator[None]:
-        with patch(
-            "posthog.temporal.ai_observability.run_session_evaluation.get_restricted_properties_with_group_type_index_for_team",
-            return_value=set(),
-        ):
-            yield
-
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
         user = Mock()
         with (
@@ -598,7 +602,7 @@ class TestExecuteSessionActivities:
             "session_too_large",
             "session_payload_too_large",
             "session_truncated",
-            "property_access_restricted",
+            "session_has_no_traces",
         ],
     )
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
@@ -640,7 +644,7 @@ class TestExecuteSessionActivities:
             )
 
     @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
-    @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
+    @pytest.mark.parametrize("skip_reason", ["session_truncated", "session_has_no_traces"])
     def test_judge_skips_without_judging(self, output_type: str, skip_reason: str) -> None:
         with (
             patch(
@@ -668,8 +672,7 @@ class TestExecuteSessionActivities:
         assert "score" not in result
         if output_type == "numeric":
             assert "verdict" not in result
-        if skip_reason == "property_access_restricted":
-            assert "property access rules" in result["reasoning"]
+        assert result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
 

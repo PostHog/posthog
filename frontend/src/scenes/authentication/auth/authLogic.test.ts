@@ -161,6 +161,16 @@ describe('authLogic', () => {
             authLogic.actions.backToEmail()
             await expectLogic(signupLogic).toMatchValues({ passkeyRegistered: false })
         })
+
+        it('opens the next password field without the error a failed login submit left behind', async () => {
+            loginLogic.actions.submitLogin()
+            await expectLogic(loginLogic).toDispatchActions(['submitLoginFailure'])
+
+            expect(loginLogic.values.loginErrors.password).toBeTruthy()
+
+            authLogic.actions.backToEmail()
+            await expectLogic(loginLogic).toMatchValues({ loginErrors: {} })
+        })
     })
 
     describe('funnel events', () => {

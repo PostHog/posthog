@@ -19,6 +19,7 @@ const check = (
 const finding = (severity: HealthPanelFinding['severity']): HealthPanelFinding => ({
     code: 'no_metric',
     subcode: null,
+    reason: null,
     severity,
     title: 'No metrics defined',
     detail: '',

@@ -62,6 +62,10 @@
             "anyOf": [
                 {
                     "properties": {
+                        "include_media": {
+                            "description": "Set to false to judge text only.",
+                            "type": "boolean"
+                        },
                         "judge_method": {
                             "anyOf": [
                                 {
@@ -78,6 +82,18 @@
                             "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                             "minLength": 1,
                             "type": "string"
+                        },
+                        "reasoning_level": {
+                            "anyOf": [
+                                {
+                                    "enum": ["minimal", "low", "medium", "high"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
                         }
                     },
                     "required": ["prompt"],

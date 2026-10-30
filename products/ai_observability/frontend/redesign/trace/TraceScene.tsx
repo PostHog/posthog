@@ -4,6 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
+import { traceExportLogic } from './traceExportLogic'
 import { FeedbackEntry, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
@@ -36,7 +37,7 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
->
+> & { traceExportLoading: boolean }
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -45,6 +46,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    exportTrace: () => void
     showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
@@ -61,7 +63,10 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         return null
     }
     return {
-        header: values.header,
+        header: {
+            ...values.header,
+            exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
+        },
         summary: {
             ...values.summary,
             clusters: values.clustersChip,
@@ -119,7 +124,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
 
 export function TraceScene(): JSX.Element {
     const { traceId, dateRange } = useValues(aiObservabilityTraceLogic)
-    const logic = traceViewAdapterLogic({ traceId, timestampHint: dateRange?.dateFrom ?? null })
+    const logicProps = { traceId, timestampHint: dateRange?.dateFrom ?? null }
+    const logic = traceViewAdapterLogic(logicProps)
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
         status,
@@ -155,6 +161,9 @@ export function TraceScene(): JSX.Element {
         selectedStepFeedback,
     } = useValues(logic)
     const actions = useActions(logic)
+    const exportLogic = traceExportLogic(logicProps)
+    const { traceExportLoading } = useValues(exportLogic)
+    const { exportTrace } = useActions(exportLogic)
 
     const readyProps =
         status === 'ready'
@@ -188,8 +197,9 @@ export function TraceScene(): JSX.Element {
                       feedbackCountByNodeId,
                       feedbackMode,
                       selectedStepFeedback,
+                      traceExportLoading,
                   },
-                  actions
+                  { ...actions, exportTrace }
               )
             : null
 

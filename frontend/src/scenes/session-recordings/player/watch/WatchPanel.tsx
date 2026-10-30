@@ -11,7 +11,6 @@ import { MomentTicker } from './MomentTicker'
 import { RecordingCommentsList } from './RecordingCommentsList'
 import { RecordingDebugSection } from './RecordingDebugSection'
 import { RecordingOverviewDisclosure } from './RecordingOverviewDisclosure'
-import { RecordingSections } from './RecordingSections'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
 
 export function WatchPanel({
@@ -31,13 +30,12 @@ export function WatchPanel({
         <div className="flex flex-col gap-4 px-1 pt-3 pb-6" data-attr="watch-panel">
             <DebugModeBanner />
             {vision && <MomentTicker sessionId={sessionRecordingId} />}
-            <RecordingTitleBlock />
-            <RecordingOverviewDisclosure
+            <RecordingTitleBlock
                 actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
             />
+            <RecordingOverviewDisclosure />
             <RecordingCommentsList sessionId={sessionRecordingId} />
             {debugMode && watchDebugDock === 'bottom' && <RecordingDebugSection />}
-            <RecordingSections />
         </div>
     )
 }

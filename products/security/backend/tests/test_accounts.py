@@ -53,12 +53,18 @@ class TestAccounts(BaseTest):
         self._user("farmbot@example.com")
         self._user("farm.bot+3@example.com", active=False)
         self._user("x@sub.throwaway.example")
+        self._user("y@sub\u3002throwaway\uff0eexample")
+        self._user("z@throw\u200baway.example")
+        self._user("w@notthrowaway.example")
+        self._user("farm\u200bbot@example\u3002com")
+        self._user("farm\uff0ebot+9@example.com")
+        self._user("d\u3002o.t@gmail\uff0ecom")
         self._user("d.o.t+x@googlemail.com")
-        assert count_active_accounts("email_root", "farm.bot@example.com").count == 1
-        assert count_active_accounts("email", "farmbot@example.com").count == 1
-        assert count_active_accounts("email_domain", "throwaway.example").count == 1
-        assert count_active_accounts("email_root", "dot@gmail.com").count == 1
-        assert count_active_accounts("email_pattern", "farm.bot+*@example.com").count == 1
+        assert count_active_accounts("email_root", "farm.bot@example.com").count == 2
+        assert count_active_accounts("email", "farmbot@example.com").count == 2
+        assert count_active_accounts("email_domain", "throwaway.example").count == 3
+        assert count_active_accounts("email_root", "dot@gmail.com").count == 2
+        assert count_active_accounts("email_pattern", "farm.bot+*@example.com").count == 2
         assert count_active_accounts("email_pattern", "far.*@*").count == 0
         assert count_active_accounts("email_pattern", "*@*").count == 0
 
