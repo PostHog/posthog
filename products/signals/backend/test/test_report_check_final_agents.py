@@ -176,9 +176,10 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             ("finished", "completed", "window_ended"),
             ("stale_run", "in_progress", "window_ended"),
             ("old_attempt", "in_progress", "window_ended"),
-            ("missing_attempt", "in_progress", "window_ended"),
+            ("missing_attempt", "in_progress", "paused"),
+            ("outside_attempt", "in_progress", "paused"),
             ("malformed_assignment", "in_progress", "window_ended"),
-            ("changed_definition", "in_progress", "window_ended"),
+            ("changed_definition", "in_progress", "paused"),
             ("submitted", "in_progress", "window_ended"),
             ("retry_backoff", "completed", "window_ended"),
             ("archived", "in_progress", "archived"),
@@ -191,15 +192,24 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
                 created_at=self.now - timedelta(seconds=STALE_RUN_CUTOFF_S)
             )
         elif case == "old_attempt":
-            run.metadata["run_note"] = build_monitoring_run_note(replace(self.binding, attempt_id=uuid4()), self.check)
+            run.metadata = {
+                "triggered_by": TRIGGERED_BY_MONITORING,
+                "run_note": build_monitoring_run_note(replace(self.binding, attempt_id=uuid4()), self.check),
+            }
             run.save(update_fields=["metadata"])
         elif case == "changed_definition":
             self.check.title = "A revised expectation"
             self.check.save(update_fields=["title"])
         elif case == "missing_attempt":
             self.attempt.delete()
+        elif case == "outside_attempt":
+            self.check.id = uuid4()
+            self.check.save(force_insert=True)
         elif case == "malformed_assignment":
-            run.metadata["run_note"] = f"Invalid assignment for report {self.report.id}"
+            run.metadata = {
+                "triggered_by": TRIGGERED_BY_MONITORING,
+                "run_note": f"Invalid assignment for report {self.report.id}",
+            }
             run.save(update_fields=["metadata"])
         elif case == "submitted":
             submit_monitoring_scout_result(
@@ -214,7 +224,9 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         self.check.report = self.report
         context = {"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now}
 
-        expected_queries = {"archived": 0, "missing_attempt": 1}.get(case, 4)
+        expected_queries = {"archived": 0, "missing_attempt": 1, "outside_attempt": 1, "changed_definition": 1}.get(
+            case, 4
+        )
         with self.assertNumQueries(expected_queries):
             data = SignalReportCheckSerializer([self.check, self.check], many=True, context=context).data
 

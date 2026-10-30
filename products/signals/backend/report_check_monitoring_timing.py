@@ -11,12 +11,12 @@ from posthog.dataclasses import frozen
 from products.signals.backend.models import SignalReportMonitoringResult, SignalScoutRun
 from products.signals.backend.report_check_final_agents import MonitoringScoutCheck, _monitoring_binding_for_run
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON, monitoring_window_end
-from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_attempts import check_definition_version
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 
 if TYPE_CHECKING:
-    from products.signals.backend.models import SignalReport, SignalReportCheck
+    from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringAttempt
 
 
 class MonitoringCheckTimingState(TextChoices):
@@ -41,10 +41,9 @@ class MonitoringCheckTiming:
     next_measurement_at: datetime | None = None
 
     @classmethod
-    def running_verifications(cls, report: SignalReport, *, now: datetime) -> dict[UUID, MonitoringScoutCheck]:
-        attempt = current_monitoring_attempt(report)
-        if attempt is None:
-            return {}
+    def running_verifications(
+        cls, report: SignalReport, *, now: datetime, attempt: SignalReportMonitoringAttempt
+    ) -> dict[UUID, MonitoringScoutCheck]:
         submitted = SignalReportMonitoringResult.objects.for_team(report.team_id).filter(attempt_id=attempt.id)
         submitted_ids = set(submitted.values_list("submission_id", flat=True))
         runs = (
@@ -81,8 +80,17 @@ class MonitoringCheckTiming:
         now: datetime,
         start: datetime,
         end: datetime,
+        attempt: SignalReportMonitoringAttempt | None,
         verification: MonitoringScoutCheck | None,
     ) -> MonitoringCheckTimingState:
+        version = check_definition_version(check)
+        if (
+            attempt is None
+            or attempt.report_id != check.report_id
+            or attempt.monitoring_started_at != start
+            or attempt.check_versions.get(str(check.id)) != version
+        ):
+            return MonitoringCheckTimingState.PAUSED
         if now < end:
             return MonitoringCheckTimingState.MONITORING
         if (
@@ -90,14 +98,19 @@ class MonitoringCheckTiming:
             and verification.check_id == check.id
             and verification.window_start == start
             and verification.window_end == end
-            and verification.definition_version == check_definition_version(check)
+            and verification.definition_version == version
         ):
             return MonitoringCheckTimingState.VERIFYING
         return MonitoringCheckTimingState.WINDOW_ENDED
 
     @classmethod
     def for_check(
-        cls, check: SignalReportCheck, *, now: datetime, verification: MonitoringScoutCheck | None = None
+        cls,
+        check: SignalReportCheck,
+        *,
+        now: datetime,
+        attempt: SignalReportMonitoringAttempt | None = None,
+        verification: MonitoringScoutCheck | None = None,
     ) -> MonitoringCheckTiming | None:
         report = check.report
         archived = (
@@ -117,7 +130,7 @@ class MonitoringCheckTiming:
         elif start is None or end is None:
             state = MonitoringCheckTimingState.UNAVAILABLE
         elif check.kind == check.Kind.AGENT:
-            state = cls._agent_state(check, now=now, start=start, end=end, verification=verification)
+            state = cls._agent_state(check, now=now, start=start, end=end, attempt=attempt, verification=verification)
         elif check.expires_at <= now or now >= start + MAX_CHECK_HORIZON:
             state = MonitoringCheckTimingState.EXPIRY_REACHED
         elif check.kind != check.Kind.METRIC_THRESHOLD or not check.config.get("monitoring"):
