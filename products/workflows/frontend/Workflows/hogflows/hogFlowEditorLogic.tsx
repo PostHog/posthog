@@ -253,6 +253,7 @@ export type OutputMappingSuggestion = {
 
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
+    beta?: boolean
     output_variable?: HogFlowAction['output_variable']
     on_error?: HogFlowAction['on_error']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined

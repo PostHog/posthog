@@ -17,7 +17,7 @@ import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
-import { destinationStep, isBetaStep, isPickableDestination, workflowStepSections } from '../workflowStepCatalog'
+import { destinationStep, isPickableDestination, workflowStepSections } from '../workflowStepCatalog'
 
 function HogFlowEditorToolbarNode({
     action,
@@ -201,7 +201,7 @@ export function HogFlowEditorPanelBuild({
                             action={action}
                             onActionSelect={onActionSelect}
                         >
-                            {isBetaStep(action) ? (
+                            {action.beta ? (
                                 <span className="inline-flex items-center gap-1.5">
                                     {action.name}
                                     <LemonTag type="completion">Beta</LemonTag>

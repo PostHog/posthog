@@ -169,6 +169,7 @@ _BUILT_IN_STEP_TEMPLATE_IDS = frozenset(
         "template-slack",
         "template-webhook",
         "template-posthog-create-task",
+        "template-t3-code",
         "template-posthog-run-scout",
         "template-posthog-classify",
         "template-posthog-replay-vision",

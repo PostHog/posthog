@@ -16,12 +16,15 @@ let failureReasons := {
   '401': 'T3 Code rejected the signature. Use the same signing secret here and on the T3 Code task.',
   '404': 'T3 Code has no task at this webhook URL. Copy the current URL from the task in T3 Code.',
   '409': 'The T3 Code task is turned off. Turn it on in T3 Code.',
-  '410': 'T3 Code skipped the request because it was too old for the task.',
+  '410': 'T3 Code skipped the request because it was too old for the task. Raise the maximum delivery age on the T3 Code task.',
   '413': 'The request is larger than the 1 MB T3 Code accepts. Send less in the payload.',
-  '429': 'T3 Code is limiting requests to this task. A task takes up to 60 requests a minute and 20 queued runs.'
+  '429': 'T3 Code is limiting requests to this task. Add a delay or a condition before this step so it sends fewer requests.'
 }
 
 let payload := inputs.payload ?? {}
+if (typeof(payload) != 'object') {
+  payload := {'data': payload}
+}
 if (not empty(inputs.instructions)) {
   payload.instructions := inputs.instructions
 }
@@ -57,7 +60,7 @@ return res.body
             required: true,
             templating: false,
             description:
-                'The URL of a T3 Code scheduled task that runs on webhook. Copy it from the task in T3 Code under Settings > Scheduled tasks.',
+                'The URL of a T3 Code scheduled task that runs on webhook. Copy it from the task in T3 Code under Settings > Scheduled tasks. Set the replay key of the task to {{headers.x-posthog-delivery-id}}, so a retried request does not start a second run.',
         },
         {
             key: 'instructions',
@@ -76,7 +79,7 @@ return res.body
             required: false,
             default: { event: '{event}', person: '{person}' },
             description:
-                "Data sent in the request body. The T3 Code task's prompt reads it with placeholders such as {{body.event.event}} or {{body.person.properties.email}}.",
+                "Data sent in the request body. The T3 Code task's prompt reads it with placeholders such as {{body.event.event}} or {{body.person.properties.email}}. Data that is not an object is sent as data.",
         },
         {
             key: 'signing_secret',

@@ -1,6 +1,9 @@
 import { createHmac } from 'node:crypto'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersFetchSchema,
+    CyclotronInvocationQueueParametersFetchType,
+} from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
@@ -29,7 +32,10 @@ describe('t3 code template', () => {
     }> => {
         const response = await tester.invoke(stepInputs)
         expect(response.error).toBeUndefined()
-        return { invocation: response.invocation, params: response.invocation.queueParameters as any }
+        return {
+            invocation: response.invocation,
+            params: CyclotronInvocationQueueParametersFetchSchema.parse(response.invocation.queueParameters),
+        }
     }
 
     it('posts the instructions, event and person to the webhook URL', async () => {
@@ -45,6 +51,18 @@ describe('t3 code template', () => {
             instructions: 'Find out why example@posthog.com saw a checkout error',
             event: { event: 'event-name', distinct_id: 'distinct-id' },
             person: { id: 'person-id', properties: { email: 'example@posthog.com' } },
+        })
+    })
+
+    it.each([
+        ['a list', ['first', 'second']],
+        ['a string', 'checkout failed'],
+    ])('sends data that is %s next to the instructions', async (_, data) => {
+        const { params } = await stagedRequest({ ...inputs, payload: data })
+
+        expect(parseJSON(params.body!)).toEqual({
+            data,
+            instructions: 'Find out why example@posthog.com saw a checkout error',
         })
     })
 
@@ -70,9 +88,9 @@ describe('t3 code template', () => {
         [401, 'invalid_signature', 'T3 Code rejected the signature'],
         [404, 'hook_not_found', 'T3 Code has no task at this webhook URL'],
         [409, 'hook_disabled', 'The T3 Code task is turned off'],
-        [410, 'delivery_too_old', 'T3 Code skipped the request because it was too old'],
+        [410, 'delivery_too_old', 'Raise the maximum delivery age on the T3 Code task'],
         [413, 'body_too_large', 'The request is larger than the 1 MB T3 Code accepts'],
-        [429, 'rate_limited', 'T3 Code is limiting requests to this task'],
+        [429, 'rate_limited', 'Add a delay or a condition before this step'],
         [500, 'internal_error', 'T3 Code could not start the task'],
     ])('fails a %s reply with a message that says what to fix', async (status, error, message) => {
         const { invocation } = await stagedRequest(inputs)

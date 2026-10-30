@@ -65,6 +65,7 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'task', result_path: null, label: 'Task' },
+    beta: true,
 }
 
 const T3_CODE_ACTION_NODE: CreateActionType = {
@@ -72,6 +73,7 @@ const T3_CODE_ACTION_NODE: CreateActionType = {
     name: 'T3 Code',
     description: 'Start a T3 Code agent run with instructions and data from this workflow.',
     config: { template_id: 'template-t3-code', inputs: {} },
+    beta: true,
 }
 
 const RUN_SCOUT_ACTION_NODE: CreateActionType = {
@@ -250,13 +252,6 @@ function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] 
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_ADD_TO_STATIC_COHORT_ACTION] ? [ADD_TO_STATIC_COHORT_ACTION_NODE] : []),
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION] ? [OPT_OUT_OF_MESSAGES_ACTION_NODE] : []),
     ]
-}
-
-const BETA_TEMPLATE_IDS = new Set(['template-posthog-create-task', 'template-t3-code'])
-
-export function isBetaStep(step: CreateActionType): boolean {
-    const templateId = templateIdOf(step)
-    return !!templateId && BETA_TEMPLATE_IDS.has(templateId)
 }
 
 /** A warehouse-triggered workflow has no person, so it offers no step that needs one. */
