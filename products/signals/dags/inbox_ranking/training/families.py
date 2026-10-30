@@ -66,7 +66,6 @@ Grain = Literal["report", "pair"]
 PAIR_VIEWER_HEAD_NAMES = ("open", "action")
 # The report heads whose own label goes to every pair of the report. No person is credited with it.
 PAIR_BROADCAST_HEAD_NAMES = ("fixed",)
-# The heads a pair-grain family can declare.
 PAIR_HEAD_NAMES = (*PAIR_VIEWER_HEAD_NAMES, *PAIR_BROADCAST_HEAD_NAMES)
 PAIR_TRAINING = PairTrainingConfig()
 

@@ -98,7 +98,6 @@ class TrainedNetwork:
     vector_kinds: tuple[str, ...]
     # The user-history kinds the graphs take, empty for a network without a `user` input.
     user_vector_kinds: tuple[str, ...] = ()
-    # Only a pair network fit with a `PairTrainingConfig` has one.
     pair_fit: PairFitRecord | None = None
 
 

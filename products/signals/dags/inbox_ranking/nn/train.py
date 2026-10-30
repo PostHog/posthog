@@ -49,7 +49,6 @@ class PairFit:
 
 @frozen
 class _FitRows:
-    # The rows the network fits on.
     fit: np.ndarray
     # The rows early stopping reads, empty without a `PairFit`.
     validation: np.ndarray

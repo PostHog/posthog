@@ -145,7 +145,6 @@ def promotion_event(
 _DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
 
 
-# What a pair event grades: the personal score, or the cold score at report grain (`cold_path`).
 PERSONAL_GRADE = "personal"
 COLD_PATH_GRADE = "cold_path"
 

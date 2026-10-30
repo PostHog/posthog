@@ -360,10 +360,8 @@ def test_a_broadcast_head_takes_its_reports_own_label_and_weighs_one_per_report(
     np.testing.assert_allclose(table.labels[by_report == "a", 2], [1.0, 1.0, 1.0])
     assert np.isnan(table.labels[by_report == "b", 2]).all()
     np.testing.assert_allclose(table.labels[:, 0], [1.0, 0.0, 0.0, 1.0])
-    # Report a's three pairs share its one unit of weight in `fixed`; every per-viewer pair weighs one.
     assert table.weights[by_report == "a", 2].sum() == pytest.approx(1.0)
     np.testing.assert_array_equal(table.weights[:, :2], np.ones((4, 2)))
-    # The broadcast head reads the report's own holdout, the per-viewer heads the pair's.
     np.testing.assert_array_equal(table.holdout[:, 2], [True, True, True, False])
     assert not table.holdout[:, :2].any()
     assert pair_example_table(pairs, reports, ("open", "action")).weights is None

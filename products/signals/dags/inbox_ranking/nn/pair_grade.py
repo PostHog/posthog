@@ -205,7 +205,6 @@ class _ReportRows:
 
     # The report's first pair row, for its `report_team_id`.
     frame: pd.DataFrame
-    # The report's broadcast outcome.
     outcomes: np.ndarray
     # Per arm and seed, the mean score over the report's pairs; None for an arm without scores.
     scores: dict[str, list[np.ndarray] | None]
