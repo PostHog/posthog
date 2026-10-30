@@ -334,6 +334,26 @@ impl DeltaLiteTable {
         Ok(out.into())
     }
 
+    /// Whole-table column statistics folded from the live files' Add actions, as a one-row
+    /// pyarrow `RecordBatch`: `num_files`, `num_records` and, per column the log has
+    /// statistics for, `null_count.<col>` plus `min.<col>` and `max.<col>` in the column's
+    /// own type, the names and types `DeltaTable.get_add_actions(flatten=True)` reports.
+    /// `columns` restricts the fold; None folds every such column. The fold walks the loaded
+    /// snapshot one file at a time, so memory stays per column however many files the table
+    /// has, and nothing per file crosses into Python.
+    #[pyo3(signature = (columns = None))]
+    fn add_action_stats(
+        &self,
+        py: Python<'_>,
+        columns: Option<Vec<String>>,
+    ) -> PyResult<Py<PyAny>> {
+        let handle = &self.handle;
+        let batch = py
+            .detach(|| handle.add_action_stats(columns.as_deref()))
+            .map_err(to_py_err)?;
+        Ok(batch.to_pyarrow(py)?.into())
+    }
+
     /// Re-read the log so this handle observes commits made elsewhere. Incremental --
     /// only commits newer than the loaded version are read -- with a full re-open
     /// fallback when the log is not reachable forward from the loaded state.
