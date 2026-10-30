@@ -11,7 +11,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
 from django.db.models import Exists, Q
-from django.dispatch import receiver
+from django.dispatch import Signal, receiver
 from django.utils import timezone
 
 import structlog
@@ -42,6 +42,9 @@ if TYPE_CHECKING:
     # This model loads at django.setup() in every process; the pydantic schema is
     # runtime-imported in the accessors that materialize it.
     from posthog.models.oauth_provisioning import PartnerTier, ProvisioningConfig
+
+
+oauth_session_revoked = Signal()
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -847,6 +850,7 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+            oauth_session_revoked.send(sender=OAuthApplication, user_id=user.pk, application_id=application.pk)
 
 
 def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
@@ -927,6 +931,13 @@ def revoke_oauth_token_session(
                 Q(access_token=access_token) | Q(pk=access_token.source_refresh_token_id), revoked__isnull=True
             ).update(revoked=now)
             access_token.delete()
+            if access_token.user_id is not None and access_token.application_id is not None:
+                oauth_session_revoked.send(
+                    sender=OAuthApplication,
+                    user_id=access_token.user_id,
+                    application_id=access_token.application_id,
+                    all_sessions=False,
+                )
     elif refresh_token:
         if _refresh_token_may_have_untracked_access_tokens(refresh_token):
             # A leaked non-rotating refresh token can have minted any number of access
@@ -945,6 +956,13 @@ def revoke_oauth_token_session(
             OAuthAccessToken.objects.filter(
                 Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
             ).delete()
+            if refresh_token.user_id is not None and refresh_token.application_id is not None:
+                oauth_session_revoked.send(
+                    sender=OAuthApplication,
+                    user_id=refresh_token.user_id,
+                    application_id=refresh_token.application_id,
+                    all_sessions=False,
+                )
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
@@ -973,6 +991,7 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthGrant.objects.filter(application=application).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
+        oauth_session_revoked.send(sender=OAuthApplication, user_id=None, application_id=application.pk)
 
 
 def generate_random_token_cimd_verification() -> str:

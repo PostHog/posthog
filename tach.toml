@@ -150,6 +150,7 @@ depends_on = [
     "products.visual_review",
     "products.warehouse_suggestions",
     "products.mcp_analytics",
+    "products.mcp_events",
     "products.mcp_registry",
     "products.web_analytics",
     "products.wizard",
@@ -1897,4 +1898,24 @@ expose = [
 ]
 from = [
     "products.authorization",
+]
+
+[[modules]]
+path = "products.mcp_events"
+depends_on = [
+    "posthog",
+    # Managed destinations, filter compilation and action access checks.
+    "products.cdp",
+    # Property restrictions and object access for the subscribing user.
+    "products.access_control",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.mcp_events",
 ]

@@ -885,3 +885,38 @@ A `schema.json` integration into the codegen pipeline is planned.
   Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
   flow correctly through the type pipeline.
   See [`.agents/skills/improving-drf-endpoints/SKILL.md`](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
+
+## MCP event subscriptions
+
+Captured-event subscriptions use `posthog.event_captured` with an explicit `project_id` and the existing real-time destination filters.
+The `mcp-events` feature flag gates the project subscription API at `/api/projects/:id/mcp_event_subscriptions/`.
+Its preview endpoint validates filters and returns up to five matching events from the past seven days.
+Filters must work both as real-time destination filters and as HogQL preview queries, so setup rejects runtime-only functions such as `typeof`.
+
+The `mcp_events` product owns subscriptions. Each subscription creates one Hog function through the CDP facade with `managed_by="mcp_events"`.
+The public Hog function API hides these functions and refuses to change them.
+The fixed Hog program checks the subscription deadline, removes event properties the subscriber cannot read, measures the UTF-8 body size, and rejects bodies larger than 256 KiB before calling `fetch`.
+The generic fetch deadline also prevents a queued attempt or retry from starting after expiry.
+The CDP worker signs each attempt with Standard Webhooks headers from the client's `whsec_` secret, which is stored as an encrypted input.
+There is no per-delivery call back to Django.
+
+Subscription identity includes the authenticated principal, callback URL, event name, and canonical filter arguments.
+OAuth token refresh keeps the same principal when the user and application are unchanged.
+Subscription management requires a direct OAuth access token or personal API key. Short-lived delegated tokens are rejected.
+Django verifies the HTTPS callback challenge before activation, using DNS-pinned HTTP with a ten-second deadline and an 8 KiB response limit.
+The granted lifetime is at most 24 hours and never outlives the OAuth access token or personal API key.
+Activation rechecks the current credential and filter access after callback verification, using the same subscriber lock as revocation.
+A sweep every five minutes disables expired subscriptions and clears their secret inputs. Delivery deadline checks do not depend on that sweep.
+
+Access changes act through signal receivers in `products/mcp_events/backend/signals.py`:
+
+- Deleting, rolling, or narrowing the scopes or projects of the personal API key disables its subscriptions.
+- Removing a member or deleting or deactivating a user stops their subscriptions. Deleting a subscription also disables its destination.
+- Membership level changes refresh filter access and property redaction after the change commits.
+- Changes to object access rules, property access rules, or role membership revalidate every live subscription in the affected projects. A subscription whose filters lose action or property access is disabled. The others get a fresh snapshot of restricted properties for the Hog program to remove.
+
+Explicit OAuth disconnect and application-wide revocation stop the application's subscriptions. Ordinary token refresh preserves the subscription identity.
+The MCP product revalidates saved action and test-account filters before updating its managed destinations; CDP does not automatically recompile filters owned by another product.
+Access revalidation retries transient database failures. A reconciliation task runs every five minutes to repair missed jobs.
+Replay is unavailable: subscription results and event envelopes return `cursor: null`.
+The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).

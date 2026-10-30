@@ -90,3 +90,4 @@ products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
 products/surveys/backend/responses/test_linked.py
 products/web_analytics/backend/test/test_heatmaps_api.py
+products/mcp_events/backend/tests/test_preview.py

@@ -765,6 +765,9 @@ importers:
       '@posthog/products-mcp-analytics':
         specifier: workspace:*
         version: link:../products/mcp_analytics
+      '@posthog/products-mcp-events':
+        specifier: workspace:*
+        version: link:../products/mcp_events
       '@posthog/products-mcp-registry':
         specifier: workspace:*
         version: link:../products/mcp_registry
@@ -4351,6 +4354,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/mcp_events: {}
 
   products/mcp_registry:
     dependencies:

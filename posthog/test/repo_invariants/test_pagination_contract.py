@@ -207,6 +207,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.mcp_analytics.backend.presentation.views.MCPIntentClusterViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPMissingCapabilityViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPSessionViewSet",
+    # The facade returns counted pages in a stable order, and the subscription API tests cover a page boundary.
+    "products.mcp_events.backend.presentation.views.MCPEventSubscriptionViewSet",
     "products.mcp_registry.backend.presentation.views.MCPRegistryServerViewSet",
     "products.mcp_store.backend.presentation.agent_views.MCPGatewayAgentViewSet",
     "products.mcp_store.backend.presentation.gateway_views.MCPAuditEventViewSet",
