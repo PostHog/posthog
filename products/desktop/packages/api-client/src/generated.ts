@@ -1967,6 +1967,7 @@ export namespace Schemas {
         series_label?: (string | null) | undefined;
     };
     export type TrendsQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -3189,6 +3190,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type StickinessQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3295,6 +3297,7 @@ export namespace Schemas {
         toggledLifecycles: Array<LifecycleToggle> | null;
     }>;
     export type LifecycleQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -16364,6 +16367,10 @@ export namespace Schemas {
             date_to: string;
         }> | null;
         /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         */
+        action_names: Record<string, string> | null;
+        /**
          * What ClickHouse read for this insight's last slow run, with the findings of its query scan.
          */
         query_scan: unknown;
@@ -19193,6 +19200,10 @@ export namespace Schemas {
          * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
+        /**
+         * How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only.
+         */
+        personal_api_keys_limit: number;
     };
     export type PaginatedUserList = {
         count: number;
@@ -19393,7 +19404,23 @@ export namespace Schemas {
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
     }>;
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum =
+        | "errors"
+        | "metrics"
+        | "planned"
+        | "wrong_configuration"
+        | "other";
     export type PatchedFeatureFlagPartialUpdateRequestSchema = Partial<{
+        ask_rollback_reason: boolean;
+        rollback_reason: RollbackReasonEnum | NullEnum;
+        rollback_reason_note: string | null;
         key: string;
         name: string;
         filters: FeatureFlagFiltersSchema;
@@ -19492,6 +19519,7 @@ export namespace Schemas {
             date_from: string;
             date_to: string;
         }> | null;
+        action_names: Record<string, string> | null;
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
@@ -19981,6 +20009,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         requires_credential_review: boolean;
+        personal_api_keys_limit: number;
     }>;
     export type PersonRecord = {
         /**

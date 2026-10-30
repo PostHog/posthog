@@ -20,16 +20,19 @@ methods without a change to the callers.
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations import AuthAccessor, IntegrationNotFound, IntegrationUsage
-from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, AuthAccessor, IntegrationNotFound, IntegrationUsage
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
+    SharedCredentialsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -129,7 +132,7 @@ class WarehouseSourceCredentialsStore:
             # Opaque, so a typed-in row never takes the natural key of a row that other code writes.
             external_id=uuid4().hex,
             config={
-                WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: source_type,
+                SOURCE_MARKER_CONFIG_KEY: source_type,
                 "display_name": f"{source_type} ({source.prefix})" if source.prefix else source_type,
             },
             sensitive_config={"fields": dict(fields)},
@@ -162,10 +165,16 @@ class WarehouseSourceCredentialsStore:
         current = _fields_of(row.sensitive_config)
         # Each save of a source writes all its inputs again, so most writes change no field. Such a
         # write needs no confirmation, also when the row is shared.
-        if current is not None and _set_values(current) == _set_values(fields):
+        if current is not None and same_connection_fields(current, fields):
             return pk
         try:
-            others = _other_usages(rows, source, row.id)
+            # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
+            # edit shared: else one broken source of the kind would block every edit of every row of the kind.
+            others = [
+                usage
+                for usage in _other_usages(rows, source, row.id)
+                if usage.type != UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE
+            ]
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         if others:
@@ -180,22 +189,6 @@ class WarehouseSourceCredentialsStore:
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         return pk
-
-    @staticmethod
-    def release(source: ExternalDataSource, ref: int | str | None) -> bool:
-        """Note that the source no longer uses the row. Returns True when nothing else uses it.
-
-        The row stays, because a person may reuse it or delete it from the integrations list.
-        """
-        pk = _pk(ref)
-        rows = _accessor_or_none(source)
-        if pk is None or rows is None:
-            return False
-        try:
-            others = _other_usages(rows, source, pk)
-        except IntegrationNotFound:
-            return False
-        return not others
 
     @staticmethod
     async def aget(source: ExternalDataSource, ref: int | str | None) -> dict[str, Any] | None:
@@ -315,16 +308,18 @@ def _connection_string_identity(value: str) -> Any:
     if not value:
         return ""
     if "://" in value:
-        scheme, _, rest = value.partition("://")
-        authority, _, path = rest.partition("/")
-        userinfo, _, hosts = authority.rpartition("@")
-        return {
-            "scheme": scheme.lower(),
+        uri = urlsplit(value)
+        userinfo, _, hosts = uri.netloc.rpartition("@")
+        identity = {
+            "scheme": uri.scheme.lower(),
             "user": unquote(userinfo.partition(":")[0]),
             "hosts": hosts.lower(),
-            # The query can hold options and secrets, so only the database name of the path counts.
-            "database": path.partition("?")[0].partition("#")[0],
+            "database": uri.path.removeprefix("/"),
         }
+        if uri.scheme.lower() in ("mongodb", "mongodb+srv"):
+            options = {key.lower(): item for key, item in parse_qsl(uri.query)}
+            identity["auth_source"] = options.get("authsource", unquote(uri.path.removeprefix("/")) or "admin")
+        return identity
     # ADO.NET separates pairs with ";" and has keys with spaces ("User Id"). libpq separates with spaces.
     pairs = [pair.partition("=") for pair in (value.split(";") if ";" in value else value.split()) if "=" in pair]
     parts = {
@@ -343,6 +338,13 @@ def _normalized(value: Any) -> Any:
     if isinstance(value, list):
         return [_normalized(item) for item in value]
     return "" if value is None else str(value)
+
+
+def same_connection_fields(first: Mapping[str, Any], second: Mapping[str, Any]) -> bool:
+    """True when two sets of connection fields hold the same values. A missing key, None and a blank value
+    are equal, and `5432` equals `"5432"`, because encrypted fields store each leaf as a string. Every compare
+    of a row with `job_inputs` uses this rule, so a row that `update` does not rewrite also compares equal."""
+    return _set_values(first) == _set_values(second)
 
 
 def _set_values(fields: Mapping[str, Any]) -> dict[str, Any]:

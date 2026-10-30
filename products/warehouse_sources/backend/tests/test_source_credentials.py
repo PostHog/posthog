@@ -221,7 +221,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             WarehouseSourceCredentialsStore.create(source, {"token": "fake"})
         assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(team_id=self.team.pk).exists()
         assert WarehouseSourceCredentialsStore.get(source, 1) is None
-        assert WarehouseSourceCredentialsStore.release(source, 1) is False
 
     @parameterized.expand(
         [
@@ -408,6 +407,38 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
                 "new_row",
             ),
             (
+                "mongodb_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app?authSource=admin"},
+                "connection_string",
+                "mongodb://reader:fake-password@db.example.com/app?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_default_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app"},
+                "connection_string",
+                "mongodb://reader:fake-password@db.example.com/app?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_no_path_auth_source",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb+srv://reader:fake-password@db.example.com?authSource=admin"},
+                "connection_string",
+                "mongodb+srv://reader:fake-password@db.example.com?authSource=other",
+                "new_row",
+            ),
+            (
+                "mongodb_password",
+                ExternalDataSourceType.MONGODB,
+                {"connection_string": "mongodb://reader:fake-password@db.example.com/app?authSource=admin"},
+                "connection_string",
+                "mongodb://reader:new@db.example.com/app?authSource=admin",
+                "conflict",
+            ),
+            (
                 "pairs_password",
                 ExternalDataSourceType.MSSQL,
                 MSSQL_ADO_FIELDS,
@@ -503,47 +534,18 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             WarehouseSourceCredentialsStore.update(self._source(), ref_of(stripe_pk), PG_FIELDS)
         assert WarehouseSourceCredentialsStore.get(stripe, stripe_pk) == STRIPE_FIELDS
 
-    @parameterized.expand(
-        [
-            ("orphan", False, True),
-            ("still_used_by_another_source", True, False),
-        ]
-    )
-    def test_release_never_deletes_the_row(self, _name: str, shared: bool, orphaned: bool) -> None:
+    def test_soft_delete_keeps_the_row_and_looks_up_no_usages(self) -> None:
         source = self._source()
-        pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
-        if shared:
-            self._referencing(pk)
+        source.job_inputs = {CREDENTIALS_REFERENCE_KEY: WarehouseSourceCredentialsStore.create(source, PG_FIELDS)}
+        source.save()
 
-        assert WarehouseSourceCredentialsStore.release(source, pk) is orphaned
-        assert IntegrationManager.source("postgresql").credentials.get(self.team.id, pk).id == pk
+        with patch("products.warehouse_sources.backend.integration_usages.list_sources_using_integration") as usages:
+            source.soft_delete()
 
-    def test_release_of_a_reference_the_source_cannot_use_is_a_no_op(self) -> None:
-        source = self._source()
-        oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
-
-        assert WarehouseSourceCredentialsStore.release(source, oauth_row.id) is False
-        assert WarehouseSourceCredentialsStore.release(source, None) is False
-
-    @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception")
-    def test_soft_delete_keeps_the_row_and_survives_store_failure(self, capture: Any) -> None:
-        deleted, failing = self._source(), self._source()
-        for source in (deleted, failing):
-            source.job_inputs = {CREDENTIALS_REFERENCE_KEY: WarehouseSourceCredentialsStore.create(source, PG_FIELDS)}
-            source.save()
-
-        with patch.object(
-            WarehouseSourceCredentialsStore, "release", wraps=WarehouseSourceCredentialsStore.release
-        ) as release:
-            deleted.soft_delete()
-        release.assert_called_once()
-        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 2
-
-        with patch.object(WarehouseSourceCredentialsStore, "release", side_effect=RuntimeError("boom")):
-            failing.soft_delete()
-        failing.refresh_from_db()
-        assert failing.deleted is True
-        capture.assert_called_once()
+        usages.assert_not_called()
+        source.refresh_from_db()
+        assert source.deleted is True
+        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 1
 
     @parameterized.expand(
         [
@@ -567,28 +569,33 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("same_kind", ExternalDataSourceType.POSTGRES, True),
-            ("other_kind", ExternalDataSourceType.STRIPE, False),
+            ("same_kind", ExternalDataSourceType.POSTGRES, True, False),
+            ("other_kind", ExternalDataSourceType.STRIPE, False, False),
+            ("encrypted_pointer_same_kind", ExternalDataSourceType.POSTGRES, True, True),
+            ("encrypted_pointer_other_kind", ExternalDataSourceType.STRIPE, False, True),
         ]
     )
-    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
-        self, _name: str, broken_type: ExternalDataSourceType, counted: bool
+    def test_a_source_with_unreadable_inputs_blocks_a_delete_of_a_row_of_its_kind_but_not_an_edit(
+        self, _name: str, broken_type: ExternalDataSourceType, counted: bool, encrypted_pointer: bool
     ) -> None:
         editor = self._source()
         pk = WarehouseSourceCredentialsStore.create(editor, PG_FIELDS)
         broken = self._source(broken_type)
-        broken.job_inputs = "not json"
+        broken.job_inputs = (
+            {"auth": {CREDENTIALS_REFERENCE_KEY: Fernet(Fernet.generate_key()).encrypt(str(pk).encode()).decode()}}
+            if encrypted_pointer
+            else "not json"
+        )
         broken.save()
         new_fields = {**PG_FIELDS, "password": "new"}
 
-        if not counted:
-            assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
-            return
-        with self.assertRaises(SharedCredentialsError) as raised:
-            WarehouseSourceCredentialsStore.update(editor, pk, new_fields)
-        assert [(usage.id, usage.name) for usage in raised.exception.usages] == [
-            (str(broken.id), "unreadable source: Postgres")
-        ]
+        assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
+        assert WarehouseSourceCredentialsStore.get(editor, pk) == new_fields
+        assert IntegrationManager.any.with_source_rows().usages(self.team.id, pk) == (
+            [IntegrationUsage(type="unreadable_warehouse_source", id=str(broken.id), name="Postgres")]
+            if counted
+            else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()

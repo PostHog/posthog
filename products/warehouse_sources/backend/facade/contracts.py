@@ -36,6 +36,8 @@ UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
 # The `IntegrationUsage.type` of a warehouse source that uses an integration row.
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+# A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
+UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
 
 
 class SharedCredentialsError(Exception):

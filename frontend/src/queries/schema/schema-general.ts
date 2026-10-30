@@ -2005,6 +2005,11 @@ export interface BoxPlotDatum {
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
     /** Wether more breakdown values are available. */
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
@@ -2616,6 +2621,11 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
@@ -2971,6 +2981,11 @@ export type QueryStatus = {
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -4363,6 +4378,8 @@ export interface WebVitalsItemAction {
 export interface WebVitalsItem {
     data: number[]
     days: string[]
+    /** The index of the row's series in the query. */
+    order: integer
     action: WebVitalsItemAction
 }
 
@@ -8352,10 +8369,15 @@ export type CachedMarketingAnalyticsRetentionQueryResponse =
 
 export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
     statsTable: string
     keywordTable?: string
     placementTable?: string
     queryPageTable?: boolean
+    /** Google Ads search terms from Search campaigns. */
+    searchTermTable?: string
+    /** Google Ads search terms from Performance Max campaigns. */
+    performanceMaxSearchTermTable?: string
 }
 
 export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
@@ -8364,7 +8386,7 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     sources: MarketingAnalyticsSearchSource[]
     compareFilter?: CompareFilter
     search?: string
-    breakdown?: 'keyword' | 'page'
+    breakdown?: 'keyword' | 'page' | 'search_term'
     keyword?: string
     page?: string
     normalizePageUrls?: boolean

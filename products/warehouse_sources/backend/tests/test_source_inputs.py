@@ -6,7 +6,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -397,6 +397,77 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["password"] == "fake-password"
 
+    def test_two_writers_of_a_source_without_a_reference_make_one_row(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs=STORED_POSTGRES_INPUTS,
+        )
+        first = ExternalDataSource.objects.get(pk=source.pk)
+        second = ExternalDataSource.objects.get(pk=source.pk)
+
+        with self._flags(DUAL_WRITE_FLAG):
+            SourceInputsStore.save(first, STORED_POSTGRES_INPUTS)
+            SourceInputsStore.save(second, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        [row] = self._rows()
+        assert row.sensitive_config == {"fields": {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}}
+        assert self._stored(source)[REF] == str(row.id)
+
+    @parameterized.expand(
+        [
+            ("cleared", ExternalDataSourceType.POSTGRES, STORED_POSTGRES_INPUTS, {}),
+            (
+                "oauth_option",
+                ExternalDataSourceType.STRIPE,
+                {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}},
+                {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}},
+            ),
+        ]
+    )
+    def test_a_write_without_connection_fields_drops_the_reference(
+        self, _name: str, source_type: str, before: dict[str, Any], after: dict[str, Any]
+    ) -> None:
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create(before, source_type=source_type)
+            assert REF in SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+            SourceInputsStore.save(source, after)
+
+            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == after
+
+    def test_a_failed_flag_lookup_leaves_the_callers_transaction_usable(self) -> None:
+        with self._flags():
+            source = self._create()
+        reset_caches()
+
+        def failing_lookup(*args: Any, **kwargs: Any) -> bool:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+            return True
+
+        with patch.object(rollout, "is_team_flag_enabled", side_effect=failing_lookup), transaction.atomic():
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert self._stored(source)["password"] == "fake-rotated"
+
+    def test_a_flag_off_load_does_not_delay_the_compare(self) -> None:
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create()
+        reset_caches()
+        with self._flags():
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+        rollout._dual_write_flags.clear()
+        before = _compare_count("match")
+
+        with self._flags(DUAL_WRITE_FLAG):
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+
+        assert _compare_count("match") - before == 1
+
     def test_update_runtime_does_not_touch_the_integration(self) -> None:
         with self._flags(DUAL_WRITE_FLAG):
             source = self._create()
@@ -412,6 +483,8 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         [
             ("match", lambda source: None, "match"),
             ("missing_row", lambda source: _set_reference(source, "999999999"), "missing_row"),
+            # A parsed config writes its unset optional fields as None. The row has no such key.
+            ("optional_field_none", lambda source: _set_inputs(source, {"connection_string": None}), "match"),
             (
                 "unreadable",
                 lambda source: (
@@ -477,20 +550,22 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
 
     @parameterized.expand(
         [
-            ("both_flags_on", (DUAL_WRITE_FLAG, READ_FLAG), "integration", "fake-row-password"),
-            ("read_flag_off", (DUAL_WRITE_FLAG,), None, "fake-password"),
-            ("dual_write_flag_off", (READ_FLAG,), "fallback_dual_write_off", "fake-password"),
-            ("no_flags", (), None, "fake-password"),
+            ("both_flags_on", (DUAL_WRITE_FLAG, READ_FLAG), "fake-password", "integration"),
+            # `job_inputs` still holds the connection fields, so a row that differs from them is old.
+            ("both_flags_on_row_differs", (DUAL_WRITE_FLAG, READ_FLAG), "fake-row-password", "fallback_mismatch"),
+            ("read_flag_off", (DUAL_WRITE_FLAG,), "fake-row-password", None),
+            ("dual_write_flag_off", (READ_FLAG,), "fake-row-password", "fallback_dual_write_off"),
+            ("no_flags", (), "fake-row-password", None),
         ]
     )
-    def test_read_flag_takes_connection_fields_from_the_integration(
-        self, _name: str, flags: tuple[str, ...], expected_result: str | None, expected_password: str
+    def test_read_flag_takes_connection_fields_from_a_matching_integration(
+        self, _name: str, flags: tuple[str, ...], row_password: str, expected_result: str | None
     ) -> None:
         with self._flags(DUAL_WRITE_FLAG):
             source = self._create()
         # The row also holds `schema`, a sync setting. Settings and runtime keys always come from job_inputs.
-        _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row-password", "schema": "fake-row-schema"})
-        expected = {**STORED_POSTGRES_INPUTS, "password": expected_password, REF: _reference(source)}
+        _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": row_password, "schema": "fake-row-schema"})
+        expected = {**STORED_POSTGRES_INPUTS, REF: _reference(source)}
 
         with self._flags(*flags):
             for load in self._loads(source):
@@ -558,6 +633,22 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 reset_caches()
                 assert load() == inputs
 
+    def test_a_write_with_the_dual_write_flag_off_does_not_make_reads_return_the_old_row(self) -> None:
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            source = self._create()
+        reset_caches()
+        with self._flags(READ_FLAG):
+            SourceInputsStore.save(
+                ExternalDataSource.objects.get(pk=source.pk), {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"}
+            )
+
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            for load in self._loads(source):
+                reset_caches()
+                before = _read_count("fallback_mismatch")
+                assert load()["password"] == "fake-rotated"
+                assert _read_count("fallback_mismatch") - before == 1
+
     def test_read_falls_back_to_job_inputs_when_the_credentials_store_fails(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             source = self._create()
@@ -575,30 +666,30 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
     def test_load_many_reads_the_integration_rows_in_one_query(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             sources = [self._create() for _ in range(3)]
-            for source in sources:
-                _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row"})
             loaded_sources = list(ExternalDataSource.objects.filter(pk__in=[source.pk for source in sources]))
             SourceInputsStore.load(loaded_sources[0])
 
+            before = _read_count("integration")
             with _assert_selects(1):
                 loaded = SourceInputsStore.load_many(loaded_sources)
 
-        assert {inputs["password"] for inputs in loaded.values()} == {"fake-row"}
+        assert _read_count("integration") - before == 3
+        assert {inputs["password"] for inputs in loaded.values()} == {"fake-password"}
         assert set(loaded) == {source.id for source in sources}
 
     def test_preload_reads_the_integration_rows_once_for_later_loads(self) -> None:
         with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
             sources = [self._create() for _ in range(3)]
-            for source in sources:
-                _write_row(source, {**POSTGRES_CONNECTION_FIELDS, "password": "fake-row"})
             loaded_sources = list(ExternalDataSource.objects.filter(pk__in=[source.pk for source in sources]))
             SourceInputsStore.load(loaded_sources[0])
 
             with _assert_selects(1):
                 SourceInputsStore.preload(loaded_sources)
+            before = _read_count("integration")
             with _assert_selects(0):
                 for source in loaded_sources * 2:
-                    assert SourceInputsStore.load(source)["password"] == "fake-row"
+                    assert SourceInputsStore.load(source)["password"] == "fake-password"
+            assert _read_count("integration") - before == 6
 
             SourceInputsStore.save(loaded_sources[0], {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
             assert SourceInputsStore.load(loaded_sources[0])["password"] == "fake-rotated"
@@ -702,9 +793,13 @@ def _read_count(result: str) -> float:
 
 
 def _set_reference(source: ExternalDataSource, ref: str) -> None:
+    _set_inputs(source, {REF: ref})
+
+
+def _set_inputs(source: ExternalDataSource, changes: dict[str, Any]) -> None:
     fresh = ExternalDataSource.objects.get(pk=source.pk)
     inputs = SourceInputsStore.load(fresh)
-    ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**inputs, REF: ref})
+    ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**inputs, **changes})
 
 
 STORED_POSTGRES_SETTINGS_AND_RUNTIME: dict[str, str] = {

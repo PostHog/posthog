@@ -882,6 +882,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
         return None
 
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        # The OAuth2 row pointer of Custom is a `CustomOAuth2Integration` id.
+        return False
+
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
 

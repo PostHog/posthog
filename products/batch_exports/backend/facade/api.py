@@ -758,29 +758,26 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
 def list_batch_export_runs(
     team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
-    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``."""
+    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``.
+
+    A deleted export has no runs.
+    """
     return _import_runs().list_runs(team_id, export_id, filters, page)
 
 
-def get_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> contracts.BatchExportRunDetail:
-    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run and it matches ``filters``."""
-    return _import_runs().get_run(team_id, export_id, run_id, filters)
+def get_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> contracts.BatchExportRunDetail:
+    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run under this export, and the export is not deleted."""
+    return _import_runs().get_run(team_id, export_id, run_id)
 
 
-def retry_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> str:
+def retry_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> str:
     """Backfill a run's data interval again and return the backfill id. Raises as ``get_batch_export_run`` does."""
-    return _import_runs().retry_run(team_id, export_id, run_id, filters)
+    return _import_runs().retry_run(team_id, export_id, run_id)
 
 
-def cancel_batch_export_run(
-    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
-) -> None:
+def cancel_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> None:
     """Cancel a starting or running run. Raises ``contracts.InvalidBatchExportRunRequestError`` in any other status."""
-    _import_runs().cancel_run(team_id, export_id, run_id, filters)
+    _import_runs().cancel_run(team_id, export_id, run_id)
 
 
 def list_batch_export_backfills(

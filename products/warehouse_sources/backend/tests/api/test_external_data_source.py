@@ -25,7 +25,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import OrganizationMembership, Team
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.models.integration import ANY, ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
@@ -15384,6 +15384,15 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
 
 
 class TestExternalDataSourceReadsCredentialsFromIntegration(APIBaseTest):
+    INPUTS: dict[str, str] = {
+        "host": "db.example.com",
+        "port": "5432",
+        "database": "mydb",
+        "user": "dbuser",
+        "password": "fake-password",
+        "schema": "public",
+    }
+
     def setUp(self) -> None:
         super().setUp()
         reset_caches()
@@ -15402,62 +15411,50 @@ class TestExternalDataSourceReadsCredentialsFromIntegration(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="read_switch",
-            inputs={
-                "host": "db.example.com",
-                "port": "5432",
-                "database": "mydb",
-                "user": "dbuser",
-                "password": "fake-stale-password",
-                "schema": "public",
-            },
+            inputs=self.INPUTS,
         )
         self.reference = self.source.job_inputs[CREDENTIALS_REFERENCE_KEY]
-        # The row has a newer password than job_inputs, so each assertion shows which storage the API read.
-        WarehouseSourceCredentialsStore.update(
-            self.source,
-            self.reference,
-            {
-                "host": "db.example.com",
-                "port": "5432",
-                "database": "mydb",
-                "user": "dbuser",
-                "password": "fake-integration-password",
-            },
-        )
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_update_without_password_keeps_the_integration_password(self, _mock_validate_credentials) -> None:
+    def test_update_without_password_keeps_the_job_inputs_password_when_the_row_is_old(
+        self, _mock_validate_credentials
+    ) -> None:
+        # A write skipped the row (for example, the dual-write flag was off), so the row holds an old password.
+        connection = {key: value for key, value in self.INPUTS.items() if key != "schema"}
+        Integration.objects._with_auth(ANY).filter(id=self.reference).update(
+            sensitive_config={"fields": {**connection, "password": "fake-old-password"}}
+        )
+
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/",
             data={"job_inputs": {"schema": "analytics", "password": None}},
         )
 
         assert response.status_code == 200, response.content
-        assert "fake-integration-password" not in response.content.decode()
         self.source.refresh_from_db()
-        assert self.source.job_inputs["password"] == "fake-integration-password"
+        assert self.source.job_inputs["password"] == "fake-password"
         assert self.source.job_inputs["schema"] == "analytics"
         assert self.source.job_inputs[CREDENTIALS_REFERENCE_KEY] == str(self.reference)
         row = WarehouseSourceCredentialsStore.get(self.source, self.reference)
         assert row is not None
-        assert row["password"] == "fake-integration-password"
+        assert row["password"] == "fake-password"
 
-    def test_errors_redact_the_integration_password(self) -> None:
+    def test_errors_redact_the_password_that_reads_return(self) -> None:
         ExternalDataSchema.objects.create(
             team_id=self.team.pk,
             source=self.source,
             name="users",
-            latest_error="connection failed for password fake-integration-password",
+            latest_error="connection failed for password fake-password",
         )
 
-        assert "fake-integration-password" in get_error_redaction_values(self.source)
+        assert "fake-password" in get_error_redaction_values(self.source)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/")
 
         assert response.status_code == 200, response.content
-        assert "fake-integration-password" not in response.content.decode()
+        assert "fake-password" not in response.content.decode()
         assert response.json()["job_inputs"].get("password") is None
 
 
@@ -15547,14 +15544,35 @@ class TestSourceUpdateCredentialsRow(APIBaseTest):
         assert self._reference(source) == reference
         assert len(IntegrationManager.source("postgresql").credentials.list(self.team.pk)) == 1
 
-    def test_an_edit_can_point_the_source_at_another_usable_row(self, _validate: MagicMock) -> None:
+    @parameterized.expand([("unshared", False), ("shared", True)])
+    def test_an_edit_that_points_the_source_at_another_row_adopts_its_credentials(
+        self, _validate: MagicMock, _name: str, shared: bool
+    ) -> None:
         source = self._create(self.INPUTS)
-        other = self._create(self.INPUTS)
+        other = self._create({**self.INPUTS, "password": "fake-other"})
+        if shared:
+            self._create({**self.INPUTS, "password": "fake-other", CREDENTIALS_REFERENCE_KEY: self._reference(other)})
+        target = int(self._reference(other))
+        rows = IntegrationManager.source("postgresql").credentials
+        before = rows.get(self.team.pk, target).sensitive_config
 
-        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_KEY: self._reference(other)})
+        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_KEY: target})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert self._reference(source) == self._reference(other)
+        assert self._reference(source) == str(target)
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-other"
+        assert rows.get(self.team.pk, target).sensitive_config == before
+
+    def test_a_failed_source_save_rolls_back_the_row_write(self, _validate: MagicMock) -> None:
+        source = self._create(self.INPUTS)
+        reference = int(self._reference(source))
+
+        with patch.object(ExternalDataSource, "save", side_effect=RuntimeError("database down")):
+            response = self._patch(source, {**self.INPUTS, "password": "fake-rotated"})
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, reference)
+        assert row.sensitive_config["fields"]["password"] == "fake-password"
 
     @parameterized.expand([("other_team",), ("oauth_row",), ("missing",)])
     def test_an_edit_cannot_point_the_source_at_a_row_it_cannot_use(self, _validate: MagicMock, case: str) -> None:

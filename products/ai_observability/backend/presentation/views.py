@@ -37,6 +37,17 @@ class TraceQuerySerializer(serializers.Serializer):
         return value
 
 
+class TraceClustersQuerySerializer(serializers.Serializer):
+    created_at = serializers.DateTimeField(
+        help_text="When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read."
+    )
+
+    def validate_created_at(self, value: datetime) -> datetime:
+        if not api.is_usable_trace_start(value):
+            raise serializers.ValidationError("Trace start is out of range.")
+        return value
+
+
 class TraceSearchQuerySerializer(TraceQuerySerializer):
     q = serializers.CharField(max_length=200, help_text="The text to find in the trace's steps, ignoring case.")
 
@@ -66,7 +77,7 @@ class TraceSummaryRequestSerializer(serializers.Serializer):
 
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
-    scope_object_read_actions = ["retrieve", "node", "evaluations", "feedback", "search", "summary"]
+    scope_object_read_actions = ["retrieve", "node", "evaluations", "clusters", "feedback", "search", "summary"]
     scope_object_write_actions = ["request_summary"]
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
@@ -147,6 +158,34 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
         results = self._read(request, lambda user, _hint: api.get_trace_evaluation_results(self.team, user, trace_id))
         return Response(results.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        query_serializer=TraceClustersQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceClusters),
+            400: OpenApiResponse(description="The created_at parameter or the encoded trace id is malformed."),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_clusters_retrieve",
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="clusters",
+        required_scopes=["llm_analytics:read", "ai_observability_clusters:read"],
+    )
+    def clusters(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The clusters that list this trace, from the newest scheduled run of each clustering job that lists it."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        created_at = request.validated_query_data["created_at"]
+        clusters = self._read(
+            request, lambda user, _hint: api.get_trace_clusters(self.team, user, trace_id, created_at)
+        )
+        return Response(clusters.model_dump(mode="json", by_alias=True))
 
     @validated_request(
         query_serializer=TraceQuerySerializer,

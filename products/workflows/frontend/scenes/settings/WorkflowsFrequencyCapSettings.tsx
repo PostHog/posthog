@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -14,10 +14,18 @@ import {
     frequencyCapFieldError,
     toFrequencyCapInputValue,
 } from './frequencyCap'
+import { unsavedSettingsLogic } from './unsavedSettingsLogic'
 
 export function WorkflowsFrequencyCapSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const unsavedGuard = unsavedSettingsLogic({
+        sectionId: 'workflows-frequency-cap',
+        message: 'Leave without saving?\nThe frequency cap you entered will be discarded.',
+    })
+    // useActions alone does not mount a logic, and the guard arms on mount.
+    useMountedLogic(unsavedGuard)
+    const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -39,6 +47,10 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
     const maxMessagesError = frequencyCapFieldError(maxMessages, windowDays, MAX_FREQUENCY_CAP_MESSAGES)
     const windowDaysError = frequencyCapFieldError(windowDays, maxMessages, MAX_FREQUENCY_CAP_WINDOW_DAYS)
     const unchanged = maxMessages === savedMaxMessages && windowDays === savedWindowDays
+
+    useEffect(() => {
+        setHasUnsavedChanges(!unchanged)
+    }, [unchanged, setHasUnsavedChanges])
 
     return (
         <div className="@container">

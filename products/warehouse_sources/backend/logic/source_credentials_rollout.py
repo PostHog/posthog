@@ -23,6 +23,7 @@ and they never raise, except when the API asks for a confirmation of an edit of 
 copy fails while the team reads from the row.
 """
 
+import json
 import time
 import asyncio
 import threading
@@ -50,6 +51,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
+    same_connection_fields,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_team_flag_enabled
@@ -105,7 +107,9 @@ class _ExpiringFlags:
         if entry is not None and entry[0] > now:
             return entry[1]
         try:
-            enabled = is_team_flag_enabled(team_id, self._flag, raise_on_error=True)
+            # A savepoint: the lookup queries `Team`, and a failed query must not abort a caller's transaction.
+            with transaction.atomic():
+                enabled = is_team_flag_enabled(team_id, self._flag, raise_on_error=True)
         except Exception:
             # Not cached: a failure in one context (for example a query from an event loop thread, or a
             # flag service error) must not turn the flag off for the other callers of the process.
@@ -188,9 +192,11 @@ def mirror_connection_fields(
 ) -> dict[str, Any]:
     """Copy the connection fields of ``inputs`` to the credentials row of the source, when the flag is on.
 
-    Returns the inputs to stage: ``inputs``, with the reference to the row that now holds the fields. A
-    failure is counted and logged, and the caller continues with its `job_inputs` write. An edit of a row
-    that other objects also use follows ``shared_credentials``.
+    Returns the inputs to stage: ``inputs``, with the reference to the row that now holds the fields. When
+    ``inputs`` has no reference, the reference that the database holds for the source decides the row. A
+    failure is counted and logged, and the caller continues with its `job_inputs` write, except when the
+    team reads from the row: then the failure raises before `job_inputs` changes. An edit of a row that
+    other objects also use follows ``shared_credentials``.
     """
     staged = dict(inputs)
     source.__dict__.pop(_PRELOADED_ROW_ATTR, None)
@@ -211,13 +217,13 @@ def mirror_connection_fields(
         # An OAuth connection, for example a select set to its OAuth option. The OAuth row holds the secret.
         return staged
     try:
-        # A savepoint, so a failed copy leaves a caller's transaction usable. The source row is locked before
-        # the credentials row, in the order that `soft_delete` takes them, so a concurrent delete cannot deadlock.
+        # A savepoint, so a failed copy leaves a caller's transaction usable. The source lock serializes the
+        # copies of one source. The caller's instance can be older than the stored inputs (another writer made
+        # the row after the caller read the source), so the stored reference is read under the lock.
         with transaction.atomic():
-            ExternalDataSource._base_manager.select_for_update().filter(
-                pk=source.pk, team_id=source.team_id
-            ).values_list("pk").first()
-            outcome, pk = _write_row(source, staged.get(CREDENTIALS_REFERENCE_KEY), connection, shared_credentials)
+            ref = staged.get(CREDENTIALS_REFERENCE_KEY)
+            stored_ref = _locked_stored_reference(source)
+            outcome, pk = _write_row(source, stored_ref if ref is None else ref, connection, shared_credentials)
     except SharedCredentialsError:
         if shared_credentials == SharedCredentialsEdit.REFUSE:
             raise
@@ -235,6 +241,23 @@ def mirror_connection_fields(
     staged[CREDENTIALS_REFERENCE_KEY] = pk
     DUAL_WRITE_COUNTER.labels(outcome=outcome).inc()
     return staged
+
+
+def _locked_stored_reference(source: ExternalDataSource) -> Any:
+    """Lock the source row and return the reference that its stored inputs hold, or None."""
+    stored = (
+        ExternalDataSource._base_manager.select_for_update()
+        .filter(pk=source.pk, team_id=source.team_id)
+        .values_list("job_inputs", flat=True)
+        .first()
+    )
+    if isinstance(stored, str):
+        # Inputs stored as one JSON string. See `SourceInputsStore.stored_as_string`.
+        try:
+            stored = json.loads(stored)
+        except ValueError:
+            return None
+    return stored.get(CREDENTIALS_REFERENCE_KEY) if isinstance(stored, Mapping) else None
 
 
 def _write_row(
@@ -589,6 +612,10 @@ def _merge(
     connection = {
         key: value for key, value in _split(source.source_type, stored).connection.items() if key not in kept_elsewhere
     }
+    if split.connection and not same_connection_fields(split.connection, connection):
+        # `job_inputs` still holds the connection fields, and a write can skip the row (the dual-write flag
+        # was off, a shared row, an event loop thread). The row is then old, so the read keeps `job_inputs`.
+        return "fallback_mismatch", inputs
     return "integration", merge_job_inputs(
         SplitJobInputs(
             connection=connection,
@@ -643,7 +670,8 @@ def _due_for_compare(source: ExternalDataSource) -> bool:
     # A deferred field loads with one more query per source. The compare must not add queries to a read.
     if {"team_id", "source_type"} & source.get_deferred_fields():
         return False
-    return _compare_schedule.claim(source.id) and dual_write_enabled(source.team_id)
+    # The flag goes first, so only flag-on sources take a place in the schedule.
+    return dual_write_enabled(source.team_id) and _compare_schedule.claim(source.id)
 
 
 def _count_compare(
@@ -655,7 +683,7 @@ def _count_compare(
         result = "missing_row"
     elif isinstance(stored, CredentialsUnreadable):
         result = "unreadable"
-    elif _comparable(connection) != _comparable(stored):
+    elif not same_connection_fields(connection, stored):
         result = "field_mismatch"
     else:
         result = "match"
@@ -686,23 +714,12 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
 
 def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     """True when two connection field mappings hold the same stored values."""
-    return bool(_comparable(left) == _comparable(right))
+    return same_connection_fields(left, right)
 
 
 def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The connection fields of ``inputs``, which a credentials row holds."""
     return _connection_fields(source_type, inputs)
-
-
-def _comparable(value: Any) -> Any:
-    # EncryptedJSONField stores each leaf as a string, so `5432` and `"5432"` are the same stored value.
-    if isinstance(value, Mapping):
-        return {str(key): _comparable(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_comparable(item) for item in value]
-    if value is None:
-        return None
-    return str(value)
 
 
 def _in_event_loop() -> bool:
@@ -733,3 +750,21 @@ def requested_credentials_reference(
     if not WarehouseSourceCredentialsStore.usable_by(source, requested):
         raise UnusableCredentialsReferenceError(f"Source {source.id} cannot use credentials {requested!r}")
     return requested
+
+
+def with_credentials_of(source: ExternalDataSource, inputs: Mapping[str, Any], ref: Any) -> dict[str, Any]:
+    """``inputs`` with the connection fields of the row that ``ref`` points at, in place of their own.
+
+    A source that an edit points at another row adopts the credentials of that row. The connection
+    fields of the edit never go to the row, so the other users of the row keep their connection. Raises
+    `UnusableCredentialsReferenceError` when the row does not exist or cannot be read.
+    """
+    try:
+        fields = WarehouseSourceCredentialsStore.get(source, ref)
+    except CredentialsUnreadableError as error:
+        raise UnusableCredentialsReferenceError(f"Credentials {ref!r} of source {source.id} are unreadable") from error
+    if fields is None:
+        raise UnusableCredentialsReferenceError(f"Source {source.id} cannot use credentials {ref!r}")
+    own = _connection_fields(source.source_type, inputs)
+    kept = {key: value for key, value in inputs.items() if key not in own}
+    return {**kept, **fields, CREDENTIALS_REFERENCE_KEY: ref}

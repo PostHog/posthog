@@ -5804,9 +5804,16 @@ export namespace Schemas {
       series_label?: string | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type TrendsQueryResponseActionNames = {[key: string]: string} | null;
+
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: TrendsQueryResponseActionNames;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -6925,9 +6932,16 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type StickinessQueryResponseActionNames = {[key: string]: string} | null;
+
     export type StickinessQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface StickinessQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: StickinessQueryResponseActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -7050,9 +7064,16 @@ export namespace Schemas {
       toggledLifecycles?: LifecycleToggle[] | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type LifecycleQueryResponseActionNames = {[key: string]: string} | null;
+
     export type LifecycleQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface LifecycleQueryResponse {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: LifecycleQueryResponseActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -11253,6 +11274,12 @@ export namespace Schemas {
     } | null;
 
     /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type InsightActionNames = {[key: string]: string} | null;
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface Insight {
@@ -11351,6 +11378,11 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: InsightActionNames;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -20035,6 +20067,7 @@ export namespace Schemas {
     export const Breakdown1 = {
       Keyword: 'keyword',
       Page: 'page',
+      SearchTerm: 'search_term',
     } as const;
 
     /**
@@ -61294,9 +61327,14 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      /** Google Ads search terms from Performance Max campaigns. */
+      performanceMaxSearchTermTable?: string | null;
       placementTable?: string | null;
       queryPageTable?: boolean | null;
+      /** Google Ads search terms from Search campaigns. */
+      searchTermTable?: string | null;
       sourceType: SourceType;
+      /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
       statsTable: string;
     }
 
@@ -83490,6 +83528,8 @@ export namespace Schemas {
       readonly pending_invites: readonly PendingInvite[];
       /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
+      /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+      readonly personal_api_keys_limit: number;
     }
 
     export interface PaginatedUserList {
@@ -88035,7 +88075,41 @@ export namespace Schemas {
       readonly connection_warning?: string | null;
     }
 
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
+
+
+    export const RollbackReasonEnum = {
+      Errors: 'errors',
+      Metrics: 'metrics',
+      Planned: 'planned',
+      WrongConfiguration: 'wrong_configuration',
+      Other: 'other',
+    } as const;
+
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
+      /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+      ask_rollback_reason?: boolean;
+      /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+       *
+       * * `errors` - Errors or bugs
+       * * `metrics` - Metrics got worse
+       * * `planned` - It was planned
+       * * `wrong_configuration` - Wrong configuration
+       * * `other` - Other */
+      rollback_reason?: RollbackReasonEnum | null;
+      /**
+         * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+         * @maxLength 1000
+         * @nullable
+         */
+      rollback_reason_note?: string | null;
       /** Feature flag key. */
       key?: string;
       /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -88815,6 +88889,12 @@ export namespace Schemas {
     } | null;
 
     /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type PatchedInsightActionNames = {[key: string]: string} | null;
+
+    /**
      * Simplified serializer to speed response times when loading large amounts of objects.
      */
     export interface PatchedInsight {
@@ -88913,6 +88993,11 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names?: PatchedInsightActionNames;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -94504,6 +94589,8 @@ export namespace Schemas {
       readonly pending_invites?: readonly PendingInvite[];
       /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
+      /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+      readonly personal_api_keys_limit?: number;
     }
 
     export interface PinnedAccountProperty {
@@ -101413,9 +101500,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type QueryResponseAlternative60ActionNames = {[key: string]: string} | null;
+
     export type QueryResponseAlternative60ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative60 {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: QueryResponseAlternative60ActionNames;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -101530,9 +101624,16 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+     */
+    export type QueryResponseAlternative65ActionNames = {[key: string]: string} | null;
+
     export type QueryResponseAlternative65ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative65 {
+      /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+      action_names?: QueryResponseAlternative65ActionNames;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -121576,6 +121677,27 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export interface TraceCluster {
+      /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+      runId: string;
+      /** When the run finished. */
+      runAt: string;
+      /** The clustering job the run belongs to, null for a run without a job. */
+      jobId: string | null;
+      jobName: string | null;
+      /** The cluster's id within its run. -1 is the run's outliers. */
+      clusterId: number;
+      title: string | null;
+      description: string | null;
+      /** The trace fit no cluster in this run. */
+      isOutlier: boolean;
+    }
+
+    export interface TraceClusters {
+      /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+      clusters: TraceCluster[];
+    }
+
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
 
 
@@ -130190,6 +130312,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string;
     };
 
     export type AiObservabilityTracesFeedbackRetrieveParams = {
