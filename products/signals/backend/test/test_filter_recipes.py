@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 
 from django.test import SimpleTestCase
 
@@ -9,9 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
     DatabaseField,
-    FloatArrayDatabaseField,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -19,6 +16,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
@@ -27,7 +25,7 @@ from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 
 
-def catalog_bundle(field_type: str = "string", kind: str = "json_path", missing: str = "null") -> CatalogBundle:
+def catalog_bundle(field_type: str = "string", kind: str = "json_path", missing: str | None = None) -> CatalogBundle:
     recipe: dict[str, object] = {"kind": kind, "column": "payload"}
     if kind == "json_path":
         recipe["path"] = ["value"]
@@ -42,7 +40,11 @@ def catalog_bundle(field_type: str = "string", kind: str = "json_path", missing:
                     "type": field_type,
                     "description": "Synthetic value.",
                     "binding": recipe,
-                    "missing_value": missing,
+                    "missing_value": missing
+                    if missing is not None
+                    else "empty_array"
+                    if field_type.startswith("array<")
+                    else "null",
                     "malformed_value": "error",
                 }
             ],
@@ -51,23 +53,38 @@ def catalog_bundle(field_type: str = "string", kind: str = "json_path", missing:
     )
 
 
-def bindings(field_type: str = "string", kind: str = "json_path", missing: str = "null") -> WarehouseFilterBindings:
+def bindings(
+    field_type: str = "string", kind: str = "json_path", missing: str | None = None
+) -> WarehouseFilterBindings:
     column: DatabaseField = (
         IntegerDatabaseField(name="payload")
         if kind == "column" and field_type == "integer"
         else StringDatabaseField(name="payload")
     )
-    return WarehouseFilterBindings(catalog_bundle(field_type, kind, missing), {"payload": column})
+    return WarehouseFilterBindings(
+        catalog_bundle(field_type, kind, missing), {"payload": column}, source_alias="source"
+    )
 
 
 class TestFilterRecipeValidation(SimpleTestCase):
+    @parameterized.expand(
+        ["boolean", "number", "datetime", "array<integer>", "array<number>", "array<boolean>", "array<string>"]
+    )
+    def test_rejects_unsupported_catalog_configuration(self, field_type: str) -> None:
+        with self.assertRaises(FilterValidationError) as raised:
+            bindings(field_type, missing="null")
+        self.assertEqual(
+            raised.exception.code,
+            "unsupported_missing_value" if field_type == "array<string>" else "unsupported_field_type",
+        )
+
     def test_rejects_incompatible_columns_before_querying(self) -> None:
         bundle = catalog_bundle()
         with self.assertRaises(FilterValidationError) as raised:
-            WarehouseFilterBindings(bundle, {})
+            WarehouseFilterBindings(bundle, {}, source_alias="source")
         self.assertEqual(raised.exception.code, "missing_column")
         with self.assertRaises(FilterValidationError) as raised:
-            WarehouseFilterBindings(bundle, {"payload": IntegerDatabaseField(name="payload")})
+            WarehouseFilterBindings(bundle, {"payload": IntegerDatabaseField(name="payload")}, source_alias="source")
         self.assertEqual(raised.exception.code, "column_type")
         with self.assertRaises(FilterValidationError):
             bindings("array<string>", "column")
@@ -90,7 +107,8 @@ class TestFilterRecipeExecution(SimpleTestCase):
         query = ast.SelectQuery(
             select=[selected],
             select_from=ast.JoinExpr(
-                table=ast.SelectQuery(select=[ast.Alias(alias="payload", expr=ast.Constant(value=payload))])
+                alias="source",
+                table=ast.SelectQuery(select=[ast.Alias(alias="payload", expr=ast.Constant(value=payload))]),
             ),
         )
         return self.execute_query(query)[0][0]
@@ -105,29 +123,18 @@ class TestFilterRecipeExecution(SimpleTestCase):
             use_new_events_schema=False,
         )
         sql, _ = prepare_and_print_ast(query, context, "clickhouse")
-        return sync_execute(sql, context.values, flush=False)
+        return sync_execute(sql, context.values, flush=False, workload=Workload.OFFLINE)
 
     @parameterized.expand(
         [
             ("string", '{"value":"Core"}', "Core"),
             ("integer", '{"value":0}', 0),
             ("integer", '{"value":-2}', -2),
-            ("number", '{"value":1.25}', 1.25),
-            ("boolean", '{"value":false}', False),
-            ("datetime", '{"value":"2026-01-02T03:04:05Z"}', datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
             ("string", "{}", None),
             ("string", '{"value":null}', None),
             ("string", "null", None),
             ("string", " null ", None),
             ("string", None, None),
-            (
-                "string",
-                '{"value":"Core"}',
-                1,
-                "startsWith(lower(value), 'co') AND endsWith(upper(value), 'RE') AND notEmpty(value)",
-            ),
-            ("boolean", '{"value":true}', 1, "value"),
-            ("datetime", '{"value":"2026-01-02T03:04:05Z"}', 1, "value >= toDateTime('2026-01-02T00:00:00Z')"),
             ("string", "{}", 1, "NOT (value = 'Core')"),
         ]
     )
@@ -146,23 +153,21 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("integer", '{"value":"2"}'),
             ("integer", '{"value":1.5}'),
             ("integer", '{"value":9223372036854775808}'),
-            ("number", '{"value":"no"}'),
-            ("number", '{"value":1e999}'),
-            ("boolean", '{"value":1}'),
-            ("datetime", '{"value":"invalid"}'),
         ]
     )
     def test_malformed_values_surface_errors(self, field_type: str, payload: str) -> None:
         engine = bindings(field_type)
         self.assert_malformed(engine, payload)
         self.assert_malformed(engine, payload, "true OR isNull(value)")
+        self.assert_malformed(engine, payload, "false AND isNull(value)")
 
     @parameterized.expand(
         [
-            ('{"nodes":[{"name":"internal"},{"name":"feature"}]}', (False, ["internal", "feature"])),
-            ('{"nodes":[]}', (False, [])),
-            ("{}", (False, [])),
-            ("null", (False, [])),
+            ('{"nodes":[{"name":"internal"},{"name":"feature"}]}', ["internal", "feature"]),
+            ('{"nodes":[]}', []),
+            ('{"nodes":null}', []),
+            ("{}", []),
+            ("null", []),
         ]
     )
     def test_array_map_and_empty_policy(self, payload: str, expected: object) -> None:
@@ -183,18 +188,8 @@ class TestFilterRecipeExecution(SimpleTestCase):
             bindings("array<string>", "json_array_map", "empty_array"), payload, "NOT has(value, 'internal')"
         )
 
-    def test_null_arrays_and_nullable_predicates(self) -> None:
-        engine = bindings("array<string>", "json_array_map")
-        self.assertEqual(self.execute(engine, "{}"), (True, []))
-        self.assertEqual(self.execute(engine, "{}", "isNull(value)"), 1)
-        self.assertEqual(self.execute(engine, "{}", "value IS NOT NULL"), 0)
-        self.assertEqual(self.execute(engine, "{}", "NULL = value"), 1)
-        self.assertEqual(self.execute(engine, "{}", "isNotNull(value)"), 0)
-        self.assertEqual(self.execute(engine, "{}", "NOT has(value, 'internal')"), 0)
-        self.assertEqual(self.execute(engine, '{"nodes":[]}', "NOT has(value, 'internal')"), 1)
-
     def test_json_array_and_column_recipes(self) -> None:
-        self.assertEqual(self.execute(bindings("array<integer>"), '{"value":[0,1,2]}'), (False, [0, 1, 2]))
+        self.assertEqual(self.execute(bindings("array<string>"), '{"value":["a","b"]}'), ["a", "b"])
         self.assertEqual(self.execute(bindings("integer", "column"), 0, "value IN (1,2)"), 0)
         self.assertEqual(self.execute(bindings("integer", "column"), 2, "value IN (1,2)"), 1)
         self.assertEqual(self.execute(bindings("string", "column"), "literal' OR true", "value = 'other'"), 0)
@@ -204,57 +199,78 @@ class TestFilterRecipeExecution(SimpleTestCase):
     def test_runtime_size_bounds(self) -> None:
         for payload, engine in [
             (json.dumps({"value": "x" * 65536}), bindings()),
-            (json.dumps({"value": list(range(257))}), bindings("array<integer>")),
+            (json.dumps({"nodes": [{"name": "a"}] * 257}), bindings("array<string>", "json_array_map")),
         ]:
             self.assert_malformed(engine, payload)
-
-    @parameterized.expand(
-        [
-            ("array<number>", '{"value":[0,1.5]}', (False, [0.0, 1.5])),
-            ("array<boolean>", '{"value":[true,false]}', (False, [True, False])),
-        ]
-    )
-    def test_typed_json_arrays(self, field_type: str, payload: str, expected: object) -> None:
-        self.assertEqual(self.execute(bindings(field_type), payload), expected)
-
-    @parameterized.expand(
-        [
-            ("array<string>", StringArrayDatabaseField(name="payload"), ["a", "b"]),
-            ("array<integer>", IntegerDatabaseField(name="payload", array=True), [0, 2]),
-            ("array<number>", FloatArrayDatabaseField(name="payload"), [1.25, 2.5]),
-            ("array<boolean>", BooleanDatabaseField(name="payload", array=True), [True, False]),
-        ]
-    )
-    def test_native_array_columns(
-        self, field_type: str, column: DatabaseField, items: list[str | int | float | bool]
-    ) -> None:
-        engine = WarehouseFilterBindings(catalog_bundle(field_type, "column"), {"payload": column})
-        query = ast.SelectQuery(
-            select=[engine.projections["value"].select()],
-            select_from=ast.JoinExpr(
-                table=ast.SelectQuery(
-                    select=[
-                        ast.Alias(alias="payload", expr=ast.Array(exprs=[ast.Constant(value=item) for item in items]))
-                    ]
-                )
-            ),
-        )
-        self.assertEqual(self.execute_query(query), [((False, items),)])
 
     def test_native_integer_overflow_is_malformed(self) -> None:
         with self.assertRaises(InternalCHQueryError) as raised:
             self.execute(bindings("integer", "column"), 9223372036854775808)
         self.assertEqual(raised.exception.code, 395)
 
+    def test_native_string_array_projection(self) -> None:
+        engine = WarehouseFilterBindings(
+            catalog_bundle("array<string>", "column"),
+            {"payload": StringArrayDatabaseField(name="payload")},
+            source_alias="source",
+        )
+        query = ast.SelectQuery(
+            select=[engine.projections["value"].select()],
+            select_from=ast.JoinExpr(
+                alias="source",
+                table=ast.SelectQuery(
+                    select=[ast.Alias(alias="payload", expr=ast.Array(exprs=[ast.Constant(value="feature")]))]
+                ),
+            ),
+        )
+        self.assertEqual(self.execute_query(query), [(["feature"],)])
+
+    def test_shared_column_with_colliding_projection_name(self) -> None:
+        bundle = catalog_bundle()
+        bundle.fields[0].name = "payload"
+        bundle.fields.append(
+            bundle.fields[0].model_copy(
+                update={"name": "other", "binding": JsonPathRecipe(kind="json_path", column="payload", path=["other"])}
+            )
+        )
+        engine = WarehouseFilterBindings(
+            bundle, {"payload": StringDatabaseField(name="payload")}, source_alias="source"
+        )
+        query = ast.SelectQuery(
+            select=[projection.select() for projection in engine.projections.values()],
+            select_from=ast.JoinExpr(
+                alias="source",
+                table=ast.SelectQuery(
+                    select=[ast.Alias(alias="payload", expr=ast.Constant(value='{"value":"Core","other":"Team"}'))]
+                ),
+            ),
+            where=engine.predicate("payload = 'Core' AND other = 'Team'"),
+        )
+        self.assertEqual(self.execute_query(query), [("Core", "Team")])
+
+    def test_many_referenced_fields_resolve_and_execute(self) -> None:
+        bundle = catalog_bundle(kind="column")
+        bundle.fields = [bundle.fields[0].model_copy(update={"name": f"field_{index}"}) for index in range(127)]
+        engine = WarehouseFilterBindings(
+            bundle, {"payload": StringDatabaseField(name="payload")}, source_alias="source"
+        )
+        self.assertEqual(
+            self.execute(engine, "assigned", " OR ".join(f"isNull(field_{index})" for index in range(127))), 0
+        )
+
     def test_nested_paths_and_literal_path_keys(self) -> None:
         bundle = catalog_bundle()
         bundle.fields[0].binding = JsonPathRecipe(kind="json_path", column="payload", path=["outer", "value"])
-        engine = WarehouseFilterBindings(bundle, {"payload": StringDatabaseField(name="payload")})
+        engine = WarehouseFilterBindings(
+            bundle, {"payload": StringDatabaseField(name="payload")}, source_alias="source"
+        )
         self.assertIsNone(self.execute(engine, "{}"))
         self.assert_malformed(engine, '{"outer":[]}')
         key = "key'); SELECT true; --"
         bundle.fields[0].binding = JsonPathRecipe(kind="json_path", column="payload", path=[key])
-        engine = WarehouseFilterBindings(bundle, {"payload": StringDatabaseField(name="payload")})
+        engine = WarehouseFilterBindings(
+            bundle, {"payload": StringDatabaseField(name="payload")}, source_alias="source"
+        )
         self.assertEqual(self.execute(engine, json.dumps({key: "safe"})), "safe")
 
     def test_linear_recipes_in_scoped_query(self) -> None:
@@ -300,7 +316,7 @@ class TestFilterRecipeExecution(SimpleTestCase):
         }
         columns: dict[str, DatabaseField] = {name: StringDatabaseField(name=name) for name in payloads}
         columns["priority"] = IntegerDatabaseField(name="priority")
-        engine = WarehouseFilterBindings(bundle, columns)
+        engine = WarehouseFilterBindings(bundle, columns, source_alias="source")
         predicate = engine.predicate(
             "team_id = 'team-a' AND project_name = 'Core' AND assignee_id IS NULL AND state_type = 'unstarted' AND NOT has(label_names, 'internal') AND priority IN (1,2)"
         )
@@ -308,13 +324,14 @@ class TestFilterRecipeExecution(SimpleTestCase):
         query = ast.SelectQuery(
             select=[projection.select() for projection in engine.projections.values()],
             select_from=ast.JoinExpr(
+                alias="source",
                 table=ast.SelectQuery(
                     select=[ast.Alias(alias=name, expr=ast.Constant(value=value)) for name, value in payloads.items()]
-                )
+                ),
             ),
             where=ast.And(exprs=[ast.Constant(value=True), predicate]),
             limit=ast.Constant(value=1),
         )
         self.assertEqual(
-            self.execute_query(query), [("team-a", "project-a", "Core", None, "unstarted", (False, ["feature"]), 2)]
+            self.execute_query(query), [("team-a", "project-a", "Core", None, "unstarted", ["feature"], 2)]
         )

@@ -10,23 +10,18 @@ class TestFilterExpression(SimpleTestCase):
         "project_name": "string",
         "priority": "integer",
         "label_names": "array<string>",
-        "active": "boolean",
-        "created_at": "datetime",
     }
 
     @parameterized.expand(
         [
             "false",
             "true",
-            "active",
             "priority IN (1, 2)",
+            "priority = -1",
+            "priority NOT IN (1, 2)",
             "project_name IS NULL",
             "project_name = 'Core' AND NOT has(label_names, 'internal')",
-            "startsWith(lower(project_name), 'core') OR length(label_names) > 2",
-            "project_name ILIKE '%core%'",
-            "label_names IS NOT NULL",
             "isNull(label_names)",
-            "created_at >= toDateTime('2026-01-02T00:00:00Z')",
             "HAS(label_names, 'internal')",
         ]
     )
@@ -57,8 +52,18 @@ class TestFilterExpression(SimpleTestCase):
             "NOT priority",
             "priority = '1'",
             "has(label_names, 1)",
+            "has(label_names, project_name)",
+            "priority = 1.5",
+            "project_name LIKE '%core%'",
+            "project_name ILIKE '%core%'",
+            "lower(project_name) = 'core'",
+            "upper(project_name) = 'CORE'",
+            "startsWith(project_name, 'co')",
+            "endsWith(project_name, 're')",
+            "length(label_names) > 0",
+            "empty(label_names)",
+            "notEmpty(project_name)",
             "has(priority, 1)",
-            "lower(priority) = 'x'",
             "label_names = ['x']",
             "priority IN (project_name, priority)",
             "priority IN (1, '2')",
@@ -66,9 +71,7 @@ class TestFilterExpression(SimpleTestCase):
             "true AS accepted",
             "isNull(priority, priority)",
             "has(('a', 'b'), 'a')",
-            "created_at > toDateTime(project_name)",
-            "created_at > toDateTime('bad')",
-            "created_at > toDateTime('2026-01-02')",
+            "toDateTime('2026-01-02T00:00:00Z') IS NULL",
         ]
     )
     def test_rejects_unsafe_or_untyped_expression(self, expression: str) -> None:
@@ -89,6 +92,12 @@ class TestFilterExpression(SimpleTestCase):
         with self.assertRaises(FilterValidationError) as raised:
             FilterExpression(expression, self.fields)
         self.assertEqual(raised.exception.code, code)
+
+    @parameterized.expand(["boolean", "number", "datetime", "array<integer>", "array<number>", "array<boolean>"])
+    def test_rejects_deferred_field_types(self, field_type: str) -> None:
+        with self.assertRaises(FilterValidationError) as raised:
+            FilterExpression("", {"future_field": field_type})
+        self.assertEqual(raised.exception.code, "unsupported_field_type")
 
     def test_blank_and_structured_errors(self) -> None:
         self.assertIsNone(FilterExpression(" \n ", self.fields).predicate())
