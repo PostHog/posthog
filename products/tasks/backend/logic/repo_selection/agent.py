@@ -355,9 +355,11 @@ def filter_repository_candidates_for_sources(
     github = resolve_team_github_integration(team_id)
     if github is None:
         return []
-    sources = {repository.lower() for repository in source_repositories}
-    visibility = _candidate_visibility(github, [*candidate_repos, *sources])
-    return _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    visibility = _candidate_visibility(github, [*normalized.values(), *sources])
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
 
 
 def _build_repo_selection_prompt(
