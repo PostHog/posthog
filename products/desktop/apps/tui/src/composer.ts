@@ -61,6 +61,10 @@ export function isTyping(sequence: string): boolean {
 export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
   { name: "effort", description: "Set how much this chat's model thinks" },
+  {
+    name: "compact",
+    description: "Summarize older messages to free up context",
+  },
   { name: "new", description: "Start a new chat" },
   { name: "rename", description: "Rename this chat" },
   { name: "rename-workspace", description: "Rename this workspace" },

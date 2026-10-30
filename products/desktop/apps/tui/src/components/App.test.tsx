@@ -522,6 +522,67 @@ describe("App", () => {
     }
   });
 
+  it("compacts a live local chat with /compact and says how much it freed", async () => {
+    const sessions = join(homedir(), ".config", "posthog-tui", "local");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "compacting.jsonl"), "");
+    saveLayout(openTask(initialLayout(), "compacting"));
+    const compact = vi.fn(async () => ({
+      tokensBefore: 150_000,
+      estimatedTokensAfter: 32_000,
+    }));
+    const local = {
+      watch: (onView: (view: typeof emptyRunView) => void) => {
+        onView({ ...emptyRunView, loaded: true, status: "in_progress" });
+        return () => {};
+      },
+      watchPrompts: () => () => {},
+      stop: async () => {},
+      control: {
+        models: async () => ({ available: [], current: null }),
+        efforts: async () => ({ available: [], current: null }),
+        commands: async () => [],
+        compact,
+      },
+    } as unknown as LocalSession;
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: async () => ({
+              tasks: [
+                { id: "compacting", title: "Local", runtime: "pi" } as Task,
+              ],
+              hasMore: false,
+            }),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: async () => local,
+        }}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(output()).toContain("Local"));
+      mouse.emit("keys", "/compact keep the test plan");
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() =>
+        expect(compact).toHaveBeenCalledWith("keep the test plan"),
+      );
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(output())).toContain("Compacted 150k"),
+      );
+    } finally {
+      instance.unmount();
+      rmSync(sessions, { recursive: true });
+    }
+  });
+
   it("starts new chats where the last /local or /cloud pointed, after a restart", async () => {
     saveLayout(initialLayout());
     const session = {

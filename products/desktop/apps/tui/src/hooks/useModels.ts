@@ -23,6 +23,12 @@ export interface Models {
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   // Opens /effort, which works the same way.
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  // /compact: summarises a live chat's older messages, focused by the instructions if given.
+  compact: (
+    paneId: string,
+    task: Task | undefined,
+    instructions: string,
+  ) => void;
   // Called when a pane's run goes live: shows its slash commands, applies held picks and reads what the run is on.
   onRunLive: (paneId: string, taskId: string, runId: string) => void;
   // Called when a new chat gets its task, so the model it starts on stays shown until its run is live.
@@ -30,6 +36,10 @@ export interface Models {
   // The model and effort a pane's chat runs on, for its title.
   modelLabel: (paneId: string, taskId: string | null) => string | undefined;
 }
+
+// 150000 reads "150k".
+const tokenCount = (tokens: number): string =>
+  tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
 
 const without = <V>(map: Map<string, V>, key: string): Map<string, V> => {
   const next = new Map(map);
@@ -289,9 +299,32 @@ export function useModels({
       new Map(models).set(taskId, heldModels.get(paneId) ?? STARTING_MODEL),
     );
 
+  const compact = (
+    paneId: string,
+    task: Task | undefined,
+    instructions: string,
+  ): void => {
+    const target = liveTarget(paneId, task);
+    if (!target) {
+      flashNotice("Compacting needs a running chat. Send a message first");
+      return;
+    }
+    showNotice("Compacting…");
+    target.control.compact(instructions || undefined).then(
+      ({ tokensBefore, estimatedTokensAfter }) =>
+        flashNotice(
+          estimatedTokensAfter === undefined
+            ? `Compacted ${tokenCount(tokensBefore)} tokens`
+            : `Compacted ${tokenCount(tokensBefore)} → ~${tokenCount(estimatedTokensAfter)} tokens`,
+        ),
+      (error: unknown) => flashNotice(`Couldn't compact: ${messageOf(error)}`),
+    );
+  };
+
   return {
     openModelSheet,
     openEffortSheet,
+    compact,
     onRunLive,
     onChatStarted,
     // A chat with no task yet shows the model its run will start on. Its effort shows once the run reports it.
