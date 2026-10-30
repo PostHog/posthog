@@ -61,6 +61,11 @@ export interface wizardRunSyncLogicProps {
     projectId: string
 }
 
+interface WizardRunDataOptions {
+    tasksOnly?: boolean
+    force?: boolean
+}
+
 export interface wizardRunSyncLogicValues {
     user: UserType | null
     runs: WizardRunApi[]
@@ -78,7 +83,10 @@ export interface wizardRunSyncLogicActions {
     checkRuns: (recentOnly?: boolean) => { recentOnly: boolean }
     runsLoaded: (runs: WizardRunApi[], merge?: boolean) => { runs: WizardRunApi[]; merge: boolean }
     runUpdated: (runId: string, state: RunStreamState) => { runId: string; state: RunStreamState }
-    loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
+    loadRunData: (
+        run: WizardRunApi,
+        options?: WizardRunDataOptions
+    ) => { run: WizardRunApi; options: WizardRunDataOptions }
     tasksLoaded: (
         runId: string,
         tasks: readonly WizardRunTaskApi[]
@@ -112,7 +120,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
         checkRuns: (recentOnly = false) => ({ recentOnly }),
         runsLoaded: (runs: WizardRunApi[], merge = false) => ({ runs, merge }),
         runUpdated: (runId: string, state: RunStreamState) => ({ runId, state }),
-        loadRunData: (run: WizardRunApi) => ({ run }),
+        loadRunData: (run: WizardRunApi, options: WizardRunDataOptions = {}) => ({ run, options }),
         tasksLoaded: (runId: string, tasks: readonly WizardRunTaskApi[]) => ({ runId, tasks }),
         runDataLoaded: (runId: string, artifacts: WizardRunArtifactApi[]) => ({ runId, artifacts }),
         runDataStarted: (runId: string) => ({ runId }),
@@ -235,14 +243,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 cache.checking = false
             }
         },
-        runsLoaded: () => {
-            actions.connectRuns()
-            for (const run of values.runs) {
-                if (!wizardRunIsActive(run) && values.runDataLoading[run.id] !== undefined) {
-                    actions.loadRunData(run)
-                }
-            }
-        },
+        runsLoaded: () => actions.connectRuns(),
         watchRuns: () => actions.connectRuns(),
         [userLogic.actionTypes.loadUserSuccess]: () => {
             actions.connectRuns()
@@ -253,20 +254,22 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             const run = values.runs.find((run) => run.id === runId)
             if (run && !wizardRunIsActive(run)) {
                 actions.checkRuns(true)
-                if (values.runDataLoading[run.id] !== undefined) {
-                    actions.loadRunData(run)
-                }
             }
         },
-        loadRunData: async ({ run }) => {
+        loadRunData: async ({ run, options }) => {
             if (run.team_id !== Number(logicProps.projectId)) {
                 return
             }
             if (!values.runs.some((knownRun) => knownRun.id === run.id)) {
                 actions.runsLoaded([run], true)
             }
-            const version = wizardRunIsActive(run) ? 'active' : `${run.status}:${run.updated_at}`
+            const stateVersion = wizardRunIsActive(run) ? 'active' : `${run.status}:${run.updated_at}`
+            const version = options.tasksOnly ? `tasks:${stateVersion}` : stateVersion
             if (cache.runDataVersions[run.id] === version || cache.runDataRequests[run.id]?.version === version) {
+                return
+            }
+            const failure = cache.runDataFailures[run.id]
+            if (!options.force && failure?.version === version && failure.retryAfter > Date.now()) {
                 return
             }
             const request = { version }
@@ -278,7 +281,9 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
             try {
                 const [snapshot, artifacts] = await Promise.all([
                     wizardRunsTasksRetrieve(logicProps.projectId, run.id),
-                    loadWizardRunArtifacts(logicProps.projectId, run.id),
+                    options.tasksOnly
+                        ? Promise.resolve(values.artifactsByRunId[run.id] ?? [])
+                        : loadWizardRunArtifacts(logicProps.projectId, run.id),
                 ])
                 if (!isCurrentRequest()) {
                     return
@@ -288,9 +293,11 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                     actions.tasksLoaded(run.id, snapshot.tasks)
                 }
                 cache.runDataVersions[run.id] = version
+                delete cache.runDataFailures[run.id]
                 actions.runDataLoaded(run.id, artifacts)
             } catch {
                 if (isCurrentRequest()) {
+                    cache.runDataFailures[run.id] = { version, retryAfter: Date.now() + RUN_POLL_MS }
                     actions.runDataFailed(run.id)
                 }
             } finally {
@@ -363,6 +370,7 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
         afterMount: () => {
             cache.runDataVersions = {}
             cache.runDataRequests = {}
+            cache.runDataFailures = {}
             actions.checkRuns()
             cache.disposables.add(() => {
                 const timer = window.setInterval(() => actions.refreshWatchedRun(), RUN_POLL_MS)

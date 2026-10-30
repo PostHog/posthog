@@ -38,7 +38,7 @@ export function WizardInstallSync({
                 artifacts={artifactsByRunId[run.id] ?? []}
                 loading={runDataLoading[run.id] ?? true}
                 error={runDataErrors[run.id] ?? null}
-                onRetry={() => loadRunData(run)}
+                onRetry={() => loadRunData(run, { force: true })}
                 onArtifactClick={clickArtifact}
                 now={now}
             />
