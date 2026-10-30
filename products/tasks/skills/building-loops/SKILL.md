@@ -36,7 +36,7 @@ Replace only the values in angle brackets. Leave out the `notify` step and its e
         "template_id": "template-posthog-create-task",
         "inputs": {
           "prompt": { "value": "<task prompt>" },
-          "repository": { "value": "<owner/name>" },
+          "repository": { "value": ["<owner/name>"] },
           "connectors": { "value": ["<mcp connection id>"] },
           "skills": { "value": ["<skill name>"] },
           "posthog_mcp_scopes": { "value": "read_only" },
@@ -68,7 +68,7 @@ A template renders the raw value into the instruction part of the prompt, before
 
 Include the other inputs only when the loop needs them:
 
-- `repository`: the `owner/name` the user gives you, when the task works in code. Never one from memory. Check it is reachable first: `integrations-list` for GitHub, then `integrations-github-repos-retrieve` for that exact name.
+- `repository`: a list of the `owner/name` repositories the user gives you, when the task works in code. At most 10. The task gets no repository access without it. Never one from memory. Check each is reachable first: `integrations-list` for GitHub, then `integrations-github-repos-retrieve` for that exact name.
 - `connectors`: ids from `mcp-connections-list`. Only connections shared with everyone in the project are accepted.
 - `skills`: exact names from `skill-list`, at most 10.
 - `posthog_mcp_scopes`: `read_only` by default. Use `full` only when the user asks for the task to change things in PostHog.
