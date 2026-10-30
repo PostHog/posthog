@@ -86,7 +86,13 @@ describe("CloudRuns.agentRestarted", () => {
       const restarted = runs.agentRestarted("t1", "r1", since).then(() => {
         done = true;
       });
-      await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
+      // The sandbox asks for its plan's token once, as a live frame, so this watch reads the stream from its
+      // start rather than from its latest entry, or a request sent before the stream connected is lost.
+      await vi.waitFor(() =>
+        expect(engine.watch).toHaveBeenCalledWith(
+          expect.objectContaining({ ...base, resumeFromEntryCount: 0 }),
+        ),
+      );
 
       engine.emit(CloudTaskEvent.Update, {
         taskId: "t1",

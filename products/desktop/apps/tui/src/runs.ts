@@ -516,7 +516,15 @@ export class CloudRuns {
             void this.engine.retry(taskId, runId);
           } else {
             opened = true;
-            this.engine.watch({ taskId, runId, apiHost, teamId });
+            // From the stream's start, not its latest entry: the sandbox asks for its plan's token once, as a live
+            // frame, and a stream opened after that frame never sees it. The engine dedupes the replayed entries.
+            this.engine.watch({
+              taskId,
+              runId,
+              apiHost,
+              teamId,
+              resumeFromEntryCount: 0,
+            });
           }
         },
         (error: unknown) =>
