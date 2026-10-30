@@ -32,7 +32,9 @@ export function pushPlanLines(plan: PlannedItem[], style: Styler): string[] {
     return plan.flatMap((item) => [
         `${actionLabel(item.action, style)}  ${style(item.name, 'bold')}  ${style(item.path, 'dim')}`,
         ...indent(
-            item.reason && item.action === 'skip' && item.reason !== 'No changes' ? [style(item.reason, 'yellow')] : []
+            item.reason && item.action === 'skip' && item.reason !== 'No changes'
+                ? [style(escapeControls(item.reason), 'yellow')]
+                : []
         ),
         ...indent(item.changes.flatMap((change) => changeLines(change, 'push', style))),
         ...indent(variableLines(item.variables, style)),
