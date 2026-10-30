@@ -10,15 +10,14 @@ from django.db import transaction
 from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CheckAuthoringStatus
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
-    SignalReportArtefact,
     SignalReportCheck,
     SignalReportMonitoringAttempt,
 )
 from products.signals.backend.report_check_artefacts import write_check_expired
+from products.signals.backend.report_check_research import check_authoring_failed
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 
 if TYPE_CHECKING:
@@ -110,14 +109,7 @@ def complete_implementation(
             else:
                 applicable.append(check)
         if not applicable:
-            authoring = (
-                SignalReportArtefact.objects.filter(
-                    team_id=team_id, report_id=report.id, type=SignalReportArtefact.ArtefactType.CHECK_AUTHORING
-                )
-                .order_by("-created_at", "-id")
-                .first()
-            )
-            if authoring is not None and CheckAuthoringStatus.model_validate_json(authoring.content).status == "failed":
+            if check_authoring_failed(report):
                 raise ValueError("Follow-up check authoring failed. Configure verification or resolve manually.")
             report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
             report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
