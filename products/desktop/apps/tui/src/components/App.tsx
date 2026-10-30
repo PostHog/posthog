@@ -16,13 +16,16 @@ import { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
 import { Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
+import { useChatPlace } from "../hooks/useChatPlace";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useNotice } from "../hooks/useNotice";
 import {
   activeWorkspace,
+  allPanes,
   assignTask,
   closeFocused,
   cycleFocus,
+  findPane,
   focusPane,
   focusSidebar,
   initialLayout,
@@ -32,7 +35,6 @@ import {
   newChat,
   type PaneNode,
   paneIds,
-  panes,
   saveLayout,
   splitFocused,
   splitSizes,
@@ -54,7 +56,6 @@ import {
   type Wheel,
 } from "../mouse";
 import { openUrl } from "../openUrl";
-import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 import { promptId, promptReply, promptSheet, takesText } from "../prompts";
 import type { CloudRuns } from "../runs";
 import { Gesture } from "../selection";
@@ -176,13 +177,7 @@ export function App({
           ? (localSessions.get(taskId)?.control ?? cloudControl(taskId, runId))
           : cloudControl(taskId, runId)
     : undefined;
-  // Where a pane's next new chat runs; /local and /cloud switch it, and the last switch is the default for other panes.
-  const [modes, setModes] = useState<Map<string, ChatPlace>>(new Map());
-  const [defaultPlace, setDefaultPlace] = useState<ChatPlace>(
-    () => loadPrefs().newChatPlace,
-  );
-  const placeFor = (paneId: string): ChatPlace =>
-    modes.get(paneId) ?? defaultPlace;
+  const { placeFor, setPlace } = useChatPlace();
   const { exit } = useApp();
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [page, setPage] = useState<WorkPage>({
@@ -264,9 +259,7 @@ export function App({
     return composer;
   };
   const scrollPane = (paneId: string, lines: number): void => {
-    const pane = layout.workspaces
-      .flatMap((w) => panes(w.root))
-      .find((candidate) => candidate.id === paneId);
+    const pane = findPane(layout, paneId);
     chatFor(`${paneId}:${pane?.taskId ?? null}`).scrollBy(lines);
     repaint((tick) => tick + 1);
   };
@@ -327,9 +320,7 @@ export function App({
 
   // Open tasks and local chats outside the recent page are fetched once each, so they keep a title and a transcript.
   const openTaskIds = [
-    ...layout.workspaces
-      .flatMap((w) => panes(w.root))
-      .flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
+    ...allPanes(layout).flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
     ...localActive.keys(),
   ];
   const missing = page.tasks
@@ -372,9 +363,7 @@ export function App({
   };
 
   const paneTaskId = (paneId: string): string | null =>
-    layout.workspaces
-      .flatMap((w) => panes(w.root))
-      .find((candidate) => candidate.id === paneId)?.taskId ?? null;
+    findPane(layout, paneId)?.taskId ?? null;
 
   // A local chat's oldest waiting prompt shows in any pane that has the chat open.
   const promptModal = (taskId: string | null): OpenModal | undefined => {
@@ -401,7 +390,7 @@ export function App({
   // An editor prompt starts from the text the agent gave it.
   const prefilled = useRef(new Set<string>());
   useEffect(() => {
-    for (const pane of layout.workspaces.flatMap((w) => panes(w.root))) {
+    for (const pane of allPanes(layout)) {
       const prompt = pane.taskId ? prompts.get(pane.taskId)?.[0] : undefined;
       if (prompt?.kind !== "dialog" || prompt.request.method !== "editor")
         continue;
@@ -413,9 +402,7 @@ export function App({
 
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
     const run = task?.latest_run;
-    const pane = layout.workspaces
-      .flatMap((w) => panes(w.root))
-      .find((candidate) => candidate.id === paneId);
+    const pane = findPane(layout, paneId);
     const localSession = isLocal(pane?.taskId ?? null)
       ? localSessions.get(pane?.taskId as string)
       : undefined;
@@ -631,9 +618,7 @@ export function App({
   };
 
   const onSubmit = (paneId: string, text: string): void => {
-    const pane = layout.workspaces
-      .flatMap((w) => panes(w.root))
-      .find((candidate) => candidate.id === paneId);
+    const pane = findPane(layout, paneId);
     const current = taskOf(pane?.taskId ?? null);
     const textPrompt = modalFor(paneId)?.submitText;
     if (textPrompt) {
@@ -666,9 +651,7 @@ export function App({
     }
     if (slash?.command === "local" || slash?.command === "cloud") {
       const mode = slash.command;
-      setModes((current) => new Map(current).set(paneId, mode));
-      setDefaultPlace(mode);
-      savePrefs({ newChatPlace: mode });
+      setPlace(paneId, mode);
       flashNotice(
         mode === "local"
           ? `New chats run on this machine, in ${process.cwd()}`
