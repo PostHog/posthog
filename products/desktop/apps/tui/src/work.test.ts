@@ -86,19 +86,40 @@ describe("WorkList", () => {
 });
 
 describe("findTask", () => {
-  const task = (runId: string, title: string): Task =>
-    ({ id: "t1", title, latest_run: { id: runId } }) as Task;
+  const task = (runId: string, title: string, updatedAt = ""): Task =>
+    ({
+      id: "t1",
+      title,
+      latest_run: { id: runId, updated_at: updatedAt },
+    }) as Task;
+  const at = (minute: number): string =>
+    new Date(Date.UTC(2026, 0, 1, 0, minute)).toISOString();
 
   it.each([
-    ["a just-started run until the list catches up", "r1", "r2", "started"],
-    ["the listed task once it shows the same run", "r2", "r2", "listed"],
-  ])("returns %s", (_, listedRun, freshRun, expected) => {
-    const found = findTask("t1", {
-      listed: [task(listedRun, "listed")],
-      known: new Map(),
-      fresh: new Map([["t1", task(freshRun, "started")]]),
-    });
+    ["a just-started run until the list catches up", ["r1"], ["r2"], "started"],
+    ["the listed task once it shows the same run", ["r2"], ["r2"], "listed"],
+    [
+      "a run brought back until the list shows it changed",
+      ["r1", at(1)],
+      ["r1", at(5)],
+      "started",
+    ],
+    [
+      "the listed run once it is newer than the one brought back",
+      ["r1", at(9)],
+      ["r1", at(5)],
+      "listed",
+    ],
+  ])(
+    "returns %s",
+    (_, [listedRun, listedAt], [freshRun, freshAt], expected) => {
+      const found = findTask("t1", {
+        listed: [task(listedRun, "listed", listedAt)],
+        known: new Map(),
+        fresh: new Map([["t1", task(freshRun, "started", freshAt)]]),
+      });
 
-    expect(found?.title).toBe(expected);
-  });
+      expect(found?.title).toBe(expected);
+    },
+  );
 });

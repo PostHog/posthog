@@ -54,6 +54,59 @@ function setup(sessionLogs: SessionLogs = logOf(0)) {
   return { engine, runs };
 }
 
+describe("CloudRuns.agentRestarted", () => {
+  const started = (second: number): StoredLogEntry =>
+    ({
+      type: "pi_run_started",
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString(),
+    }) as StoredLogEntry;
+  const since = Date.UTC(2026, 0, 1, 0, 0, 30);
+
+  it("waits past the run's earlier start for its agent to start again, watching it meanwhile", async () => {
+    const { engine, runs } = setup();
+    let done = false;
+    const restarted = runs.agentRestarted("t1", "r1", since).then(() => {
+      done = true;
+    });
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
+
+    engine.emit(CloudTaskEvent.Update, {
+      taskId: "t1",
+      runId: "r1",
+      kind: "snapshot",
+      newEntries: [started(1)],
+      status: "queued",
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    engine.emit(CloudTaskEvent.Update, {
+      taskId: "t1",
+      runId: "r1",
+      kind: "logs",
+      newEntries: [started(60)],
+    });
+
+    await restarted;
+    expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
+  });
+
+  it("gives up when the run fails to come back", async () => {
+    const { engine, runs } = setup();
+    const restarted = runs.agentRestarted("t1", "r1", since);
+    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
+
+    engine.emit(CloudTaskEvent.Update, {
+      taskId: "t1",
+      runId: "r1",
+      kind: "status",
+      status: "failed",
+      errorMessage: "Sandbox failed to start",
+    });
+
+    await expect(restarted).rejects.toThrow("Sandbox failed to start");
+  });
+});
+
 describe("applyUpdate", () => {
   it("starts from the snapshot window and appends later log entries", () => {
     const view = updates(
@@ -391,6 +444,45 @@ describe("setupProgress", () => {
   });
 });
 
+describe("runNotice while a reply brings the run back", () => {
+  const user = { kind: "user" as const, id: "u", text: "hi" };
+  const view = {
+    ...emptyRunView,
+    loaded: true,
+    status: "in_progress" as const,
+  };
+  const step = (done: boolean) => ({
+    current: {
+      step: done ? "agent" : "sandbox",
+      status: done ? ("completed" as const) : ("in_progress" as const),
+      label: done ? "Agent ready" : "Restoring sandbox",
+    },
+    startedAt: Date.now(),
+    done,
+  });
+
+  it.each([
+    [
+      "the run still shows as finished",
+      { ...view, status: "completed" as const },
+      null,
+      "Reopening sandbox…",
+    ],
+    [
+      "only its earlier setup is logged",
+      view,
+      step(true),
+      "Reopening sandbox…",
+    ],
+    ["the new setup has begun", view, step(false), "Restoring sandbox…"],
+  ])("says so while %s", (_, runView, setup, text) => {
+    expect(
+      runNotice(runView, [user], false, null, null, { setup, reopening: true })
+        ?.text,
+    ).toBe(text);
+  });
+});
+
 describe("runNotice during setup", () => {
   const user = { kind: "user" as const, id: "u", text: "hi" };
   const running = {
@@ -423,7 +515,7 @@ describe("runNotice during setup", () => {
       startedAt: Date.now() - 12_000,
       done: false,
     };
-    expect(runNotice(running, [user], false, null, null, setup)).toEqual(
+    expect(runNotice(running, [user], false, null, null, { setup })).toEqual(
       expected,
     );
   });
@@ -438,7 +530,7 @@ describe("runNotice during setup", () => {
       startedAt: Date.now(),
       done: true,
     };
-    expect(runNotice(running, [user], false, null, null, setup)?.text).toBe(
+    expect(runNotice(running, [user], false, null, null, { setup })?.text).toBe(
       "Starting cloud run…",
     );
   });

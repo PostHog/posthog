@@ -27,6 +27,8 @@ export interface Send {
   onSubmit: (paneId: string, text: string, images?: ImageContent[]) => void;
   // Messages on their way, by chat (by pane before the chat has a task), shown until the chat has them.
   pending: Map<string, string>;
+  // Chats whose stopped run a reply is bringing back.
+  reopening: Set<string>;
 }
 
 export function useSend({
@@ -97,6 +99,14 @@ export function useSend({
 }): Send {
   const { isLocal, localFor, markActive } = local;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
+  const [reopening, setReopening] = useState<Set<string>>(new Set());
+  const reopened = (taskId: string, on: boolean): void =>
+    setReopening((current) => {
+      const next = new Set(current);
+      if (on) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
 
   const openLoginSheet = (paneId: string, description: string): void => {
     openModal(
@@ -320,10 +330,16 @@ export function useSend({
       return;
     }
     (current
-      ? chats.reply(current, text, images)
+      ? chats.reply(current, text, images, (resumed) => {
+          reopened(current.id, true);
+          // The run is queued again, so its status shows before the work list refreshes.
+          if (resumed)
+            setFresh((tasks) => new Map(tasks).set(resumed.id, resumed));
+        })
       : chats.start(text, images)
     ).then(
       (task) => {
+        if (current) reopened(current.id, false);
         setFresh((tasks) => new Map(tasks).set(task.id, task));
         if (!current) {
           onChatStarted(paneId, task.id);
@@ -333,6 +349,7 @@ export function useSend({
         }
       },
       (error: unknown) => {
+        if (current) reopened(current.id, false);
         clearPending();
         composerFor(paneId).putBack(text, images);
         flashNotice(
@@ -343,5 +360,5 @@ export function useSend({
     );
   };
 
-  return { onSubmit, pending };
+  return { onSubmit, pending, reopening };
 }

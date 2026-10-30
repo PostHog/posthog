@@ -40,7 +40,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices. While a sandbox sets up, the notice names the backend's current setup step (`_posthog/progress`, group `setup:<runId>`). A pi task's runs share one pi session but keep separate logs, so its earlier runs page in above the current one |
-| `chats.ts` | Starting and replying to pi cloud runs |
+| `chats.ts` | Starting and replying to pi cloud runs. A reply to a run that has ended or lost its sandbox brings the same run back with `resume_in_cloud`, as the desktop app does, waits for its agent (`CloudRuns.agentRestarted`), then sends; the pane says "Reopening sandbox…" until the backend's setup steps take over. If the server refuses, the reply starts a new run that continues it |
 | `local.ts` | Local chats: the harness as a child process (`createPiRpcClient` + `PiRuntime`), with a pi session file each |
 | `localChats.ts` | Local chats' pi session files under `~/.config/posthog-tui/local/`, one per task id, and linking older `local:<uuid>` files to new task rows |
 | `models.ts` | `/model`, `/effort`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |

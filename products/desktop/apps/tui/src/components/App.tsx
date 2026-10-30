@@ -220,7 +220,7 @@ export function App({
     flashNotice,
   });
 
-  const { onSubmit, pending } = useSend({
+  const { onSubmit, pending, reopening } = useSend({
     layout,
     setLayout,
     setFresh,
@@ -340,6 +340,7 @@ export function App({
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
+      reopening={node.taskId ? reopening.has(node.taskId) : false}
       pendingShells={shellsFor(node.taskId)}
       onLines={(lines) => setLines(node.id, lines)}
       onOffer={(offer) => setOffer(node.id, offer)}

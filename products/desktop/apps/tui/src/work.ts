@@ -77,6 +77,11 @@ export function findTask(
   if (!taskId) return undefined;
   const listed = sources.listed?.find((task) => task.id === taskId);
   const recent = sources.fresh.get(taskId);
-  if (recent && recent.latest_run?.id !== listed?.latest_run?.id) return recent;
+  // A run brought back keeps its id, so a newer copy of the same run also wins until the list catches up.
+  const newer =
+    (Date.parse(recent?.latest_run?.updated_at ?? "") || 0) >
+    (Date.parse(listed?.latest_run?.updated_at ?? "") || 0);
+  if (recent && (recent.latest_run?.id !== listed?.latest_run?.id || newer))
+    return recent;
   return listed ?? sources.known.get(taskId) ?? recent;
 }
