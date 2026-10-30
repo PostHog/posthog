@@ -65,4 +65,26 @@ describe("MouseInput", () => {
     expect(await received).toBe("a");
     mouse.dispose();
   });
+
+  it("stops switching the real terminal's raw mode once disposed, so a reloaded copy keeps it", () => {
+    const modes: boolean[] = [];
+    const source = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode: (mode: boolean) => {
+        modes.push(mode);
+        return source;
+      },
+    });
+    const stdout = Object.assign(new PassThrough(), { isTTY: true });
+    const mouse = new MouseInput(
+      source as unknown as NodeJS.ReadStream,
+      stdout as unknown as NodeJS.WriteStream,
+    );
+
+    mouse.stdin.setRawMode(true);
+    mouse.dispose();
+    mouse.stdin.setRawMode(false);
+
+    expect(modes).toEqual([true]);
+  });
 });
