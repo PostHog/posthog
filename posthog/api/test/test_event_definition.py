@@ -545,7 +545,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
         for offset in (0, 11, 300, 301):
-            with self.subTest(offset=offset):
+            with self.subTest(offset=offset), CaptureQueriesContext(connection) as captured:
                 response = self.client.get(
                     "/api/projects/@current/event_definitions/",
                     data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
@@ -553,6 +553,12 @@ class TestEventDefinitionAPI(APIBaseTest):
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["count"] == 300
                 assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+                separate_counts = [
+                    query["sql"]
+                    for query in captured.captured_queries
+                    if "count(*)" in query["sql"] and "OVER ()" not in query["sql"] and "z_event" in query["sql"]
+                ]
+                assert bool(separate_counts) is (offset >= 300)
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
         assert response.json()["count"] == 0
