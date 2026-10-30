@@ -12,6 +12,10 @@ def _pkg(scripts: str = "", extra: str = "") -> str:
     return f'{{"name": "x", "version": "1.0.0"{scripts_part}{extra}}}'
 
 
+def _diff_never_read() -> str:
+    raise AssertionError("a structurally compared manifest must not build a line diff")
+
+
 @pytest.mark.parametrize(
     "path, base, head, risky",
     [
@@ -165,7 +169,7 @@ def test_manifest_change_is_risky_structural(path: str, base: str, head: str, ri
     # name, so only a structural compare of the risky subtrees catches it.
     # Over-matching matters too - version bumps hard-denying would undo the
     # manifest calibration entirely.
-    assert manifest_change_is_risky(path, base, head, diff_text="") is risky
+    assert manifest_change_is_risky(path, base, head, _diff_never_read) is risky
 
 
 @pytest.mark.parametrize(
@@ -183,7 +187,7 @@ def test_manifest_change_is_risky_unparseable_fails_closed(path: str, base: str,
     # Each _STRUCTURAL_RISK_CHECKS entry has its own parse-failure exception
     # tuple; narrowing any one of them would fail open for that manifest
     # alone, so every format needs its own fail-closed case, not just json.
-    assert manifest_change_is_risky(path, base, head, diff_text="") is True
+    assert manifest_change_is_risky(path, base, head, _diff_never_read) is True
 
 
 @pytest.mark.parametrize(
@@ -198,7 +202,7 @@ def test_line_scan_families(path: str, diff_line: str, risky: bool) -> None:
     # bump without go.sum fails CI deterministically (-mod=readonly), so only
     # replace directives are silent-fetch risks.
     diff = f"--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n context\n{diff_line}\n"
-    assert manifest_change_is_risky(path, "irrelevant", "irrelevant2", diff) is risky
+    assert manifest_change_is_risky(path, "irrelevant", "irrelevant2", lambda: diff) is risky
 
 
 def test_tsconfig_jsonc_falls_back_to_line_scan() -> None:
@@ -207,8 +211,8 @@ def test_tsconfig_jsonc_falls_back_to_line_scan() -> None:
     jsonc = '{\n  // comment\n  "compilerOptions": {"strict": true},\n}'
     clean_diff = '--- a/tsconfig.json\n+++ b/tsconfig.json\n@@\n+  "strict": true,\n'
     risky_diff = '--- a/tsconfig.json\n+++ b/tsconfig.json\n@@\n+  "extends": "evil",\n'
-    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", clean_diff) is False
-    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", risky_diff) is True
+    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", lambda: clean_diff) is False
+    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", lambda: risky_diff) is True
 
 
 @pytest.mark.parametrize("given_merge_base", [False, True])

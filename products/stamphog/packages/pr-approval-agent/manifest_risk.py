@@ -19,6 +19,7 @@ import difflib
 import tomllib
 import subprocess
 from collections.abc import Callable, Mapping
+from functools import partial
 from pathlib import Path
 from typing import NamedTuple
 
@@ -123,8 +124,12 @@ _STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
 }
 
 
-def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_text: str) -> bool:
-    """True when the manifest change adds/edits/removes execution-bearing config."""
+def manifest_change_is_risky(path: str, base_text: str, head_text: str, read_diff: Callable[[], str]) -> bool:
+    """True when the manifest change adds/edits/removes execution-bearing config.
+
+    ``read_diff`` runs only for the formats that scan diff lines, because a structurally compared
+    manifest never needs one and building it can cost more than the whole check.
+    """
     name = Path(path).name.lower()
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
@@ -141,16 +146,18 @@ def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_tex
         try:
             return _tsconfig_risky_subtree(base_text) != _tsconfig_risky_subtree(head_text)
         except ValueError:
-            return _scan_changed_lines(diff_text, _TSCONFIG_LINE_PATTERN)
+            return _scan_changed_lines(read_diff(), _TSCONFIG_LINE_PATTERN)
     if name in _RISKY_LINE_PATTERNS:
-        return _scan_changed_lines(diff_text, _RISKY_LINE_PATTERNS[name])
+        return _scan_changed_lines(read_diff(), _RISKY_LINE_PATTERNS[name])
     return False
 
 
 def _scan_changed_lines(diff_text: str, pattern: re.Pattern[str]) -> bool:
+    # LF only, as git splits: str.splitlines also breaks at \v, which would cut a risky key off
+    # its +/- marker while TypeScript reads the \v as whitespace and still loads the config.
     return any(
         pattern.search(line[1:])
-        for line in diff_text.splitlines()
+        for line in diff_text.split("\n")
         if line[:1] in "+-" and not line.startswith(("+++", "---"))
     )
 
@@ -183,16 +190,19 @@ def manifest_script_changes(
             return list(manifest_paths)
         base = merge_base.stdout.strip()
 
+    def read_git_diff(path: str) -> str:
+        diff = _git(["diff", f"{base}..{head_sha}", "--", path], repo_root)
+        return diff.stdout if diff.returncode == 0 else ""
+
     risky = []
     for path in manifest_paths:
         base_show = _git(["show", f"{base}:{path}"], repo_root)
         head_show = _git(["show", f"{head_sha}:{path}"], repo_root)
-        diff = _git(["diff", f"{base}..{head_sha}", "--", path], repo_root)
         if manifest_change_is_risky(
             path,
             base_show.stdout if base_show.returncode == 0 else "",
             head_show.stdout if head_show.returncode == 0 else "",
-            diff.stdout if diff.returncode == 0 else "",
+            partial(read_git_diff, path),
         ):
             risky.append(path)
     return risky
@@ -208,6 +218,23 @@ def _git_diff_lines(text: str) -> list[str]:
     if not text:
         return []
     return [f"{line}\n" for line in text.removesuffix("\n").split("\n")]
+
+
+# difflib is quadratic in the worst case, and the worker check has a fixed deadline. Real go.mod and
+# commented tsconfig files are far below this, so an input above it fails closed instead.
+_CONTENTS_DIFF_MAX_CHARS = 256 * 1024
+
+
+class _ManifestTooLargeToDiff(Exception):
+    pass
+
+
+def _contents_diff(path: str, base_text: str, head_text: str) -> str:
+    if len(base_text) + len(head_text) > _CONTENTS_DIFF_MAX_CHARS:
+        raise _ManifestTooLargeToDiff(path)
+    return "".join(
+        difflib.unified_diff(_git_diff_lines(base_text), _git_diff_lines(head_text), f"a/{path}", f"b/{path}")
+    )
 
 
 def manifest_script_changes_from_contents(
@@ -227,14 +254,12 @@ def manifest_script_changes_from_contents(
         if not isinstance(base_text, str) or not isinstance(head_text, str):
             risky.append(path)
             continue
-        diff = "".join(
-            difflib.unified_diff(
-                _git_diff_lines(base_text),
-                _git_diff_lines(head_text),
-                f"a/{path}",
-                f"b/{path}",
+        try:
+            is_risky = manifest_change_is_risky(
+                path, base_text, head_text, partial(_contents_diff, path, base_text, head_text)
             )
-        )
-        if manifest_change_is_risky(path, base_text, head_text, diff):
+        except _ManifestTooLargeToDiff:
+            is_risky = True
+        if is_risky:
             risky.append(path)
     return risky
