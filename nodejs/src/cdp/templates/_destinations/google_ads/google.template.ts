@@ -252,9 +252,10 @@ if (empty(clickIds) and empty(userIdentifiers)) {
 let res := upload(clickIds, userIdentifiers)
 let codes := uploadErrorCodes(res)
 
-// Google recommends sending a gclid with its gbraid, but some accounts still refuse the pair.
-if (not empty(clickIds.gclid) and not empty(clickIds.gbraid) and allIn(codes, ['VALUE_MUST_BE_UNSET'])) {
-    print('Google refused the gclid and gbraid together. Retrying with the gclid only.')
+// Google recommends sending a gclid with its gbraid, but some accounts refuse the pair, and a bad gbraid
+// must not cost the conversion its valid gclid.
+if (not empty(clickIds.gclid) and not empty(clickIds.gbraid) and allIn(codes, ['VALUE_MUST_BE_UNSET', 'UNPARSEABLE_GBRAID', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID'])) {
+    print(f'Google refused the gbraid ({arrayStringConcat(codes, ', ')}). Retrying with the gclid only.')
     clickIds := {'gclid': clickIds.gclid}
     res := upload(clickIds, userIdentifiers)
     codes := uploadErrorCodes(res)

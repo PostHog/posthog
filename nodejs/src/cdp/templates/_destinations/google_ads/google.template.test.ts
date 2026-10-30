@@ -309,7 +309,7 @@ describe('google template', () => {
         )
     })
 
-    it.each(['EXPIRED_EVENT', 'UNPARSEABLE_GBRAID', 'INVALID_CUSTOMER_FOR_CLICK', 'UNAUTHORIZED_CUSTOMER'])(
+    it.each(['EXPIRED_EVENT', 'UNPARSEABLE_GCLID', 'INVALID_CUSTOMER_FOR_CLICK', 'UNAUTHORIZED_CUSTOMER'])(
         'retries once with hashed identifiers only when Google rejects the click ID with %s',
         async (code) => {
             const response = await invokeConversion({ gclid: 'g1', gbraid: 'b1' })
@@ -330,16 +330,15 @@ describe('google template', () => {
         }
     )
 
-    it('retries with the gclid only when Google refuses the gclid and gbraid pair', async () => {
+    it.each([
+        ['fieldError', 'VALUE_MUST_BE_UNSET'],
+        ['conversionUploadError', 'UNPARSEABLE_GBRAID'],
+        ['conversionUploadError', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID'],
+    ])('retries with the gclid only when Google refuses the gbraid with %s %s', async (kind, code) => {
         const response = await invokeConversion({ gclid: 'g1', gbraid: 'b1' })
         const retry = await tester.invokeFetchResponse(response.invocation, {
             status: 200,
-            body: {
-                partialFailureError: {
-                    message: 'VALUE_MUST_BE_UNSET',
-                    details: [{ errors: [{ errorCode: { fieldError: 'VALUE_MUST_BE_UNSET' } }] }],
-                },
-            },
+            body: { partialFailureError: { message: code, details: [{ errors: [{ errorCode: { [kind]: code } }] }] } },
         })
 
         expect(retry.finished).toBe(false)
