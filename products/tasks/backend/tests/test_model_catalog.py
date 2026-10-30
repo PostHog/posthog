@@ -35,7 +35,7 @@ def _resolved_catalog() -> dict[str, Any]:
                     model_id: {
                         "reasoning_efforts": list(model_catalog.reasoning_efforts_for(adapter, model_id)),
                         "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
-                        "context_windows": list(model_catalog.context_windows_for(model_id)),
+                        "supports_1m_context": model_catalog.supports_1m_context(model_id),
                         "supports_fast_mode": model_catalog.supports_fast_mode(model_id),
                         "offered": model_catalog.is_offered_model(model_id),
                     }

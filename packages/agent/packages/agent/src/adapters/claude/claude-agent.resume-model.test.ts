@@ -24,6 +24,7 @@ type SdkQueryHandle = {
   setModel: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   applyFlagSettings: ReturnType<typeof vi.fn>;
+  getContextUsage: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
   initializationResult: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -43,6 +44,7 @@ function makeQueryHandle(): SdkQueryHandle {
     setModel: vi.fn().mockImplementation(() => nextSetModel()),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
+    getContextUsage: vi.fn().mockResolvedValue({ rawMaxTokens: 0 }),
     supportedCommands: vi.fn().mockResolvedValue([]),
     initializationResult: vi.fn().mockImplementation(() => nextInitPromise),
     close: vi.fn(),
@@ -474,22 +476,14 @@ describe("ClaudeAcpAgent session creation", () => {
     {
       start: undefined,
       startEnv: "0",
-      startSize: 1_000_000,
       next: "200k",
       nextEnv: "1",
-      nextSize: 200_000,
+      cli: 200_000,
     },
-    {
-      start: "200k",
-      startEnv: "1",
-      startSize: 200_000,
-      next: "1m",
-      nextEnv: "0",
-      nextSize: 1_000_000,
-    },
+    { start: "200k", startEnv: "1", next: "1m", nextEnv: "0", cli: 1_000_000 },
   ] as const)(
-    "runs a $start session at the catalog window and switches to $next live",
-    async ({ start, startEnv, startSize, next, nextEnv, nextSize }) => {
+    "switches a $start session to $next and reads the window from the CLI",
+    async ({ start, startEnv, next, nextEnv, cli }) => {
       vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
         {
           id: "claude-opus-5-5",
@@ -501,7 +495,7 @@ describe("ClaudeAcpAgent session creation", () => {
         },
       ]);
       const agent = makeAgent();
-      const response = await agent.newSession({
+      const { sessionId } = await agent.newSession({
         cwd,
         mcpServers: [],
         _meta: {
@@ -510,25 +504,25 @@ describe("ClaudeAcpAgent session creation", () => {
           contextWindow: start,
         },
       });
-      const session = (
-        agent as unknown as { session: { lastContextWindowSize?: number } }
-      ).session;
-
       expect(createdQueryOptions[0]?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe(
         startEnv,
       );
-      expect(session.lastContextWindowSize).toBe(startSize);
+      const query = createdQueries[0];
+      query?.getContextUsage.mockResolvedValue({ rawMaxTokens: cli });
 
       const updated = await agent.setSessionConfigOption({
-        sessionId: response.sessionId,
+        sessionId,
         configId: "context_window",
         value: next,
       });
 
-      expect(createdQueries[0]?.applyFlagSettings).toHaveBeenCalledWith({
+      expect(query?.applyFlagSettings).toHaveBeenCalledWith({
         env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: nextEnv },
       });
-      expect(session.lastContextWindowSize).toBe(nextSize);
+      expect(
+        (agent as unknown as { session: { lastContextWindowSize?: number } })
+          .session.lastContextWindowSize,
+      ).toBe(cli);
       expect(
         updated.configOptions.find((opt) => opt.id === "context_window"),
       ).toMatchObject({ currentValue: next });

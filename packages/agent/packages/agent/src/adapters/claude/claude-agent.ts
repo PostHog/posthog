@@ -138,10 +138,10 @@ import {
   resolveInitialModelId,
 } from "./session/model-config";
 import {
+  CONTEXT_WINDOW_200K_TOKENS,
   type ContextWindowChoice,
-  contextWindowChoiceFromEnv,
+  contextWindowChoice,
   contextWindowEnv,
-  contextWindowTokens,
   DEFAULT_EFFORT,
   fastModeStateEnabled,
   getContextWindowOptions,
@@ -2871,6 +2871,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.rebuildContextWindowConfigOption(resolvedValue);
       this.rebuildFastModeConfigOption(resolvedValue);
       this.session.lastContextWindowSize = this.contextWindowSize(this.session);
+      await this.syncContextWindow(this.session);
     } else if (params.configId === "effort") {
       const newEffort = resolvedValue as EffortLevel;
       this.session.effort = newEffort;
@@ -2881,6 +2882,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     } else if (params.configId === "context_window") {
       await this.applyContextWindow(resolvedValue as ContextWindowChoice);
       this.session.lastContextWindowSize = this.contextWindowSize(this.session);
+      await this.syncContextWindow(this.session);
     } else if (params.configId === "fast") {
       // SDK flag first: a rejected control request leaves state untouched.
       const enabled = resolvedValue === "on";
@@ -3666,6 +3668,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
+      void this.syncContextWindow(session);
     }
 
     return { sessionId, modes, configOptions };
@@ -3873,7 +3876,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       id: "context_window",
       name: "Context Window",
       type: "select",
-      currentValue: contextWindowChoiceFromEnv(this.session.queryOptions.env),
+      currentValue: contextWindowChoice(this.session.queryOptions.env),
       options: contextOptions,
       category: "_context_window" as SessionConfigOptionCategory,
       description: "Choose the context window size for this session",
@@ -3881,13 +3884,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private contextWindowSize(session: Session): number {
-    const modelId = session.modelId ?? "";
-    return (
-      contextWindowTokens(
-        modelId,
-        contextWindowChoiceFromEnv(session.queryOptions.env),
-      ) ?? this.getContextWindowForModel(modelId)
-    );
+    const window = this.getContextWindowForModel(session.modelId ?? "");
+    return contextWindowChoice(session.queryOptions.env) === "200k"
+      ? Math.min(window, CONTEXT_WINDOW_200K_TOKENS)
+      : window;
+  }
+
+  private async syncContextWindow(session: Session): Promise<void> {
+    const { query, modelId } = session;
+    try {
+      const usage = await withTimeout(
+        query.getContextUsage({ detail: "summary" }),
+        CONTEXT_USAGE_TIMEOUT_MS,
+      );
+      if (
+        usage.result === "success" &&
+        usage.value.rawMaxTokens > 0 &&
+        session.query === query &&
+        session.modelId === modelId
+      ) {
+        session.lastContextWindowSize = usage.value.rawMaxTokens;
+      }
+    } catch (error) {
+      this.logger.warn("Failed to read the context window", { error });
+    }
   }
 
   private async applyContextWindow(choice: ContextWindowChoice): Promise<void> {
@@ -3903,14 +3923,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const withoutContext = this.session.configOptions.filter(
       (o) => o.id !== "context_window",
     );
-    if (contextWindowChoiceFromEnv(this.session.queryOptions.env) !== "1m") {
-      const env = contextWindowEnv("1m");
-      this.session.queryOptions.env = {
-        ...this.session.queryOptions.env,
-        ...env,
-      };
-      this.applyFlagSettingsInBackground({ env });
-    }
     const contextOption = this.contextWindowConfigOption(modelId);
     this.session.configOptions = contextOption
       ? [...withoutContext, contextOption]

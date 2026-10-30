@@ -58,7 +58,7 @@ Fork of `@anthropic-ai/claude-agent-acp`. Upstream repo: https://github.com/anth
 |---|---|---|---|
 | AskUserQuestion | Always disallowed | Enabled via env var + permission handler | PostHog supports structured questions |
 | Model resolution | `initializationResult.models` from SDK | `fetchGatewayModels()` from gateway API | Different model backend |
-| Context window | `[1m]` model variants from `supportedModels()`; size from `modelUsage[].contextWindow` | Sizes from the model catalog (`contextWindows` in `@posthog/agent-contracts`); a 200k choice sets `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` at spawn and through `applyFlagSettings({ env })` at runtime; no `betas` | Current Claude models are natively 1M, so a `[1m]` variant or the beta does not change the window. The env var is the documented 200K switch, and the CLI reads it live, so a change needs no query rebuild |
+| Context window | `[1m]` model variants from `supportedModels()`; size from `modelUsage[].contextWindow` | Size from `getContextUsage({ detail: "summary" }).rawMaxTokens` after start, model switch and window switch, seeded from the gateway; a 200k choice sets `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` at spawn and through `applyFlagSettings({ env })`; no `betas` | Current Claude models are natively 1M, so a `[1m]` variant or the beta does not change the window. The env var is the documented 200K switch and the CLI reads it live. A summary read makes no API call |
 | permissionMode | Hardcoded `"default"` | Reads from `meta.permissionMode` | More flexible mode selection |
 | Session storage | `this.sessions[sessionId]` (multi) | `this.session` (single) | Architectural choice |
 | bypassPermissions | `updatedPermissions` with `destination: "session"` | No `updatedPermissions` | Different permission persistence |
@@ -254,8 +254,8 @@ Fork of `@anthropic-ai/claude-agent-acp`. Upstream repo: https://github.com/anth
   `modelVersionsCompatible` filter.
 - **compact_boundary getContextUsage** (#747, 398f763): compact_boundary now fetches the
   authoritative post-compaction `used` via `query.getContextUsage()` (helper
-  `fetchContextUsedTokens`), falling back to 0 on failure. `size` comes from the model
-  catalog window (see Intentional Divergences). Our fork-specific
+  `fetchContextUsedTokens`), falling back to 0 on failure. `size` comes from the CLI
+  (see Intentional Divergences). Our fork-specific
   `promptReplayed = true` side effect is preserved.
 - **New SDK message handling** (#747, 398f763): `tool_progress` -> `tool_call_update` `in_progress`
   with `elapsedTimeSeconds`; `rate_limit_event` -> `usage_update` carrying `_claude/rateLimit`;

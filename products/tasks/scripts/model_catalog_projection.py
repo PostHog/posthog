@@ -116,11 +116,7 @@ def render_catalog(catalog: dict[str, Any]) -> str:
                 f"{i}{i}label: {_s(display_name(model.id))},",
                 *([f"{i}{i}accessFlag: {_s(model.access_flag)},"] if model.access_flag else []),
                 *cost_lines(model),
-                *(
-                    [f"{i}{i}contextWindows: [{', '.join(str(size) for size in model.context_windows)}],"]
-                    if model.context_windows
-                    else []
-                ),
+                *([f"{i}{i}supports1MContext: true,"] if model.supports_1m_context else []),
                 *([f"{i}{i}supportsFastMode: true,"] if model.supports_fast_mode else []),
                 *([f"{i}{i}retired: true,"] if model.retired else []),
                 f"{i}}},",
@@ -252,11 +248,10 @@ export interface CatalogModel {{
 {i} */
 {i}costSummary?: string{semi}
 {i}/**
-{i} * Context window sizes in tokens, smallest first. The largest is the
-{i} * default. A picker offers a window choice only when there is more than
-{i} * one. Absent means the catalog does not know the window.
+{i} * Runs with the 1M-token context window. Absent means it does not, and a
+{i} * picker offers no window choice.
 {i} */
-{i}contextWindows?: readonly number[]{semi}
+{i}supports1MContext?: boolean{semi}
 {i}/**
 {i} * Runs in fast mode. Absent means it does not, and a picker offers no
 {i} * fast-mode toggle.

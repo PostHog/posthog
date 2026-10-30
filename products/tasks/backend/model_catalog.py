@@ -67,12 +67,6 @@ _EXTENDED = (*_THROUGH_MAX, ULTRACODE)
 _GLM = (HIGH, MAX)
 _NO_EFFORT: tuple[str, ...] = ()
 
-CONTEXT_WINDOW_200K = 200_000
-CONTEXT_WINDOW_1M = 1_000_000
-
-_200K_ONLY = (CONTEXT_WINDOW_200K,)
-_200K_OR_1M = (CONTEXT_WINDOW_200K, CONTEXT_WINDOW_1M)
-
 
 @dataclass(frozen=True, kw_only=True)
 class LongContextCost:
@@ -137,15 +131,10 @@ class CatalogModel:
     ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
     it with no cost rather than a guessed one.
 
-    ``context_windows`` lists the context window sizes, in tokens, a run of the model may use,
-    smallest first. The largest is the default. A surface offers a window choice only where the
-    model lists more than one, and an empty tuple means the catalog does not know the window, so
-    a caller falls back to what the gateway reports. The sizes match what Claude Code runs the
-    model at: a 1M-capable model runs at 200K only when the run asks for it.
-
-    ``supports_fast_mode`` is a run option a model either takes or rejects. A surface offers the
-    toggle only where the model answers yes, and drops the option from the request everywhere
-    else, so a model that never learns it here runs with fast mode off.
+    ``supports_1m_context`` and ``supports_fast_mode`` are the two run options a model either
+    takes or rejects. A surface offers the toggle only where the model answers yes, and drops
+    the option from the request everywhere else, so a model that never learns it here runs at
+    the default context window with fast mode off.
 
     ``retired`` marks a model no picker offers any more, while a session already pinned to it
     still starts and still resolves its name, cost and efforts. Superseded models stay listed
@@ -162,7 +151,7 @@ class CatalogModel:
     label: str | None = None
     access_flag: str | None = None
     cost: ModelCost | None = None
-    context_windows: tuple[int, ...] = ()
+    supports_1m_context: bool = False
     supports_fast_mode: bool = False
     retired: bool = False
 
@@ -221,14 +210,14 @@ MODELS: tuple[CatalogModel, ...] = (
         label="DeepSeek V4.1 Flash Fast",
         cost=_DEEPSEEK_V4_1_FLASH_FAST_COST,
     ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, context_windows=_200K_ONLY, retired=True),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, context_windows=_200K_OR_1M, retired=True),
+    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True),
+    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True),
     CatalogModel(
         "claude-opus-4-7",
         CLAUDE,
         _EXTENDED,
         cost=_OPUS_COST,
-        context_windows=_200K_OR_1M,
+        supports_1m_context=True,
         supports_fast_mode=True,
         retired=True,
     ),
@@ -237,7 +226,7 @@ MODELS: tuple[CatalogModel, ...] = (
         CLAUDE,
         _EXTENDED,
         cost=_OPUS_COST,
-        context_windows=_200K_OR_1M,
+        supports_1m_context=True,
         supports_fast_mode=True,
     ),
     CatalogModel(
@@ -245,7 +234,7 @@ MODELS: tuple[CatalogModel, ...] = (
         CLAUDE,
         _EXTENDED,
         cost=_OPUS_COST,
-        context_windows=_200K_OR_1M,
+        supports_1m_context=True,
         supports_fast_mode=True,
     ),
     CatalogModel(
@@ -253,19 +242,19 @@ MODELS: tuple[CatalogModel, ...] = (
         CLAUDE,
         _EXTENDED,
         cost=_OPUS_5_5_COST,
-        context_windows=_200K_OR_1M,
+        supports_1m_context=True,
         supports_fast_mode=True,
     ),
-    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, context_windows=_200K_OR_1M),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, context_windows=_200K_OR_1M),
-    CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, context_windows=_200K_OR_1M),
-    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, context_windows=_200K_OR_1M),
+    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(
         "claude-sonnet-4-6",
         CLAUDE,
         _STANDARD,
         cost=_SONNET_4_COST,
-        context_windows=_200K_OR_1M,
+        supports_1m_context=True,
         retired=True,
     ),
     # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
@@ -420,15 +409,10 @@ def is_offered_model(model_id: str) -> bool:
     return model is not None and not model.retired
 
 
-def context_windows_for(model_id: str) -> tuple[int, ...]:
-    """The context window sizes this model may run at, smallest first, empty for one the catalog omits."""
-    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
-    return model.context_windows if model else ()
-
-
 def supports_1m_context(model_id: str) -> bool:
-    """Whether this model may run with the 1M-token context window, ``False`` for one the catalog omits."""
-    return CONTEXT_WINDOW_1M in context_windows_for(model_id)
+    """Whether this model runs with the 1M-token context window, ``False`` for one the catalog omits."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.supports_1m_context if model else False
 
 
 def supports_fast_mode(model_id: str) -> bool:
@@ -603,7 +587,6 @@ __all__ = [
     "CatalogModel",
     "ModelCost",
     "cost_for_model",
-    "context_windows_for",
     "cost_multiplier_for",
     "cost_multiplier_label",
     "format_cost_rates",

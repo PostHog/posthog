@@ -138,20 +138,16 @@
       "fallback_reasoning_efforts": [],
       "models": {
         "@cf/zai-org/glm-5.2": {
-          "context_windows": [],
           "cost_multiplier": "≈0.57×",
           "offered": false,
           "reasoning_efforts": [
             "high",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "claude-fable-5": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "5×",
           "offered": true,
           "reasoning_efforts": [
@@ -162,13 +158,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": false
         },
         "claude-fable-5-1": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "5×",
           "offered": true,
           "reasoning_efforts": [
@@ -179,12 +172,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": false
         },
         "claude-opus-4-5": {
-          "context_windows": [
-            200000
-          ],
           "cost_multiplier": "2.5×",
           "offered": false,
           "reasoning_efforts": [
@@ -192,13 +183,10 @@
             "medium",
             "high"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "claude-opus-4-6": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "2.5×",
           "offered": false,
           "reasoning_efforts": [
@@ -208,13 +196,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "claude-opus-4-7": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "2.5×",
           "offered": false,
           "reasoning_efforts": [
@@ -225,13 +210,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": true
         },
         "claude-opus-4-8": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "2.5×",
           "offered": true,
           "reasoning_efforts": [
@@ -242,13 +224,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": true
         },
         "claude-opus-5": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "2.5×",
           "offered": true,
           "reasoning_efforts": [
@@ -259,13 +238,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": true
         },
         "claude-opus-5-5": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "2×",
           "offered": true,
           "reasoning_efforts": [
@@ -276,13 +252,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": true
         },
         "claude-sonnet-4-6": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "1.5×",
           "offered": false,
           "reasoning_efforts": [
@@ -290,13 +263,10 @@
             "medium",
             "high"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": false
         },
         "claude-sonnet-5": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "1×",
           "offered": true,
           "reasoning_efforts": [
@@ -307,13 +277,10 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": false
         },
         "claude-sonnet-5-5": {
-          "context_windows": [
-            200000,
-            1000000
-          ],
           "cost_multiplier": "1×",
           "offered": true,
           "reasoning_efforts": [
@@ -324,57 +291,58 @@
             "max",
             "ultracode"
           ],
+          "supports_1m_context": true,
           "supports_fast_mode": false
         },
         "deepseek-ai/deepseek-v4-flash-0731": {
-          "context_windows": [],
           "cost_multiplier": "≈0.05×",
           "offered": true,
           "reasoning_efforts": [],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "deepseek-ai/deepseek-v4.1-flash-1017-fast": {
-          "context_windows": [],
           "cost_multiplier": "≈0.27×",
           "offered": true,
           "reasoning_efforts": [],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "moonshotai/kimi-k3": {
-          "context_windows": [],
           "cost_multiplier": "1.5×",
           "offered": true,
           "reasoning_efforts": [],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "zai-org/glm-5.2": {
-          "context_windows": [],
           "cost_multiplier": "≈0.57×",
           "offered": false,
           "reasoning_efforts": [
             "high",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "zai-org/glm-5.3": {
-          "context_windows": [],
           "cost_multiplier": "≈0.57×",
           "offered": true,
           "reasoning_efforts": [
             "high",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "zai-org/glm-5.3-flash": {
-          "context_windows": [],
           "cost_multiplier": "≈0.06×",
           "offered": true,
           "reasoning_efforts": [
             "high",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         }
       },
@@ -389,7 +357,6 @@
       ],
       "models": {
         "gpt-5": {
-          "context_windows": [],
           "cost_multiplier": null,
           "offered": true,
           "reasoning_efforts": [
@@ -397,10 +364,10 @@
             "medium",
             "high"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-5.5": {
-          "context_windows": [],
           "cost_multiplier": "≈2.8×",
           "offered": true,
           "reasoning_efforts": [
@@ -409,10 +376,10 @@
             "high",
             "xhigh"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-5.6-luna": {
-          "context_windows": [],
           "cost_multiplier": "≈0.55×",
           "offered": true,
           "reasoning_efforts": [
@@ -422,10 +389,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-5.6-sol": {
-          "context_windows": [],
           "cost_multiplier": "≈2.8×",
           "offered": true,
           "reasoning_efforts": [
@@ -435,10 +402,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-5.6-terra": {
-          "context_windows": [],
           "cost_multiplier": "≈1.4×",
           "offered": true,
           "reasoning_efforts": [
@@ -448,10 +415,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-6-astra": {
-          "context_windows": [],
           "cost_multiplier": "5×",
           "offered": true,
           "reasoning_efforts": [
@@ -461,10 +428,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-6-luna": {
-          "context_windows": [],
           "cost_multiplier": "0.05×",
           "offered": true,
           "reasoning_efforts": [
@@ -474,10 +441,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-6-sol": {
-          "context_windows": [],
           "cost_multiplier": "1×",
           "offered": true,
           "reasoning_efforts": [
@@ -487,10 +454,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-6.1-sol": {
-          "context_windows": [],
           "cost_multiplier": "1× base",
           "offered": true,
           "reasoning_efforts": [
@@ -500,10 +467,10 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         },
         "gpt-6.1-terra": {
-          "context_windows": [],
           "cost_multiplier": "0.5× base",
           "offered": false,
           "reasoning_efforts": [
@@ -513,6 +480,7 @@
             "xhigh",
             "max"
           ],
+          "supports_1m_context": false,
           "supports_fast_mode": false
         }
       },
