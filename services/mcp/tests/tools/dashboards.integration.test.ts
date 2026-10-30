@@ -278,6 +278,7 @@ describe('Dashboards', { concurrent: false }, () => {
             'alerts',
             'timezone',
             'resolved_date_range',
+            'resolved_compare_date_range',
         ] as const
 
         async function createDashboardWithInsight(namePrefix: string): Promise<{ dashboardId: number }> {

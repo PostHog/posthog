@@ -1,1 +1,1 @@
-0216_signalteamconfig_anomaly_scoring_enabled
+0221_signal_filter_catalog

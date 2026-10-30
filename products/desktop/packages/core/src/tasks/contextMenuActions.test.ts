@@ -12,6 +12,21 @@ describe("resolveTaskContextMenuIntent", () => {
     ).toEqual({ type: "restore" });
   });
 
+  it("maps toggle-unread by the current read state", () => {
+    expect(
+      resolveTaskContextMenuIntent(
+        { type: "toggle-unread" },
+        { isUnread: true },
+      ),
+    ).toEqual({ type: "mark-read" });
+    expect(
+      resolveTaskContextMenuIntent(
+        { type: "toggle-unread" },
+        { isUnread: false },
+      ),
+    ).toEqual({ type: "mark-unread" });
+  });
+
   it("maps suspend to suspend when not suspended", () => {
     expect(
       resolveTaskContextMenuIntent({ type: "suspend" }, { isSuspended: false }),
