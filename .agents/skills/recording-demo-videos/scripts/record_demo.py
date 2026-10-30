@@ -688,6 +688,10 @@ class Recorder:
                 for _ in range(int(times or 1)):
                     await page.keyboard.press(name)
             await page.keyboard.type(self.vars.real(spec.get("text", "")), delay=spec.get("delay_ms", 80))
+        if "upload" in step:
+            spec = step["upload"]
+            loc = self.locate(page, spec.get("target", {"selector": "input[type=file]"}))
+            await loc.set_input_files(str(self.base / spec["file"]))
         acted = self.now()
         if "wait_for" in step and "goto" not in step:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
