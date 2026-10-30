@@ -638,7 +638,7 @@ class TestSpendBasedBilling(BaseTest):
                 kind=kind,
                 signal_id=signal_id if signal_owned else None,
                 scout_run=scout,
-                report=None if signal_owned or scout else report,
+                report=None if signal_owned or scout or kind == SignalSpend.Kind.CUSTOM_AGENT else report,
                 task_run_id=(scout.task_run_id if scout else uuid4()) if kind != SignalSpend.Kind.AD_HOC else None,
                 spend=20,
             )

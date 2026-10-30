@@ -1484,7 +1484,10 @@ class TestFacadeReadsAndMappers(TestCase):
                 task.id,
                 self.team.id,
                 self.user.id,
-                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                validated_data={
+                    "mode": "background" if expected_stage else "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                },
                 pipeline_rerun=pipeline_rerun,
                 free_trial_enabled=False,
             )

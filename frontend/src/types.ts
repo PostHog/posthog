@@ -254,6 +254,8 @@ export enum AvailableFeature {
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
     MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = 'self_driving_trial_allowance_microusd',
+    SELF_DRIVING_TRIAL_REPORTS = 'self_driving_trial_reports',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`

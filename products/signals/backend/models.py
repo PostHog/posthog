@@ -4035,6 +4035,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Kind(models.TextChoices):
         RESEARCH = "research"
         REPO_SELECTION = "repo_selection"
+        CUSTOM_AGENT = "custom_agent"
         AD_HOC = "ad-hoc"
         SCOUT_RUN = "scout_run"
         REVIEWER_TRIGGERED_IMPLEMENTATION = "reviewer_triggered_implementation"
@@ -4092,6 +4093,13 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                             | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
                         )
                         | models.Q(
+                            kind="custom_agent",
+                            task_run_id__isnull=False,
+                            signal_id__isnull=True,
+                            scout_run__isnull=True,
+                            report__isnull=True,
+                        )
+                        | models.Q(
                             kind="scout_run",
                             scout_run__isnull=False,
                             signal_id__isnull=True,
@@ -4114,7 +4122,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                         spend=0,
                     )
                 ),
-                name="signals_owner_spend_kind_owner",
+                name="signals_owner_spend_kind_owner_v2",
             ),
             models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]

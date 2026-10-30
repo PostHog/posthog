@@ -14,6 +14,7 @@ from django.utils.functional import Promise
 from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
+    from products.signals.backend.facade.trial import TaskTrialAdmission
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.logic.services.sandbox import SandboxResources
 
@@ -858,6 +859,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if live_run_ids:
             execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
 
+    def uses_self_driving_billing(self, mode: str) -> bool:
+        if mode != "background":
+            return False
+        if self.origin_product == self.OriginProduct.SIGNALS_SCOUT:
+            return True
+        if self.origin_product != self.OriginProduct.SIGNAL_REPORT:
+            return False
+        if self.internal or self.signal_report_id is None:
+            return True
+        from products.signals.backend.task_run_artefacts import (
+            is_report_implementation_task,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        return is_report_implementation_task(
+            team_id=self.team_id, report_id=str(self.signal_report_id), task_id=str(self.id)
+        )
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -870,6 +888,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         subscription_owner_id: int | None = None,
         spend_signal_id: str | None = None,
         implementation_spend_kind: str | None = None,
+        _trial_admission: "TaskTrialAdmission | None | Literal[False]" = False,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -879,11 +898,30 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals models depend on Tasks
+        )
+
+        effective_environment = environment or TaskRun.Environment.CLOUD
+        uses_self_driving_billing = self.uses_self_driving_billing(mode)
+        trial_admission = (
+            (
+                prepare_task_trial(
+                    team=self.team, origin=self.origin_product, report_id=self.signal_report_id, mode=mode
+                )
+                if _trial_admission is False
+                else _trial_admission
+            )
+            if effective_environment == TaskRun.Environment.CLOUD and uses_self_driving_billing
+            else None
+        )
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             dedicated_stream = dedicated_stream_configured()
 
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.signal_report_id)
             task = (
                 Task.objects.select_for_update(of=("self",))
                 .select_related("created_by", "team")
@@ -892,7 +930,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
 
-            effective_environment = environment or TaskRun.Environment.CLOUD
             if (
                 effective_environment == TaskRun.Environment.CLOUD
                 and task.origin_product not in Task.OriginProduct.values
@@ -967,22 +1004,18 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
 
-            # A manual resume can share an internal Task with an automated run. Freeze billing
-            # on this run so historical PR charges and pipeline attribution do not change.
-            if (
-                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-                and state.get("ai_stage")
-                not in {
-                    "research",
-                    "implementation",
-                    "repo_selection",
-                    "custom_agent",
-                }
-            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
-                state["billing_product"] = "posthog_ai"
+            if task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT):
+                state.pop("billing_product", None)
+                if not uses_self_driving_billing:
+                    state["billing_product"] = "posthog_ai"
+                elif task.origin_product == Task.OriginProduct.SIGNAL_REPORT and state.get("ai_stage") in {
+                    None,
+                    "inbox",
+                }:
+                    state["ai_stage"] = "implementation"
 
             if (
-                environment == TaskRun.Environment.CLOUD
+                effective_environment == TaskRun.Environment.CLOUD
                 and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
                 and state.get("billing_product") != "posthog_ai"
             ):
@@ -1017,7 +1050,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             stamp_pending_user_message_id(state)
             if effective_environment == TaskRun.Environment.CLOUD:
                 state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] = False
+            run_id = uuid.uuid4()
+            state.pop("self_driving_funding", None)
+            if trial_admission is not None:
+                state["self_driving_funding"] = trial_admission.bind(
+                    origin=task.origin_product,
+                    stage=state.get("ai_stage") or "implementation",
+                    report_id=task.signal_report_id,
+                )
             task_run = TaskRun.objects.create(
+                id=run_id,
                 task=task,
                 team=task.team,
                 status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
@@ -1030,7 +1072,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
                 task.observe_run_started_beside_live_runs(task_run)
 
-            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+            if (
+                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and effective_environment == TaskRun.Environment.CLOUD
+                and (task.signal_report_id or state.get("ai_stage") == "custom_agent")
+                and state.get("billing_product") != "posthog_ai"
+            ):
                 from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
                     register_report_task_spend,
                 )
@@ -1038,7 +1085,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 register_report_task_spend(
                     team_id=task.team_id,
                     run_id=str(task_run.id),
-                    report_id=str(task.signal_report_id),
+                    report_id=str(task.signal_report_id) if task.signal_report_id else None,
                     stage=state.get("ai_stage"),
                     signal_id=spend_signal_id,
                     implementation_kind=implementation_spend_kind,
@@ -1834,6 +1881,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if run_extra_state.get("use_dedicated_stream") is None:
             run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
+        from products.signals.backend.facade.trial import (
+            prepare_task_trial,  # noqa: PLC0415 -- Signals depends on Tasks
+        )
+
+        trial_admission = prepare_task_trial(
+            team=task.team,
+            origin=task.origin_product,
+            report_id=task.signal_report_id,
+            mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+        )
         with transaction.atomic():
             task.save()
             task_run = task.create_run(
@@ -1845,6 +1902,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 startup_requested_at=startup_requested_at,
                 spend_signal_id=spend_signal_id,
                 implementation_spend_kind=implementation_spend_kind,
+                _trial_admission=trial_admission,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)
