@@ -262,6 +262,20 @@ def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
     return expr_type if isinstance(expr_type, ast.FieldType) else None
 
 
+def _exported_json_text_read(expr: ast.Expr) -> ast.Field | None:
+    """The field behind `expr` if it reads a column the wrapper around a joined table filled with a property's JSON text."""
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if (
+        isinstance(expr, ast.Field)
+        and isinstance(expr.type, ast.PropertyType)
+        and expr.type.joined_subquery is not None
+        and expr.type.as_json
+    ):
+        return expr
+    return None
+
+
 # --- value substitution: rebuild the printer's materialized-column read as AST ----------------------------------------
 
 
@@ -1386,6 +1400,12 @@ class ClickHousePropertyResolver(CloningVisitor):
         boolean_conversion = self._rewrite_boolean_property_conversion(node)
         if boolean_conversion is not None:
             return boolean_conversion
+
+        if node.name == "toJSONString" and len(node.args) == 1:
+            exported_json_text = _exported_json_text_read(node.args[0])
+            if exported_json_text is not None:
+                # The column already holds the JSON text, so serializing it again would quote it.
+                return self.visit(exported_json_text)
 
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:

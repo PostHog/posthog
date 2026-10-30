@@ -112,6 +112,8 @@ class WrappedTableExport:
     property_path: tuple[str | int, ...]
     # Lower the read to an unconverted `PropertyAccess`, so the outer read keeps its own conversion context.
     raw_property: bool
+    # Export the value's JSON text instead of its stored text, because the outer read parses it as JSON.
+    as_json: bool
 
 
 class WrappedTableReferenceCollector(TraversingVisitor):
@@ -145,21 +147,47 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         if hops is None:
             return
         field_chain = (*(hop.field for hop in hops), field_type.name)
-        name = self._export(("field", field_chain), field_chain, (), raw_property=False)
+        name = self._export(("field", field_chain), field_chain, (), raw_property=False, as_json=False)
         self.fields[id(field_type)] = (field_type, name)
         self._note_hops(hops)
 
-    def _collect_property(self, property_type: ast.PropertyType) -> None:
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name == "toJSONString" and len(node.args) == 1 and self._collect_document_read(node.args[0]):
+            return
+        super().visit_call(node)
+
+    def _collect_document_read(self, expr: ast.Expr) -> bool:
+        """Collects a property of this table that `toJSONString` serializes, so the subquery exports its JSON text.
+
+        Exporting the stored text would serialize it again outside, which quotes an object or an array. The property-type
+        pass rewrites `JSONExtractRaw(t.properties, 'key')` to this shape before the wrapper runs, so JSON functions on
+        a wrapped table read the same text they read from the table itself.
+        """
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field) or not isinstance(expr.type, ast.PropertyType):
+            return False
+        hops = _hops_to_table(expr.type.field_type.table_type, self.table)
+        if hops is None or any(isinstance(hop, ast.LazyJoinType) for hop in hops):
+            return False
+        self._collect_property(expr.type, as_json=True)
+        return True
+
+    def _collect_property(self, property_type: ast.PropertyType, as_json: bool = False) -> None:
         document = property_type.field_type
         hops = _hops_to_table(document.table_type, self.table)
         if hops is None:
             return
         through_lazy_join = any(isinstance(hop, ast.LazyJoinType) for hop in hops)
+        # A lazy join's subquery exports the value itself, so a read through one keeps its outer `toJSONString`.
+        as_json = (as_json or property_type.as_json) and not through_lazy_join
+        if as_json:
+            property_type.as_json = True
         field_chain = (*(hop.field for hop in hops), document.name)
         property_path = tuple(property_type.chain)
         # An integer array index and a string key with the same text are different paths.
-        key = ("property", field_chain, *((isinstance(link, int), link) for link in property_path))
-        name = self._export(key, field_chain, property_path, raw_property=not through_lazy_join)
+        key = ("property", as_json, field_chain, *((isinstance(link, int), link) for link in property_path))
+        name = self._export(key, field_chain, property_path, raw_property=not through_lazy_join, as_json=as_json)
         self.properties[id(property_type)] = (property_type, name, through_lazy_join)
         self._note_hops(hops)
 
@@ -173,6 +201,7 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         field_chain: tuple[str, ...],
         property_path: tuple[str | int, ...],
         raw_property: bool,
+        as_json: bool,
     ) -> str:
         name = self._names.get(key)
         if name is None:
@@ -186,7 +215,11 @@ class WrappedTableReferenceCollector(TraversingVisitor):
                 name = f"{base}_{counter}"
             self._names[key] = name
             self.exports[name] = WrappedTableExport(
-                name=name, field_chain=field_chain, property_path=property_path, raw_property=raw_property
+                name=name,
+                field_chain=field_chain,
+                property_path=property_path,
+                raw_property=raw_property,
+                as_json=as_json,
             )
         return name
 
@@ -286,11 +319,18 @@ class LazyTableResolver(TraversingVisitor):
                 self._read_property_path(subquery.type, column, export.property_path)
         resolve_lazy_tables(subquery, self.dialect, [subquery], self.context, resolver_factory=self.resolver_factory)
         for column in columns:
-            if collector.exports[column.alias].raw_property:
+            export = collector.exports[column.alias]
+            if export.raw_property:
                 # The property-type pass runs after this and would convert a typed property inside the subquery.
                 # The outer read must receive the stored value, because it may sit under an explicit string parser
                 # (toFloatOrZero) that rejects the converted type, so the inner read is lowered to a raw extract now.
                 column.expr = lower_property_access(column.expr, self.context)
+            if export.as_json:
+                # The property resolver drops the outer `toJSONString` of a read marked `as_json`, so the column
+                # has to hold the JSON text itself.
+                column.expr = ast.Call(name="toJSONString", args=[column.expr], type=ast.StringType(nullable=True))
+                column.type = ast.FieldAliasType(alias=column.alias, type=ast.StringType(nullable=True))
+                subquery.type.columns[column.alias] = column.type
 
         join_ptr.table = subquery
         join_ptr.alias = table_alias

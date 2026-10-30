@@ -685,6 +685,9 @@ class PropertySwapper(CloningVisitor):
                 return self._field_type_to_property_call(node, prop_type)
 
         type = node.type
+        if isinstance(type, ast.PropertyType) and type.as_json:
+            # The read is consumed as JSON text, so it keeps the stored value whatever the property's type.
+            return node
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if (
