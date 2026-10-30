@@ -230,6 +230,7 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        MatrixManager.copy_native_events(master_team_id, team.id)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
         # Copy the master team's group type mappings onto the isolated eval team, writing through the

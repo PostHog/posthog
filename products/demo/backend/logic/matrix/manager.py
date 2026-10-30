@@ -3,7 +3,7 @@
 import datetime as dt
 from collections.abc import Callable, Iterator
 from functools import partial
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Literal, cast
 from uuid import UUID, uuid5
 
@@ -12,10 +12,12 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.deletion_targets import table_exists_via_sync_execute
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -94,6 +96,8 @@ class MatrixManager:
 
     _persons_created: int
     _person_distinct_ids_created: int
+    _events_created: int
+    _groups_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
@@ -101,6 +105,8 @@ class MatrixManager:
         self.print_steps = print_steps
         self._persons_created = 0
         self._person_distinct_ids_created = 0
+        self._events_created = 0
+        self._groups_created = 0
 
     def ensure_account_and_save(
         self,
@@ -190,6 +196,42 @@ class MatrixManager:
         )
         return team
 
+    @staticmethod
+    def copy_native_events(source_team_id: int, target_team_id: int) -> None:
+        from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
+
+        native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
+        if not native_events_table_exists:
+            return
+        copy_params = {"source_team_id": source_team_id, "target_team_id": target_team_id}
+        expected_count = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
+            copy_params,
+        )[0][0]
+        deadline = monotonic() + 300
+        while True:
+            native_count = sync_execute(
+                "SELECT count() FROM events_json WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
+                copy_params,
+            )[0][0]
+            if native_count >= expected_count:
+                break
+            if monotonic() >= deadline:
+                raise TimeoutError(f"Native demo source {source_team_id} has {native_count}/{expected_count} events")
+            sleep(0.5)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
+
+    @staticmethod
+    def _schedule_native_events_copy(source_team_id: int, target_team_id: int) -> None:
+        # Importing posthog.tasks eagerly loads every Celery task, so defer it until demo setup is complete.
+        from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
+
+        def enqueue() -> None:
+            copy_native_events_for_demo_team.apply_async(args=(source_team_id, target_team_id), retry=False)
+
+        # Native ingestion and even queue publication must not prevent a usable legacy demo.
+        transaction.on_commit(enqueue, robust=True)
+
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
@@ -229,6 +271,8 @@ class MatrixManager:
             cohort.calculate_people_ch(pending_version=0)
         team.project.save()
         team.save()
+        if self.use_pre_save:
+            self._schedule_native_events_copy(source_team.pk, team.pk)
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
@@ -254,11 +298,11 @@ class MatrixManager:
                     group,
                     self.matrix.now,
                 )
+                self._groups_created += 1
         bulk_create_group_type_mappings(data_team.id, data_team.project_id, group_type_mapping_dicts)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
-        # We need to wait a bit for data just queued into Kafka to show up in CH
-        self._sleep_until_person_data_in_clickhouse(data_team.pk)
+        self._wait_for_analytics_data(data_team.pk)
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
@@ -344,8 +388,7 @@ class MatrixManager:
                 )
             self._save_past_sim_events(team, subject.past_events)
 
-    @staticmethod
-    def _save_past_sim_events(team: Team, events: list[SimEvent]):
+    def _save_past_sim_events(self, team: Team, events: list[SimEvent]):
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
@@ -375,6 +418,7 @@ class MatrixManager:
                     group4_created_at=event.group4_created_at,
                 )
             )
+            self._events_created += 1
 
     @staticmethod
     def _save_sim_group(
@@ -388,10 +432,10 @@ class MatrixManager:
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
-    def _sleep_until_person_data_in_clickhouse(self, team_id: int):
+    def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        MAX_WAIT_ITERATIONS = 240  # 240 * 0.5s = 120 seconds (increased from 60s for CI reliability)
+        MAX_WAIT_ITERATIONS = 600
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
             person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
@@ -399,32 +443,43 @@ class MatrixManager:
             ][0]
             persons_ready = person_count >= self._persons_created
             person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
+            event_count = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id})[
+                0
+            ][0]
+            events_ready = event_count >= self._events_created
+            group_count = sync_execute("SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id})[
+                0
+            ][0]
+            groups_ready = group_count >= self._groups_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
-            if persons_ready and person_distinct_ids_ready:
+            event_progress = (
+                f"Events: {event_count}/{self._events_created}. Groups: {group_count}/{self._groups_created}"
+            )
+            if persons_ready and person_distinct_ids_ready and events_ready and groups_ready:
                 if self.print_steps:
                     print(
-                        f"Source person data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
-                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
+                        f"Source data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
+                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}.\n"
                         "Setting up project..."
                     )
                 break
             if self.print_steps:
                 print(
-                    "Waiting for person data to land in ClickHouse... "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                    "Waiting for analytics data to land in ClickHouse... "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}."
                 )
             elif i % 20 == 0 and i > 0:
                 print(
                     f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}."
                 )
             sleep(0.5)
         else:
             raise TimeoutError(
-                f"Person data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
+                f"Analytics data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
                 f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
-                f"got {person_count} persons and {person_distinct_id_count} distinct IDs."
+                f"got {person_count} persons and {person_distinct_id_count} distinct IDs. {event_progress}."
             )
 
     @classmethod
