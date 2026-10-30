@@ -183,13 +183,12 @@ tools:
         description: >
             List groups: tight clusters of one scanner's issue observations that tell the same story, such as one bug
             many people hit. Narrower than themes. `example_summary` (the best member's summary) is the label. Each row
-            counts readable members in the window (`date_from` defaults to `-30d`; at most 90 days with `scanner_id`,
-            30 days without): observations, distinct people, and members in the same-length window before it for the
-            trend. `status` says whether a group is `emerging`, `active`, `fading` or `dormant`. `order` by `people`
-            (default), `observations`,
-            `growth` or `recent`. Read the members with `vision-scanners-observations-list` filtered by `group`. On an
-            experiment scanner, set `include_routine` to group ordinary behavior too and `by_variant` to split each
-            group's counts by variant.
+            counts readable members in the window (`date_from` defaults to `-30d`; at most 90 days with `scanner_id`, 30
+            days without): observations, distinct people, and members in the same-length window before it for the trend.
+            `status` says whether a group is `emerging`, `active`, `fading` or `dormant`. `order` by `people` (default),
+            `observations`, `growth` or `recent`. Read the members with `vision-scanners-observations-list` filtered by
+            `group`. On an experiment scanner, set `include_routine` to group ordinary behavior too and `by_variant` to
+            split each group's counts by variant.
         agent_note: >
             A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
             a few members, and the recordings behind them, before you describe or report the issue.
@@ -1099,8 +1098,8 @@ tools:
         title: Get one theme of recurring issues
         description: >
             Get one search theme's name, counts and up to three example observations over a window (`date_from` defaults
-            to `-30d`). Takes an `id` from `vision-themes-list`. Returns 404 when the theme has no readable member in the
-            window.
+            to `-30d`). Takes an `id` from `vision-themes-list`. Returns 404 when the theme has no readable member in
+            the window.
         agent_note: >
             A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
             a few members, and the recordings behind them, before you describe or report the issue.
@@ -1120,9 +1119,9 @@ tools:
             describe the same kind of situation, each with a short model-written `name` once it has enough members. Each
             row counts readable members in the window (`date_from` defaults to `-30d`; at most 90 days with
             `scanner_id`, 30 days without): observations, distinct people, and members in the same-length window before
-            it for the trend. `status` works as on groups. `order` by `people`, `observations`, `growth` or `recent`. Only issue
-            observations join a theme, and a theme never spans scanners. Use it to see what comes up often or is getting
-            worse, then read the members with `vision-scanners-observations-list` filtered by `theme`.
+            it for the trend. `status` works as on groups. `order` by `people`, `observations`, `growth` or `recent`.
+            Only issue observations join a theme, and a theme never spans scanners. Use it to see what comes up often or
+            is getting worse, then read the members with `vision-scanners-observations-list` filtered by `theme`.
         agent_note: >
             A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
             a few members, and the recordings behind them, before you describe or report the issue.
