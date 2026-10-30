@@ -29,6 +29,7 @@ from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
@@ -132,24 +133,6 @@ class AutoresearchAccessPermission(BasePermission):
         return has_autoresearch_access(request.user, team_id=team_id)
 
 
-class _FacadePaginationMixin:
-    # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
-    # result. The facade does the slicing, so the paginator's state is set directly rather than
-    # handed a queryset — keeping the param names, default page size, and ``count`` / ``next`` /
-    # ``previous`` shape identical to the model-backed viewsets.
-    def _paginate_via_facade(self, request: Request, fetch: Any, serializer_class: Any) -> Response:
-        paginator = self.paginator  # type: ignore[attr-defined]
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        page, count = fetch(offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        serializer = serializer_class(instance=page, many=True)
-        return paginator.get_paginated_response(serializer.data)
-
-
 class ArtifactStorageUnavailableError(APIException):
     status_code = 503
     default_detail = "Object storage is unavailable, so the artifact could not be stored. Try again in a moment."
@@ -202,7 +185,7 @@ def _validated_with_sentinels(serializer: drf_serializers.BaseSerializer) -> Any
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Manage autoresearch prediction pipelines.
 
@@ -239,6 +222,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -282,9 +266,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         return AutoresearchPipelineSerializer
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: api.list_pipelines(self.team_id, offset=offset, limit=limit),
+            self,
+            lambda page: api.list_pipelines(self.team_id, page),
             AutoresearchPipelineSerializer,
         )
 
@@ -731,7 +716,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve champion/challenger models for a pipeline.
 
@@ -748,16 +733,16 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchModelSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: api.list_models(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
+            self,
+            lambda page: api.list_models(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
             AutoresearchModelSerializer,
         )
 
@@ -769,7 +754,7 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve inference and validation runs for a pipeline.
     """
@@ -782,16 +767,16 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, vie
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: api.list_runs(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
+            self,
+            lambda page: api.list_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
             AutoresearchRunSerializer,
         )
 
@@ -803,7 +788,7 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, vie
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     List and retrieve training runs for a pipeline.
 
@@ -826,6 +811,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def get_throttles(self) -> list[BaseThrottle]:
         # The feature query and the anchor count are unsampled ClickHouse scans, so a personal API
@@ -841,11 +827,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: api.list_training_runs(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
+            self,
+            lambda page: api.list_training_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
             AutoresearchTrainingRunSerializer,
         )
 
@@ -1178,7 +1163,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.GenericViewSet):
+class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Submit and list steering suggestions for a running pipeline.
 
@@ -1196,6 +1181,7 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchSuggestionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
@@ -1209,11 +1195,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
         ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: api.list_suggestions(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
+            self,
+            lambda page: api.list_suggestions(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
             AutoresearchSuggestionSerializer,
         )
 
