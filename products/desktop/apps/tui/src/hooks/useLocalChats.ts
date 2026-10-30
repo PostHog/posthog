@@ -9,7 +9,7 @@ import {
 import { currentRepository, type PiChats } from "../chats";
 import { messageOf } from "../errors";
 import { allPanes, type LayoutState, renameTask } from "../layout";
-import { type LocalSession, runningLocals } from "../local";
+import { type LocalSession, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import type { AgentPrompt } from "../prompts";
 
@@ -145,6 +145,18 @@ export function useLocalChats({
       setLocalLinked(true);
     });
   }, [chats, localChats, refreshActive, setLayout, setFresh]);
+
+  // An agent keeps the sign-in it started under, so a new sign-in stops it and the chat starts a new one.
+  const startedUnder = useRef(startLocal);
+  useEffect(() => {
+    if (startedUnder.current === startLocal) return;
+    startedUnder.current = startLocal;
+    void stopLocals();
+    runningLocals.clear();
+    watched.clear();
+    setLocalSessions(new Map());
+    setPrompts(new Map());
+  }, [startLocal, watched]);
 
   // Local chats in the layout come back after a restart, from their saved pi sessions.
   const localIds = allPanes(layout)
