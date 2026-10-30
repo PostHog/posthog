@@ -78,7 +78,10 @@ function Row({
       return (
         <Text wrap="truncate-end">
           <Text color={ORANGE}>☼ </Text>
-          <Text backgroundColor={selected ? selectionBackground() : undefined}>
+          <Text
+            bold
+            backgroundColor={selected ? selectionBackground() : undefined}
+          >
             Today
           </Text>
         </Text>
