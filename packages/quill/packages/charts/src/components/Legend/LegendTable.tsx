@@ -4,7 +4,8 @@ import React, { useMemo, useState } from 'react'
 import { buildYTickFormatter } from '../../utils/y-formatters'
 import type { LegendProps, LegendValue } from './Legend'
 
-const VALUE_HEADERS: Record<LegendValue, string> = {
+const DEFAULT_HEADERS: Record<'label' | LegendValue, string> = {
+    label: 'Name',
     mean: 'Mean',
     min: 'Min',
     max: 'Max',
@@ -24,13 +25,15 @@ export function LegendTable({
     values,
     formatValue = defaultFormatValue,
     sortBy,
-    sortDescending = true,
+    sortDescending = sortBy !== 'label',
+    columnLabels,
     onItemClick,
     hiddenKeys,
     className,
     dataAttr,
     renderItem,
 }: Omit<LegendProps, 'orientation' | 'align' | 'values'> & { values: LegendValue[] }): React.ReactElement {
+    const headers = { ...DEFAULT_HEADERS, ...columnLabels }
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean } | null>(
         sortBy ? { key: sortBy, descending: sortDescending } : null
     )
@@ -52,7 +55,7 @@ export function LegendTable({
     // Size each column to its widest cell in `ch`, so rows stay aligned even when `renderItem`
     // wraps them in its own element.
     const widths = values.map((v, i) =>
-        Math.max(VALUE_HEADERS[v].length + 2, ...items.map((item) => cells.get(item.key)?.[i].length ?? 0))
+        Math.max(headers[v].length + 2, ...items.map((item) => cells.get(item.key)?.[i].length ?? 0))
     )
 
     const rows = useMemo(() => {
@@ -82,7 +85,9 @@ export function LegendTable({
                 type="button"
                 className={`${width == null ? 'flex-1 min-w-0 text-left' : 'shrink-0 text-right'} cursor-pointer select-none bg-transparent border-0 p-0 font-medium text-(--color-graph-axis-label) whitespace-nowrap`}
                 style={width == null ? undefined : { width: `${width}ch` }}
-                aria-sort={active ? (sort.descending ? 'descending' : 'ascending') : undefined}
+                aria-label={
+                    active ? `${label}, sorted ${sort.descending ? 'descending' : 'ascending'}` : `Sort by ${label}`
+                }
                 data-attr="hog-chart-legend-sort"
                 onClick={() =>
                     // Values start highest first and names A to Z, then each click flips the order.
@@ -105,9 +110,9 @@ export function LegendTable({
             data-hog-charts-legend=""
         >
             <div className="flex items-center gap-3 px-1 pb-1">
-                {header('label', 'Name')}
+                {header('label', headers.label)}
                 {values.map((v, i) => (
-                    <React.Fragment key={v}>{header(v, VALUE_HEADERS[v], widths[i])}</React.Fragment>
+                    <React.Fragment key={v}>{header(v, headers[v], widths[i])}</React.Fragment>
                 ))}
             </div>
             {rows.map((item) => {
@@ -123,6 +128,14 @@ export function LegendTable({
                             <span className="truncate min-w-0" title={item.label} data-attr="hog-chart-legend-label">
                                 {item.label}
                             </span>
+                            {item.secondaryLabel != null && item.secondaryLabel !== '' && (
+                                <span
+                                    className="shrink-0 text-(--color-graph-axis-label)"
+                                    data-attr="hog-chart-legend-secondary"
+                                >
+                                    {item.secondaryLabel}
+                                </span>
+                            )}
                         </span>
                         {cells.get(item.key)?.map((text, i) => (
                             <span

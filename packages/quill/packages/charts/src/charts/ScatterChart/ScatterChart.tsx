@@ -112,7 +112,9 @@ function ScatterChartInner<Meta = unknown>({
 
     const adaptedSeries = useMemo(() => toAdapterSeries(series, points), [series, points])
 
-    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, config?.legend)
+    const legend = config?.legend
+    const legendConfig = useMemo(() => legend && { ...legend, values: undefined }, [legend])
+    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, legendConfig)
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], _labels: string[], dimensions: ChartDimensions): ChartScales =>

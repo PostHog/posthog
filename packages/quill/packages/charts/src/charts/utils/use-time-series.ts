@@ -26,6 +26,8 @@ export interface UseTimeSeriesConfig {
     yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     legend?: ChartLegendConfig
+    /** The chart plots shares (percent stack or percent bars), so its axis formats a 0..1 fraction. */
+    isPercent?: boolean
 }
 
 export interface UseTimeSeriesResult<Meta> {
@@ -62,13 +64,13 @@ export function useTimeSeries<Meta>(
     theme: ChartTheme,
     config: UseTimeSeriesConfig
 ): UseTimeSeriesResult<Meta> {
-    const { xAxis, yAxis, valueLabels, legend } = config
+    const { xAxis, yAxis, valueLabels, legend, isPercent = false } = config
     const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
     const primaryYAxis = useMemo(() => primaryYAxisConfig(axisList), [axisList])
     const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(primaryYAxis)
-    const legendConfig = useLegendAxisFormatter(series, legend, yTickFormatter, yAxes)
+    const legendConfig = useLegendAxisFormatter(series, legend, yTickFormatter, yAxes, isPercent)
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
     const chartSeries = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
@@ -109,24 +111,26 @@ export function useGoalLines<Meta>(
 }
 
 /** Defaults a value-column legend's formatter to each series' axis tick format, so a legend value
- *  reads the same as the axis it is plotted against. */
+ *  reads the same as the axis it is plotted against. A percent axis formats a 0..1 fraction, but
+ *  legend values are raw, so a percent chart keeps the plain number format. */
 function useLegendAxisFormatter(
     series: Series<unknown>[],
     legend: ChartLegendConfig | undefined,
     primaryFormatter: ((value: number) => string) | undefined,
-    yAxes: YAxis[] | undefined
+    yAxes: YAxis[] | undefined,
+    isPercent: boolean
 ): ChartLegendConfig | undefined {
     return useMemo(() => {
-        if (!legend?.values?.length || legend.valueFormatter || (!primaryFormatter && !yAxes)) {
+        if (!legend?.values?.length || legend.valueFormatter || isPercent || (!primaryFormatter && !yAxes)) {
             return legend
         }
         const axisByKey = new Map(series.map((s) => [s.key, s.yAxisId ?? DEFAULT_Y_AXIS_ID]))
         const formatterByAxis = new Map((yAxes ?? []).map((axis) => [axis.id, axis.tickFormatter]))
-        const fallback = primaryFormatter ?? buildYTickFormatter({})
-        return {
-            ...legend,
-            valueFormatter: (value, item) =>
-                (formatterByAxis.get(axisByKey.get(item.key) ?? DEFAULT_Y_AXIS_ID) ?? fallback)(value),
-        }
-    }, [series, legend, primaryFormatter, yAxes])
+        const plain = buildYTickFormatter({})
+        // With several axes, an axis without format fields auto-formats its own ticks, so its
+        // series stay plain rather than borrowing the primary format.
+        const formatterFor = (key: string): ((value: number) => string) =>
+            (yAxes ? formatterByAxis.get(axisByKey.get(key) ?? DEFAULT_Y_AXIS_ID) : primaryFormatter) ?? plain
+        return { ...legend, valueFormatter: (value, item) => formatterFor(item.key)(value) }
+    }, [series, legend, primaryFormatter, yAxes, isPercent])
 }

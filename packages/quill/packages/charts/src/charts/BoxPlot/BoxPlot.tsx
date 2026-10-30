@@ -158,7 +158,9 @@ function BoxPlotInner<Meta = unknown>({
         [series, labels.length]
     )
 
-    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, config?.legend)
+    const legend = config?.legend
+    const legendConfig = useMemo(() => legend && { ...legend, values: undefined }, [legend])
+    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, legendConfig)
     const grouped = visibleSeries.filter((s) => !s.visibility?.excluded).length > 1
 
     /** Synthetic series carrying min/max samples so the y-domain spans every whisker, not just

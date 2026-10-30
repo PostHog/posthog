@@ -61,8 +61,12 @@ Each is computed over the series' finite values, so `first` and `last` skip miss
 A series with no finite value shows empty cells.
 Rows click, dim, and take `renderItem` exactly like the list legend.
 A header click sorts by that column: values start highest first and names A to Z, and a second click flips the order.
-`sortBy` and `sortDescending` set the initial sort.
+`sortBy` and `sortDescending` set the initial sort, in the same direction a header click starts with unless `sortDescending` says otherwise.
+`columnLabels` replaces the header text, for example `{ label: 'Series', sum: 'Sum' }`.
 `valueFormatter(value, item)` formats a cell; the time-series charts default it to the tick format of the series' own axis.
+A percent chart, and a secondary axis without a format, keep the plain number format, because legend values are raw.
+`BoxPlot` and `ScatterChart` ignore `values`.
+The summaries are computed only while the legend is shown.
 A left or right table legend gets more width than a list legend, up to 60% of the chart or 480px.
 
 ## Lower-level primitives
@@ -73,4 +77,4 @@ Use it directly when `config.legend` cannot express what you need (custom item o
 
 `useChartLegend(series, theme, config, items?)` is the shared hook the charts use.
 It returns `visibleSeries` (hidden applied as `visibility.excluded`) plus `legendProps` to spread onto `<ChartLegend>`.
-`applyHiddenSeries` is the underlying helper, and `legendItemsFromSeries(series, theme)` builds the item list.
+`applyHiddenSeries` is the underlying helper, and `legendItemsFromSeries(series, theme, values?)` builds the item list.

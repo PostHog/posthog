@@ -19,6 +19,7 @@ export interface ChartLegendProps {
     formatValue?: LegendProps['formatValue']
     sortBy?: LegendProps['sortBy']
     sortDescending?: LegendProps['sortDescending']
+    columnLabels?: LegendProps['columnLabels']
     /** data-attr on the inner `<Legend>`. The outer layout wrapper has no data-attr. */
     legendDataAttr?: string
     children: React.ReactNode
@@ -38,6 +39,7 @@ export function ChartLegend({
     formatValue,
     sortBy,
     sortDescending,
+    columnLabels,
     legendDataAttr,
     children,
 }: ChartLegendProps): React.ReactElement {
@@ -61,6 +63,7 @@ export function ChartLegend({
                     formatValue={formatValue}
                     sortBy={sortBy}
                     sortDescending={sortDescending}
+                    columnLabels={columnLabels}
                     dataAttr={legendDataAttr}
                 />
             }
