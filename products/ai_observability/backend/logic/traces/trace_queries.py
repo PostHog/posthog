@@ -15,6 +15,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
@@ -68,6 +69,14 @@ class TraceEventRow:
 
 
 @frozen
+class GitStampRow:
+    uuid: str
+    timestamp: datetime
+    git_branch: str | None
+    git_repo: str | None
+
+
+@frozen
 class PersonRow:
     distinct_id: str
     email: str | None
@@ -86,6 +95,10 @@ class TraceNodeRow:
 class LoadedTrace:
     rows: tuple[TraceEventRow, ...]
     person: PersonRow | None
+
+    @property
+    def truncated(self) -> bool:
+        return len(self.rows) >= MAX_TRACE_EVENTS
 
 
 @frozen
@@ -169,14 +182,27 @@ def _filter_conditions() -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=["filter_conditions"]))
 
 
-def _trace_rows_query() -> ast.SelectQuery:
+def _trace_rows_query(columns: Sequence[str] = tuple(_SELECTED)) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_select(),
+        select=_select({column: _SELECTED[column] for column in columns}),
         select_from=_ai_events(),
         where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), _filter_conditions()]),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
+    )
+
+
+def _git_stamps_query() -> ast.SelectQuery:
+    # The stamps come from the same first events load_trace reads, so the chip and its pull request agree on a trace
+    # longer than MAX_TRACE_EVENTS.
+    columns = ("uuid", "timestamp", "git_branch", "git_repo")
+    # HogQL makes `!=` true for NULL, so a missing branch is folded into the empty string first.
+    branch = ast.Call(name="ifNull", args=[ast.Field(chain=["git_branch"]), ast.Constant(value="")])
+    return ast.SelectQuery(
+        select=[ast.Field(chain=[column]) for column in columns],
+        select_from=ast.JoinExpr(table=_trace_rows_query(columns)),
+        where=ast.Call(name="notEmpty", args=[branch]),
     )
 
 
@@ -241,6 +267,7 @@ def _read(
     *,
     event_names: Sequence[str] = TRACE_EVENT_NAMES,
     settings: HogQLGlobalSettings | None = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[Sequence[Any]]:
     tag_queries(name=name)
     response = query_ai_events(
@@ -257,6 +284,7 @@ def _read(
         },
         posthog_tables_only=True,
         settings=settings,
+        workload=workload,
     )
     return list(response.results or [])
 
@@ -338,7 +366,7 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
     )
 
 
-def _read_person(team: Team, user: User | None, distinct_id: str) -> PersonRow:
+def _read_person(team: Team, user: User | None, distinct_id: str, workload: Workload) -> PersonRow:
     name = "ai_trace_person"
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(name=name)
@@ -350,6 +378,7 @@ def _read_person(team: Team, user: User | None, distinct_id: str) -> PersonRow:
             context=HogQLContext(
                 team_id=team.pk, team=team, user=user, database=Database.create_for_posthog_tables(team)
             ),
+            workload=workload,
         )
     email, person_name = response.results[0] if response.results else (None, None)
     return PersonRow(distinct_id=distinct_id, email=read_text(email), name=read_text(person_name))
@@ -366,36 +395,53 @@ def _read_trace(
     widen_unhinted: bool,
     event_names: Sequence[str] = TRACE_EVENT_NAMES,
     settings: HogQLGlobalSettings | None = None,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[Sequence[Any]]:
-    if timestamp_hint is not None:
+    def read(window: FallbackWindow | None) -> list[Sequence[Any]]:
         return _read(
             name,
             build_query(),
             team,
             user,
             trace_id,
-            fallback_window(timestamp_hint),
+            window,
             event_names=event_names,
             settings=settings,
+            workload=workload,
         )
-    results = _read(name, build_query(), team, user, trace_id, None, event_names=event_names, settings=settings)
+
+    if timestamp_hint is not None:
+        return read(fallback_window(timestamp_hint))
+    results = read(None)
     if results or not widen_unhinted:
         return results
     logger.warning("ai_trace_unhinted_events_fallback", team_id=team.pk, trace_id_length=len(trace_id), read=name)
-    return _read(
-        name, build_query(), team, user, trace_id, unhinted_window(), event_names=event_names, settings=settings
-    )
+    return read(unhinted_window())
 
 
-def load_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> LoadedTrace:
+def load_trace(
+    team: Team,
+    user: User | None,
+    trace_id: str,
+    timestamp_hint: datetime | None,
+    *,
+    workload: Workload = Workload.DEFAULT,
+) -> LoadedTrace:
     rows = tuple(
         _trace_event_row(values)
         for values in _read_trace(
-            "ai_trace_rows", _trace_rows_query, team, user, trace_id, timestamp_hint, widen_unhinted=True
+            "ai_trace_rows",
+            _trace_rows_query,
+            team,
+            user,
+            trace_id,
+            timestamp_hint,
+            widen_unhinted=True,
+            workload=workload,
         )
     )
     distinct_id = trace_distinct_id(rows)
-    person = _read_person(team, user, distinct_id) if distinct_id else None
+    person = _read_person(team, user, distinct_id, workload) if distinct_id else None
     return LoadedTrace(rows=rows, person=person)
 
 
@@ -435,9 +481,18 @@ def load_trace_node(
     return _trace_node_row(results[0]) if results else None
 
 
-def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> TraceRootLookup:
+def load_trace_root(
+    team: Team,
+    user: User | None,
+    trace_id: str,
+    timestamp_hint: datetime | None,
+    *,
+    workload: Workload = Workload.DEFAULT,
+) -> TraceRootLookup:
     def read(name: str, build_query: Callable[[], ast.SelectQuery]) -> list[Sequence[Any]]:
-        return _read_trace(name, build_query, team, user, trace_id, timestamp_hint, widen_unhinted=False)
+        return _read_trace(
+            name, build_query, team, user, trace_id, timestamp_hint, widen_unhinted=False, workload=workload
+        )
 
     results = read("ai_trace_root", lambda: _node_query(_equals("event", "$ai_trace")))
     if results:
@@ -647,3 +702,14 @@ def load_trace_search(
         if match_count:
             counts[row.uuid] = int(match_count)
     return LoadedTraceSearch(rows=tuple(rows), counts=counts)
+
+
+def load_trace_git_rows(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+) -> tuple[GitStampRow, ...]:
+    return tuple(
+        GitStampRow(uuid=str(uuid), timestamp=timestamp, git_branch=read_text(branch), git_repo=read_text(repo))
+        for uuid, timestamp, branch, repo in _read_trace(
+            "ai_trace_git", _git_stamps_query, team, user, trace_id, timestamp_hint, widen_unhinted=False
+        )
+    )

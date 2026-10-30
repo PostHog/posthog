@@ -4,7 +4,7 @@
 // choke point that adapts it to dark mode and to the holiday season, so those behaviors can't
 // drift per-consumer.
 import { Logo as BrandLogo } from '@posthog/brand/logo'
-import type { LogoProps, LogomarkProps } from '@posthog/brand/logo'
+import type { LogoHoliday, LogoProps, LogomarkProps } from '@posthog/brand/logo'
 
 import { currentHoliday } from 'lib/holidays'
 import { cn } from 'lib/utils/css-classes'
@@ -29,7 +29,10 @@ const LOGO_SIZE_HEIGHTS: Record<LogoSize, number> = {
 // instead, so one token scales any layout consistently — hide the raw dimension props from callers.
 type WithLogoSize<P> = Omit<P, 'size' | 'width' | 'height'> & { size?: LogoSize }
 export type AppLogoProps = WithLogoSize<LogoProps>
-export type AppLogomarkProps = WithLogoSize<LogomarkProps>
+export type AppLogomarkProps = Omit<WithLogoSize<LogomarkProps>, 'holiday'> & {
+    /** A holiday to dress up for. Omit it to follow the calendar, or pass `null` for no accessory. */
+    holiday?: LogoHoliday | null
+}
 
 /**
  * The PostHog logo, adapted to the app's theme. With no explicit `variant` it renders the
@@ -61,7 +64,7 @@ export function Logo({ variant, className, size, ...props }: AppLogoProps): JSX.
  * `size` sets the height (see {@link LogoSize}); `jumpOnClick` and other package props pass through.
  */
 export function Logomark({ variant, className, holiday, size, ...props }: AppLogomarkProps): JSX.Element {
-    const resolvedHoliday = holiday ?? currentHoliday()
+    const resolvedHoliday = holiday === null ? undefined : (holiday ?? currentHoliday())
     const height = size ? LOGO_SIZE_HEIGHTS[size] : undefined
     if (variant) {
         return (

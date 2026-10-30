@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-# Keep the agent polling budget below the activity timeout so teardown can finish.
-DEFAULT_MAX_RUNTIME_S = 20 * 60
+from products.signals.backend.constants import DEFAULT_MAX_RUNTIME_S
+
 TRIGGERED_BY_ONBOARDING = "onboarding"
 
 # Task teardown can wait up to 15 minutes for spend settlement after the agent stops.

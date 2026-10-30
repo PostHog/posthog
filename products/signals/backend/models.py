@@ -54,6 +54,10 @@ from products.signals.backend.enums import (
     SignalSourceType,
     signal_source_product_choices,
 )
+from products.signals.backend.filter_catalog import (
+    SignalFilterCatalogVersion as SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition as SignalFilterSourceDefinition,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
@@ -239,6 +243,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
+    # id from one of them fails in every other. Null on rows saved before the binding existed.
+    # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
+    default_slack_notification_integration_id = models.BigIntegerField(null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
@@ -272,6 +280,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Lowercased "organization/repository" names that implementation tasks may also read and write,
+    # for example an assets repository a PR uploads screenshots to. They widen the run's GitHub token
+    # only. The run never clones them, and the PR target stays the selected repository.
+    implementation_repositories = models.JSONField(default=list, db_default=[], blank=True)
     # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
     # still decides which projects are enrolled, so turning this on cannot enroll a project.
     anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)
@@ -509,6 +521,8 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
+            models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],
@@ -1112,6 +1126,13 @@ class SignalReport(UUIDModel):
         can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
         subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
+        artefact_rows, legacy_rows, assignment_rows = SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id)
+        return models.Q(id__in=artefact_rows) | models.Q(id__in=legacy_rows) | models.Q(id__in=assignment_rows)
+
+    @staticmethod
+    def report_ids_for_task_ids(task_ids: Any, *, team_id: int | None = None) -> list["models.QuerySet[Any]"]:
+        """The `report_id` querysets behind `reports_for_task_ids_filter`, one per link table. A caller
+        can run them as separate indexed lookups instead of one `OR` over `SignalReport`."""
         artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
@@ -1124,11 +1145,7 @@ class SignalReport(UUIDModel):
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
             assignment_rows = assignment_rows.filter(team_id=team_id)
-        return (
-            models.Q(id__in=artefact_rows.values("report_id"))
-            | models.Q(id__in=legacy_rows.values("report_id"))
-            | models.Q(id__in=assignment_rows.values("report_id"))
-        )
+        return [rows.values("report_id") for rows in (artefact_rows, legacy_rows, assignment_rows)]
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):

@@ -95,6 +95,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {

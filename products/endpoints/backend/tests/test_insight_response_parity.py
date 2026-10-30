@@ -374,6 +374,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         assert result["resolved_compare_date_range"] == {
             "date_from": datetime(2026, 9, 12, tzinfo=UTC),
             "date_to": datetime(2026, 9, 19, 23, 59, 59, 999999, tzinfo=UTC),
+            "read_from": None,
         }
 
     # =========================================================================

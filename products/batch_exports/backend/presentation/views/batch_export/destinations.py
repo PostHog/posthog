@@ -1,7 +1,6 @@
 """Batch export destination serializers: the typed config and request shape of each destination type."""
 
 import typing
-import collections.abc
 
 from django.db import models
 
@@ -16,8 +15,8 @@ from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     BATCH_EXPORT_INTEGRATION_KINDS,
     S3_SUPPORTED_COMPRESSIONS,
+    BatchExportDestinationType,
 )
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -512,7 +511,7 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     pass
 
 
-class BatchExportDestinationSerializer(serializers.ModelSerializer):
+class BatchExportDestinationSerializer(serializers.Serializer):
     """Serializer for an BatchExportDestination model.
 
     The `config` field is polymorphic and typed only for destinations that keep
@@ -521,6 +520,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
+    type = serializers.ChoiceField(
+        choices=BatchExportDestinationType.choices, help_text="A choice of supported BatchExportDestination types."
+    )
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
@@ -547,46 +549,19 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         ),
     )
 
-    class Meta:
-        model = BatchExportDestination
-        fields = ["type", "config", "integration", "integration_id"]
-
-    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
-        """Create a BatchExportDestination."""
-        export_destination = BatchExportDestination.objects.create(**validated_data)
-        return export_destination
-
     def validate(self, attrs: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Check the config against the destination's workflow inputs, through the facade."""
         request = self.context.get("request")
         is_patch = request is not None and request.method == "PATCH"
+        # A connection test of a saved export may leave out fields, because its stored config fills them.
+        # TODO: remove this and the context key that `run_test_step` sets once inline credentials are gone.
+        partial = is_patch or self.context.get("partial_destination_config", False)
 
         try:
             attrs["config"] = batch_exports_api.validate_destination_config(
-                attrs["type"], attrs["config"], partial=is_patch
+                attrs["type"], attrs["config"], partial=partial
             )
         except InvalidDestinationConfigError as e:
             raise serializers.ValidationError(str(e))
 
         return attrs
-
-    def to_representation(self, instance: BatchExportDestination) -> dict:
-        data = super().to_representation(instance)
-
-        def remove_secret_fields_recursive(d: dict[str, typing.Any]):
-            target = {}
-
-            for k, v in d.items():
-                if k in BatchExportDestination.secret_fields[instance.type]:
-                    continue
-                elif isinstance(v, dict):
-                    target[k] = remove_secret_fields_recursive(v)
-                else:
-                    target[k] = v
-
-            return target
-
-        config = remove_secret_fields_recursive(data["config"])
-        data["config"] = batch_exports_api.coerce_destination_config(instance.type, config)
-
-        return data

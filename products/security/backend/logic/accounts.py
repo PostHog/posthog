@@ -5,6 +5,7 @@ import uuid
 from typing import Literal
 
 from django.db.models import Q, QuerySet
+from django.db.models.functions import Lower
 
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -12,7 +13,7 @@ from posthog.models import Organization, OrganizationMembership, User
 
 from .decisions import PROTECTED_DOMAIN
 from .rules import EmailPattern
-from .subjects import DOT_INSENSITIVE_DOMAINS
+from .subjects import DOT_INSENSITIVE_DOMAINS, HIDDEN_CHARACTERS, LOOKALIKE_DOTS
 
 # An email root, domain or pattern count has no index to use, so an uncapped count would scan
 # every row of posthog_user while the admin waits.
@@ -84,37 +85,60 @@ def _capped(queryset: QuerySet) -> CappedCount:
     return CappedCount(count=min(found, COUNT_CAP), capped=found > COUNT_CAP)
 
 
+_DOT = f"[.{LOOKALIKE_DOTS}]"
+_HIDDEN = f"[{HIDDEN_CHARACTERS}]*"
+
+
+def _lookalike(literal: str) -> str:
+    """Matches the literal as a decision reads it: any dot may be a look-alike, and hidden characters may sit anywhere."""
+    return _HIDDEN + _HIDDEN.join(_DOT if char == "." else re.escape(char) for char in literal) + _HIDDEN
+
+
+def _email_regex(address: str) -> str:
+    return f"^{_lookalike(address)}$"
+
+
 def _email_root_regex(root: str) -> str:
     """Every stored address that folds to this root."""
     local, _, domain = root.rpartition("@")
     suffix = r"(\+[^@]*)?"
     if domain in DOT_INSENSITIVE_DOMAINS:
-        dotted_local = r"\.*".join(re.escape(char) for char in local)
-        return rf"^{dotted_local}{suffix}@(gmail|googlemail)\.com$"
-    return rf"^{re.escape(local)}{suffix}@{re.escape(domain)}$"
+        dotted_local = f"[.{LOOKALIKE_DOTS}{HIDDEN_CHARACTERS}]*".join(re.escape(char) for char in local)
+        return rf"^{_HIDDEN}{dotted_local}{_HIDDEN}{suffix}@({_lookalike('gmail.com')}|{_lookalike('googlemail.com')})$"
+    return rf"^{_lookalike(local)}{suffix}@{_lookalike(domain)}$"
+
+
+def _email_domain_regex(domain: str) -> str:
+    """Every stored address a block on this domain refuses."""
+    return f"(@|{_DOT}){_lookalike(domain)}$"
 
 
 def _email_pattern_regex(pattern: EmailPattern) -> str:
-    return "^" + ".*".join(re.escape(segment) for segment in pattern.segments) + "$"
+    return "^" + ".*".join(_lookalike(segment) for segment in pattern.segments) + "$"
 
 
 def count_active_accounts(target_type: CountableType, value: str) -> CappedCount:
-    if target_type == "email":
-        # Matches resolve_subject's fold (LOWER via EmailLookupHandler), not `iexact` (UPPER):
-        # the two fold Unicode differently, so a count on one fold could disagree with who resolves.
-        return _capped(EmailLookupHandler.users_matching_email(value, User.objects.filter(is_active=True)))
+    active = User.objects.filter(is_active=True)
     match target_type:
+        case "email":
+            # Matches resolve_subject's fold (LOWER via EmailLookupHandler), not `iexact` (UPPER):
+            # the two fold Unicode differently, so a count on one fold could disagree with who resolves.
+            exact = EmailLookupHandler.users_matching_email(value, active).values("pk")
+            lookalikes = active.alias(email_lower=Lower("email")).filter(
+                email_lower__regex=_email_regex(value.strip().lower())
+            )
+            return _capped(active.filter(Q(pk__in=exact) | Q(pk__in=lookalikes.values("pk"))))
         case "email_root":
             condition = Q(email__iregex=_email_root_regex(value))
         case "email_domain":
-            condition = Q(email__iendswith=f"@{value}") | Q(email__iendswith=f".{value}")
+            condition = Q(email__iregex=_email_domain_regex(value))
         case "email_pattern":
             pattern = EmailPattern.parse(value.strip().lower())
             # A pattern the snapshot would refuse matches nobody at decision time, so it counts nobody.
             if pattern is None:
                 return CappedCount(count=0, capped=False)
             condition = Q(email__iregex=_email_pattern_regex(pattern))
-    return _capped(User.objects.filter(condition, is_active=True))
+    return _capped(active.filter(condition))
 
 
 def count_active_org_members(organization_id: str) -> tuple[bool, CappedCount]:
