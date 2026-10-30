@@ -20,6 +20,8 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
@@ -442,8 +444,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default."
         ),
     )
-    default_slack_notification_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="slack"),
+    default_slack_notification_integration = IntegrationReferenceField(
+        kinds=["slack"],
+        auth_types="any",
+        source="default_slack_notification_integration_id",
         required=False,
         allow_null=True,
         help_text=(
@@ -664,6 +668,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             },
         }
 
+    def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
+        return value.id if value is not None else None
+
     def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
         if value is None:
             return None
@@ -678,9 +685,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         # A new channel without its workspace must not keep the old binding, which may name a
         # workspace that cannot see the new channel.
         if "default_slack_notification_channel" in attrs and (
-            not attrs["default_slack_notification_channel"] or "default_slack_notification_integration" not in attrs
+            not attrs["default_slack_notification_channel"] or "default_slack_notification_integration_id" not in attrs
         ):
-            attrs["default_slack_notification_integration"] = None
+            attrs["default_slack_notification_integration_id"] = None
         # The target only makes sense against an integration, and the two can arrive in either the
         # same PATCH or separate ones, so fall back to what is already stored.
         integration = (

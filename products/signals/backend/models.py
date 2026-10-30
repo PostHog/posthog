@@ -241,13 +241,8 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
     # id from one of them fails in every other. Null on rows saved before the binding existed.
-    default_slack_notification_integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
+    # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
+    default_slack_notification_integration_id = models.BigIntegerField(null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)

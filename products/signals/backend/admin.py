@@ -287,7 +287,7 @@ class SignalTeamConfigAdmin(admin.ModelAdmin):
     )
     list_display_links = ("id",)
     search_fields = ("id", "team__name", "team__organization__name", "default_slack_notification_channel")
-    raw_id_fields = ("team", "issue_tracking_integration", "default_slack_notification_integration")
+    raw_id_fields = ("team", "issue_tracking_integration")
     # autostart_base_branches is free-form JSON with no form-level shape check; a non-dict value would
     # crash the autostart worker (it calls .get() on it). It's owned by the API, so keep it read-only here.
     # issue_tracking_config is the same: the API validates it against the chosen provider.

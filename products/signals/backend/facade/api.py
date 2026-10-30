@@ -24,6 +24,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -459,16 +460,22 @@ def get_default_slack_notification_channel(team_id: int) -> str | None:
 
 
 def get_default_slack_notification_integration_id(team_id: int) -> int | None:
-    """The Slack integration that owns the team-default channel. None for an unbound legacy channel."""
+    """The Slack integration that owns the team-default channel.
+
+    None for an unbound legacy channel, and for a binding to a workspace that is no longer connected.
+    """
     from products.signals.backend.models import (
         SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    return (
+    bound_id = (
         SignalTeamConfig.objects.filter(team_id=team_id)
         .values_list("default_slack_notification_integration_id", flat=True)
         .first()
     )
+    if bound_id is None or not IntegrationManager.slack.any.get_many(team_id, [bound_id]):
+        return None
+    return bound_id
 
 
 def set_default_slack_notification_channel(team_id: int, value: str | None, *, integration_id: int | None) -> None:

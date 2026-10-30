@@ -140,9 +140,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         workspace = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         if initial is not None:
             self.config.default_slack_notification_channel = initial
-            self.config.default_slack_notification_integration = workspace
+            self.config.default_slack_notification_integration_id = workspace.id
             self.config.save(
-                update_fields=["default_slack_notification_channel", "default_slack_notification_integration"]
+                update_fields=["default_slack_notification_channel", "default_slack_notification_integration_id"]
             )
         payload: dict = {"default_slack_notification_channel": sent}
         if send_workspace:
@@ -153,7 +153,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_slack_notification_channel"] == expected
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
-        assert self.config.default_slack_notification_integration == (workspace if expect_bound else None)
+        assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"

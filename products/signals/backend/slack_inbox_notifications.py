@@ -24,8 +24,9 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
@@ -242,23 +243,24 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _team_notification_target(team_id: int) -> tuple[Integration, str] | None:
+def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
     """The team-default channel and the Slack workspace that owns it."""
     config = (
         SignalTeamConfig.objects.filter(team_id=team_id)
-        .select_related("default_slack_notification_integration")
-        .only("default_slack_notification_channel", "default_slack_notification_integration")
+        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
         .first()
     )
     channel = ((config.default_slack_notification_channel if config else None) or "").strip()
     if config is None or not channel:
         return None
-    integration = config.default_slack_notification_integration
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    if integration is not None and integration.team_id == team_id and integration.kind == "slack":
+    slack_rows = IntegrationManager.slack.any
+    bound_id = config.default_slack_notification_integration_id
+    if bound_id is not None and (integration := slack_rows.get_many(team_id, [bound_id]).get(bound_id)):
         return integration, channel
-    # A channel saved before the binding existed keeps the old routing through the oldest workspace.
-    legacy = Integration.objects.filter(team_id=team_id, kind="slack").order_by("id").first()
+    # A channel saved before the binding existed, or bound to a removed workspace, keeps the old
+    # routing through the oldest workspace.
+    legacy = slack_rows.find(team_id)
     return (legacy, channel) if legacy is not None else None
 
 
@@ -391,7 +393,7 @@ class _ChannelRoute:
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
 
-    def __init__(self, integration: Integration, channel: str, *, is_team_channel: bool) -> None:
+    def __init__(self, integration: IntegrationRecord, channel: str, *, is_team_channel: bool) -> None:
         self.integration = integration
         self.channel = channel
         self.is_team_channel = is_team_channel
@@ -401,7 +403,7 @@ class _ChannelRoute:
 
 @frozen
 class _Destination:
-    integration: Integration
+    integration: IntegrationRecord
     channel: str
     is_team_channel: bool
 
@@ -437,7 +439,7 @@ def _reviewer_destination(
     *,
     own_config: SignalUserAutonomyConfig | None,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> _Destination | None:
     """Where one suggested reviewer is notified: their own target if set, else the team default.
@@ -447,7 +449,7 @@ def _reviewer_destination(
     if own_config is not None:
         if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
             return None
-        integration = own_config.slack_notification_integration
+        integration: IntegrationRecord | None = own_config.slack_notification_integration
         channel = own_config.slack_notification_channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
@@ -464,7 +466,7 @@ def _build_reviewer_routes(
     report: SignalReport,
     *,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
     """Route resolvable suggested reviewers to a destination, mentioning them there.
@@ -546,9 +548,9 @@ def _deliver_route_notification(
         # A member target opens a direct message, so the conversation Slack posted into is not the
         # id we sent. An inbound mention names the conversation, so that is what the link records.
         posted_channel = response.get("channel") if hasattr(response, "get") else None
-        if thread_ts:
+        if thread_ts and (slack_workspace_id := route.integration.integration_id):
             record_report_slack_thread(
-                slack_workspace_id=route.integration.integration_id,
+                slack_workspace_id=slack_workspace_id,
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=route.integration.id,

@@ -445,15 +445,17 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team, ai
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("bound", [True, False])
-def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_team, bound):
+@pytest.mark.parametrize("binding", ["bound", "unbound", "removed"])
+def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_team, binding):
     org, team = org_and_team
     reviewer = _make_reviewer_user(org, "workspace-reviewer@example.com", "workspace-bot")
     oldest = _make_slack_integration(team, reviewer)
     newer = Integration.objects.create(
         team=team, kind="slack", integration_id="T456", config={}, sensitive_config={"access_token": "xoxb-other"}
     )
-    _set_team_channel(team, "CTEAM|#posthog-signals", newer if bound else None)
+    removed = Integration.objects.create(team=team, kind="slack", integration_id="T789", config={})
+    _set_team_channel(team, "CTEAM|#posthog-signals", {"bound": newer, "unbound": None, "removed": removed}[binding])
+    removed.delete()
     report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["workspace-bot"])
 
     with (
@@ -464,7 +466,7 @@ def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 1
-    assert slack_cls.call_args.args[0] == (newer if bound else oldest)
+    assert slack_cls.call_args.args[0] == (newer if binding == "bound" else oldest)
 
 
 @pytest.mark.parametrize(

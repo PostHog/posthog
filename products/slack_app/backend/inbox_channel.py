@@ -7,6 +7,7 @@ from django.core.cache import cache
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
 
@@ -49,7 +50,7 @@ def _get_team_channel_integration_id(team_id: int) -> int | None:
     return get_default_slack_notification_integration_id(team_id)
 
 
-def _set_team_channel(integration: Integration, value: str) -> None:
+def _set_team_channel(integration: WorkspaceIntegration, value: str) -> None:
     from products.signals.backend.facade.api import (
         set_default_slack_notification_channel,  # noqa: PLC0415 — keeps the signals temporal stack off the slack import path
     )
@@ -57,8 +58,8 @@ def _set_team_channel(integration: Integration, value: str) -> None:
     set_default_slack_notification_channel(integration.team_id, value, integration_id=integration.id)
 
 
-def _team_has_other_slack_workspace(integration: Integration) -> bool:
-    return Integration.objects.filter(team_id=integration.team_id, kind="slack").exclude(id=integration.id).exists()
+def _team_has_other_slack_workspace(integration: WorkspaceIntegration) -> bool:
+    return any(row.id != integration.id for row in IntegrationManager.slack.any.list(integration.team_id))
 
 
 def _channel_target(channel_id: str, channel_name: str) -> str:
