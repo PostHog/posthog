@@ -2618,6 +2618,8 @@ class TaskRun(models.Model):
         "sandbox_backend",
         "failure_error_type",
         "cancel_requested_at",
+        # A resumed run's turns must be able to replace the previous execution's finish report.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:

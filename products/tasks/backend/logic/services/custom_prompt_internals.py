@@ -493,6 +493,11 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
         return await sync_to_async(_read)()
 
 
+async def _saved_finish_report(task_run_id) -> str | None:
+    """The report a `finish` call saved. It can land before end_turn and outranks the log's commentary."""
+    return (await _refresh_task_run(task_run_id)).finish_report
+
+
 @frozen
 class TurnPollResult:
     last_message: str
@@ -629,7 +634,7 @@ async def poll_for_turn(
         # If success
         if log_state.agent_finished and log_state.last_message:
             return TurnPollResult(
-                last_message=log_state.last_message,
+                last_message=await _saved_finish_report(task_run.id) or log_state.last_message,
                 full_log=log_state.full_log,
                 total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
@@ -637,11 +642,12 @@ async def poll_for_turn(
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if log_state.empty_end_turn:
-            # If the agent emitted text in an earlier poll of this same turn, the turn
-            # is genuinely complete — end_turn just landed in a later slice.
-            if latest_assistant_text is not None:
+            # A finish report, or text the agent emitted in an earlier poll of this same turn,
+            # means the turn is genuinely complete — end_turn just landed in a later slice.
+            turn_message = await _saved_finish_report(task_run.id) or latest_assistant_text
+            if turn_message is not None:
                 return TurnPollResult(
-                    last_message=latest_assistant_text,
+                    last_message=turn_message,
                     full_log=log_state.full_log,
                     total_lines=log_state.total_lines,
                     printed_lines=printed_lines,

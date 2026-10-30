@@ -87,6 +87,7 @@ class TestPollForTurnEmptyEndTurn:
         turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2_empty)
         skip = len(turn_1)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
@@ -95,9 +96,10 @@ class TestPollForTurnEmptyEndTurn:
                 "products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             with pytest.raises(EmptyAgentTurnError) as exc_info:
-                await poll_for_turn(FakeTaskRun(), skip_lines=skip)
+                await poll_for_turn(fake_task_run, skip_lines=skip)
 
         # Carries log offsets so the caller can resume from the tail on retry
         # instead of re-streaming already-printed lines.
@@ -109,15 +111,38 @@ class TestPollForTurnEmptyEndTurn:
         turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
         turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+            turn = await poll_for_turn(fake_task_run, skip_lines=len(turn_1))
 
         assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
+
+    @parameterized.expand(
+        [
+            ("commentary_then_end_turn", [_agent_message_line("Checking the repo"), _end_turn_line()]),
+            ("empty_end_turn", [_usage_update_line(0), _end_turn_line()]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_end_turn_returns_a_saved_finish_report(self, _name: str, turn_lines: list[str]) -> None:
+        log = "\n".join([_user_message_line("initial prompt"), *turn_lines])
+        fake_task_run = FakeTaskRun(status="completed", finish_report="Weekly report")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == "Weekly report"
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
@@ -1572,6 +1597,7 @@ class TestMultiTurnSessionRetry:
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun()),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
