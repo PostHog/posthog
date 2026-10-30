@@ -751,6 +751,11 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
+    # TODO: the web experiments API still reads the experiments models directly. Thin it to
+    # parse -> facade -> serialize and delete these entries.
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.experiment",
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.team_experiments_config",
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.web_experiment",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)

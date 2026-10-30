@@ -30,7 +30,6 @@ from posthog.api.oauth.toolbar_views import authorize_and_redirect
 from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
@@ -50,6 +49,7 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
 from products.early_access_features.backend.api import early_access_features
+from products.experiments.backend.routes import web_experiments
 from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (

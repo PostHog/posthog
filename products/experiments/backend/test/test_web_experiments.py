@@ -10,10 +10,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.web_experiment import WebExperimentsAPISerializer, WebExperimentViewSet
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.web_experiments import WebExperimentsAPISerializer, WebExperimentViewSet
 
 
 class TestWebExperiment(APIBaseTest):
@@ -85,7 +85,7 @@ class TestWebExperiment(APIBaseTest):
             request=ANY,
         )
 
-    @patch("posthog.api.web_experiment.report_user_action")
+    @patch("products.experiments.backend.presentation.web_experiments.report_user_action")
     def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
