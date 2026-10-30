@@ -3054,7 +3054,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ...(error.data && typeof error.data === "object" ? error.data : {}),
       });
     }
-    return new RequestError(-32603, `Session ${step} failed`, errorData);
+    const cause = error instanceof Error ? error.message : String(error);
+    return new RequestError(
+      -32603,
+      cause ? `Session ${step} failed: ${cause}` : `Session ${step} failed`,
+      errorData,
+    );
   }
 
   private async awaitStartupControl(
