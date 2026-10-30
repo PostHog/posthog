@@ -9594,10 +9594,10 @@ Today (4): `applications`, `calls`, `messages`, `recordings`
 
 Diffed against: <https://www.plivo.com/docs/numbers/phone-numbers/>
 
-- [ ] `GET /v1/Account/{auth_id}/PhoneNumber/` — lookup resolving the rented numbers that appear as from/to on every synced message and call (high)
-- [ ] `GET /v1/Account/{auth_id}/UsageSummary/` — billed usage and spend per period, the headline cost metric (high)
-- [ ] `GET /v1/Account/{auth_id}/MultiPartyCall/` — conference-style calls that never appear in the flat calls table (high)
-- [ ] `GET /v1/Account/{auth_id}/MultiPartyCall/name_{mpc_name}/Participant/` — per-leg participant records — join, exit and duration per member (high)
+- [x] `GET /v1/Account/{auth_id}/PhoneNumber/` (synced as `numbers` from `GET /v1/Account/{auth_id}/Number/`; `PhoneNumber/` searches numbers available to buy) — lookup resolving the rented numbers that appear as from/to on every synced message and call (high)
+- [x] `GET /v1/Account/{auth_id}/UsageSummary/` — billed usage and spend per period, the headline cost metric (high)
+- [x] `GET /v1/Account/{auth_id}/MultiPartyCall/` — conference-style calls that never appear in the flat calls table (high)
+- [x] `GET /v1/Account/{auth_id}/MultiPartyCall/name_{mpc_name}/Participant/` (fetched via `uuid_{mpc_uuid}`, which also serves ended calls) — per-leg participant records — join, exit and duration per member (high)
 - [ ] `GET /v1/Account/{auth_id}/Subaccount/` — lookup for attributing message and call traffic to the right subaccount (medium)
 - [ ] `GET /v1/Account/{auth_id}/Verify/Session/` — OTP verification sessions, needed to measure verification funnel completion (medium)
 - [ ] `GET /v1/Account/{auth_id}/Zentrunk/Call/` — SIP trunking CDRs, a call stream entirely absent from the calls table (medium)

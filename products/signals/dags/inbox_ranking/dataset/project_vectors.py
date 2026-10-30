@@ -12,9 +12,9 @@ gets one vector per kind, as of a moment:
 
 The open, action and dismiss moments come from the inbox app events, so only human UI engagement
 counts there, and MCP reads and agent actions never reach those vectors. The fixed moment comes from
-the status stream, so a fix through an agent or a merged PR counts. The stored table and serving
-carry the first four kinds only. `fixed` is built only for a family that asks for it in training,
-from the labels snapshot's `first_fixed_at`. A project is a team, not an organization.
+the status stream, so a fix through an agent or a merged PR counts. The stored table carries all five
+kinds, and serving gives each model the kinds it reads. A family reads `PROJECT_VECTOR_KINDS` unless
+it asks for others. A project is a team, not an organization.
 
 `user_vectors` builds the same kind of vector for one person in one organization, from the
 `inbox_user_report_interactions` rows of the reports that person viewed or dismissed:
@@ -42,32 +42,34 @@ import pyarrow.compute as pc
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
+    ALL_PROJECT_VECTOR_KINDS,
     EMBEDDING_DIMENSIONS,
     MIN_PROJECT_HISTORY_REPORTS,
     PROJECT_VECTOR_KINDS,
-    TRAINING_PROJECT_VECTOR_KINDS,
     USER_HISTORY_KINDS,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import ACTION_TYPES
 from products.signals.dags.inbox_ranking.training.heads import UI_ACTION_COLUMNS
 
 # A leaf with its own columns, so its schema moves apart from FEATURE_SCHEMA_VERSION.
-PROJECT_VECTORS_SCHEMA_VERSION = 1
+PROJECT_VECTORS_SCHEMA_VERSION = 2
 
 HISTORY_LIMIT = 50
 # The backend owns the kinds and the threshold, because the scoring sweep builds the same inputs.
 MIN_HISTORY_REPORTS = MIN_PROJECT_HISTORY_REPORTS
 VECTOR_KINDS = PROJECT_VECTOR_KINDS
-CONTEXT_KINDS = TRAINING_PROJECT_VECTOR_KINDS
+CONTEXT_KINDS = ALL_PROJECT_VECTOR_KINDS
 TYPICAL, OPEN, ACTION, DISMISS, FIXED = CONTEXT_KINDS
 
 OPEN_COLUMN = "first_opened_at"
 DISMISS_COLUMN = "first_ui_dismissed_at"
 FIXED_COLUMN = "first_fixed_at"
 UI_ACTION_FIRST_COLUMNS = tuple(first for _, count, first in ACTION_TYPES if count in UI_ACTION_COLUMNS)
-# The engagement export carries exactly these columns to the other region, so `fixed` stays out.
+# The UI engagement columns of the labels snapshot. `fixed` comes from the status stream instead.
 LABEL_COLUMNS = ("report_id", OPEN_COLUMN, DISMISS_COLUMN, *UI_ACTION_FIRST_COLUMNS)
 CONTEXT_LABEL_COLUMNS = (*LABEL_COLUMNS, FIXED_COLUMN)
+# The engagement export carries exactly these columns to the other region.
+ENGAGEMENT_EXPORT_COLUMNS = CONTEXT_LABEL_COLUMNS
 EMBEDDING_COLUMNS = ("report_id", "report_team_id", "embedding_small", "embedding_inserted_at", "is_tombstone")
 
 _PROJECT_VECTORS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -133,7 +135,7 @@ def project_vectors(
 
     A kind with fewer than `MIN_HISTORY_REPORTS` reports keeps its row, with its real `n_reports`
     and an all-zero vector, so a reader can tell a thin history from a missing team. `kinds` defaults
-    to the stored table's kinds. Asking for `fixed` needs the `first_fixed_at` column in `labels`.
+    to `PROJECT_VECTOR_KINDS`. Asking for `fixed` needs the `first_fixed_at` column in `labels`.
     """
     unknown = [kind for kind in kinds if kind not in CONTEXT_KINDS]
     if unknown:
