@@ -82,6 +82,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
+    post_scout_run_to_slack,
     slack_api_error_code,
 )
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
@@ -561,6 +562,7 @@ def deliver_scout_slack_output(
     channel: str,
     edit_note: str | None = None,
     thread_reports: bool = False,
+    slack_message: str | None = None,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -632,7 +634,20 @@ def deliver_scout_slack_output(
                 channel=channel,
                 schedule_thread_reply_retry=_schedule_thread_reply_retry,
                 edit_note=edit_note,
+                slack_message=slack_message,
                 thread_reports=thread_reports,
+            )
+        elif output_type == "run":
+            run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
+            if run is None or output_id != run_id or not slack_message:
+                logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                return
+            post_scout_run_to_slack(
+                run,
+                slack_message=slack_message,
+                delivery_id=delivery_id,
+                integration_id=integration_id,
+                channel=channel,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -686,6 +701,7 @@ def enqueue_scout_slack_delivery(
     channel: str,
     edit_note: str | None = None,
     thread_reports: bool = False,
+    slack_message: str | None = None,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     # Only a full report delivery supersedes an earlier one: a note-only update leaves the
@@ -704,6 +720,8 @@ def enqueue_scout_slack_delivery(
         extra_kwargs: dict[str, str | bool] = {}
         if edit_note is not None:
             extra_kwargs["edit_note"] = edit_note
+        if slack_message is not None:
+            extra_kwargs["slack_message"] = slack_message
         if thread_reports:
             extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(

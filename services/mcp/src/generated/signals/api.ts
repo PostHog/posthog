@@ -3156,6 +3156,8 @@ export const SignalsScoutEditReportParams = () => zod.object({
 
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
+export const signalsScoutEditReportBodySlackMessageMax = 6000
+
 export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySummaryMax = 20000
@@ -3238,6 +3240,13 @@ export const SignalsScoutEditReportBody = () => zod
             .optional()
             .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        slack_message: zod
+            .string()
+            .max(signalsScoutEditReportBodySlackMessageMax)
+            .nullish()
+            .describe(
+                "Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination."
+            ),
         title: zod
             .string()
             .max(signalsScoutEditReportBodyTitleMax)
@@ -3605,6 +3614,8 @@ export const SignalsScoutEmitReportParams = () => zod.object({
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
+export const signalsScoutEmitReportBodySlackMessageMax = 6000
+
 export const signalsScoutEmitReportBodyTitleMax = 300
 
 export const signalsScoutEmitReportBodyEvidenceItemDescriptionMax = 4000
@@ -3654,6 +3665,13 @@ export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = () => zod
     .object({
+        slack_message: zod
+            .string()
+            .max(signalsScoutEmitReportBodySlackMessageMax)
+            .nullish()
+            .describe(
+                "Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination."
+            ),
         title: zod
             .string()
             .max(signalsScoutEmitReportBodyTitleMax)

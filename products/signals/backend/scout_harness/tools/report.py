@@ -94,6 +94,7 @@ from products.signals.backend.report_urls import ReportLinkSource, build_report_
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
+from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_MESSAGE_LENGTH
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
@@ -921,6 +922,16 @@ def _supersede_warning(*, updated_fields: list[str], content_revision_count: int
             "and autostart reads the new content when it opens a pull request."
         )
     return EditReportWarning(field="supersedes_implementation", message=message)
+
+
+def _with_slack_message(summary: str | None, slack_message: str | None) -> str | None:
+    if slack_message is None:
+        return summary
+    if not slack_message.strip() or len(slack_message) > MAX_SCOUT_SLACK_MESSAGE_LENGTH:
+        raise InvalidScoutReportError(
+            f"slack_message must contain between 1 and {MAX_SCOUT_SLACK_MESSAGE_LENGTH} characters"
+        )
+    return f"{summary or ''}\n\nSlack message:\n{slack_message}"
 
 
 def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidence]) -> None:
@@ -2114,6 +2125,7 @@ async def emit_report(
     links: list[ReportLinkInput] | None = None,
     idempotency_key: str | None = None,
     tags: list[str] | None = None,
+    slack_message: str | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -2217,7 +2229,7 @@ async def emit_report(
     judgement = await judge_scout_report(
         team_id=team.id,
         title=title,
-        summary=summary,
+        summary=_with_slack_message(summary, slack_message) or "",
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
@@ -2312,6 +2324,7 @@ async def emit_report(
                 # A report is emitted once, so its id is the natural idempotency key (mirrors
                 # findings using the emission id); edits keep per-delivery ids since each notifies.
                 delivery_id=persisted.report_id,
+                slack_message=slack_message,
             )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     return await finish(_emit_result(persisted.report_id, judgement))
@@ -2338,6 +2351,7 @@ def emit_report_sync(
     links: list[ReportLinkInput] | None = None,
     idempotency_key: str | None = None,
     tags: list[str] | None = None,
+    slack_message: str | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -2418,7 +2432,7 @@ def emit_report_sync(
     judgement = async_to_sync(judge_scout_report)(
         team_id=team.id,
         title=title,
-        summary=summary,
+        summary=_with_slack_message(summary, slack_message) or "",
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
@@ -2506,6 +2520,7 @@ def emit_report_sync(
                 output_type="report",
                 output_id=persisted.report_id,
                 delivery_id=persisted.report_id,
+                slack_message=slack_message,
             )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     return finish(_emit_result(persisted.report_id, judgement))
@@ -2532,6 +2547,7 @@ def _do_edit_report(
     actionability: ActionabilityAssessment | None = None,
     priority: PriorityAssessment | None = None,
     tags: list[str] | None = None,
+    slack_message: str | None = None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -2815,7 +2831,7 @@ def _do_edit_report(
             or links_appended
             or decision_fields_set
         ) and not (updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None)
-        if report_status is not None and _surfaced(report_status) and not inbox_only:
+        if report_status is not None and _surfaced(report_status) and (slack_message is not None or not inbox_only):
             # An edit that only added a note or evidence leaves the title, summary and charts the
             # Slack report message shows unchanged, so re-posting it would duplicate the message
             # already in the channel. Deliver the addition itself instead; any edit that rewrote the
@@ -2826,6 +2842,7 @@ def _do_edit_report(
                 output_type="report",
                 output_id=report_id,
                 edit_note=_edit_update_text(append_note, append_evidence) if note_only else None,
+                slack_message=slack_message,
             )
     # After the commit, never inside it: a rolled-back edit must not leave signal rows bound to the
     # report. After the delivery claim above too, so the evidence emits don't widen the window in
@@ -3139,6 +3156,7 @@ async def edit_report(
     priority: str | None = None,
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
+    slack_message: str | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -3197,7 +3215,7 @@ async def edit_report(
         await judge_edited_report_content(
             team_id=team.id,
             title=title,
-            summary=summary,
+            summary=_with_slack_message(summary, slack_message),
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
@@ -3215,6 +3233,7 @@ async def edit_report(
         report_id=report_id,
         title=title,
         summary=summary,
+        slack_message=slack_message,
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers
@@ -3282,6 +3301,7 @@ def edit_report_sync(
     priority: str | None = None,
     priority_explanation: str | None = None,
     tags: list[str] | None = None,
+    slack_message: str | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
@@ -3328,7 +3348,7 @@ def edit_report_sync(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
             title=title,
-            summary=summary,
+            summary=_with_slack_message(summary, slack_message),
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
@@ -3346,6 +3366,7 @@ def edit_report_sync(
         report_id=report_id,
         title=title,
         summary=summary,
+        slack_message=slack_message,
         append_note=append_note,
         append_evidence=built_evidence,
         reviewers=built_reviewers

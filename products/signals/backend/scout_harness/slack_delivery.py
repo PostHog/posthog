@@ -89,7 +89,7 @@ _SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 _SlackResult = TypeVar("_SlackResult")
 
-ScoutSlackOutputType = Literal["finding", "report"]
+ScoutSlackOutputType = Literal["finding", "report", "run"]
 ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
 
 # Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
@@ -104,6 +104,7 @@ DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport
 # is clipped before Slack's own markdown-block cap applies; the report keeps the full note either
 # way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
+MAX_SCOUT_SLACK_MESSAGE_LENGTH = 6000
 
 _SCOUT_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=scout_report&utm_medium=slack"
 
@@ -333,6 +334,41 @@ def post_scout_emission_to_slack(
             raise ScoutSlackPermanentDeliveryError(
                 f"Slack rejected the scout finding with {error_code}",
                 error_code=error_code,
+            ) from exc
+        raise
+
+
+def post_scout_run_to_slack(
+    run: SignalScoutRun,
+    *,
+    slack_message: str,
+    delivery_id: str,
+    integration_id: int,
+    channel: str,
+) -> None:
+    integration = _slack_integration_for_project(integration_id=integration_id, project_id=run.team.project_id)
+    channel_id = _slack_channel_id(channel)
+    slack = SlackIntegration(integration, source="signals_scout")
+    text = prepare_slack_markdown(slack_message)
+    try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
+        _send_shortening_markdown(
+            lambda blocks: slack.client.chat_postMessage(
+                channel=channel_id,
+                blocks=blocks,
+                text=text,
+                client_msg_id=delivery_id,
+                unfurl_links=False,
+                unfurl_media=False,
+            ),
+            [slack_markdown_block(text)],
+            delivery_id=delivery_id,
+        )
+    except SlackApiError as exc:
+        error_code = slack_api_error_code(exc)
+        if error_code in _PERMANENT_SLACK_ERROR_CODES:
+            raise ScoutSlackPermanentDeliveryError(
+                f"Slack rejected the scout run message with {error_code}", error_code=error_code
             ) from exc
         raise
 
@@ -748,6 +784,7 @@ def post_scout_report_to_slack(
     schedule_thread_reply_retry: ScoutSlackReplyRetryScheduler,
     edit_note: str | None = None,
     thread_reports: bool = False,
+    slack_message: str | None = None,
 ) -> None:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
@@ -769,6 +806,9 @@ def post_scout_report_to_slack(
     render_budget = new_chart_render_budget()
 
     def _build_report_message() -> ScoutReportThreadMessages:
+        if slack_message is not None:
+            text = prepare_slack_markdown(slack_message)
+            return ScoutReportThreadMessages(lead_blocks=[slack_markdown_block(text)], fallback=text, reply_blocks=[])
         # A note-only edit renders the passed-in note; every other delivery renders live report content.
         if edit_note is not None:
             note_blocks, note_fallback = build_scout_report_note_slack_message(report, run, edit_note)
@@ -838,10 +878,9 @@ def post_scout_report_to_slack(
     )
     slack = SlackIntegration(integration, source="signals_scout")
     client = slack.client
-    lead_blocks = [
-        *messages.lead_blocks,
-        *_scout_invite_footer(integration, scout_team_id=run.team_id, channel_id=channel_id),
-    ]
+    lead_blocks = list(messages.lead_blocks)
+    if slack_message is None:
+        lead_blocks.extend(_scout_invite_footer(integration, scout_team_id=run.team_id, channel_id=channel_id))
     # A full delivery of a report already in this destination updates that message in place, so an
     # edit does not post the whole report again. A note-only edit is new content and always posts.
     existing = (

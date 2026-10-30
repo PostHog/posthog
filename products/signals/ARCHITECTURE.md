@@ -703,6 +703,12 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                                                                                                                                                                       |
 
+#### Scout-authored Slack messages
+
+Report emit and edit requests accept an optional `slack_message`, separate from the inbox report text. The existing safety review includes this text. Delivery snapshots it with the configured destination and sends it as Markdown without the standard report heading, button, or follow-up invitation. Report visibility and assignment checks still apply. Omitting the field keeps the standard report card.
+
+The structured run close-out also accepts `slack_message`. After a successful run, the runner queues it through the same destination and retry path using the run ID as the delivery ID. Dry runs and private trials do not send it. This lets scout instructions define short workflow updates and a different final summary, such as a PR table. Message bodies have a 6,000-character limit and cannot select another Slack destination.
+
 #### Scout rubrics
 
 The nullable `rubrics` JSON field stores a scout's evaluation criteria and revision, plus its latest suggestion request and result.

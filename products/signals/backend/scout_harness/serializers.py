@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_DM_TARGETS,
+    MAX_SCOUT_SLACK_MESSAGE_LENGTH,
     find_project_slack_integration,
 )
 from products.signals.backend.scout_harness.tags import slugify_tag
@@ -1623,6 +1624,16 @@ class ReportLinkWriteSerializer(serializers.Serializer):
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
+    slack_message = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_SCOUT_SLACK_MESSAGE_LENGTH,
+        help_text=(
+            "Optional Slack message body, separate from the report text. Delivered as Markdown without "
+            "an added title, buttons, or footer. Follow the scout's requested message format. "
+            "Omit to use the standard report card. Uses only the scout's configured Slack destination."
+        ),
+    )
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
         help_text=(
@@ -1828,6 +1839,16 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
+    slack_message = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_SCOUT_SLACK_MESSAGE_LENGTH,
+        help_text=(
+            "Optional Slack message body, separate from the report text. Delivered as Markdown without "
+            "an added title, buttons, or footer. Follow the scout's requested message format. "
+            "Omit to use the standard report card. Uses only the scout's configured Slack destination."
+        ),
+    )
     title = serializers.CharField(
         required=False,
         allow_null=True,

@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
+    MAX_SCOUT_SLACK_MESSAGE_LENGTH,
     MAX_SLACK_NOTE_SNAPSHOT_LEN,
     ScoutSlackOutputType,
     get_scout_slack_destination,
@@ -26,6 +27,7 @@ def queue_configured_scout_slack_delivery(
     output_id: str,
     delivery_id: str | None = None,
     edit_note: str | None = None,
+    slack_message: str | None = None,
 ) -> None:
     """Snapshot a run's configured destination and enqueue delivery after the current commit.
 
@@ -64,6 +66,11 @@ def queue_configured_scout_slack_delivery(
                     integration_id=destination.integration_id,
                     channel=target,
                     edit_note=note_snapshot,
+                    **(
+                        {"slack_message": slack_message[:MAX_SCOUT_SLACK_MESSAGE_LENGTH]}
+                        if slack_message is not None
+                        else {}
+                    ),
                     thread_reports=destination.thread_reports,
                 ),
                 robust=True,

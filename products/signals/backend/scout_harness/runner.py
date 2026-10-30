@@ -72,6 +72,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_report_channel_variant,
     skill_uses_report_channel,
 )
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.scout_harness.team_limits import (
     BackgroundBackoff,
     github_read_access_for_team,
@@ -1267,6 +1268,14 @@ async def _spawn_and_run(
             trial=trial is not None,
             first_report_result=result.first_report_result if isinstance(result, FirstReportScoutRunSummary) else None,
         )
+        if result.slack_message is not None and config.emit and trial is None:
+            await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+                run_id=run_id,
+                output_type="run",
+                output_id=str(run_id),
+                delivery_id=str(run_id),
+                slack_message=result.slack_message,
+            )
         return result.summary, str(session.task_run.id)
     except BaseException as error:
         end_status = (

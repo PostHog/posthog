@@ -2685,6 +2685,8 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
+export const signalsScoutEditReportBodySlackMessageMax = 6000
+
 export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySummaryMax = 20000
@@ -2767,6 +2769,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .optional()
             .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        slack_message: zod
+            .string()
+            .max(signalsScoutEditReportBodySlackMessageMax)
+            .nullish()
+            .describe(
+                "Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination."
+            ),
         title: zod
             .string()
             .max(signalsScoutEditReportBodyTitleMax)
@@ -3099,6 +3108,8 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
  * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
+export const signalsScoutEmitReportBodySlackMessageMax = 6000
+
 export const signalsScoutEmitReportBodyTitleMax = 300
 
 export const signalsScoutEmitReportBodyEvidenceItemDescriptionMax = 4000
@@ -3148,6 +3159,13 @@ export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
+        slack_message: zod
+            .string()
+            .max(signalsScoutEmitReportBodySlackMessageMax)
+            .nullish()
+            .describe(
+                "Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination."
+            ),
         title: zod
             .string()
             .max(signalsScoutEmitReportBodyTitleMax)

@@ -317,7 +317,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert second["idempotent_replay"] is False
         assert SignalReport.objects.filter(team=self.team).count() == 2
 
-    def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(self) -> None:
+    @parameterized.expand([(None,), ("*workflow*: example-ci\n*status*: CI running",)])
+    def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(
+        self, slack_message: str | None
+    ) -> None:
         run = _make_run(self.team)
         config = run.scout_config
         assert config is not None
@@ -325,18 +328,24 @@ class TestScoutReportAPI(APIBaseTest):
         config.save(update_fields=["output_destinations"])
 
         with (
-            _safe_judge(),
+            _safe_judge() as judge,
             patch(EMBED_PATH),
             patch(
                 "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
             ) as enqueue,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            emitted = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "slack_message": slack_message}, format="json"
+            )
             report_id = emitted.json()["report_id"]
             edited = self.client.post(
                 self._edit_url(str(run.id)),
-                data={"report_id": report_id, "append_note": "Re-validated on the next run"},
+                data={
+                    "report_id": report_id,
+                    "append_note": "Re-validated on the next run",
+                    "slack_message": slack_message,
+                },
                 format="json",
             )
             rewritten = self.client.post(
@@ -392,6 +401,13 @@ class TestScoutReportAPI(APIBaseTest):
             assert call.kwargs["run_id"] == str(run.id)
             assert call.kwargs["integration_id"] == 17
             assert call.kwargs["channel"] == "CSCOUTS|#scout-findings"
+        if slack_message is not None:
+            assert any(slack_message in signal.content for signal in judge.call_args_list[0].kwargs["signals"])
+            assert any(slack_message in signal.content for signal in judge.call_args_list[1].kwargs["signals"])
+        assert enqueue.call_args_list[0].kwargs.get("slack_message") == slack_message
+        assert enqueue.call_args_list[1].kwargs.get("slack_message") == slack_message
+        report = SignalReport.objects.get(id=report_id)
+        assert report.summary == "Rewritten summary"
         # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
         assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
         assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id

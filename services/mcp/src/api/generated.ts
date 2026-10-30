@@ -41294,6 +41294,12 @@ export namespace Schemas {
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
+         * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
+         * @maxLength 6000
+         * @nullable
+         */
+      slack_message?: string | null;
+      /**
          * Optional new title. Conventional-commit style (`type(scope): description`) renders with type/scope styling. The pipeline may later re-research and overwrite it.
          * @maxLength 300
          * @nullable
@@ -42243,6 +42249,12 @@ export namespace Schemas {
      * Request body for `emit-report`. Run attribution is taken from the URL path.
      */
     export interface EmitReportRequest {
+      /**
+         * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
+         * @maxLength 6000
+         * @nullable
+         */
+      slack_message?: string | null;
       /**
          * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
          * @maxLength 300

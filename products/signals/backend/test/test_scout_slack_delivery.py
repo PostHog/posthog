@@ -418,7 +418,8 @@ class TestScoutSlackDelivery(BaseTest):
         assert update["ts"] == "1785418710.000100"
         assert "Edited draft with a new date." in update["blocks"][2]["text"]
 
-    def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
+    @parameterized.expand([(None,), ("*workflow*: example-ci\n*status*: CI running",)])
+    def test_note_only_edit_delivers_the_note_instead_of_the_report(self, slack_message: str | None) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is
         # byte-identical to the one already in the channel and reads as a duplicate.
         emission = self._make_emission()
@@ -444,10 +445,15 @@ class TestScoutSlackDelivery(BaseTest):
                 integration.id,
                 "CSCOUTS|#scout-findings",
                 "Re-checked after the fix: **error rate** is back to baseline <!channel>",
+                slack_message=slack_message,
             )
 
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["client_msg_id"] == delivery_id
+        if slack_message is not None:
+            assert call["blocks"] == [{"type": "markdown", "text": slack_message}]
+            assert call["text"] == slack_message
+            return
         context = call["blocks"][0]["elements"][0]["text"]
         assert "posted an update on an existing report" in context
         assert call["blocks"][1]["text"]["text"] == "Checkout failures"
@@ -460,6 +466,34 @@ class TestScoutSlackDelivery(BaseTest):
         assert actions_block["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}?link_source=slack_scout"
         )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_run_close_out_delivers_only_authored_message(self, foreign_team: bool) -> None:
+        emission = self._make_emission()
+        run = emission.scout_run
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        text = "| PR | Status | Next action | Who acts |\n| --- | --- | --- | --- |\n| example | CI running | Wait | Automation |"
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id + 1 if foreign_team else self.team.id,
+                "run",
+                str(run.id),
+                str(run.id),
+                str(run.id),
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                slack_message=text,
+            )
+        if foreign_team:
+            fake_client.chat_postMessage.assert_not_called()
+        else:
+            call = fake_client.chat_postMessage.call_args.kwargs
+            assert call["blocks"] == [{"type": "markdown", "text": text}]
+            assert call["text"] == text
+            assert call["client_msg_id"] == str(run.id)
 
     def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:
         # A worker still running the previous task signature rejects an unknown kwarg, so every
