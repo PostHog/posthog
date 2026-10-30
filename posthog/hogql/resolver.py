@@ -71,10 +71,7 @@ from posthog.hogql.resolver_utils import (
     suggest_field_names,
     suggested_field_fix,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
-    resolve_flag_calls_from_flag_evaluations,
-    swaps_flag_calls,
-)
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
     resolve_internal_trino_logical_table,
@@ -309,7 +306,7 @@ def resolve_types(
 
 
 def swapping_flag_calls_in_views(resolver_factory: ResolverFactory | None) -> ResolverFactory:
-    """A factory whose resolvers run `resolve_flag_calls_from_flag_evaluations` on the body of each saved view they
+    """A factory whose resolvers run `swap_flag_calls` on the body of each saved view they
     inline. Each resolver is otherwise the one `resolver_factory` builds."""
 
     def factory(
@@ -1456,7 +1453,6 @@ class Resolver(CloningVisitor):
         cached = self._flag_call_view_bodies.get(key)
         if cached is not None:
             return clone_expr(cached)
-        resolved_from: list[tuple[ast.SelectQuery | ast.SelectSetQuery, ast.SelectQuery | ast.SelectSetQuery]] = []
 
         def resolve(
             query: ast.SelectQuery | ast.SelectSetQuery, *, join_sources: JoinSources | None = None
@@ -1484,13 +1480,9 @@ class Resolver(CloningVisitor):
                 self.scopes[:] = scopes
                 self.ctes, self.current_view_depth, self.cte_counter = ctes, view_depth, cte_counter
                 self.join_sources = outer_join_sources
-            resolved_from.append((resolved, query))
             return resolved
 
-        chosen = resolve_flag_calls_from_flag_evaluations(body, self.context, resolve, view_name=view_name)
-        chosen_body = next((query for resolved, query in resolved_from if resolved is chosen), None)
-        if chosen_body is None:
-            raise ImpossibleASTError("resolve_flag_calls_from_flag_evaluations must return a tree that resolve built")
+        chosen_body = swap_flag_calls(body, self.context, resolve, view_name=view_name).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 

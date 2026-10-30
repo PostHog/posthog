@@ -46,7 +46,7 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
@@ -61,6 +61,7 @@ from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -1253,6 +1254,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         with self.assertRaisesRegex(QueryError, f"the view calls can't read them there because {reason}"):
             self._query_events("SELECT distinct_id FROM calls")
 
+    def test_view_that_names_flag_calls_only_through_an_action_raises(self):
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+        self._create_view("calls", f"SELECT distinct_id FROM events WHERE matchesAction({action.pk})")
+
+        with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
+            self._query_events("SELECT distinct_id FROM calls")
+
     def test_view_read_under_a_cte_with_the_same_name_and_another_body_decides_its_swap_again(self):
         self._create_view(
             "calls",
@@ -1286,8 +1294,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
 
         with patch(
-            "posthog.hogql.resolver.resolve_flag_calls_from_flag_evaluations",
-            wraps=resolve_flag_calls_from_flag_evaluations,
+            "posthog.hogql.resolver.swap_flag_calls",
+            wraps=swap_flag_calls,
         ) as swap:
             results = self._query_events("SELECT distinct_id FROM calls_3").results
 
