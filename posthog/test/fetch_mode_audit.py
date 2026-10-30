@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 import pytest
@@ -40,7 +41,7 @@ def _is_test_path(path: str) -> bool:
 def _app_frames() -> tuple[str | None, str | None]:
     """Return the first repo frame, and the first repo frame outside test code."""
     first: str | None = None
-    frame = sys._getframe(2)
+    frame: FrameType | None = sys._getframe(2)
     while frame is not None:
         path = frame.f_code.co_filename
         if path.startswith(_REPO_PREFIX) and path != _THIS_FILE and not any(p in path for p in _SKIPPED_PATH_PARTS):
@@ -247,7 +248,7 @@ def aggregate(log_dir: Path, peers_dir: Path | None, limit: int = 40) -> dict[st
     if peers_dir is not None:
         baseline = _merge_tests(log_runs)
         peers = _merge_tests(_load(peers_dir))
-        drops = []
+        drops: list[dict[str, Any]] = []
         for nodeid, before in baseline.items():
             after = peers.get(nodeid)
             if after is None:
