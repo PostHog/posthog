@@ -109,7 +109,10 @@ Ad-level reporting is unavailable because the connector does not import promoted
 ## Search performance
 
 Keywords and queries includes paid keywords from ad platforms and organic queries from Google Search Console.
-Search Console requires a synced `search_analytics_by_query` or `search_analytics_by_query_page` table; the integration and paid/organic filters determine which sources appear.
+Search Console keyword rankings require a synced `search_analytics_by_query` table, and landing page rankings require `search_analytics_by_page`.
+Drill-downs use `search_analytics_by_query_page`.
+A missing or stale dedicated table shows a source notice and excludes that source from the ranking; it does not fall back to query-and-page data because aggregation by page can change clicks, impressions, CTR, and position.
+The integration and paid/organic filters determine which sources appear.
 Each search table has a reload control and query duration.
 Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
 Long landing URLs truncate within the first column; hover over the URL to read it in full.
@@ -190,7 +193,7 @@ The source scan, enhanced catalog, dashboard section changes, and header feedbac
 Google Search Console onboarding stays behind its independent `marketing-analytics-organic-keywords` flag.
 Mounting source setup state does not start the UTM audit; Integration health loads the audit when opened.
 Search onboarding stays independent under `marketing-analytics-organic-keywords`.
-The read-only setup plan is available with `marketing-analytics-source-onboarding`, `marketing-analytics-setup`, or `new-marketing-analytics-dashboard`; other setup operations keep their existing flag requirements.
+The read-only setup plan is available with `marketing-analytics-source-onboarding` or `marketing-analytics-setup`; other setup operations keep their existing flag requirements.
 
 Source setup uses a consistent panel for connection checks, event scanning, suggestions, empty results, and recoverable errors.
 Detected platforms show concise evidence with expandable details.
@@ -239,8 +242,8 @@ Integration buttons show the external-link icon because their connection panels 
 
 The native integration catalog uses a consistent display order: Google Ads, Meta Ads, Bing Ads, LinkedIn Ads, TikTok Ads, Reddit Ads, Pinterest Ads, Snapchat Ads, OpenAI Ads, Apple Ads, Amazon Ads, Rokt Ads, and X Ads. Google Search Console stays in the search section.
 
-The separate Ad performance tab is available only with `new-marketing-analytics-dashboard` enabled.
-Enabling Search performance alone keeps paid and organic reporting inside the current Dashboard tab.
+The separate Ad performance tab appears when `marketing-analytics-organic-keywords` is on and `marketing-analytics-source-onboarding` is off.
+Otherwise paid and organic reporting stay inside the Dashboard tab.
 
 Detected-source suggestions keep the money hedgehog in the header, matching the empty state and manual catalog.
 

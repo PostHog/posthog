@@ -21,6 +21,7 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -38,6 +39,17 @@ class InvalidDestinationConfigError(ValueError):
 
     The message says which field is wrong.
     """
+
+
+class InvalidBatchExportDestinationError(ValueError):
+    """Raised when a destination cannot be saved, for a new export or as a change to an existing one.
+
+    The message says which check failed.
+    """
+
+
+class BatchExportScheduleError(Exception):
+    """Raised when Temporal rejects a change to the schedule of a batch export."""
 
 
 class UnsupportedDestinationTestError(ValueError):
@@ -356,6 +368,134 @@ class BatchExportBackfillStart:
 
     backfill_id: str
     destination_type: str
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationConfiguration:
+    """The destination of a scheduled batch export, as the API shows it.
+
+    ``config`` has its secret fields removed and its values restored to the types the
+    destination's workflow inputs declare.
+    """
+
+    type: str
+    config: dict[str, Any]
+    integration: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportConfiguration:
+    """A scheduled batch export with every field the API shows.
+
+    ``offset_day`` and ``offset_hour`` are the stored interval offset in the units the API takes.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    model: str | None
+    destination: BatchExportDestinationConfiguration
+    interval: str
+    paused: bool
+    created_at: dt.datetime
+    last_updated_at: dt.datetime
+    last_paused_at: dt.datetime | None
+    start_at: dt.datetime | None
+    end_at: dt.datetime | None
+    latest_runs: tuple[BatchExportRunDetail, ...]
+    hogql_query: str | None
+    hogql_modifiers: dict[str, Any] | None
+    primary_key: tuple[str, ...] | None
+    version_key: tuple[str, ...] | None
+    incremental_mode: str | None
+    schema: dict[str, Any] | None
+    filters: Any
+    timezone: str
+    offset_day: int | None
+    offset_hour: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationInput:
+    """The destination a request saves for a scheduled batch export.
+
+    ``config`` can hold inline credentials, so it stays out of ``repr``.
+    """
+
+    type: str
+    config: dict[str, Any] = field(repr=False)
+    integration_id: int | None = None
+
+
+@dataclass(frozen=True)
+class NewBatchExport:
+    """A scheduled batch export to create. The defaults match the defaults of a saved export.
+
+    ``hogql_query`` is the query of a ``hogql`` model export. For the ``events`` model it is a
+    legacy query that selects the exported fields, which only some teams may still send.
+    """
+
+    name: str
+    model: str
+    interval: str
+    destination: BatchExportDestinationInput
+    incremental_mode: str
+    paused: bool = False
+    last_paused_at: dt.datetime | None = None
+    start_at: dt.datetime | None = None
+    end_at: dt.datetime | None = None
+    filters: Any = None
+    timezone: str = "UTC"
+    interval_offset: int | None = None
+    hogql_query: str | None = None
+    hogql_modifiers: dict[str, Any] | None = None
+    primary_key: tuple[str, ...] | None = None
+    version_key: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class IntegrationChange:
+    """A request to set a destination's integration. ``integration_id`` is None to remove it."""
+
+    integration_id: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationPatch:
+    """A change to the destination of a scheduled batch export.
+
+    ``config`` merges key by key into the stored config. ``integration`` is None when the
+    request left the integration out, which keeps the stored integration.
+    """
+
+    config: dict[str, Any] = field(repr=False)
+    integration: IntegrationChange | None = None
+
+
+@dataclass(frozen=True)
+class BatchExportUpdate:
+    """A change to a scheduled batch export.
+
+    Only the fields named in ``changed`` apply, so a field can be set to None. A field that
+    ``changed`` does not name keeps its stored value, whatever value it has here.
+    """
+
+    changed: frozenset[str]
+    name: str | None = None
+    interval: str | None = None
+    paused: bool | None = None
+    last_paused_at: dt.datetime | None = None
+    start_at: dt.datetime | None = None
+    end_at: dt.datetime | None = None
+    filters: Any = None
+    timezone: str | None = None
+    interval_offset: int | None = None
+    incremental_mode: str | None = None
+    destination: BatchExportDestinationPatch | None = None
+    hogql_query: str | None = None
+    hogql_modifiers: dict[str, Any] | None = None
+    primary_key: tuple[str, ...] | None = None
+    version_key: tuple[str, ...] | None = None
 
 
 @stdlib_dataclass(frozen=True)

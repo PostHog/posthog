@@ -3,6 +3,16 @@
 Concrete queries for each strategy in Step 2. Property names (`$ai_is_error`, `$ai_input_tokens`, …) are
 the standard AI event properties; confirm the exact ones for this project with `read-data-schema`.
 
+## Contents
+
+- [Where heavy content lives: `events` vs `ai_events`](#where-heavy-content-lives-events-vs-ai_events)
+- [Discover the trace taxonomy](#discover-the-trace-taxonomy)
+- [Code errors](#code-errors)
+- [Metric outliers](#metric-outliers)
+- [Manual review of a stratified batch](#manual-review-of-a-stratified-batch)
+- [Existing-eval spikes](#existing-eval-spikes)
+- [Counting failure modes](#counting-failure-modes)
+
 ## Where heavy content lives: `events` vs `ai_events`
 
 The `events` table keeps only lightweight metadata: token counts, costs, model, provider,

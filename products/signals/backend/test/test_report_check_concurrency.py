@@ -1,8 +1,10 @@
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 from queue import Queue
 from time import monotonic
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
@@ -21,6 +23,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportMonitoringAttempt,
+    SignalReportMonitoringResult,
 )
 from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_check_evaluation import CheckVerdict
@@ -31,7 +34,14 @@ from products.signals.backend.report_check_execution import (
 )
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
-from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt
+from products.signals.backend.report_monitoring_results import (
+    InvalidMonitoringResult,
+    MonitoringEvaluation,
+    MonitoringResultConflict,
+    save_monitoring_result,
+)
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
@@ -134,6 +144,188 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
         assert self.check.last_outcome is None
         assert not SignalReportArtefact.objects.filter(report=self.report, type="check_result").exists()
 
+    def _final_evaluation(self) -> MonitoringEvaluation:
+        now = timezone.now()
+        start = now - timedelta(hours=1)
+        SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(status=SignalReport.Status.READY)
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=self.check.id).update(
+            soak_minutes=60, expires_at=now + timedelta(days=1)
+        )
+        self.check.refresh_from_db()
+        attempt = complete_implementation(team_id=self.team.id, report_id=self.report.id, monitoring_started_at=start)
+        assert attempt is not None
+        return MonitoringEvaluation(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            attempt_id=attempt.id,
+            check_id=self.check.id,
+            submission_id=uuid4(),
+            definition_version=check_definition_version(self.check),
+            window_start=start,
+            window_end=now,
+            evaluated_at=now,
+            evidence_status="sufficient",
+            evidence_reason="qualifying_observations",
+            expectation_matches=True,
+            explanation="The expectation holds.",
+        )
+
+    @parameterized.expand([("cancelled",), ("definition",), ("completed",), ("flag_off",), ("errored",), ("expired",)])
+    def test_final_result_rechecks_check_invalidation_after_a_lock_wait(self, change: str) -> None:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True) as flag,
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            evaluation = self._final_evaluation()
+            checks = SignalReportCheck.objects.for_team(self.team.id).filter(id=self.check.id)
+            with transaction.atomic():
+                checks.select_for_update().get()
+                future = self._start_write(executor, lambda: save_monitoring_result(evaluation))
+                self._assert_write_waits(future)
+                if change == "cancelled":
+                    assert cancel_check(
+                        self.check, reason="stopped_by_person", attribution=ArtefactAttribution.system()
+                    )
+                elif change == "definition":
+                    checks.update(title="A different expectation")
+                elif change in {"errored", "expired", "completed"}:
+                    checks.update(
+                        status=SignalReportCheck.Status.PASSED if change == "completed" else change,
+                        expires_at=timezone.now(),
+                    )
+                else:
+                    flag.return_value = False
+            if change in {"errored", "expired"}:
+                result = future.result(timeout=10)
+                assert isinstance(result, SignalReportMonitoringResult)
+                assert result.outcome == "passed"
+                self.check.refresh_from_db()
+                assert self.check.status == SignalReportCheck.Status.PASSED
+            else:
+                with self.assertRaises(InvalidMonitoringResult):
+                    future.result(timeout=10)
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).exists() == (
+            change in {"errored", "expired"}
+        )
+
+    @parameterized.expand([("resolved",), ("suppressed",), ("reopened",)])
+    def test_final_result_rechecks_report_state_after_a_lock_wait(self, change: str) -> None:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            evaluation = self._final_evaluation()
+            with transaction.atomic():
+                report = SignalReport.objects.select_for_update(no_key=True).get(
+                    id=self.report.id, team_id=self.team.id
+                )
+                future = self._start_write(executor, lambda: save_monitoring_result(evaluation))
+                self._assert_write_waits(future)
+                target = {
+                    "resolved": SignalReport.Status.RESOLVED,
+                    "suppressed": SignalReport.Status.SUPPRESSED,
+                    "reopened": SignalReport.Status.READY,
+                }[change]
+                report.save(update_fields=report.transition_to(target))
+            with self.assertRaises(InvalidMonitoringResult):
+                future.result(timeout=10)
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand([("duplicate",), ("conflict",)])
+    def test_concurrent_final_submissions_accept_one_verdict(self, change: str) -> None:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            evaluation = self._final_evaluation()
+            competitor = (
+                replace(evaluation, submission_id=uuid4(), expectation_matches=False)
+                if change == "conflict"
+                else evaluation
+            )
+            with transaction.atomic():
+                SignalReport.objects.select_for_update(no_key=True).get(id=self.report.id, team_id=self.team.id)
+                future = self._start_write(executor, lambda: save_monitoring_result(competitor))
+                self._assert_write_waits(future)
+                accepted = save_monitoring_result(evaluation)
+            if change == "conflict":
+                with self.assertRaises((MonitoringResultConflict, InvalidMonitoringResult)):
+                    future.result(timeout=10)
+            else:
+                duplicate = future.result(timeout=10)
+                assert isinstance(duplicate, SignalReportMonitoringResult)
+                assert duplicate.id == accepted.id
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
+
+    def test_aggregation_preserves_manual_resolution_after_a_report_lock_wait(self) -> None:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            evaluation = replace(self._final_evaluation(), expectation_matches=False)
+            with transaction.atomic():
+                report = SignalReport.objects.select_for_update(no_key=True).get(
+                    id=self.report.id, team_id=self.team.id
+                )
+                save_monitoring_result(evaluation)
+                future = self._start_write(
+                    executor,
+                    lambda: aggregate_monitoring_attempt(
+                        team_id=self.team.id, report_id=self.report.id, attempt_id=evaluation.attempt_id
+                    ),
+                )
+                self._assert_write_waits(future)
+                report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+            future.result(timeout=10)
+        self.report.refresh_from_db()
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(id=evaluation.attempt_id)
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert attempt.research_requested_at is None
+
+    def test_aggregation_does_not_wait_for_unrelated_historical_checks(self) -> None:
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch("products.signals.backend.tasks.close_report_tracker_issue.delay"),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            evaluation = self._final_evaluation()
+            SignalReportMonitoringResult.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report_id=self.report.id,
+                attempt_id=evaluation.attempt_id,
+                report_check_id=self.check.id,
+                submission_id=evaluation.submission_id,
+                definition_version=evaluation.definition_version,
+                window_start=evaluation.window_start,
+                window_end=evaluation.window_end,
+                evaluated_at=evaluation.evaluated_at,
+                outcome="passed",
+                evidence_status="sufficient",
+                evidence_reason=evaluation.evidence_reason,
+                expectation_matches=True,
+                explanation=evaluation.explanation,
+            )
+            historical = SignalReportCheck.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=self.report,
+                title="An expired observation",
+                kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+                status=SignalReportCheck.Status.EXPIRED,
+                next_run_at=timezone.now(),
+                expires_at=timezone.now(),
+            )
+            with transaction.atomic():
+                SignalReportCheck.objects.for_team(self.team.id).select_for_update().get(id=historical.id)
+                future = self._start_write(
+                    executor,
+                    lambda: aggregate_monitoring_attempt(
+                        team_id=self.team.id, report_id=self.report.id, attempt_id=evaluation.attempt_id
+                    ),
+                )
+                assert future.result(timeout=10) == "passed"
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+
     @parameterized.expand([("cancelled",), ("extended",)])
     def test_expiry_sweep_preserves_a_concurrent_change(self, change: str) -> None:
         now = timezone.now()
@@ -224,8 +416,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             else SignalReportArtefact.ArtefactType.CHECK_EXPIRED,
         ).exists()
 
-    @parameterized.expand([("enabled", True), ("disabled", False)])
-    def test_schedule_repair_preserves_a_concurrent_observation(self, _name: str, flag: bool) -> None:
+    def test_schedule_repair_preserves_a_concurrent_observation(self) -> None:
         now = timezone.now()
         start = now - timedelta(days=1)
         self.report.status = SignalReport.Status.MONITORING
@@ -245,7 +436,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             explanation="The metric query failed.",
         )
         with (
-            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
         ):
             with transaction.atomic():

@@ -7,10 +7,11 @@ from uuid import UUID
 
 from django.db import transaction
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
+    TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
@@ -21,8 +22,6 @@ from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.hog_flow_writes import create_workflow, update_workflow
 
 TRIGGER_ACTION_ID = "trigger_node"
-# Engagement tracking and message assets key on this id, so it stays stable across versions.
-EMAIL_ACTION_ID = "transactional_email"
 EXIT_ACTION_ID = "exit_node"
 
 # The send endpoint passes the recipient as an event property. Liquid output is never parsed again, so an
@@ -41,7 +40,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "config": {"type": "api"},
         },
         {
-            "id": EMAIL_ACTION_ID,
+            "id": TRANSACTIONAL_EMAIL_ACTION_ID,
             "name": content.name,
             "description": "",
             "type": "function_email",
@@ -95,8 +94,8 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
         "name": content.name,
         "actions": actions,
         "edges": [
-            {"from": TRIGGER_ACTION_ID, "to": EMAIL_ACTION_ID, "type": "continue"},
-            {"from": EMAIL_ACTION_ID, "to": EXIT_ACTION_ID, "type": "continue"},
+            {"from": TRIGGER_ACTION_ID, "to": TRANSACTIONAL_EMAIL_ACTION_ID, "type": "continue"},
+            {"from": TRANSACTIONAL_EMAIL_ACTION_ID, "to": EXIT_ACTION_ID, "type": "continue"},
         ],
         # The API serializer derives these two from the actions on every save.
         "trigger": actions[0]["config"],
@@ -111,7 +110,12 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
         .values_list("default_email_integration_id", flat=True)
         .first()
     )
-    sender = Integration.objects.filter(team_id=team_id, kind="email", id=sender_id).first() if sender_id else None
+    sender = None
+    if sender_id:
+        try:
+            sender = IntegrationManager.email.credentials.get(team_id, sender_id)
+        except IntegrationNotFound:
+            pass
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id
@@ -119,7 +123,7 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
 
 def _current_sender(flow: HogFlow) -> int | None:
     # The email step is missing when someone edited the workflow directly. The update writes it back.
-    email = next((action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID), None)
+    email = next((action for action in flow.actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), None)
     if email is None:
         return None
     return email["config"]["inputs"]["email"]["value"]["from"].get("integrationId")

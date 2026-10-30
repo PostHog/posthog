@@ -73,18 +73,6 @@ function StickinessBarChartStory({ insightFixture }: { insightFixture: any }): J
 const STICKINESS_DAYS = [1, 2, 3, 4, 5, 6, 7, 8]
 const STICKINESS_LABELS = STICKINESS_DAYS.map((d) => (d === 1 ? '1 day' : `${d} days`))
 
-const ACTION = {
-    id: '$pageview',
-    type: 'events',
-    order: 0,
-    name: '$pageview',
-    custom_name: null,
-    math: null,
-    math_property: null,
-    math_group_type_index: null,
-    properties: {},
-}
-
 function buildStickinessInsight({
     display,
     id,
@@ -120,19 +108,13 @@ function buildStickinessInsight({
         dashboards: [],
         dashboard_tiles: [],
         result: results.map((r) => ({
-            action: ACTION,
+            order: 0,
             label: r.label,
             count: r.count,
             data: r.data,
             labels: STICKINESS_LABELS,
             days: STICKINESS_DAYS,
             breakdown_value: r.breakdown_value,
-            filter: {
-                date_from: '2022-03-08T00:00:00Z',
-                insight: 'STICKINESS',
-                interval: 'day',
-                shown_as: 'Stickiness',
-            },
         })),
         query: {
             kind: 'InsightVizNode',

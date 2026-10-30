@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -1351,8 +1351,51 @@ describe('StateManager', () => {
 
             expect(result).toEqual(['github', 'slack'])
             expect(request).toHaveBeenCalledWith(
-                expect.objectContaining({ method: 'GET', path: `/api/projects/${projectId}/integrations/` })
+                expect.objectContaining({
+                    method: 'GET',
+                    path: `/api/projects/${projectId}/integrations/`,
+                    timeoutMs: 10 * 1000,
+                })
             )
+        })
+
+        it.each([
+            [
+                'a timeout',
+                new PostHogTransportError({
+                    url: 'https://us.posthog.com/api/projects/42/integrations/',
+                    method: 'GET',
+                    attempts: 1,
+                    retryable: true,
+                    cause: new DOMException('No response within 10 seconds', 'TimeoutError'),
+                }),
+                false,
+            ],
+            [
+                'an HTTP 500',
+                new PostHogApiError({
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    body: '',
+                    url: 'https://us.posthog.com/api/projects/42/integrations/',
+                    method: 'GET',
+                }),
+                true,
+            ],
+        ])('returns the cached kinds on %s', async (_name, error, reported) => {
+            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
+            await cache.set('apiKeyFetchedAt', Date.now())
+            await cache.set(`integrationKinds:${projectId}` as any, ['github'] as any)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            ;(stateManager as any)._api = {
+                config: { apiToken: 'phx_test' },
+                request: vi.fn().mockRejectedValue(error),
+            }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toEqual(['github'])
+            expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
         })
     })
 

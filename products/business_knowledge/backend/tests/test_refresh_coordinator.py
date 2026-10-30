@@ -22,6 +22,7 @@ from products.business_knowledge.backend.temporal.coordinator import (
     IngestSourceInputs,
     RefreshSourceInputs,
     ReleaseFailedSourceInputs,
+    _chunk_scan_count,
 )
 
 
@@ -30,6 +31,12 @@ class _ClassifyStub(TypedDict):
     unsafe: int
     scanned: int
     tried_ids: list[str]
+
+
+def test_byte_budget_page_still_counts_as_a_full_chunk() -> None:
+    assert _chunk_scan_count(returned=2, has_more=True, cap=_CLASSIFY_CHUNK_SIZE) == _CLASSIFY_CHUNK_SIZE
+    assert _chunk_scan_count(returned=2, has_more=False, cap=_CLASSIFY_CHUNK_SIZE) == 2
+    assert _chunk_scan_count(returned=0, has_more=True, cap=_CLASSIFY_CHUNK_SIZE) == 0
 
 
 @pytest.mark.asyncio

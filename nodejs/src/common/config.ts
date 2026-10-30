@@ -490,6 +490,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
+        HTTP_SERVER_DRAIN_TIMEOUT_MS: 0,
+
         // Pod termination
         POD_TERMINATION_ENABLED: false,
         POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30,

@@ -1,3 +1,6 @@
+import dataclasses
+from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -12,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError, connection
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -35,7 +39,27 @@ from posthog.tasks.ai_observability_usage_report import (
     get_teams_with_ai_events,
     send_ai_observability_usage_reports,
 )
-from posthog.utils import get_previous_day
+from posthog.tasks.usage_report import _get_all_org_reports, capture_report, has_non_zero_usage
+from posthog.temporal.usage_report.aggregator import iter_org_reports
+from posthog.temporal.usage_report.types import WorkflowContext
+from posthog.usage_counters import UsageCounterService
+from posthog.utils import DayRange, get_previous_day
+
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
+from products.ai_observability.backend.offline_evaluation_service import (
+    OfflineEvaluationIngestionService,
+    OfflineExperimentService,
+)
+from products.ai_observability.backend.offline_evaluation_types import (
+    ExperimentSubmission,
+    ItemSubmission,
+    ResultSubmission,
+    UploadSubmission,
+)
+
+from ee.billing.quota_limiting import _aggregate_quota_usage
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
@@ -521,6 +545,180 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         metrics = survey_metrics[self.team.id]
         assert metrics.active_survey_count == 2  # survey_id_1 and survey_id_2
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
+
+    @parameterized.expand([(50, 30), (0, 30), (50, 0), (0, 0)])
+    @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
+    def test_upload_to_both_reports_and_quota(self, ingested: int, offline: int) -> None:
+        period = get_previous_day(at=datetime(2026, 11, 1, tzinfo=UTC))
+        if ingested:
+            self._create_ai_events(self.team, "billing-test", "$ai_generation", ingested, timestamp=period.start)
+        if offline:
+            experiment = (
+                OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+                .create(ExperimentSubmission(id=uuid4(), name="Billing fixture", started_at=period.start))
+                .experiment
+            )
+            scorer = ScoreDefinition.objects.create(team=self.team, name="Accuracy", kind="numeric")
+            versions = [scorer.create_new_version(config={}, created_by=None) for _ in range(6)]
+            items = [ItemSubmission(id=uuid4()) for _ in range(5)]
+            results = [
+                ResultSubmission(item_id=item.id, scorer_version_id=version.id, status="ok", value=0.8)
+                for item in items
+                for version in versions
+            ]
+            ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+            for batch in (results[:20], results[20:]):
+                submission = UploadSubmission(
+                    items=[item for item in items if item.id in {result.item_id for result in batch}], results=batch
+                )
+                ingestion.upload(experiment.id, submission)
+                ingestion.upload(experiment.id, submission)
+            ingestion.upload(
+                experiment.id, UploadSubmission(items=list(reversed(items)), results=list(reversed(results)))
+            )
+            self.assertEqual(
+                sorted(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+                [10, 20],
+            )
+            rejected_item = ItemSubmission(id=uuid4(), payload={"input": "Rejected transaction"})
+
+            def fail_ledger_insert(
+                execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+            ) -> object:
+                if sql.startswith("INSERT INTO") and OfflineEvaluationUsageLedger._meta.db_table in sql:
+                    raise DatabaseError("Ledger write unavailable")
+                return execute(sql, params, many, context)
+
+            with (
+                connection.execute_wrapper(fail_ledger_insert),
+                self.assertRaisesMessage(DatabaseError, "Ledger write unavailable"),
+            ):
+                ingestion.upload(
+                    experiment.id,
+                    UploadSubmission(
+                        items=[rejected_item], results=[dataclasses.replace(results[0], item_id=rejected_item.id)]
+                    ),
+                )
+
+        counter_report = UsageCounterService().fetch_report(period)
+        all_data = defaultdict(dict, {key: dict(rows) for key, rows in counter_report.counts.items()})
+        org_id = str(self.organization.id)
+        before = list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values())
+        celery_report = _get_all_org_reports(period=period)[org_id]
+        ctx = WorkflowContext(
+            run_id="offline-usage", date_str="2026-10-31", period_start=period.start, period_end=period.end
+        )
+        temporal_report = next(
+            report for report in iter_org_reports(all_data, ctx, {}) if report.organization_id == org_id
+        )
+        expected = {
+            "ai_ingested_event_count_in_period": ingested,
+            "ai_offline_eval_metric_count_in_period": offline,
+            "ai_event_count_in_period": ingested + offline,
+        }
+        for report in (celery_report, temporal_report):
+            self.assertEqual({key: getattr(report, key) for key in expected}, expected)
+            self.assertEqual({key: getattr(report.teams[str(self.team.id)], key) for key in expected}, expected)
+            self.assertEqual(has_non_zero_usage(report), bool(ingested + offline))
+
+        with patch(
+            "posthog.tasks.usage_report.sync_execute",
+            side_effect=AssertionError("Analytics reporting must not execute billing queries"),
+        ):
+            analytics_reports = _get_all_ai_observability_reports(period=period)
+        if ingested + offline:
+            analytics_report = analytics_reports[org_id]
+            self.assertEqual(analytics_report["ai_offline_eval_metric_count_in_period"], offline)
+            self.assertEqual(analytics_report["ai_generation_count"], ingested)
+            self.assertEqual(analytics_report["ai_metric_count"], 0)
+            self.assertNotIn("ai_ingested_event_count_in_period", analytics_report)
+            self.assertNotIn("ai_event_count_in_period", analytics_report)
+            with (
+                patch("posthog.tasks.usage_report.get_ph_client"),
+                patch("posthog.tasks.usage_report.capture_event") as org_capture,
+                patch("posthog.tasks.ai_observability_usage_report.get_ph_client"),
+                patch("posthog.tasks.ai_observability_usage_report.capture_event") as ai_capture,
+            ):
+                capture_report(organization_id=org_id, full_report_dict=dataclasses.asdict(celery_report))
+                capture_ai_observability_report(organization_id=org_id, report_dict=analytics_report)
+            org_payload = next(
+                call.kwargs["properties"]
+                for call in org_capture.call_args_list
+                if call.kwargs["name"] == "organization usage report"
+            )
+            self.assertEqual({key: org_payload[key] for key in expected}, expected)
+            self.assertEqual(
+                ai_capture.call_args.kwargs["properties"]["ai_offline_eval_metric_count_in_period"], offline
+            )
+        else:
+            self.assertEqual(analytics_reports, {})
+        quotas = _aggregate_quota_usage(
+            [self.team],
+            all_data,
+            offline_usage=get_offline_evaluation_usage(period.start, period.start + timedelta(days=1)),
+        )
+        self.assertEqual(quotas.usage[org_id]["llm_events"], ingested + offline)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values()), before
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
+    def test_both_reports_preserve_moved_team_usage_but_exclude_deleted_teams(self, deleted_team: bool) -> None:
+        period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
+        new_org = Organization.objects.create(name="New owner")
+        for org, quantity in ((self.organization, 30), (new_org, 4)):
+            OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                organization_id=org.id,
+                experiment_id=uuid4(),
+                accepted_at=period.start,
+                quantity=quantity,
+            )
+        Team.objects.filter(id=self.team.id).update(organization=new_org)
+        if deleted_team:
+            self.team.delete()
+        analytics = _get_all_ai_observability_reports(period=period)
+        reports = _get_all_org_reports(period=period)
+        for org, expected in ((self.organization, 30), (new_org, 4)):
+            org_id = str(org.id)
+            if deleted_team:
+                self.assertNotIn(org_id, analytics)
+                self.assertNotIn(org_id, reports)
+                continue
+            self.assertEqual(analytics[org_id]["ai_offline_eval_metric_count_in_period"], expected)
+            self.assertEqual(reports[org_id].ai_event_count_in_period, expected)
+
+    @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
+    def test_failed_ledger_read_does_not_claim_the_analytics_dispatch(self) -> None:
+        OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            experiment_id=uuid4(),
+            accepted_at=datetime(2026, 10, 31, tzinfo=UTC),
+            quantity=30,
+        )
+
+        def fail_ledger_read(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+        ) -> object:
+            if sql.startswith("SELECT") and OfflineEvaluationUsageLedger._meta.db_table in sql:
+                raise DatabaseError("Ledger unavailable")
+            return execute(sql, params, many, context)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report.delay") as dispatch,
+        ):
+            with (
+                connection.execute_wrapper(fail_ledger_read),
+                self.assertRaisesMessage(DatabaseError, "Ledger unavailable"),
+            ):
+                send_ai_observability_usage_reports()
+            dispatch.assert_not_called()
+            send_ai_observability_usage_reports()
+            self.assertEqual(dispatch.call_count, 1)
+            self.assertEqual(dispatch.call_args.kwargs["report_dict"]["ai_offline_eval_metric_count_in_period"], 30)
 
     def test_full_ai_observability_report(self) -> None:
         """Test the full AI observability report generation."""
@@ -1374,7 +1572,10 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         task = send_ai_observability_usage_reports
         task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
         try:
-            with pytest.raises(Exception, match="CH down"):
+            with (
+                patch("posthog.tasks.ai_observability_usage_report.get_offline_evaluation_usage", return_value={}),
+                pytest.raises(Exception, match="CH down"),
+            ):
                 task.run()
         finally:
             task.pop_request()

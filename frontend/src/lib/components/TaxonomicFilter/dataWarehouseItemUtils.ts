@@ -22,7 +22,7 @@ function findFieldByNameCandidates(
     candidates: string[]
 ): DataWarehouseTableForInsight['fields'][string] | undefined {
     // `fields` may be missing when the warehouse item is reconstructed
-    // from a committed filter (e.g. via the new menu rebuild) where the
+    // from a committed filter where the
     // selection only carries `name` / `id`. Bail out cleanly instead of
     // throwing on `Object.values(undefined)`.
     if (!warehouseItem.fields) {

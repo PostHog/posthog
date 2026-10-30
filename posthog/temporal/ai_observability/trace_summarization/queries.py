@@ -48,7 +48,7 @@ class TraceSize:
     payload_chars: int
 
 
-def fetch_trace_size(team: Team, trace_id: str) -> TraceSize:
+def fetch_trace_size(team: Team, trace_id: str, *, bypass_property_access_control: bool = False) -> TraceSize:
     """Measure a trace in ClickHouse without loading its payload.
 
     A trace ID that a client reuses for every run grows without limit, and `fetch_trace` loads all of
@@ -60,12 +60,20 @@ def fetch_trace_size(team: Team, trace_id: str) -> TraceSize:
             placeholders={"trace_id": ast.Constant(value=trace_id)},
             team=team,
             query_type="TraceSummarizationTraceSize",
+            bypass_property_access_control=bypass_property_access_control,
         )
     event_count, payload_chars = result.results[0]
     return TraceSize(event_count=int(event_count or 0), payload_chars=int(payload_chars or 0))
 
 
-def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -> LLMTrace | None:
+def fetch_trace(
+    team: Team,
+    trace_id: str,
+    window_start: str,
+    window_end: str,
+    *,
+    bypass_property_access_control: bool = False,
+) -> LLMTrace | None:
     """Fetch a single trace by ID via the migrated `TraceQueryRunner`.
 
     The runner reads `ai_events` with no timestamp bounds, so this loads the whole trace whatever
@@ -81,7 +89,9 @@ def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -
         dateRange=DateRange(date_from=window_start, date_to=window_end),
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        runner = TraceQueryRunner(team=team, query=trace_query)
+        runner = TraceQueryRunner(
+            team=team, query=trace_query, bypass_property_access_control=bypass_property_access_control
+        )
         response = runner.calculate()
 
     if not response.results:

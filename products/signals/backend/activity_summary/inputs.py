@@ -61,8 +61,11 @@ def user_activity(team_id: int, user_id: int, start: datetime.datetime, end: dat
         .annotate(
             name=KeyTextTransform("name", "detail"),
             intent=KeyTextTransform("intent", KeyTransform("payload", KeyTransform("trigger", "detail"))),
+            short_id=KeyTextTransform("short_id", "detail"),
         )
-        .values("scope", "activity", "client", "created_at", "name", "intent", "item_id")[:MAX_ACTIVITY_ROWS_PER_PERSON]
+        .values(
+            "scope", "activity", "client", "created_at", "name", "intent", "item_id", "credential_type", "short_id"
+        )[:MAX_ACTIVITY_ROWS_PER_PERSON]
     )
     return [
         ActivityItem(
@@ -73,6 +76,8 @@ def user_activity(team_id: int, user_id: int, start: datetime.datetime, end: dat
             client=row["client"],
             intent=row["intent"],
             item_id=row["item_id"],
+            credential_type=row["credential_type"],
+            short_id=row["short_id"],
         )
         for row in rows
     ]

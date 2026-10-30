@@ -13,7 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { MockResolverInfo } from '~/mocks/utils'
+import type { MockResolverInfo, Mocks } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
@@ -37,8 +37,7 @@ import { expect, userEvent } from 'storybook/test'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-// The SQL editor scene gates on warehouse-objects access; grant it on the storybook app context
-// before the story mounts and restore the original on unmount so story order can't leak.
+// Grant saved-object access before the story mounts and restore it on unmount so story order can't leak.
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     const original = useRef<{ value: unknown }>()
@@ -47,6 +46,7 @@ const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JS
         appContext.resource_access_control = {
             ...appContext.resource_access_control,
             [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
+            [AccessControlResourceType.Endpoint]: AccessControlLevel.Editor,
         }
     }
     useEffect(
@@ -215,6 +215,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const kind = body?.query?.kind
@@ -244,7 +245,7 @@ const meta: Meta = {
         // is pressed locally — see its comment.)
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL }),
         testOptions: {
-            waitForSelector: '.monaco-editor',
+            waitForSelector: '.CodeEditor[data-editor-ready="true"]',
             viewport: { width: 1600, height: 900 },
         },
     },
@@ -253,6 +254,54 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+const waitForEditor = async (canvasElement: HTMLElement): Promise<void> => {
+    await waitFor(() => expect(canvasElement.querySelector('.CodeEditor[data-editor-ready="true"]')).toBeVisible(), {
+        timeout: 30000,
+    })
+}
+
+// Keep the app shell at viewport height so snapshot capture does not resize and remount Monaco.
+const pinEditorViewport = (): (() => void) => {
+    document.body.classList.add('storybook-viewport-layout')
+    return () => document.body.classList.remove('storybook-viewport-layout')
+}
+
+// Monaco takes focus when it mounts, so open the menu only after the editor is ready.
+const openSaveMenu: Story['play'] = async ({ canvasElement }) => {
+    await waitForEditor(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
+    expect(trigger).toBeTruthy()
+    await userEvent.click(trigger!)
+    await waitFor(() => expect(body.getByText('Save query as')).toBeVisible())
+}
+
+// Waits for the insight to load and show its unsaved edit before it opens the save menu.
+const openEditedInsightSaveMenu: Story['play'] = async (context) => {
+    const canvas = within(context.canvasElement)
+    await waitFor(
+        () => expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false'),
+        { timeout: 30000 }
+    )
+    await openSaveMenu(context)
+}
+
+export const SaveAsFlowQuill: Story = {
+    beforeEach: pinEditorViewport,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+    play: openSaveMenu,
+}
 
 export const CustomerImages: Story = {
     tags: ['hogqlx-images'],
@@ -445,10 +494,12 @@ export const EditedView: Story = {
 
 export const EditedInsight: Story = {
     parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
         const canvas = within(canvasElement)
         await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
         await waitFor(() =>
@@ -456,6 +507,66 @@ export const EditedInsight: Story = {
         )
         await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
+        await expect(canvas.getByRole('button', { name: 'Continue in a notebook' })).toBeVisible()
+        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        const menu = within(canvasElement.ownerDocument.body)
+        await menu.findByText('Save query as')
+        await expect(menu.queryByRole('menuitem', { name: 'Continue in a notebook' })).not.toBeInTheDocument()
+        await expect(
+            canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-insight"]')
+        ).toHaveAttribute('aria-disabled', 'false')
+        await expect(
+            canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-view-button"]')
+        ).toHaveAttribute('aria-disabled', 'true')
+        await expect(
+            canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-endpoint"]')
+        ).toHaveAttribute('aria-disabled', 'true')
+        // The popover fades in, so wait for it instead of asserting visibility on the first frame.
+        await waitFor(() =>
+            expect(
+                menu.getByText('Run the current query successfully to check which columns the endpoint will return')
+            ).toBeVisible()
+        )
+        await userEvent.keyboard('{Escape}')
+        await waitFor(() => expect(menu.queryByText('Save query as')).not.toBeInTheDocument())
+        await userEvent.click(canvas.getByRole('button', { name: 'Stop editing insight' }))
+        await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
+        await expect(canvas.getByRole('button', { name: 'Save as' })).toBeVisible()
+        await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
+    },
+}
+
+export const EditedInsightSaveAsFlow: Story = {
+    beforeEach: pinEditorViewport,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: openEditedInsightSaveMenu,
+}
+
+export const EditedInsightSaveAsFlowQuill: Story = {
+    beforeEach: pinEditorViewport,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: openEditedInsightSaveMenu,
+}
+
+export const EditedInsightLegacySaveMenu: Story = {
+    beforeEach: pinEditorViewport,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false },
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
+        const canvas = within(canvasElement)
+        await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         const menu = within(canvasElement.ownerDocument.body)
         await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
@@ -466,11 +577,22 @@ export const EditedInsight: Story = {
             'aria-disabled',
             'true'
         )
-        await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
-        await userEvent.click(menu.getByText('Reset view'))
-        await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
-        await expect(canvas.getByRole('button', { name: 'Save as insight' })).toBeVisible()
-        await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
+        await expect(menu.getByRole('menuitem', { name: 'Save as endpoint...' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        await expect(menu.queryByText('Save query as')).not.toBeInTheDocument()
+    },
+}
+
+export const EditedInsightLegacySaveMenuQuill: Story = {
+    ...EditedInsightLegacySaveMenu,
+    parameters: {
+        ...EditedInsightLegacySaveMenu.parameters,
+        featureFlags: {
+            [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false,
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        },
     },
 }
 
@@ -614,6 +736,22 @@ export const SidebarMaterializationStatus: Story = {
     },
 }
 
+const BI_MODE_WORKSHEET_MOCKS = {
+    get: {
+        '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+        '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+    },
+    post: {
+        // The specific path wins over the catch-all query mock on the meta
+        '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+            tables: {
+                events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+            },
+        },
+        '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
+    },
+} satisfies Mocks
+
 export const BIModeWorksheet: Story = {
     beforeEach: pinQueryTimer,
     parameters: {
@@ -629,21 +767,7 @@ export const BIModeWorksheet: Story = {
             viewport: { width: 1600, height: 900 },
         },
         msw: {
-            mocks: {
-                get: {
-                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
-                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
-                },
-                post: {
-                    // The specific path wins over the catch-all query mock on the meta
-                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
-                        tables: {
-                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
-                        },
-                    },
-                    '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
-                },
-            },
+            mocks: BI_MODE_WORKSHEET_MOCKS,
         },
     },
 }
@@ -694,9 +818,9 @@ export const BISavedInsight: Story = {
         testOptions: { waitForSelector: '[data-attr="insight-edit-button"]', viewport: { width: 1600, height: 900 } },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
                     '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
                     '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
@@ -733,9 +857,9 @@ export const BICalculatedMeasureEditor: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/query/HogQLAutocomplete/': {
                         suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
                         incomplete_list: false,
@@ -804,9 +928,9 @@ export const BIQuickFilters: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: { request: Request }) => {
                         const { query } = await request.json()
                         return [
@@ -1032,9 +1156,9 @@ export const BIDataSourcePicker: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
@@ -1227,9 +1351,9 @@ export const BIConnections: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: {
@@ -1327,6 +1451,29 @@ async function stabilizeQueryElapsedTime(): Promise<void> {
     logic!.actions.setElapsedTime(180)
 }
 
+const BI_TABLE_ANALYSIS_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['bi_row_timestamp', 'String'],
+                ['bi_column_event', 'String'],
+                ['sum_revenue', 'Nullable(Float64)'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['Total', 'Total', null, 14.2],
+                ['2026-06-01', 'purchase', 120, 12],
+                ['2026-06-02', 'purchase', 300, 15],
+                ['2026-06-01', 'Other', 40, 10],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
 export const BITableAnalysis: Story = {
     ...BIModeWorksheet,
     parameters: {
@@ -1337,28 +1484,7 @@ export const BITableAnalysis: Story = {
             bi: JSON.stringify(BI_ANALYSIS_CONFIG),
         })}`,
         msw: {
-            mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
-                        types: [
-                            ['bi_row_timestamp', 'String'],
-                            ['bi_column_event', 'String'],
-                            ['sum_revenue', 'Nullable(Float64)'],
-                            ['average_revenue_2', 'Float64'],
-                        ],
-                        results: [
-                            ['Total', 'Total', null, 14.2],
-                            ['2026-06-01', 'purchase', 120, 12],
-                            ['2026-06-02', 'purchase', 300, 15],
-                            ['2026-06-01', 'Other', 40, 10],
-                        ],
-                        hasMore: false,
-                    },
-                },
-            },
+            mocks: BI_TABLE_ANALYSIS_MOCKS,
         },
     },
     play: async ({ canvasElement }) => {
@@ -1390,33 +1516,35 @@ const BI_COMBO_CONFIG: BIConfig = {
     ],
 }
 
+const BI_COMBINED_MEASURES_MOCKS = {
+    ...BI_MODE_WORKSHEET_MOCKS,
+    post: {
+        ...BI_MODE_WORKSHEET_MOCKS.post,
+        '/api/environments/:team_id/query/HogQLQuery/': {
+            columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
+            types: [
+                ['toStartOfDay(timestamp)', 'DateTime'],
+                ['sum_revenue', 'Float64'],
+                ['average_revenue_2', 'Float64'],
+            ],
+            results: [
+                ['2026-06-01', 1200, 12.5],
+                ['2026-06-02', 2100, 15.2],
+                ['2026-06-03', 1800, 13.4],
+                ['2026-06-04', 2450, 16.8],
+            ],
+            hasMore: false,
+        },
+    },
+} satisfies Mocks
+
 export const BICombinedMeasures: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMBO_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMBO_CONFIG) })}`,
         msw: {
-            mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['toStartOfDay(timestamp)', 'sum_revenue', 'average_revenue_2'],
-                        types: [
-                            ['toStartOfDay(timestamp)', 'DateTime'],
-                            ['sum_revenue', 'Float64'],
-                            ['average_revenue_2', 'Float64'],
-                        ],
-                        results: [
-                            ['2026-06-01', 1200, 12.5],
-                            ['2026-06-02', 2100, 15.2],
-                            ['2026-06-03', 1800, 13.4],
-                            ['2026-06-04', 2450, 16.8],
-                        ],
-                        hasMore: false,
-                    },
-                },
-            },
+            mocks: BI_COMBINED_MEASURES_MOCKS,
         },
     },
     play: async ({ canvasElement }) => {
@@ -1445,9 +1573,9 @@ export const BIDrilldown: Story = {
         testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
-                ...BITableAnalysis.parameters?.msw.mocks,
+                ...BI_TABLE_ANALYSIS_MOCKS,
                 post: {
-                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
                         const { query } = (await request.json()) as { query: { query: string } }
                         return query.query.startsWith('SELECT *')
@@ -1464,7 +1592,7 @@ export const BIDrilldown: Story = {
                                   ],
                                   hasMore: false,
                               }
-                            : BITableAnalysis.parameters?.msw.mocks.post['/api/environments/:team_id/query/HogQLQuery/']
+                            : BI_TABLE_ANALYSIS_MOCKS.post['/api/environments/:team_id/query/HogQLQuery/']
                     },
                 },
             },
@@ -1494,9 +1622,9 @@ export const BIOneClickComparison: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_COMPARISON_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_COMPARISON_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BICombinedMeasures.parameters?.msw.mocks,
+                ...BI_COMBINED_MEASURES_MOCKS,
                 post: {
-                    ...BICombinedMeasures.parameters?.msw.mocks.post,
+                    ...BI_COMBINED_MEASURES_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: ['bi_row_timestamp', 'sum_revenue', 'bi_comparison'],
                         types: [
@@ -1536,9 +1664,9 @@ export const BIPivotTotals: Story = {
         pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_PIVOT_TOTALS_CONFIG)!.query, mode: 'bi', bi: JSON.stringify(BI_PIVOT_TOTALS_CONFIG) })}`,
         msw: {
             mocks: {
-                ...BITableAnalysis.parameters?.msw.mocks,
+                ...BI_TABLE_ANALYSIS_MOCKS,
                 post: {
-                    ...BITableAnalysis.parameters?.msw.mocks.post,
+                    ...BI_TABLE_ANALYSIS_MOCKS.post,
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
                         types: [
@@ -1590,9 +1718,9 @@ export const BINamedHierarchy: Story = {
         testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters?.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/insights/': {
                         results: [
                             {
@@ -1613,7 +1741,7 @@ export const BINamedHierarchy: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
                         tables: {
                             events: {
@@ -1793,7 +1921,7 @@ export const BICatalogSnapshot: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await canvas.findByRole('link', { name: 'View current catalog entry' }, { timeout: 15000 })
         await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
@@ -1805,9 +1933,9 @@ export const BISourcePreviewLargeSample: Story = {
         ...BIModeWorksheet.parameters,
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters!.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/data_catalog/relationship_proposals/': {
                         count: 0,
                         next: null,
@@ -1815,7 +1943,7 @@ export const BISourcePreviewLargeSample: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                     '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
                         const { query } = (await request.json()) as { query: { query: string } }
@@ -1882,8 +2010,8 @@ export const BISourcePreviewLargeSample: Story = {
 const BI_WIDE_TABLE_CONFIG: BIConfig = {
     ...BI_WORKSHEET_CONFIG,
     chartType: ChartDisplayType.ActionsTable,
-    rows: [],
-    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [],
     values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
     filters: [],
     limit: 10000,
@@ -1906,9 +2034,9 @@ export const BIWideTransposedResults: Story = {
         },
         msw: {
             mocks: {
-                ...BIModeWorksheet.parameters!.msw.mocks,
+                ...BI_MODE_WORKSHEET_MOCKS,
                 get: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    ...BI_MODE_WORKSHEET_MOCKS.get,
                     '/api/projects/:team_id/data_catalog/relationship_proposals/': {
                         count: 0,
                         next: null,
@@ -1916,7 +2044,7 @@ export const BIWideTransposedResults: Story = {
                     },
                 },
                 post: {
-                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    ...BI_MODE_WORKSHEET_MOCKS.post,
                     '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                     '/api/environments/:team_id/query/HogQLQuery/': {
                         columns: [

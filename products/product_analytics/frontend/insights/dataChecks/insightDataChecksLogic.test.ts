@@ -166,6 +166,7 @@ describe('insightDataChecksLogic', () => {
                     math: 'total',
                     properties: [onChrome],
                 },
+                { kind: NodeKind.EventsNode, event: 'paid' },
             ],
             dateRange: { date_from: '-30d' },
             filterTestAccounts: true,
@@ -181,6 +182,17 @@ describe('insightDataChecksLogic', () => {
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 
         expect(sentSources.at(-1)).toEqual(source)
+    })
+
+    it('does not check a funnel with one step, because the chart runs no query for it', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const source = { kind: NodeKind.FunnelsQuery, series: [{ kind: NodeKind.EventsNode, event: 'signed up' }] }
+        insightDataLogic(props).actions.setQuery({ kind: NodeKind.InsightVizNode, source } as InsightVizNode)
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(dataChecks).not.toHaveBeenCalled()
+        expect(logic.values.status).toBe('unavailable')
     })
 
     const PAID = { kind: NodeKind.EventsNode, event: 'paid' }
@@ -356,6 +368,18 @@ describe('insightDataChecksLogic', () => {
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
         expect(loadedEvents().map((properties) => properties.status)).toEqual(['cancelled', 'passed'])
+    })
+
+    it('waits for a chart that starts to load right after the query changes, then checks once', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+
+        await expectLogic(logic, () => {
+            turnTheFlagOn()
+            vizData.actions.loadData()
+        }).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(1)
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['passed'])
     })
 
     it.each([

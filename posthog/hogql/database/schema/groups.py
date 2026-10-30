@@ -56,17 +56,17 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_limit: int | None = None):
+def select_from_groups_table(
+    requested_fields: dict[str, list[str | int]], keys: ast.SelectQuery | ast.SelectSetQuery | None = None
+) -> ast.SelectQuery:
+    """``keys`` selects ``(index, key)`` pairs. When it is given, the dedup reads only those groups."""
     select = argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
     )
-    if key_limit is not None:
-        # Two-phase dedup: pick the N group keys cheaply, then argMax the heavy properties for only those keys.
-        keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
-        keys.limit = ast.Constant(value=key_limit)
+    if keys is not None:
         # GLOBAL IN, not IN: groups is Distributed(rand()); a plain IN dedups per-shard over a subset of versions.
         select.where = ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
@@ -211,9 +211,12 @@ LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-# The outer FROM tables whose WHERE the groups subquery can reuse. The last part of a chain is the only alias the
-# outer FROM may carry.
-_PREFILTER_SOURCE_CHAINS: frozenset[tuple[str, ...]] = frozenset({("events",), ("posthog", "flag_evaluations")})
+# The outer FROM tables whose WHERE the groups subquery can reuse, with the aliases each may carry besides the last
+# part of its chain. The flag call rewrite reads flag_evaluations under the alias `events`.
+_PREFILTER_SOURCE_ALIASES: dict[tuple[str, ...], frozenset[str]] = {
+    ("events",): frozenset(),
+    ("posthog", "flag_evaluations"): frozenset({"events"}),
+}
 
 
 def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozenset[str]:
@@ -238,9 +241,9 @@ def _outer_prefilter(
     Extract a clone of the outer query's WHERE that we can safely embed inside the groups
     join subquery, together with the FROM that the subquery reads. We only return it when:
 
-    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_CHAINS`, either unaliased or aliased
-       by the last part of its chain. Anything else (custom alias like `FROM events AS e` in funnels,
-       or a subquery) means the WHERE may reference symbols
+    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_ALIASES`, either unaliased or aliased
+       by the last part of its chain or by an alias listed for it. Anything else (custom alias like
+       `FROM events AS e` in funnels, or a subquery) means the WHERE may reference symbols
        (`e.timestamp`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
        subquery — cloning a WHERE that names them would raise `Unable to resolve field` when the
        resolver walks the clone.
@@ -275,17 +278,20 @@ def _outer_prefilter(
     if not isinstance(table, ast.Field):
         return None
     source_chain = tuple(str(part) for part in table.chain)
-    if source_chain not in _PREFILTER_SOURCE_CHAINS:
+    if source_chain not in _PREFILTER_SOURCE_ALIASES:
         return None
-    if select_from.alias is not None and select_from.alias != source_chain[-1]:
+    alias = select_from.alias or source_chain[-1]
+    if alias != source_chain[-1] and alias not in _PREFILTER_SOURCE_ALIASES[source_chain]:
         return None
-    if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != source_chain[-1]:
+    if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != alias:
         return None
 
     if not _references_timestamp(where):
         return None
     guarded_aliases = _guarded_aliases(context, list(source_chain))
-    if any(_chain_hits_guarded_alias(chain, guarded_aliases, source_chain) for chain in find_field_chains(where)):
+    if any(
+        _chain_hits_guarded_alias(chain, guarded_aliases, source_chain, alias) for chain in find_field_chains(where)
+    ):
         return None
     if select_from.type is None or _references_another_table(where, select_from.type):
         return None
@@ -293,11 +299,11 @@ def _outer_prefilter(
     return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
 
 
-def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...]) -> bool:
+def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...], alias: str) -> bool:
     # Condition #1 guarantees the outer FROM's qualifier is the source table, so a leading qualifier is
     # transparent: `events.organization.x` names the same lazy join as `organization.x`. Peel it before matching,
-    # or the qualified form slips past the guard. The qualifier is the full chain or its last part.
-    for qualifier in (list(source_chain), [source_chain[-1]]):
+    # or the qualified form slips past the guard. The qualifier is the full chain, its last part, or the FROM alias.
+    for qualifier in (list(source_chain), [source_chain[-1]], [alias]):
         if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier:
             chain = chain[len(qualifier) :]
             break
@@ -385,7 +391,13 @@ class GroupsTable(LazyTable):
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_groups_table(table_to_add.fields_accessed, key_limit=_bare_limit_key_count(node))
+        key_limit = _bare_limit_key_count(node)
+        if key_limit is None:
+            return select_from_groups_table(table_to_add.fields_accessed)
+        # Two-phase dedup: pick the N group keys cheaply, then argMax the heavy properties for only those keys.
+        keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
+        keys.limit = ast.Constant(value=key_limit)
+        return select_from_groups_table(table_to_add.fields_accessed, keys=keys)
 
     def to_printed_clickhouse(self, context):
         return "groups"
