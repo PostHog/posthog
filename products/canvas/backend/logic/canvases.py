@@ -10,9 +10,9 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.pagination import select_page
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.canvas.backend.facade.contracts import (
     CanvasFieldChange,

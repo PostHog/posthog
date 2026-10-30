@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 from rest_framework.utils.urls import replace_query_param
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
@@ -534,11 +534,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         requested_ordering = request.query_params.get("ordering")
         ordering = requested_ordering if requested_ordering in CANVAS_LIST_ORDERINGS else None
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: canvas_api.list_canvases(viewer, page=page, ordering=ordering, **filters),
-            CanvasSerializer,
+            serializer_class=CanvasSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

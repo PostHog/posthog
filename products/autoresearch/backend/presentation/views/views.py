@@ -29,7 +29,7 @@ from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
@@ -266,11 +266,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return AutoresearchPipelineSerializer
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_pipelines(self.team_id, page),
-            AutoresearchPipelineSerializer,
+            serializer_class=AutoresearchPipelineSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -739,11 +738,10 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_models(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
-            AutoresearchModelSerializer,
+            serializer_class=AutoresearchModelSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -773,11 +771,10 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
-            AutoresearchRunSerializer,
+            serializer_class=AutoresearchRunSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -827,11 +824,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_training_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
-            AutoresearchTrainingRunSerializer,
+            serializer_class=AutoresearchTrainingRunSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1195,11 +1191,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_suggestions(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
-            AutoresearchSuggestionSerializer,
+            serializer_class=AutoresearchSuggestionSerializer,
         )
 
     @extend_schema(

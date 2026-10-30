@@ -25,11 +25,11 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
