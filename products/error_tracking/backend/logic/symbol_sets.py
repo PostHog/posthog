@@ -203,7 +203,7 @@ def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
                 ref__in=chunk_ids,
             )
             .order_by("ref")
-            .select_for_update()
+            .select_for_update(no_key=True)
             .values_list("id", flat=True)
         )
         ErrorTrackingSymbolSet.objects.filter(team=team, id__in=stale_ids).update(last_used=now)
@@ -347,7 +347,9 @@ def bulk_check_symbol_sets(
 
 
 def _lock_symbol_sets(team: Team, refs: list[str]) -> list[ErrorTrackingSymbolSet]:
-    return list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=refs).order_by("ref").select_for_update())
+    return list(
+        ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=refs).order_by("ref").select_for_update(no_key=True)
+    )
 
 
 def _create_or_reuse_symbol_sets(
