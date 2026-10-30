@@ -59,10 +59,10 @@ from products.experiments.backend.facade.contracts import (
     HealthExposureInputsStatus,
     RunningTimeMode,
 )
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_calculation.results import ExperimentResultConfigurationStatus
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (

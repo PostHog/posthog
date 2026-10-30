@@ -40,7 +40,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import BooleanField, Case, F, Q, QuerySet, Value, When
 from django.db.models.fields.json import KT, KeyTransform
 from django.db.models.functions import Least
@@ -52,6 +52,7 @@ from posthog.schema import ExperimentQueryResponse
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
 from products.experiments.backend.logic.result_stats import MetricResultStats, parse_stored_response
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
@@ -102,12 +103,6 @@ def _newest_write_first(
 def _current_key_first(under_current_key: Q) -> Case:
     """An ascending order on this puts the rows that `under_current_key` matches first."""
     return Case(When(under_current_key, then=Value(False)), default=Value(True), output_field=BooleanField())
-
-
-class ExperimentResultConfigurationStatus(models.TextChoices):
-    CURRENT = "current", "Current settings"
-    PREVIOUS = "previous", "Earlier settings"
-    UNKNOWN = "unknown", "Settings not recorded"
 
 
 def result_configuration_status(fingerprint: str | None, config: MetricCalculationConfig) -> str:
