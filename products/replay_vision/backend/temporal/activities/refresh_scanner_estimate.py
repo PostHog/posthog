@@ -14,6 +14,11 @@ from products.replay_vision.backend.queries import (
     is_experiment_linkage_unresolved,
     refresh_scanner_estimate,
 )
+from products.replay_vision.backend.queries.filter_errors import (
+    filter_error_message,
+    filter_error_pending,
+    record_filter_error,
+)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.estimates_types import RefreshScannerEstimateInputs
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome
@@ -27,6 +32,9 @@ def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> b
     if scanner is None:
         return False
     if scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER:
+        return False
+    if filter_error_pending(scanner):
+        record_estimate_outcome("filter_error")
         return False
     try:
         refresh_scanner_estimate(scanner, ch_user=ClickHouseUser.REPLAY_VISION)
@@ -45,6 +53,14 @@ def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> b
             "replay_vision.estimate_linkage_unresolved",
             extra={"scanner_id": str(scanner.id), "reason": error.detail},
         )
+        return False
+    except Exception as error:
+        message = filter_error_message(error)
+        if message is None:
+            raise
+        # The filter needs an edit, which a retry cannot make; the scanner shows the reason instead.
+        record_filter_error(scanner, message)
+        record_estimate_outcome("filter_error")
         return False
     record_estimate_outcome("refreshed")
     return True

@@ -120,6 +120,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
+from products.replay_vision.backend.queries.filter_errors import filter_error_message, record_filter_error
 from products.replay_vision.backend.quota import (
     ScannerBudget,
     ScannerSpend,
@@ -345,8 +346,14 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
             # The scanner's own query no longer builds, for example a deleted action or a bad
             # cohort reference. No launch heals that, so keep it in error tracking.
             logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
-    except Exception:
-        logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+    except Exception as error:
+        message = filter_error_message(error)
+        if message is None:
+            logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+        else:
+            # Shown on the scanner right after the save, before any sweep has tried the filter.
+            record_filter_error(scanner, message)
+            record_estimate_outcome("filter_error")
     else:
         record_estimate_outcome("refreshed")
 
@@ -652,6 +659,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
+            "filter_error",
+            "filter_error_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -674,6 +683,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
+            "filter_error",
+            "filter_error_at",
             "created_at",
             "created_by",
             "updated_at",

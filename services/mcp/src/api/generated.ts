@@ -79605,6 +79605,16 @@ export namespace Schemas {
       readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error: string | null;
+      /**
+         * When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.
+         * @nullable
+         */
+      readonly filter_error_at: string | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -92495,6 +92505,16 @@ export namespace Schemas {
       readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error?: string | null;
+      /**
+         * When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.
+         * @nullable
+         */
+      readonly filter_error_at?: string | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;

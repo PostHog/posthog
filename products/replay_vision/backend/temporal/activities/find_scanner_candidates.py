@@ -25,6 +25,12 @@ from products.replay_vision.backend.models.replay_scanner import (
     initial_watermark,
 )
 from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.filter_errors import (
+    clear_filter_error,
+    filter_error_message,
+    filter_error_pending,
+    record_filter_error,
+)
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
     DEFAULT_CANDIDATE_LIMIT,
@@ -158,6 +164,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     ).check_access_level_for_resource("session_recording", required_level="viewer"):
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    if filter_error_pending(scanner):
+        # The filter failed recently and fails the same way until someone edits it, so skip the
+        # query. The watermark holds, like any other skipped tick.
+        record_sweep_outcome("filter_error")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
@@ -205,6 +217,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     try:
         query = scanner.targeted_recordings_query()
     except ValidationError as exc:
+        record_filter_error(scanner, "The filter is malformed and cannot be read.")
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
@@ -256,6 +269,17 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # tick (no watermark advance) instead of failing it on every fire.
         record_sweep_outcome("experiment_linkage_unresolved")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    except Exception as exc:
+        message = filter_error_message(exc)
+        if message is None:
+            raise
+        # Retrying a filter that cannot compile only repeats the same rejected query.
+        record_filter_error(scanner, message)
+        record_sweep_outcome("filter_error")
+        raise ApplicationError(
+            f"ReplayScanner {inputs.scanner_id} has a filter that cannot run: {message}", non_retryable=True
+        ) from exc
+    clear_filter_error(scanner)
     fetched = batch.matched
     if batch.saturated:
         record_candidate_page_full()
