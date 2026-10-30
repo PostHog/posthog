@@ -1479,7 +1479,10 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
     )
     refresh = serializers.BooleanField(
         default=False,
-        help_text="Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.",
+        help_text=(
+            "Start a new build even when the stored one is current. The build runs in the background, so the "
+            "response has `building: true`. Pass `wait_seconds` to wait for it."
+        ),
     )
     focus = serializers.CharField(
         required=False,
@@ -1487,7 +1490,17 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
         max_length=2000,
         help_text=(
             "Free text about what to put first, such as `error tracking` or `billing reports`. A request with "
-            "focus always builds a new list, and an unfocused request never reuses it."
+            "focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to "
+            "wait for it."
+        ),
+    )
+    wait_seconds = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        max_value=30,
+        help_text=(
+            "When the request starts a build or one is running, wait up to this many seconds for its list. "
+            "Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds."
         ),
     )
 
@@ -1550,19 +1563,31 @@ class PersonalRankingSerializer(serializers.Serializer):
         )
     )
     cached = serializers.BooleanField(
-        help_text="True when the list comes from storage, false when this request built it."
+        help_text=(
+            "True when the list is a stored one. False when it is the inbox order fallback or the new list "
+            "that `wait_seconds` waited for."
+        )
     )
     stale = serializers.BooleanField(
         help_text=(
-            "True when the list does not match your current inbox, because you reached the build limit. "
-            "Try `refresh` again later."
+            "True when the list does not match your current inbox or focus. When `building` is true, a newer "
+            "list is on the way. Otherwise you reached the build limit, so try again later."
+        )
+    )
+    building = serializers.BooleanField(
+        help_text=(
+            "True when a new list is being built in the background. Call again in a few seconds, or pass "
+            "`wait_seconds`, to get it."
         )
     )
     fallback_reason = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Why the list is in inbox order and not ranked by the language model: llm_error, timeout, "
-            "malformed_output, truncated_output, no_candidates or ai_not_approved. Null when the model ranked it."
+            "Why the list is in inbox order and not ranked by the language model. building: no list is stored "
+            "yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. "
+            "build_failed: no list is stored yet and the build could not start. llm_error, timeout, "
+            "malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. "
+            "Null when the model ranked it."
         ),
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the list was built.")
