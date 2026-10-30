@@ -17,10 +17,10 @@ import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunct
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
-// The existing batch histogram starts at 25 ms, which hides a change of a few ms.
+// instrumented_function_duration_seconds buckets start at 25 ms, which hides a change of a few ms.
 const cyclotronWorkerPhaseDuration = new Histogram({
     name: 'cdp_cyclotron_worker_phase_duration_seconds',
-    help: 'Wall time of one phase of a cyclotron worker batch. invocations blocks the dequeue loop, while background and monitoring_flush overlap the next batch.',
+    help: 'Wall time of one phase of a cyclotron worker batch. invocations blocks the dequeue loop, while background overlaps the next batch.',
     labelNames: ['queue', 'phase'],
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
@@ -253,14 +253,11 @@ export class CdpCyclotronWorker<
 
     @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
     private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
-        const end = cyclotronWorkerPhaseDuration.startTimer({ queue: this.queue, phase: 'monitoring_flush' })
         try {
             await this.invocationResultsService.queueInvocationResultsAndFlush(invocationResults)
         } catch (err) {
             captureException(err)
             logger.error('Error processing invocation results', { err })
-        } finally {
-            end()
         }
     }
 
