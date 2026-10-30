@@ -269,12 +269,12 @@ class TestMetricEventsPrecomputePlan(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("plan_reads_precomputed", MetricEventsPrecomputePlan(), True),
-            ("plan_blocks", MetricEventsPrecomputePlan(metric_skip_reason="cuped"), False),
+            ("metric_rules_pass", None, True),
+            ("metric_rule_blocks", "cuped", False),
         ]
     )
     @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
-    def test_runner_builds_metric_events_only_when_the_plan_allows(self, _name, plan, expect_build):
+    def test_runner_builds_metric_events_only_when_the_plan_allows(self, _name, metric_skip_reason, expect_build):
         experiment = self.create_experiment(
             feature_flag=self.create_feature_flag(), start_date=datetime(2026, 4, 27, 0, 0, 0)
         )
@@ -289,8 +289,8 @@ class TestMetricEventsPrecomputePlan(ExperimentQueryRunnerBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.hogql_queries.experiment_query_runner.metric_events_precompute_plan",
-                return_value=plan,
+                "products.experiments.backend.hogql_queries.experiment_query_runner.metric_events_metric_skip_reason",
+                return_value=metric_skip_reason,
             ),
             patch(
                 "products.experiments.backend.hogql_queries.precompute_policy.ensure_precomputed",
