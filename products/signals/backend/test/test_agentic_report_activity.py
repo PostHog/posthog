@@ -707,12 +707,15 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         (True, False, True, False),
         (False, True, False, True),
         (True, True, False, True),
+        (False, True, True, True),
     ],
 )
 async def test_select_repository_activity_reuses_previous_selection(
     monkeypatch, ateam, github_optional, connected, reused, private_origin
 ):
-    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    previous = RepoSelectionResult(
+        repository="EXAMPLE/PRIVATE" if private_origin and reused else "posthog/posthog", reason="Previously selected"
+    )
     if connected:
         await Integration.objects.acreate(
             team=ateam,
@@ -775,7 +778,7 @@ async def test_select_repository_activity_reuses_previous_selection(
     else:
         assert result.repository is None
         assert ("No allowed destination" if private_origin else "No GitHub integration") in result.reason
-    assert select_repo_called is private_origin
+    assert select_repo_called is (private_origin and not reused)
 
 
 @pytest.mark.asyncio
