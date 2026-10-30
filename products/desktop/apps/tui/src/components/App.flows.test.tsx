@@ -22,10 +22,11 @@ import {
 import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
-import { loadPrefs } from "../prefs";
+import { loadPrefs, savePrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import { type CloudRuns, emptyRunView, type RunView } from "../runs";
 import type { ShellResult } from "../shell";
+import { startingOptions } from "../starting";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
 import { App } from "./App";
@@ -398,6 +399,40 @@ describe("App flows", () => {
       expect(vi.mocked(start).mock.calls[0]?.[2]).toEqual([
         "PostHog/posthog",
         "PostHog/charts",
+      ]);
+    } finally {
+      app.close();
+    }
+  });
+
+  it("starts a cloud chat on a plan with the model its header says it starts on", async () => {
+    const access = `h.${Buffer.from(
+      JSON.stringify({
+        "https://api.openai.com/profile": { email: "me@example.com" },
+      }),
+    ).toString("base64url")}.s`;
+    mkdirSync(join(homedir(), ".pi", "agent"), { recursive: true });
+    writeFileSync(
+      join(homedir(), ".pi", "agent", "auth.json"),
+      JSON.stringify({ "openai-codex": { type: "oauth", access } }),
+    );
+    savePrefs({ billing: "chatgpt" });
+    const start = vi.fn(async () => cloudTask({ id: "c3" }));
+    const app = cloudApp({
+      layout: initialLayout(),
+      chats: { start } as unknown as Partial<PiChats>,
+    });
+    try {
+      const model = startingOptions("chatgpt", "cloud").model;
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain(`New chat · ${model?.name}`),
+      );
+      app.press("hello");
+      app.press("\r");
+      await vi.waitFor(() => expect(start).toHaveBeenCalled());
+      expect(vi.mocked(start).mock.calls[0]?.slice(3)).toEqual([
+        "codex",
+        { model: model?.id },
       ]);
     } finally {
       app.close();

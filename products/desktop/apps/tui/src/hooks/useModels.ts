@@ -400,11 +400,16 @@ export function useModels({
       setHeldModels((models) => new Map(models).set(paneId, picked));
   };
 
-  // What a pane's new chat should start on, from its held picks.
+  // What a pane's new chat should start on: its held picks, or the model the header names. A pi chat on
+  // PostHog billing takes the harness default itself, so it is pinned to nothing.
   const pickFor = (paneId: string): StartPick => {
-    const picks = held(paneId);
+    const starting = startingFor(paneId);
+    const picks = held(paneId, starting);
+    const model =
+      picks.model ??
+      (starting.model?.provider === "posthog" ? undefined : starting.model);
     return {
-      ...(picks.model && { model: picks.model.id }),
+      ...(model && { model: model.id }),
       ...(picks.effort && { effort: picks.effort }),
     };
   };
