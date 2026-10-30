@@ -16,14 +16,20 @@ from products.data_catalog.evals.scorers import (
     AnswerTableQueried,
     AnswerValueStated,
     CanonicalMetricRun,
+    CatalogSearchUsed,
     DeprecationProposed,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
+    MetricFound,
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
     NoncanonicalBadgeShown,
+    QueryTermsUsed,
+    RunOverrideUsed,
+    SemanticLayerAnswer,
     SemanticMetadataQueried,
+    TableInspected,
     TrustBadgeShown,
 )
 
@@ -720,3 +726,111 @@ def test_metric_description_quality_judges_the_stored_description() -> None:
 
     assert prepared["output"]["description"] == narrating_update
     assert prepared["output"]["definition"] == json.dumps({"kind": "HogQLQuery"})
+
+
+_DESCRIBE = "metric-describe"
+_RUN = "data-catalog-metric-run"
+_LIST = "metric-list"
+
+
+@parameterized.expand(
+    [
+        ("describe_names_the_metric", [(_DESCRIBE, {"name": "mrr"}, "completed")], 1.0),
+        ("run_names_the_metric", [(_RUN, {"name": "mrr"}, "completed")], 1.0),
+        ("another_metric", [(_DESCRIBE, {"name": "file_uploads_daily"}, "completed")], 0.0),
+        ("failed_run", [(_RUN, {"name": "mrr"}, "failed")], 0.0),
+    ]
+)
+def test_metric_found_requires_a_successful_call_on_the_metric(
+    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
+) -> None:
+    score = MetricFound()._run_eval_sync({"raw_log": _tool_log(calls)}, {"metric_found": {"metric_name": "mrr"}})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("first_page_only", [(_LIST, {}, "completed")], 0.0),
+        ("search_param", [(_LIST, {"search": "active accounts"}, "completed")], 1.0),
+        ("paged", [(_LIST, {}, "completed"), (_LIST, {"offset": 50}, "completed")], 1.0),
+        ("catalog_sql", [("execute-sql", {"query": CATALOG_QUERY}, "completed")], 1.0),
+    ]
+)
+def test_catalog_search_used_rejects_a_first_page_read(
+    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
+) -> None:
+    score = CatalogSearchUsed()._run_eval_sync({"raw_log": _tool_log(calls)}, {"catalog_search_used": {}})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("any_date_from", {"name": "wau", "date_from": "-12w"}, {"date_from": None}, 1.0),
+        ("no_override", {"name": "wau"}, {"date_from": None}, 0.0),
+        ("wrong_interval", {"name": "wau", "interval": "week", "date_from": "-30d"}, {"interval": "day"}, 0.0),
+        ("other_metric", {"name": "mrr", "date_from": "-12w"}, {"date_from": None}, 0.0),
+    ]
+)
+def test_run_override_used_matches_the_overrides(
+    _name: str, run_input: dict[str, Any], overrides: dict[str, Any], expected_score: float
+) -> None:
+    score = RunOverrideUsed()._run_eval_sync(
+        {"raw_log": _tool_log([(_RUN, run_input, "completed")])},
+        {"run_override_used": {"metric_name": "wau", "overrides": overrides}},
+    )
+
+    assert score.score == expected_score
+
+
+def test_query_terms_used_ignores_catalog_lookups() -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        (
+            "execute-sql",
+            {"query": "SELECT definition FROM system.information_schema.metrics -- personal/free"},
+            "completed",
+        ),
+        ("execute-sql", {"query": "SELECT sum(amount) FROM events WHERE event = 'paid_bill'"}, "completed"),
+    ]
+
+    score = QueryTermsUsed()._run_eval_sync(
+        {"raw_log": _tool_log(calls)}, {"query_terms_used": {"terms": ["paid_bill", "personal/free"]}}
+    )
+
+    assert score.score == 0.5
+    assert score.metadata["missing"] == ["personal/free"]
+
+
+@parameterized.expand(
+    [
+        ("select_from_table", "SELECT count() FROM crm_deals_v3_evalpack", 1.0),
+        (
+            "table_metadata",
+            "SELECT table_name, row_count FROM system.information_schema.tables WHERE table_name = 'crm_deals_v3_evalpack'",
+            1.0,
+        ),
+        ("other_table", "SELECT count() FROM crm_deals_evalpack", 0.0),
+    ]
+)
+def test_table_inspected_accepts_a_read_or_a_metadata_lookup(_name: str, query: str, expected_score: float) -> None:
+    score = TableInspected()._run_eval_sync(
+        {"raw_log": _sql_log(query)}, {"table_inspected": {"table": "crm_deals_v3_evalpack"}}
+    )
+
+    assert score.score == expected_score
+
+
+def test_semantic_layer_answer_gives_the_judge_the_ordered_chain() -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        (_LIST, {"search": "mrr"}, "completed"),
+        (_RUN, {"name": "mrr"}, "completed"),
+    ]
+
+    prepared = SemanticLayerAnswer()._prepare(
+        {"raw_log": _tool_log(calls), "prompt": "MRR?", "last_message": "MRR is 100."},
+        {"semantic_layer_answer": {"expected_behavior": "Run mrr."}},
+    )
+
+    assert prepared["output"]["tool_chain"].splitlines()[0].startswith("1. metric-list(")
+    assert prepared["output"]["tool_chain"].splitlines()[1].startswith("2. data-catalog-metric-run(")
