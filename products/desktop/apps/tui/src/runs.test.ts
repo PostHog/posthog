@@ -509,6 +509,18 @@ describe("deliveryFailure", () => {
     expect(deliveryFailure(entries)?.text ?? null).toBe(text);
   });
 
+  it("shows a compaction in place of the turn it interrupts", () => {
+    const user = { kind: "user" as const, id: "u", text: "hi" };
+    const running = {
+      ...emptyRunView,
+      local: true,
+      status: "in_progress" as const,
+    };
+    expect(
+      runNotice(running, [user], true, null, Date.now(), { compacting: true }),
+    ).toEqual({ text: "Compacting…", tone: "working" });
+  });
+
   it("says so in place of the finished turn, unless a newer message waits", () => {
     const view = {
       ...emptyRunView,

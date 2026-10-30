@@ -315,13 +315,15 @@ export function useModels({
       });
       return;
     }
-    showNotice("Compacting…", { paneId });
-    // The chat shows the compaction and what it freed, so the notice only covers the wait.
-    target.control.compact(instructions || undefined).then(
-      () => clearNotice(),
-      (error: unknown) =>
-        flashNotice(`Couldn't compact: ${messageOf(error)}`, { paneId }),
-    );
+    // The chat's events show the compaction, its wait and what it freed. pi's request gives up after 30
+    // seconds while a long compaction carries on, so only another error is a failure.
+    target.control
+      .compact(instructions || undefined)
+      .catch((error: unknown) => {
+        const message = messageOf(error);
+        if (!/timeout|timed out/i.test(message))
+          flashNotice(`Couldn't compact: ${message}`, { paneId });
+      });
   };
 
   return {

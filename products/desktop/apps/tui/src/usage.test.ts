@@ -1,7 +1,7 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { AgentConversationEvent, StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { contextFill, shellsStatus, usageStatus } from "./usage";
+import { contextFill, isCompacting, shellsStatus, usageStatus } from "./usage";
 
 const entry = (event: Partial<AgentConversationEvent>): StoredLogEntry => ({
   type: "pi_event",
@@ -24,6 +24,25 @@ const compacted = entry({
   type: "runtime_status",
   status: "compacting",
   isComplete: true,
+});
+
+describe("isCompacting", () => {
+  const started = entry({ type: "runtime_status", status: "compacting" });
+  const failed = entry({
+    type: "runtime_status",
+    status: "compacting_failed",
+    error: "Summary failed",
+  });
+
+  it.each([
+    ["no compaction", [turn(10, 100)], false],
+    ["a compaction that has started", [turn(10, 100), started], true],
+    ["a compaction that has finished", [started, compacted], false],
+    ["a compaction that has failed", [started, failed], false],
+    ["a new compaction after a finished one", [compacted, started], true],
+  ])("reads %s", (_, entries, expected) => {
+    expect(isCompacting(entries)).toBe(expected);
+  });
 });
 
 describe("contextFill", () => {

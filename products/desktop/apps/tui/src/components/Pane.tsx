@@ -28,7 +28,7 @@ import {
   withPending,
   withPendingShells,
 } from "../transcript";
-import { contextFill, shellsStatus, usageStatus } from "../usage";
+import { contextFill, isCompacting, shellsStatus, usageStatus } from "../usage";
 import { Spinner } from "./Spinner";
 
 const COST_REFRESH_MS = 60_000;
@@ -219,6 +219,7 @@ export function Pane({
     () => (setupRunId ? setupProgress(view.entries, setupRunId) : null),
     [view.entries, setupRunId],
   );
+  const compacting = useMemo(() => isCompacting(view.entries), [view.entries]);
   // A new chat shows its message and start-up state before the run even exists.
   const notice: ChatNotice | null = task?.latest_run
     ? runNotice(
@@ -227,7 +228,7 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
-        { setup, reopening, delivery },
+        { setup, reopening, delivery, compacting },
       )
     : local
       ? runNotice(
@@ -236,6 +237,7 @@ export function Pane({
           transcript.turnOpen,
           transcript.lastTurn,
           transcript.turnStartedAt,
+          { compacting },
         )
       : pending
         ? ({

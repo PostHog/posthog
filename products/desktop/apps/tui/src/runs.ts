@@ -263,8 +263,10 @@ export function runNotice(
     setup = null,
     reopening = false,
     delivery = null,
+    compacting = false,
   }: {
     setup?: SetupProgress | null;
+    compacting?: boolean;
     // The backend could not hand the last message to the agent.
     delivery?: DeliveryFailure | null;
     // A reply is bringing the chat's stopped run back, until its agent takes the message.
@@ -310,6 +312,7 @@ export function runNotice(
   if (!view.local && running && !lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
   }
+  if (running && compacting) return { text: "Compacting…", tone: "working" };
   // A turn still going, or a message the agent has not picked up yet.
   if (running && (turnOpen || waiting)) {
     if (turnStartedAt === null || waiting)

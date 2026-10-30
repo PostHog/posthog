@@ -538,66 +538,79 @@ describe("App", () => {
     }
   });
 
-  it("compacts a live local chat with /compact, noticed only while it runs", async () => {
-    const sessions = join(homedir(), ".config", "posthog-tui", "local");
-    mkdirSync(sessions, { recursive: true });
-    writeFileSync(join(sessions, "compacting.jsonl"), "");
-    saveLayout(openTask(initialLayout(), "compacting"));
-    const compact = vi.fn(async () => ({
-      tokensBefore: 150_000,
-      estimatedTokensAfter: 32_000,
-    }));
-    const local = {
-      watch: (onView: (view: typeof emptyRunView) => void) => {
-        onView({ ...emptyRunView, loaded: true, status: "in_progress" });
-        return () => {};
-      },
-      watchPrompts: () => () => {},
-      stop: async () => {},
-      control: {
-        models: async () => ({ available: [], current: null }),
-        efforts: async () => ({ available: [], current: null }),
-        commands: async () => [],
-        compact,
-      },
-    } as unknown as LocalSession;
-    const mouse: MouseEvents = new EventEmitter();
-    const { instance, output } = renderInTerminal(
-      <App
-        session={{
-          work: {
-            listRecent: async () => ({
-              tasks: [
-                { id: "compacting", title: "Local", runtime: "pi" } as Task,
-              ],
-              hasMore: false,
-            }),
-          } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
-          chats: {} as PiChats,
-          control: () => ({}) as PiControl,
-          startLocal: async () => local,
-        }}
-        login={async () => {}}
-        logout={() => {}}
-        mouse={mouse}
-      />,
-    );
-    try {
-      await vi.waitFor(() => expect(output()).toContain("Local"));
-      mouse.emit("keys", "/compact keep the test plan");
-      mouse.emit("keys", "\r");
-      await vi.waitFor(() =>
-        expect(compact).toHaveBeenCalledWith("keep the test plan"),
+  it.each([
+    ["finishes", null, null],
+    // pi's request gives up after 30 seconds, while the compaction carries on.
+    [
+      "outlasts its request",
+      "Timeout waiting for response to compact. Stderr: ",
+      null,
+    ],
+    ["fails", "No model available", "Couldn't compact: No model available"],
+  ])(
+    "compacts a live local chat with /compact, and says so only when it fails, when it %s",
+    async (outcome, failure, shown) => {
+      const taskId = `compacting-${outcome.replaceAll(" ", "-")}`;
+      const sessions = join(homedir(), ".config", "posthog-tui", "local");
+      mkdirSync(sessions, { recursive: true });
+      writeFileSync(join(sessions, `${taskId}.jsonl`), "");
+      saveLayout(openTask(initialLayout(), taskId));
+      const compact = vi.fn(async () => {
+        if (failure) throw new Error(failure);
+        return { tokensBefore: 150_000, estimatedTokensAfter: 32_000 };
+      });
+      const local = {
+        watch: (onView: (view: typeof emptyRunView) => void) => {
+          onView({ ...emptyRunView, loaded: true, status: "in_progress" });
+          return () => {};
+        },
+        watchPrompts: () => () => {},
+        stop: async () => {},
+        control: {
+          models: async () => ({ available: [], current: null }),
+          efforts: async () => ({ available: [], current: null }),
+          commands: async () => [],
+          compact,
+        },
+      } as unknown as LocalSession;
+      const mouse: MouseEvents = new EventEmitter();
+      const { instance, output } = renderInTerminal(
+        <App
+          session={{
+            work: {
+              listRecent: async () => ({
+                tasks: [{ id: taskId, title: "Local", runtime: "pi" } as Task],
+                hasMore: false,
+              }),
+            } as unknown as WorkList,
+            runs: { prefetch: async () => {} } as unknown as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+            startLocal: async () => local,
+          }}
+          login={async () => {}}
+          logout={() => {}}
+          mouse={mouse}
+        />,
       );
-      await vi.waitFor(() =>
-        expect(stripTerminalSequences(output())).not.toContain("Compacting…"),
-      );
-    } finally {
-      instance.unmount();
-      rmSync(sessions, { recursive: true });
-    }
-  });
+      try {
+        await vi.waitFor(() => expect(output()).toContain("Local"));
+        mouse.emit("keys", "/compact keep the test plan");
+        mouse.emit("keys", "\r");
+        await vi.waitFor(() =>
+          expect(compact).toHaveBeenCalledWith("keep the test plan"),
+        );
+        if (shown) await vi.waitFor(() => expect(output()).toContain(shown));
+        else {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          expect(output()).not.toContain("Couldn't compact");
+        }
+      } finally {
+        instance.unmount();
+        rmSync(sessions, { recursive: true });
+      }
+    },
+  );
 
   it.each([
     ["after it was sent puts it back in the composer", 5_000, true],
