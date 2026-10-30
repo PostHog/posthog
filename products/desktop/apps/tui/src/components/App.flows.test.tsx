@@ -40,6 +40,7 @@ import { startingOptions } from "../starting";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
 import { App, type Session } from "./App";
+import { FILL_PAGES } from "./Pane";
 
 vi.mock("../openUrl", () => ({ openUrl: vi.fn(), openImage: vi.fn() }));
 // pi's ChatGPT login asks for the browser's code, then leaves its tokens in the file it was given.
@@ -460,24 +461,32 @@ describe("App flows", () => {
   });
 
   // A long log of tool noise can show a few lines per window; paging until it filled the pane locked the app.
-  it("pulls one page into a chat shorter than the pane, then waits for a scroll", async () => {
-    const short: RunView = { ...liveView(), windowStart: 5000 };
-    const loadOlder = vi.fn(async () => {});
+  it("pulls pages into a chat shorter than the pane until the cap, then waits for a scroll", async () => {
+    let windowStart = 50_000;
+    // The pane and the turn tracker both watch the run.
+    const watchers = new Set<(view: RunView) => void>();
+    // Each page lands and the chat still fits the pane, so the next one follows, up to the cap.
+    const loadOlder = vi.fn(async () => {
+      windowStart -= 500;
+      for (const onView of watchers) onView({ ...liveView(), windowStart });
+    });
     const app = cloudApp({
-      view: short,
+      view: { ...liveView(), windowStart },
       runs: {
         watch: (_t: string, _r: string, onView: (view: RunView) => void) => {
-          onView(short);
-          return { stop: () => {}, loadOlder };
+          watchers.add(onView);
+          onView({ ...liveView(), windowStart });
+          return { stop: () => watchers.delete(onView), loadOlder };
         },
       },
     });
     try {
       await vi.waitFor(() => expect(app.plain()).toContain("Fix the build"));
-      await vi.waitFor(() => expect(loadOlder).toHaveBeenCalledTimes(1));
-      // The page landed and the chat still fits the pane: no second page until the reader scrolls.
+      await vi.waitFor(() =>
+        expect(loadOlder).toHaveBeenCalledTimes(FILL_PAGES),
+      );
       await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(loadOlder).toHaveBeenCalledTimes(1);
+      expect(loadOlder).toHaveBeenCalledTimes(FILL_PAGES);
     } finally {
       app.close();
     }

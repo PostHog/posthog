@@ -1,5 +1,5 @@
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { Task } from "@posthog/shared";
+import { type Task, TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
@@ -87,6 +87,9 @@ const CHIP_COLORS = {
   closed: "red",
 } as const;
 
+// Pages a chat shorter than the pane pulls in by itself before it waits for a scroll.
+export const FILL_PAGES = 10;
+
 function useRunView(
   runs: CloudRuns | null,
   task: Task | undefined,
@@ -101,11 +104,17 @@ function useRunView(
   const subscription = useRef<RunSubscription | null>(null);
   // Keyed on ids only: each list refresh brings a new task object for the same run.
   const localWindow = useRef<ReturnType<typeof windowed> | null>(null);
+  // How much of the chat the pane shows, so the agent taking over from the saved conversation keeps that depth.
+  const shown = useRef({ taskId, count: 0 });
+  shown.current = { taskId, count: view.local ? view.entries.length : 0 };
   useEffect(() => {
+    const keep = shown.current.taskId === taskId ? shown.current.count : 0;
     setView(emptyRunView);
     if (local) {
       // A local agent keeps its whole log; the pane takes its tail, as it does a cloud run's.
-      const window = windowed(setView);
+      const window = windowed(setView, {
+        tail: Math.max(TRANSCRIPT_TAIL_WINDOW, keep),
+      });
       localWindow.current = window;
       const stop = local.watch(window.publish);
       return () => {
@@ -367,10 +376,10 @@ export function Pane({
     chat.setTranscript(lines, { hasOlder, notice, queued });
     shown.current = { chat, lines, hasOlder, noticeKey, queued };
   }
-  // Scrolling to the top pulls in the page above. A transcript shorter than the pane pulls one in too, once: a
-  // long log of tool noise can show a few lines per window, and paging until it filled the pane locked the app.
+  // Scrolling to the top pulls in the page above. A transcript shorter than the pane pulls pages in until it fills,
+  // up to FILL_PAGES: a long log of tool noise can show a few lines per page, and paging until it filled once locked the app.
   const pagedAt = useRef<number | null>(null);
-  const filledOnce = useRef<ChatView | null>(null);
+  const filled = useRef<{ chat: ChatView; pages: number } | null>(null);
   // A scroll up at the top always asks for the page above, also after the short-transcript page.
   chat.onTopReached = () => {
     if (hasOlder && !view.loadingOlder) loadOlder();
@@ -380,8 +389,9 @@ export function Pane({
       return;
     if (pagedAt.current === view.windowStart) return;
     if (chat.fitsPane()) {
-      if (filledOnce.current === chat) return;
-      filledOnce.current = chat;
+      const pages = filled.current?.chat === chat ? filled.current.pages : 0;
+      if (pages >= FILL_PAGES) return;
+      filled.current = { chat, pages: pages + 1 };
     }
     pagedAt.current = view.windowStart;
     loadOlder();
