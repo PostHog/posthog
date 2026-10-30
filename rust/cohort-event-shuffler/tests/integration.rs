@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
 use cohort_event_shuffler::event::CohortStreamEvent;
-use cohort_event_shuffler::filter_team_index::TeamIndex;
+use cohort_event_shuffler::filter_team_index::{TeamGate, TeamIndex};
 use cohort_event_shuffler::producer::CohortStreamProducer;
+use common_cohort_team_access::TeamAccess;
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use common_types::cohort::TeamAllowlist;
 use common_types::{ClickHouseEvent, PersonMode};
@@ -196,7 +197,11 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         ..test_config(&bootstrap)
     };
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7])); // team 99 is absent (no realtime cohorts)
+    // Team 99 is absent (no realtime cohorts).
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     let inputs = [
         InputSpec {
@@ -306,7 +311,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
         config.shuffler_settings().unwrap(),
     );
@@ -409,7 +414,10 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
     // can carry the committed offset to the full input count.
     config.commit_interval_ms = 3_600_000;
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     // Forward, drop, skip, then forward last: seeing every forward in the output proves intake
     // consumed the whole input (including the poison pill) before we trigger shutdown.
@@ -492,7 +500,7 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
         config.shuffler_settings().unwrap(),
     );
@@ -539,7 +547,10 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
     // whole burst through the RetryForward path.
     config.kafka_producer_queue_messages = 1;
 
-    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+    let team_gate = TeamGate::new(
+        Arc::new(TeamIndex::from_teams([2, 7])),
+        TeamAccess::with_granted(TeamAllowlist::All, []),
+    );
 
     // A drop and a skip, then a burst of forwards (all re-keyed to one partition), so both settled
     // and acked offsets are committed under queue pressure.
@@ -605,7 +616,7 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
     let shuffler = EventShuffler::new(
         consumer,
         producer,
-        team_index,
+        team_gate,
         handle,
         config.shuffler_settings().unwrap(),
     );

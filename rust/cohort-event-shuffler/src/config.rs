@@ -79,8 +79,9 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub team_index_refresh_jitter_secs: u64,
 
-    /// Teams whose events are forwarded into the shadow pipeline. Defaults to team 2 (the parity
-    /// baseline's gate); set `all` to disable the gate. See [`TeamAllowlist`].
+    /// Teams whose events are forwarded into the shadow pipeline, on top of the teams that a row of
+    /// `cohort_realtime_team_access` grants. Defaults to team 2 (the parity baseline's gate); set
+    /// `all` to disable the gate. See [`TeamAllowlist`].
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 

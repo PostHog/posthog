@@ -1,6 +1,8 @@
 from django.db import models
 
 
+# The Rust readers in `rust/common/cohort-team-access` refuse a read that holds a level they do not
+# know, and keep their previous rows. Add a new level there, and deploy it, before Django writes it.
 class RealtimeCohortLevel(models.TextChoices):
     OFF = "off", "Off"
     # The pipeline maintains membership for the team, but nothing the team's users see reads it.
@@ -17,13 +19,15 @@ class RealtimeCohortAccessPurpose(models.TextChoices):
 class RealtimeCohortTeamAccess(models.Model):
     """A team's access to the realtime cohort pipeline, granted on top of `REALTIME_COHORT_TEAM_ALLOWLIST`.
 
-    Staff write it only through the `realtime_cohort_team_access` command. Only Django reads it, so the
-    Rust services' env lists must change with it. A missing row means `off`. Never read it through
-    `get_or_create_team_extension`, because that creates the row.
+    Staff write it only through the `realtime_cohort_team_access` command. Django and the shufflers read
+    it. The processor and the seeder do not, so their env lists must change with it. A missing row means
+    `off`. Never read it through `get_or_create_team_extension`, because that creates the row.
 
     Rows are never deleted: a revoke sets `off`, and a team deletion leaves the row (`DO_NOTHING`).
     So when a team's row appears on one read and is missing on a later one, the later read failed.
-    A reader treats that as an error, not as a revoke.
+    A reader treats that as an error, not as a revoke. The Rust readers also treat `off` as final.
+    So after a row is deleted, or granted again after `off`, by hand, they refuse every read until
+    they restart.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE lock on
