@@ -2442,21 +2442,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 2)
 
-    def test_invalid_utf8_strings_are_decoded_to_serializable_text(self):
-        response = execute_hogql_query(
-            "SELECT unhex('41FF'), [unhex('42FF')], map('key', unhex('43FF'))", team=self.team
-        )
-
-        self.assertEqual(response.results, [("A\ufffd", ["B\ufffd"], {"key": "C\ufffd"})])
-
-    def test_invalid_utf8_map_keys_that_collide_after_decoding_raise_instead_of_dropping_entries(self):
+    def test_invalid_utf8_string_results_raise_an_actionable_error(self):
         with self.assertRaises(QueryError) as error:
-            execute_hogql_query("SELECT map(unhex('FF'), 1, unhex('FE'), 2)", team=self.team)
+            execute_hogql_query(
+                "SELECT unhex('41FF') AS invalid_scalar, [unhex('42FF')] AS invalid_array, "
+                "map('key', unhex('43FF')) AS invalid_map",
+                team=self.team,
+            )
 
         self.assertEqual(
             str(error.exception),
-            "Some keys in a map column contain bytes that are not valid UTF-8, and they can't be told apart once "
-            "those bytes are replaced. Convert the keys with `hex()` or `base64Encode()` to keep every entry.",
+            "Query result column(s) 'invalid_scalar', 'invalid_array', 'invalid_map' contain bytes that are not "
+            "valid UTF-8. Encode the affected values with `hex()` or `base64Encode()` in your query to preserve "
+            "the original bytes.",
+        )
+
+        response = execute_hogql_query(
+            "SELECT hex(unhex('41FF')) AS hex_value, base64Encode(unhex('41FF')) AS base64_value", team=self.team
+        )
+
+        self.assertEqual(response.results, [("41FF", "Qf8=")])
+
+    def test_invalid_utf8_map_keys_raise_an_actionable_error(self):
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query("SELECT map(unhex('FF'), 1, unhex('FE'), 2) AS invalid_map_keys", team=self.team)
+
+        self.assertEqual(
+            str(error.exception),
+            "Query result column(s) 'invalid_map_keys' contain bytes that are not valid UTF-8. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes.",
         )
 
     def test_non_transient_errors_are_not_retried(self):

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -114,45 +115,35 @@ TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
-def _decode_invalid_utf8(value: Any) -> Any:
+def _contains_bytes(value: object) -> bool:
+    if value is None or isinstance(value, str):
+        return False
     if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
+        return True
     if isinstance(value, list):
-        return [_decode_invalid_utf8(item) for item in value]
+        return any(_contains_bytes(item) for item in value)
     if isinstance(value, tuple):
-        return tuple(_decode_invalid_utf8(item) for item in value)
+        return any(_contains_bytes(item) for item in value)
     if isinstance(value, dict):
-        decoded = {_decode_invalid_utf8(key): _decode_invalid_utf8(item) for key, item in value.items()}
-        if len(decoded) < len(value):
-            raise QueryError(
-                "Some keys in a map column contain bytes that are not valid UTF-8, and they can't be told apart once "
-                "those bytes are replaced. Convert the keys with `hex()` or `base64Encode()` to keep every entry."
-            )
-        return decoded
-    return value
+        return any(_contains_bytes(key) or _contains_bytes(item) for key, item in value.items())
+    return False
 
 
-def _decode_string_columns(row: Any, string_columns: list[int]) -> Any:
-    decoded = list(row)
-    for column in string_columns:
-        decoded[column] = _decode_invalid_utf8(decoded[column])
-    return type(row)(decoded)
+def _raise_for_non_utf8_string_results(rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]]) -> None:
+    """Raise an actionable error when ClickHouse returns undecodable bytes in String columns."""
+    columns_with_bytes: list[str] = []
+    for column, (column_name, column_type) in enumerate(types):
+        if "String" not in column_type:
+            continue
+        if any(_contains_bytes(row[column]) for row in rows):
+            columns_with_bytes.append(column_name)
 
-
-def _decode_invalid_utf8_strings(rows: list[Any], types: list[tuple[str, str]]) -> list[Any]:
-    """Replace the `bytes` values that the ClickHouse driver returns for a String that is not valid UTF-8.
-
-    No JSON encoder accepts these values, so the query would fail when its result is cached or returned.
-    """
-    string_columns = [index for index, (_, column_type) in enumerate(types) if "String" in column_type]
-    if not string_columns:
-        return rows
-    return [
-        row
-        if all(row[column] is None or type(row[column]) is str for column in string_columns)
-        else _decode_string_columns(row, string_columns)
-        for row in rows
-    ]
+    if columns_with_bytes:
+        column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
+        raise QueryError(
+            f"Query result column(s) {column_names} contain bytes that are not valid UTF-8. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
+        )
 
 
 @frozen
@@ -608,8 +599,8 @@ class HogQLQueryExecutor:
         if self._references_information_schema(direct_context):
             return None
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
+        from posthog.hogql.transforms.trino.manifest import (
+            transpile_hogql_to_trino_with_database,  # noqa: PLC0415 -- load the optional backend only for Trino queries
         )
 
         transpiled = transpile_hogql_to_trino_with_database(
@@ -1060,7 +1051,7 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                self.results = _decode_invalid_utf8_strings(self.results, self.types)
+                _raise_for_non_utf8_string_results(self.results, self.types)
             except Exception as e:
                 if self.debug:
                     self.results = []
