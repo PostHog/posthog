@@ -28,7 +28,7 @@ from django.db.models.functions import Concat, Lower
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import filters, pagination, serializers, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,6 +50,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.file_system.ranked_search import FileRef, FileSystemRankedSearch, search_session
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -78,6 +79,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -236,7 +238,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         return file_system
 
 
-class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
+class FileSystemsLimitOffsetPagination(FacadeLimitOffsetPagination):
     default_limit = 100
 
 
@@ -816,21 +818,30 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _list_typed_by_views(self, request: Request, *, descending: bool) -> Response:
         queryset = self.filter_queryset(self.get_queryset()).order_by()
-        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
-        paginator.request = request
-        paginator.limit = paginator.get_limit(request)
-        paginator.offset = paginator.get_offset(request)
-        paginator.count = queryset.count()
-        if paginator.offset >= paginator.count:
-            response = paginator.get_paginated_response([])
-            response.data["users"] = []
-            return response
-        limit = paginator.limit or paginator.default_limit
-
         views = FileSystemViewLog.objects.filter(
             team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
             user_id=cast(User, request.user).id,
         )
+
+        def fetch(page: PageRequest) -> Page[FileSystem]:
+            count = queryset.count()
+            if page.offset >= count:
+                return Page(results=[], count=count)
+            return Page(results=self._typed_page_by_views(queryset, views, page, descending=descending), count=count)
+
+        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
+        response = paginator.get_paginated_facade_response(request, self, fetch)
+        response.data["users"] = self._created_by_users(response.data["results"])
+        return response
+
+    def _typed_page_by_views(
+        self,
+        queryset: QuerySet[FileSystem],
+        views: QuerySet[FileSystemViewLog],
+        page: PageRequest,
+        *,
+        descending: bool,
+    ) -> builtins.list[FileSystem]:
         files_sql, files_params = queryset.values("id", "team_id", "type", "ref", "created_at").query.sql_with_params()
         views_sql, views_params = views.order_by().values("team_id", "type", "ref", "viewed_at").query.sql_with_params()
         direction = "DESC" if descending else "ASC"
@@ -849,24 +860,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             LIMIT %s OFFSET %s
         """
         with connection.cursor() as cursor:
-            cursor.execute(page_sql, [*views_params, *files_params, limit, paginator.offset])
+            cursor.execute(page_sql, [*views_params, *files_params, page.limit, page.offset])
             page_ids = [row[0] for row in cursor.fetchall()]
-        if len(page_ids) < limit:
+        if len(page_ids) < page.limit:
             own_view = views.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
             unseen_offset = 0
-            if not page_ids and paginator.offset:
+            if not page_ids and page.offset:
                 viewed_count = queryset.filter(Exists(own_view)).count()
-                unseen_offset = max(0, paginator.offset - viewed_count)
+                unseen_offset = max(0, page.offset - viewed_count)
             page_ids.extend(
                 queryset.filter(~Exists(own_view))
                 .order_by("-created_at", "id")
-                .values_list("id", flat=True)[unseen_offset : unseen_offset + limit - len(page_ids)]
+                .values_list("id", flat=True)[unseen_offset : unseen_offset + page.limit - len(page_ids)]
             )
         rows = {row.id: row for row in queryset.filter(id__in=page_ids)}
-        results = self.get_serializer([rows[row_id] for row_id in page_ids if row_id in rows], many=True).data
-        response = paginator.get_paginated_response(results)
-        response.data["users"] = self._created_by_users(results)
-        return response
+        return [rows[row_id] for row_id in page_ids if row_id in rows]
 
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
