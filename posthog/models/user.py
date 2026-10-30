@@ -496,13 +496,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     ) -> OrganizationMembership:
         with transaction.atomic():
             # A membership created during organization deletion would survive the cascade and point at
-            # the tombstone, because the deferred FK check passes once the tombstone row exists. The
-            # lock serializes against tombstone_organization_record's FOR UPDATE on the same row, and
-            # the re-read (not the caller's possibly stale instance) decides.
-            # nosemgrep: hot-parent-row-select-for-update -- joins must not race organization deletion.
+            # the tombstone, because the deferred FK check passes once the tombstone row exists. Re-read
+            # rather than trust the caller's possibly stale instance. No lock is needed: deletion commits
+            # is_pending_deletion before its workflow starts, and the tombstone step runs late in it.
             current = (
-                Organization.objects_including_soft_deleted.select_for_update()
-                .filter(id=organization.id)
+                Organization.objects_including_soft_deleted.filter(id=organization.id)
                 .values("deleted", "is_pending_deletion")
                 .first()
             )
