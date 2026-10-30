@@ -488,3 +488,14 @@ class ClickhouseProducer:
         from posthog.kafka_client.routing import get_producer
 
         return get_producer(topic=topic).produce(topic=topic, data=data)
+
+    def wait_for_delivery(self, results: list[ProduceResult], timeout: float) -> None:
+        """Raise `TimeoutError` or `KafkaException` unless Kafka acknowledges every result within `timeout` seconds."""
+        if not settings.TEST:
+            from posthog.kafka_client.routing import get_producer
+
+            # The producer runs delivery callbacks only while something polls it, so flush to collect them.
+            for topic in {result.topic for result in results}:
+                get_producer(topic=topic).flush(timeout)
+        for result in results:
+            result.get(timeout=0)
