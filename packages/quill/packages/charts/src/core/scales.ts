@@ -516,6 +516,7 @@ export function createScales(
     return { x, y: primaryAxis.scale, yAxes }
 }
 
+/** A series' band in a stack, per label. Both ends are NaN where the series has no value. */
 export interface StackedBand {
     top: number[]
     bottom: number[]
@@ -563,11 +564,16 @@ function buildStackData(
         }
 
         const stacked = stack(tableData)
+        const dataByKey = new Map(axisSeries.map((s) => [s.key, s.data]))
         for (const layer of stacked) {
+            const data = dataByKey.get(layer.key) ?? []
+            // A missing value (NaN) is a gap: its band stays NaN, so the line and area break there
+            // instead of dropping to 0. d3 already stacks the series above it on the band below.
+            const isGap = (i: number): boolean => data[i] != null && !Number.isFinite(data[i])
             // stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
             result.set(layer.key, {
-                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
-                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
+                top: layer.map((d, i) => (isGap(i) ? NaN : Number.isFinite(d[1]) ? d[1] : 0)),
+                bottom: layer.map((d, i) => (isGap(i) ? NaN : Number.isFinite(d[0]) ? d[0] : 0)),
             })
         }
     }
