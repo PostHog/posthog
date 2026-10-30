@@ -1,4 +1,16 @@
-import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+    closeSync,
+    existsSync,
+    ftruncateSync,
+    linkSync,
+    openSync,
+    readFileSync,
+    realpathSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeSync,
+} from 'node:fs'
 import { dirname, isAbsolute, relative } from 'node:path'
 
 import { contentHash } from './container'
@@ -190,20 +202,8 @@ export function cleanUp(targets: CleanupTarget[]): CleanupResult {
             maps.set(canonicalMap, new Set())
         }
         maps.get(canonicalMap)!.add(target.mapFingerprint)
-        if (!existsSync(target.sourcePath)) {
-            warnings.push(`Skipping cleanup for ${target.sourcePath}: the file no longer exists.`)
+        if (!stripVerifiedSource(target, warnings)) {
             skippedMaps.add(canonicalMap)
-            continue
-        }
-        const content = decodeUtf8(readFileSync(target.sourcePath))
-        if (contentHash(content) !== target.sourceFingerprint) {
-            warnings.push(`Skipping cleanup for ${target.sourcePath}: the file changed since it was uploaded.`)
-            skippedMaps.add(canonicalMap)
-            continue
-        }
-        const range = target.kind === 'js' ? jsReferenceRange(content) : cssRemovalRange(content)
-        if (range) {
-            writeFileSync(target.sourcePath, content.slice(0, range[0]) + content.slice(range[1]))
         }
     }
     const deletedMaps: string[] = []
@@ -212,21 +212,99 @@ export function cleanUp(targets: CleanupTarget[]): CleanupResult {
             warnings.push(`Skipping sourcemap deletion for ${path}: a source referencing it was skipped.`)
             continue
         }
-        if (!existsSync(path)) {
-            continue
+        if (deleteVerifiedMap(path, fingerprints, warnings)) {
+            deletedMaps.push(path)
         }
-        let current: string
-        try {
-            current = contentHash(serializeMapContent(loadMapContent(decodeUtf8(readFileSync(path)))))
-        } catch {
-            current = ''
-        }
-        if (!fingerprints.has(current)) {
-            warnings.push(`Skipping sourcemap deletion for ${path}: the map changed since it was uploaded.`)
-            continue
-        }
-        rmSync(path)
-        deletedMaps.push(path)
     }
     return { deletedMaps, warnings }
+}
+
+const isMissing = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT'
+
+// A source that needs no change is only read, so it needs no write access. A bundler can replace
+// a file while hog cleans up (write new, rename over the path), so the write goes through a handle
+// that is verified again, and a replacement is never overwritten with old bytes.
+function stripVerifiedSource(target: CleanupTarget, warnings: string[]): boolean {
+    const verified = (read: () => Buffer): string | undefined => {
+        let content: string
+        try {
+            content = decodeUtf8(read())
+        } catch (error) {
+            if (!isMissing(error)) {
+                throw error
+            }
+            warnings.push(`Skipping cleanup for ${target.sourcePath}: the file no longer exists.`)
+            return undefined
+        }
+        if (contentHash(content) !== target.sourceFingerprint) {
+            warnings.push(`Skipping cleanup for ${target.sourcePath}: the file changed since it was uploaded.`)
+            return undefined
+        }
+        return content
+    }
+    const content = verified(() => readFileSync(target.sourcePath))
+    if (content === undefined) {
+        return false
+    }
+    const range = target.kind === 'js' ? jsReferenceRange(content) : cssRemovalRange(content)
+    if (!range) {
+        return true
+    }
+    let descriptor: number
+    try {
+        descriptor = openSync(target.sourcePath, 'r+')
+    } catch (error) {
+        if (!isMissing(error)) {
+            throw error
+        }
+        warnings.push(`Skipping cleanup for ${target.sourcePath}: the file no longer exists.`)
+        return false
+    }
+    try {
+        if (verified(() => readFileSync(descriptor)) === undefined) {
+            return false
+        }
+        ftruncateSync(descriptor, 0)
+        writeSync(descriptor, content.slice(0, range[0]) + content.slice(range[1]), 0)
+        return true
+    } finally {
+        closeSync(descriptor)
+    }
+}
+
+// The map is renamed aside before it is verified, so the check and the removal see the same file,
+// and a map the bundler writes to the path in between stays.
+function deleteVerifiedMap(path: string, fingerprints: Set<string>, warnings: string[]): boolean {
+    const staged = `${path}.${process.pid}.posthog-delete`
+    try {
+        renameSync(path, staged)
+    } catch (error) {
+        if (isMissing(error)) {
+            return false
+        }
+        throw error
+    }
+    let current: string
+    try {
+        current = contentHash(serializeMapContent(loadMapContent(decodeUtf8(readFileSync(staged)))))
+    } catch {
+        current = ''
+    }
+    if (fingerprints.has(current)) {
+        rmSync(staged)
+        return true
+    }
+    warnings.push(`Skipping sourcemap deletion for ${path}: the map changed since it was uploaded.`)
+    // A link fails when a newer map already sits at the path. That map wins.
+    try {
+        linkSync(staged, path)
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+            renameSync(staged, path)
+            return false
+        }
+        warnings.push(`A newer sourcemap appeared at ${path}. Discarding the displaced copy.`)
+    }
+    rmSync(staged)
+    return false
 }
