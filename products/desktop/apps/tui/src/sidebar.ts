@@ -1,5 +1,11 @@
 import type { Task } from "@posthog/shared";
-import { focusPane, type LayoutState, openTask, panes } from "./layout";
+import {
+  focusPane,
+  type LayoutState,
+  newChat,
+  openTask,
+  panes,
+} from "./layout";
 import { LEGACY_PREFIX } from "./localChats";
 
 // "waiting" is a chat whose turn ended while the reader was elsewhere.
@@ -14,6 +20,8 @@ export interface WorkPage {
 
 export type SidebarRow =
   | { kind: "heading"; label: "Work" }
+  // The day's briefing, shown in the main view while it has no chat; the pane it is in, if any.
+  | { kind: "today"; paneId: string | null }
   // Names the list of every task, under the split workspaces.
   | { kind: "section"; label: "All tasks" }
   // A blank row after each workspace.
@@ -190,17 +198,22 @@ export function sidebarRows({
     };
   };
 
-  // Split workspaces come first, each followed by a gap. All tasks follows: new chats, then single tasks the page does not hold,
-  // then the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
-  const rows: SidebarRow[] = [{ kind: "heading", label: "Work" }];
-  const newChats: SidebarRow[] = [];
+  // Today comes first, standing for the main view while it has no chat. Split workspaces follow, each followed by a gap.
+  // All tasks comes last: single tasks the page does not hold, then the whole list. A split task shows in both places;
+  // its row under All tasks jumps to its pane.
+  const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
+  const rows: SidebarRow[] = [
+    { kind: "heading", label: "Work" },
+    today,
+    { kind: "gap" },
+  ];
   const singlePaneOf = new Map<string, string>();
   const unlisted: SidebarRow[] = [];
   layout.workspaces.forEach((workspace, index) => {
     const workspacePanes = panes(workspace.root);
     if (workspacePanes.length === 1) {
       const [pane] = workspacePanes;
-      if (pane.taskId === null) newChats.push(taskRow(null, pane.id, false));
+      if (pane.taskId === null) today.paneId = pane.id;
       else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
       // Shown once the list has loaded, so loading never lists tasks by saved name alone.
       else if (work.tasks !== null) {
@@ -223,7 +236,7 @@ export function sidebarRows({
     });
     rows.push({ kind: "gap" });
   });
-  rows.push({ kind: "section", label: "All tasks" }, ...newChats, ...unlisted);
+  rows.push({ kind: "section", label: "All tasks" }, ...unlisted);
 
   if (!signedIn) {
     rows.push({ kind: "signedOut" });
@@ -242,7 +255,7 @@ export function sidebarRows({
 
 // Workspace rows only label their group; the keyboard moves between chats.
 const isSelectable = (row: SidebarRow): boolean =>
-  row.kind === "task" || row.kind === "viewMore";
+  row.kind === "task" || row.kind === "today" || row.kind === "viewMore";
 
 export function moveSelection(
   rows: SidebarRow[],
@@ -268,6 +281,8 @@ export function activateRow(
   row: SidebarRow,
 ): LayoutState | "viewMore" {
   switch (row.kind) {
+    case "today":
+      return row.paneId ? focusPane(layout, row.paneId) : newChat(layout);
     case "task":
       if (row.paneId) return focusPane(layout, row.paneId);
       return row.taskId ? openTask(layout, row.taskId, row.title) : layout;
@@ -292,6 +307,8 @@ export function selectionKey(row: SidebarRow | undefined): string | null {
         : `pane:${row.paneId}`;
     case "workspace":
       return `workspace:${row.workspaceId}`;
+    case "today":
+      return "today";
     case "viewMore":
       return "viewMore";
     default:

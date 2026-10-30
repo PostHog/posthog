@@ -22,6 +22,7 @@ import { LocalSession } from "./local";
 import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { CloudRuns } from "./runs";
+import { TodayClient } from "./today";
 
 interface TokenSource {
   getAccessToken(): Promise<string>;
@@ -105,6 +106,7 @@ export function createCloud(
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
   startLocal: (id: string) => Promise<LocalSession>;
+  today: TodayClient;
 } {
   let teamId: Promise<number> | null = null;
   const context = async () => {
@@ -253,6 +255,13 @@ export function createCloud(
       (taskId, runId, since) => runs.agentRestarted(taskId, runId, since),
     ),
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
+    today: new TodayClient(authenticatedFetch(auth), auth.apiHost, async () => {
+      const user = await api.getCurrentUser();
+      return {
+        teamId: user.team.id,
+        firstName: (user as { first_name?: string }).first_name || null,
+      };
+    }),
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;

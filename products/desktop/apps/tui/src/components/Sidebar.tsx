@@ -4,6 +4,9 @@ import type { Indicator, SidebarRow } from "../sidebar";
 import { posthogBlue, selectionBackground } from "../theme";
 import { Spinner } from "./Spinner";
 
+// PostHog orange, which reads on light and dark terminals alike.
+const ORANGE = "#F54E00";
+
 // The chat area draws the sidebar's right edge, so its lines can join it.
 export const SIDEBAR_WIDTH = 31;
 // Narrowed with Ctrl+B: the logo's four stripes and a cell either side.
@@ -71,6 +74,15 @@ function Row({
       );
     case "section":
       return <Text bold>{row.label}</Text>;
+    case "today":
+      return (
+        <Text wrap="truncate-end">
+          <Text color={ORANGE}>☼ </Text>
+          <Text backgroundColor={selected ? selectionBackground() : undefined}>
+            Today
+          </Text>
+        </Text>
+      );
     case "gap":
       // Ink gives an empty string no height, so the gap carries a space.
       return <Text> </Text>;
@@ -159,6 +171,15 @@ function NarrowRow({
       );
     case "section":
       return <Text bold>≡</Text>;
+    case "today":
+      return (
+        <Text
+          color={ORANGE}
+          backgroundColor={selected ? selectionBackground() : undefined}
+        >
+          ☼
+        </Text>
+      );
     case "gap":
       return <Text> </Text>;
     case "workspace":
@@ -233,7 +254,7 @@ export function Sidebar({
   const highlighted = (row: SidebarRow, index: number): boolean =>
     focused
       ? index === selectedIndex
-      : row.kind === "task" &&
+      : (row.kind === "task" || row.kind === "today") &&
         row.paneId !== null &&
         row.paneId === activePaneId;
 

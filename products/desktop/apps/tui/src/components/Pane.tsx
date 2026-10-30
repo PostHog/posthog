@@ -21,6 +21,7 @@ import {
 import { renderSheet, type Sheet } from "../sheet";
 import type { StatusChip } from "../status";
 import { blue } from "../theme";
+import { type TodayHit, type TodayState, todayLines } from "../today";
 import {
   type PendingShell,
   type TranscriptLine,
@@ -128,6 +129,9 @@ export function Pane({
   notice: paneNotice,
   reopening,
   repoPicker,
+  today = null,
+  onTodayHits,
+  extraOffer = null,
 }: {
   title: string;
   paneTaskId: string | null;
@@ -179,6 +183,12 @@ export function Pane({
   // The run while the agent is mid-turn, or null, so Esc can stop it.
   onTurn: (turn: { taskId: string; runId: string } | null) => void;
   focused: boolean;
+  // Today's briefing, drawn in place of an empty chat's hint.
+  today?: TodayState | null;
+  // Where the briefing's links landed, for clicks.
+  onTodayHits?: (hits: TodayHit[]) => void;
+  // An offer from outside the chat, such as a Today report's questions.
+  extraOffer?: ActionsLine | null;
 }): ReactElement {
   // A split can hand a pane half a row; the title stays on top and the chat on the bottom, so the spare row falls between them.
   const pane = useRef(null);
@@ -306,7 +316,7 @@ export function Pane({
     if (live && runIds) onRunLive(runIds.taskId, runIds.runId);
     onTurn(live && transcript.turnOpen ? runIds : null);
   });
-  const offer = openActions(lines);
+  const offer = extraOffer ?? openActions(lines);
   useEffect(() => {
     onOffer(offer);
   });
@@ -350,8 +360,35 @@ export function Pane({
       ))}
     </>
   );
+  // Drawn from the top and padded to the chat's height, so a click's row is the briefing's row.
+  const todayLayout =
+    today && !paneTaskId && !pending && width > 0 && chatHeight > 0
+      ? todayLines(today, width, new Date().getHours())
+      : null;
+  useEffect(() => {
+    onTodayHits?.(todayLayout?.hits ?? []);
+  });
   let content: ReactElement;
-  if (!paneTaskId && !pending)
+  if (todayLayout)
+    content = (
+      <Box flexDirection="column">
+        {overlayBottom(
+          [
+            ...todayLayout.lines.slice(0, chatHeight),
+            ...Array<string>(
+              Math.max(0, chatHeight - todayLayout.lines.length),
+            ).fill(""),
+          ].map((line) => shade(line || " ")),
+          popupLines,
+        ).map((line, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+          <Text key={`today-${index}`} wrap="truncate-end">
+            {line}
+          </Text>
+        ))}
+      </Box>
+    );
+  else if (!paneTaskId && !pending)
     content =
       popupLines.length > 0 ? (
         popupContent
