@@ -17,6 +17,7 @@ import type { HighlightFeedItemApi } from 'products/replay_vision/frontend/gener
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 
 import {
+    DATA_SCOUT_NAMES,
     type DayCount,
     FEED_DAYS,
     type FeedScoutReport,
@@ -280,7 +281,8 @@ export const todayFeedLogic = kea<todayFeedLogicType>([
                             scope: 'entire_project',
                             ordering: '-created_at',
                             created_after: dayjs().subtract(SCOUT_REPORT_DAYS, 'day').toISOString(),
-                            limit: 50,
+                            scout: DATA_SCOUT_NAMES.join(','),
+                            limit: 20,
                         })
                         return response.results
                     } catch (error) {

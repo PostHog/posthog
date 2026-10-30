@@ -32,22 +32,29 @@ const SAME_STORY_RATIO = 0.15
 // Plumbing events move with SDK changes, not with how people use the product.
 const BUILT_IN_EVENTS_WORTH_A_STORY = new Set(['$pageview', '$screen', '$rageclick'])
 
-/** Scouts that watch product data. Other scouts write engineering work (fixes, CI, repo digests), which is not news. */
-const DATA_SCOUT_AREAS: { match: string; product: string }[] = [
-    { match: 'anomaly', product: 'product_analytics' },
-    { match: 'product-analytics', product: 'product_analytics' },
-    { match: 'customer-analytics', product: 'product_analytics' },
-    { match: 'insight-alerts', product: 'alerts' },
-    { match: 'web-analytics', product: 'web_analytics' },
-    { match: 'web-vitals', product: 'web_analytics' },
-    { match: 'session-replay', product: 'session_replay' },
-    { match: 'replay-vision', product: 'session_replay' },
-    { match: 'experiments', product: 'experiments' },
-    { match: 'feature-flags', product: 'feature_flags' },
-    { match: 'surveys', product: 'surveys' },
-    { match: 'revenue', product: 'revenue_analytics' },
-    { match: 'ai-observability', product: 'ai_observability' },
-]
+/**
+ * Scouts that watch product data, and the product each one posts as. Other scouts write engineering work
+ * (fixes, CI, repo digests), which is not news. The feed asks the API for these names only, because on a busy
+ * project engineering reports fill every page.
+ */
+const DATA_SCOUT_PRODUCTS: Record<string, string> = {
+    'signals-scout-anomaly-detection': 'product_analytics',
+    'signals-scout-product-analytics': 'product_analytics',
+    'signals-scout-customer-analytics': 'product_analytics',
+    'signals-scout-customer-analytics-billing-and-usage': 'product_analytics',
+    'signals-scout-insight-alerts': 'alerts',
+    'signals-scout-web-analytics': 'web_analytics',
+    'signals-scout-web-vitals': 'web_analytics',
+    'signals-scout-session-replay': 'session_replay',
+    'signals-scout-replay-vision': 'session_replay',
+    'signals-scout-experiments': 'experiments',
+    'signals-scout-feature-flags': 'feature_flags',
+    'signals-scout-surveys': 'surveys',
+    'signals-scout-revenue-analytics': 'revenue_analytics',
+    'signals-scout-ai-observability': 'ai_observability',
+}
+
+export const DATA_SCOUT_NAMES = Object.keys(DATA_SCOUT_PRODUCTS)
 
 export type TodayFeedKind = 'scout' | 'movement' | 'replay' | 'feature' | 'preview'
 
@@ -147,13 +154,6 @@ function plainTitle(title: string): string {
     return title.replace(/^[a-z]+(\([^)]*\))?!?:\s*/i, '').replace(/^./, (letter) => letter.toUpperCase())
 }
 
-function scoutArea(scoutName: string | null | undefined): { product: string } | null {
-    if (!scoutName) {
-        return null
-    }
-    return DATA_SCOUT_AREAS.find(({ match }) => scoutName.includes(match)) ?? null
-}
-
 const INSIGHT_LINK = /\/insights\/([A-Za-z0-9]{8})(?![A-Za-z0-9])/
 
 function reportChart(report: FeedScoutReport, title: string): ReportChartApi | null {
@@ -167,8 +167,8 @@ function reportChart(report: FeedScoutReport, title: string): ReportChartApi | n
 }
 
 function scoutPost(report: FeedScoutReport): TodayFeedPost | null {
-    const area = scoutArea(report.scout_name)
-    if (!area || !report.scout_name) {
+    const product = report.scout_name ? DATA_SCOUT_PRODUCTS[report.scout_name] : undefined
+    if (!product || !report.scout_name) {
         return null
     }
     const title = plainTitle(report.title ?? '')
@@ -184,12 +184,12 @@ function scoutPost(report: FeedScoutReport): TodayFeedPost | null {
         author: {
             name: `${prettifyScoutSkillName(report.scout_name)} scout`,
             handle: `@${report.scout_name.replace(/^signals-scout-/, '').replace(/-/g, '_')}`,
-            product: area.product,
+            product,
         },
         at: report.created_at,
         text,
         to: urls.todayReport(report.id),
-        product: area.product,
+        product,
         media: chart ? { type: 'report-chart', chart } : null,
     }
 }
@@ -238,6 +238,50 @@ interface Change {
     previous: number
 }
 
+/** Daily totals for each event worth a story, oldest day first. */
+function seriesByEvent(counts: DayCount[], days: string[]): Map<string, number[]> {
+    const series = new Map<string, number[]>()
+    for (const { name, daysAgo, count } of counts) {
+        const position = days.length - daysAgo
+        const plumbing = name.startsWith('$') && !BUILT_IN_EVENTS_WORTH_A_STORY.has(name)
+        if (position < 0 || position >= days.length || plumbing) {
+            continue
+        }
+        const values = series.get(name) ?? Array.from({ length: days.length }, () => 0)
+        values[position] += count
+        series.set(name, values)
+    }
+    return series
+}
+
+type ScoredChange = Change & { score: number; ratio: number }
+
+function scoreChange(name: string, series: number[]): ScoredChange | null {
+    const previous = series.slice(0, -WEEK).reduce((sum, value) => sum + value, 0)
+    const current = series.slice(-WEEK).reduce((sum, value) => sum + value, 0)
+    if (current + previous < MIN_WEEKLY_VOLUME) {
+        return null
+    }
+    if (previous === 0) {
+        return { name, series, current, previous, score: Math.log10(current) * 2, ratio: Infinity }
+    }
+    if (Math.abs(current - previous) / previous < MIN_CHANGE) {
+        return null
+    }
+    const score = Math.abs(Math.log((current || 1) / previous)) * Math.log10(current + previous)
+    return { name, series, current, previous, score, ratio: current / previous }
+}
+
+function sameStory(a: ScoredChange, b: ScoredChange): boolean {
+    if (a.ratio === b.ratio) {
+        return true
+    }
+    if (!Number.isFinite(a.ratio) || !Number.isFinite(b.ratio)) {
+        return false
+    }
+    return Math.abs(a.ratio - b.ratio) <= SAME_STORY_RATIO * Math.max(a.ratio, b.ratio)
+}
+
 /** The events whose last week differs most from the week before, one per story. */
 function biggestChanges(
     counts: DayCount[],
@@ -245,59 +289,18 @@ function biggestChanges(
     isHidden: (name: string) => boolean,
     limit: number
 ): Change[] {
-    const seriesByName = new Map<string, number[]>()
-    for (const { name, daysAgo, count } of counts) {
-        const position = days.length - daysAgo
-        if (
-            position < 0 ||
-            position >= days.length ||
-            (name.startsWith('$') && !BUILT_IN_EVENTS_WORTH_A_STORY.has(name))
-        ) {
-            continue
-        }
-        const series = seriesByName.get(name) ?? Array.from({ length: days.length }, () => 0)
-        series[position] += count
-        seriesByName.set(name, series)
-    }
-
-    const candidates: (Change & { score: number; ratio: number })[] = []
-    for (const [name, series] of seriesByName) {
-        const previous = series.slice(0, -WEEK).reduce((sum, value) => sum + value, 0)
-        const current = series.slice(-WEEK).reduce((sum, value) => sum + value, 0)
-        if (current + previous < MIN_WEEKLY_VOLUME || isHidden(name)) {
-            continue
-        }
-        if (previous === 0) {
-            candidates.push({ name, series, current, previous, score: Math.log10(current) * 2, ratio: Infinity })
-            continue
-        }
-        if (Math.abs(current - previous) / previous < MIN_CHANGE) {
-            continue
-        }
-        candidates.push({
-            name,
-            series,
-            current,
-            previous,
-            score: Math.abs(Math.log((current || 1) / previous)) * Math.log10(current + previous),
-            ratio: current / previous,
-        })
-    }
-
-    const picked: typeof candidates = []
-    for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
-        const sameStory = picked.some(
-            ({ ratio }) =>
-                ratio === candidate.ratio ||
-                (Number.isFinite(ratio) &&
-                    Number.isFinite(candidate.ratio) &&
-                    Math.abs(ratio - candidate.ratio) <= SAME_STORY_RATIO * Math.max(ratio, candidate.ratio))
-        )
-        if (!sameStory) {
-            picked.push(candidate)
-        }
+    const candidates = [...seriesByEvent(counts, days)]
+        .filter(([name]) => !isHidden(name))
+        .map(([name, series]) => scoreChange(name, series))
+        .filter((change): change is ScoredChange => !!change)
+        .sort((a, b) => b.score - a.score)
+    const picked: ScoredChange[] = []
+    for (const candidate of candidates) {
         if (picked.length === limit) {
             break
+        }
+        if (!picked.some((other) => sameStory(other, candidate))) {
+            picked.push(candidate)
         }
     }
     return picked
