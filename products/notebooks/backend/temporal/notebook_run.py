@@ -22,6 +22,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.models import NotebookNodeRun, NotebookRun
@@ -139,7 +140,8 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     # and then this dispatch would start one anyway — burning compute and holding the
     # notebook's slot under a run already recorded as interrupted.
     if notebook_run.status != NotebookRun.Status.RUNNING:
-        raise ApplicationError("The run is no longer running.", type=_UNRECOVERABLE, non_retryable=True)
+        # A user stop lands here routinely, so keep it out of error tracking.
+        raise NonReportableApplicationError("The run is no longer running.", type=_UNRECOVERABLE, non_retryable=True)
 
     # A cell's identity within a run is (run, node), so a retry after the worker died between
     # the hand-off and Temporal recording the result finds the row the first attempt created and
@@ -185,8 +187,9 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
             )
     except (NotebookRunBusy, TeamRunCapacityFull) as e:
         # Someone else holds the notebook's slot, or the project is at its ceiling. Both clear
-        # on their own, so retry inside the activity's budget rather than failing the run.
-        raise ApplicationError(str(e), type=_RETRYABLE_DISPATCH) from e
+        # on their own, so retry inside the activity's budget rather than failing the run. A
+        # run that stays blocked fails when that budget runs out, so no attempt is reported.
+        raise NonReportableApplicationError(str(e), type=_RETRYABLE_DISPATCH) from e
     except (NodeRunInvalid, NodeRunDispatchFailed) as e:
         raise ApplicationError(str(e), type=_UNRECOVERABLE, non_retryable=True) from e
 
