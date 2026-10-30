@@ -212,11 +212,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             },
         )
 
-        with mock.patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
+        call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
 
         run = CohortBackfillRun.objects.for_team(self.team.id).get()
         self.assertEqual(run.pinned["flag_calls_table"], FlagCallsTable.FLAG_EVALUATIONS)

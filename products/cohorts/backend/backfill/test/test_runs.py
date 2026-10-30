@@ -344,15 +344,13 @@ _PAGEVIEW_LEAF = {
 _TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
 _120_DAYS_AGO = (datetime.now(UTC) - timedelta(days=120)).strftime("%Y-%m-%d")
 _FLAG_CALL_TABLE_CASES = [
-    ("swapped", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "flag_evaluations"),
-    ("rewrite_off", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, "events"),
-    ("events_mode", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.EVENTS, True, "events"),
-    ("no_flag_key", (_ANY_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    ("swapped", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "flag_evaluations"),
+    ("events_mode", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.EVENTS, "events"),
+    ("no_flag_key", (_ANY_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "events"),
     (
         "window_past_coverage",
         ({**_FLAG_CALL_LEAF, "time_value": 120},),
         FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-        True,
         "events",
     ),
     # The batch calculation swaps this range today. The range does not move with the run's boundary. Its first day
@@ -361,14 +359,12 @@ _FLAG_CALL_TABLE_CASES = [
         "fixed_range",
         ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
         FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-        True,
         "events",
     ),
     (
         "only_in_flag_evaluations",
         (_ANY_FLAG_CALL_LEAF,),
         FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-        True,
         "flag_evaluations",
     ),
     # events holds no new flag calls in this mode. flag_evaluations is the only table that has any of them.
@@ -376,15 +372,13 @@ _FLAG_CALL_TABLE_CASES = [
         "fixed_range_only_in_flag_evaluations",
         ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
         FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-        True,
         "flag_evaluations",
     ),
-    ("no_flag_calls", (_PAGEVIEW_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    ("no_flag_calls", (_PAGEVIEW_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "events"),
     (
         "sliding_and_fixed_range_in_one_cohort",
         (_FLAG_CALL_LEAF, {**_FLAG_CALL_LEAF, "conditionHash": "flagcall00000002", "explicit_datetime": _TEN_DAYS_AGO}),
         FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-        True,
         "events",
     ),
 ]
@@ -409,17 +403,11 @@ class TestBackfillRunFlagCallsTable(BaseTest):
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
 
-    def _flag_calls_rewrite(self, enabled: bool = True) -> mock._patch:
-        return mock.patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: enabled and key == "hogql-flag-calls-from-flag-evaluations",
-        )
-
     @parameterized.expand(
         [
-            (f"{scope}_{name}", scope, leaves, mode, rewrite_enabled, expected)
+            (f"{scope}_{name}", scope, leaves, mode, expected)
             for scope in ("cohort", "team")
-            for name, leaves, mode, rewrite_enabled, expected in _FLAG_CALL_TABLE_CASES
+            for name, leaves, mode, expected in _FLAG_CALL_TABLE_CASES
         ]
     )
     def test_run_pins_the_table_the_batch_calculation_reads_flag_calls_from(
@@ -428,17 +416,15 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         scope: str,
         leaves: tuple[dict, ...],
         mode: FlagEvaluationsMode,
-        rewrite_enabled: bool,
         expected: str,
     ) -> None:
         self._set_flag_evaluations_mode(mode)
         cohort = self._cohort(*leaves)
 
-        with self._flag_calls_rewrite(rewrite_enabled):
-            if scope == "team":
-                run: CohortBackfillRun | None = create_team_backfill_run(self.team.id, "team_enablement")
-            else:
-                run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        if scope == "team":
+            run: CohortBackfillRun | None = create_team_backfill_run(self.team.id, "team_enablement")
+        else:
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         assert run is not None
         # cohort-seeder reads a missing key as events. Every run must state the table.
@@ -458,8 +444,7 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self._cohort(_FLAG_CALL_LEAF)
         self._cohort({**other_leaf, "conditionHash": "othercohort00001"})
 
-        with self._flag_calls_rewrite():
-            run = create_team_backfill_run(self.team.id, "team_enablement")
+        run = create_team_backfill_run(self.team.id, "team_enablement")
 
         self.assertEqual(run.pinned["flag_calls_table"], expected)
 
@@ -482,10 +467,9 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         cohort = self._cohort(leaf)
 
-        with self._flag_calls_rewrite():
-            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
-            with self.assertRaisesMessage(ValueError, f"cohort {cohort.id}"):
-                create_team_backfill_run(self.team.id, "team_enablement")
+        attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        with self.assertRaisesMessage(ValueError, f"cohort {cohort.id}"):
+            create_team_backfill_run(self.team.id, "team_enablement")
 
         self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
