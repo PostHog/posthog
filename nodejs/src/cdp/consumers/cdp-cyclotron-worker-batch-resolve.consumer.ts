@@ -20,6 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
+import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -725,6 +726,7 @@ export function buildAccountHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
             flowVersion: params.hogFlow.version,
+            ...(hasSensitiveMessageStep(params.hogFlow) ? { sensitive: true } : {}),
         },
         teamId: params.team.id,
         functionId: params.hogFlow.id,
@@ -770,6 +772,7 @@ function buildHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.
             flowVersion: params.hogFlow.version,
+            ...(hasSensitiveMessageStep(params.hogFlow) ? { sensitive: true } : {}),
         },
         teamId: params.team.id,
         functionId: params.hogFlow.id,

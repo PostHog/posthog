@@ -1,589 +1,47 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
 
-import {
-    IconArrowLeft,
-    IconEye,
-    IconFolder,
-    IconHide,
-    IconPencil,
-    IconPlus,
-    IconSearch,
-    IconTrash,
-    IconWarning,
-} from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonMenu,
-    LemonModal,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconArrowLeft, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { EvaluationDirectoryApi } from '../generated/api.schemas'
-import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
-import {
-    getUnhealthyProviderKey,
-    providerKeyStateIssueDescription,
-    providerKeyStateLabel,
-    providerLabel,
-} from '../settings/providerKeyStateUtils'
-import {
-    EvaluationMetrics,
-    PASS_RATE_SUCCESS_THRESHOLD,
-    PASS_RATE_WARNING_THRESHOLD,
-} from './components/EvaluationMetrics'
-import { formatNumericEvaluationScore } from './constants'
-import { evaluationTypeUsesProviderKey } from './evaluationCapabilities'
-import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
+import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationsTabs } from './EvaluationsTabs'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationResultsTable } from './overview/EvaluationResultsTable'
 import { EvaluationsOverview } from './overview/EvaluationsOverview'
-import { statusReasonLabel } from './statusDisplay'
-import { EvaluationConfig } from './types'
-
-function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-        return null
-    }
-
-    return getUnhealthyProviderKey(providerKeys, evaluation.model_configuration?.provider_key_id)
-}
-
-function getEvaluationMethodLabel(evaluation: EvaluationConfig): string {
-    if (evaluation.evaluation_type === 'hog') {
-        return 'Hog'
-    }
-    if (evaluation.evaluation_type === 'sentiment') {
-        return 'Sentiment'
-    }
-    return 'LLM judge'
-}
-
-function getEvaluationMethodTagType(evaluation: EvaluationConfig): 'option' | 'highlight' | 'caution' {
-    if (evaluation.evaluation_type === 'hog') {
-        return 'option'
-    }
-    if (evaluation.evaluation_type === 'sentiment') {
-        return 'highlight'
-    }
-    return 'caution'
-}
-
-function getEvaluationConfigPreview(evaluation: EvaluationConfig): string {
-    if (evaluation.evaluation_type === 'hog') {
-        return evaluation.evaluation_config.source
-    }
-    if (evaluation.evaluation_type === 'sentiment') {
-        return 'User messages'
-    }
-    return evaluation.evaluation_config.prompt
-}
-
-function EvaluationDescription({ description }: { description: string }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const [isClamped, setIsClamped] = useState(false)
-    const textRef = useRef<HTMLDivElement | null>(null)
-
-    // line-clamp-1 constrains clientHeight to a single line; if scrollHeight exceeds it the text is
-    // truncated and worth a toggle. Only measure while collapsed — expanded, scrollHeight === clientHeight.
-    useEffect(() => {
-        if (textRef.current && !expanded) {
-            setIsClamped(textRef.current.scrollHeight > textRef.current.clientHeight)
-        }
-    }, [description, expanded])
-
-    return (
-        <div className="flex items-start gap-1">
-            <div ref={textRef} className={`text-muted text-sm ${expanded ? '' : 'line-clamp-1'}`}>
-                {description}
-            </div>
-            {(isClamped || expanded) && (
-                <LemonButton
-                    size="xsmall"
-                    onClick={() => setExpanded(!expanded)}
-                    data-attr="toggle-evaluation-description"
-                >
-                    {expanded ? 'Show less' : 'Show more'}
-                </LemonButton>
-            )}
-        </div>
-    )
-}
-
-/** The table without the overview. It alone reads the metrics, so the overview never runs their queries. */
-function EvaluationsWithMetricsTable({
-    columns,
-    displayedEvaluations,
-    loading,
-}: {
-    columns: LemonTableColumns<EvaluationConfig>
-    displayedEvaluations: EvaluationConfig[]
-    loading: boolean
-}): JSX.Element {
-    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
-    const displayedIds = new Set(displayedEvaluations.map((evaluation) => evaluation.id))
-
-    return (
-        <LemonTable
-            columns={columns}
-            dataSource={evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
-                displayedIds.has(evaluation.id)
-            )}
-            loading={loading}
-            rowKey="id"
-            pagination={{
-                pageSize: 50,
-            }}
-            nouns={['evaluation', 'evaluations']}
-        />
-    )
-}
 
 function AIObservabilityEvaluationsContent(): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic()
     const {
         evaluations,
-        displayedEvaluations,
         evaluationsLoading,
         evaluationsLoadFailed,
-        evaluationsFilter,
-        showDisabledEvaluations,
-        dateFilter,
-        providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
-        canEnableEvaluation,
         evaluationDirectories,
         evaluationDirectoriesLoading,
         selectedDirectory,
-        selectedDirectoryId,
         directoryEditor,
         submitDirectoryLoading,
-        deletingDirectoryId,
-        movingEvaluationId,
     } = useValues(evaluationsLogic)
-    const {
-        setEvaluationsFilter,
-        setShowDisabledEvaluations,
-        toggleEvaluationEnabled,
-        setDates,
-        openCreateDirectory,
-        openRenameDirectory,
-        closeDirectoryEditor,
-        setDirectoryEditorName,
-        submitDirectory,
-        deleteDirectory,
-        moveEvaluation,
-        selectDirectory,
-        deleteEvaluation,
-    } = useActions(evaluationsLogic)
-    const overviewEnabled = useFeatureFlag('AI_OBSERVABILITY_EVALUATIONS_OVERVIEW')
-    const { push } = useActions(router)
+    const { closeDirectoryEditor, setDirectoryEditorName, submitDirectory, selectDirectory } =
+        useActions(evaluationsLogic)
     const { searchParams } = useValues(router)
-    const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
-    const moveEvaluationDisabledReason = (evaluation: EvaluationConfig): string | null =>
-        getAccessControlDisabledReason(
-            AccessControlResourceType.Evaluation,
-            AccessControlLevel.Editor,
-            evaluation.user_access_level ?? undefined
-        )
-
-    const directoryById = new Map(evaluationDirectories.map((directory) => [directory.id, directory]))
-
-    const columns: LemonTableColumns<EvaluationConfig> = [
-        {
-            title: 'Name',
-            key: 'name',
-            render: (_, evaluation) => (
-                <div className="flex flex-col">
-                    <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
-                        {evaluation.name}
-                    </Link>
-                    {evaluation.description && <EvaluationDescription description={evaluation.description} />}
-                </div>
-            ),
-            sorter: (a, b) => a.name.localeCompare(b.name),
-        },
-        {
-            title: 'Directory',
-            key: 'directory',
-            render: (_, evaluation) =>
-                evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name : 'Top level',
-            sorter: (a, b) => {
-                const directoryName = (evaluation: EvaluationConfig): string =>
-                    evaluation.directory_id ? directoryById.get(evaluation.directory_id)?.name || '' : ''
-                return directoryName(a).localeCompare(directoryName(b))
-            },
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, evaluation) => {
-                // When the system has marked an eval as errored, the toggle is misleading — flipping it
-                // would just fail. Show an error pill instead so the row is visibly different and users
-                // click through to the detail page to see what's wrong and how to fix it.
-                if (evaluation.status === 'error') {
-                    return (
-                        <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
-                            <LemonTag
-                                type="danger"
-                                icon={<IconWarning />}
-                                forceClickable
-                                onClick={() => push(evaluationUrl(evaluation.id))}
-                                data-attr="evaluation-status-error"
-                            >
-                                Error
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                }
-                const providerKeyIssue = evaluation.enabled ? getProviderKeyIssue(evaluation, providerKeys) : null
-                if (providerKeyIssue) {
-                    return (
-                        <Tooltip
-                            title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
-                                providerKeyIssue.state
-                            )}. Open settings to fix.`}
-                        >
-                            <LemonTag
-                                type="warning"
-                                icon={<IconWarning />}
-                                forceClickable
-                                onClick={() => push(settingsUrl)}
-                                data-attr="evaluation-status-key-issue"
-                            >
-                                Key issue
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                }
-                const canEnable = canEnableEvaluation(evaluation)
-                const isBlocked = !canEnable && !evaluation.enabled
-                const blockedReason = 'Add a provider API key to enable this evaluation.'
-                return (
-                    <div className="flex flex-wrap items-center gap-2">
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Evaluation}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={evaluation.user_access_level ?? undefined}
-                        >
-                            <Tooltip title={isBlocked ? blockedReason : undefined}>
-                                <span>
-                                    <LemonSwitch
-                                        checked={evaluation.enabled}
-                                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                                        size="small"
-                                        disabled={isBlocked}
-                                        data-attr="toggle-evaluation-enabled"
-                                    />
-                                </span>
-                            </Tooltip>
-                        </AccessControlAction>
-                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                    </div>
-                )
-            },
-            // Sort: errors first (most attention-demanding), then enabled, then paused.
-            sorter: (a, b) => {
-                const rank = (e: EvaluationConfig): number => (e.status === 'error' ? 0 : e.enabled ? 1 : 2)
-                return rank(a) - rank(b)
-            },
-        },
-        {
-            title: 'Method',
-            key: 'method',
-            render: (_, evaluation) => (
-                <LemonTag type={getEvaluationMethodTagType(evaluation)}>
-                    {getEvaluationMethodLabel(evaluation)}
-                </LemonTag>
-            ),
-        },
-        {
-            title: 'Config',
-            key: 'config',
-            render: (_, evaluation) => {
-                const preview = getEvaluationConfigPreview(evaluation)
-                return (
-                    <div className="max-w-md">
-                        <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                            {preview || '(empty)'}
-                        </div>
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Triggers',
-            key: 'conditions',
-            render: (_, evaluation) => (
-                <div className="flex flex-wrap gap-1">
-                    {evaluation.conditions.map((condition) => {
-                        const propertyCount = condition.properties?.length ?? 0
-                        return (
-                            <LemonTag key={condition.id} type="option">
-                                {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}%
-                                {propertyCount > 0 &&
-                                    ` when ${propertyCount} condition${propertyCount !== 1 ? 's' : ''}`}
-                            </LemonTag>
-                        )
-                    })}
-                    {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
-                </div>
-            ),
-        },
-        {
-            title: 'Runs',
-            key: 'recent_stats',
-            render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
-                const stats = evaluation.stats
-                if (!stats || stats.runs_count === 0) {
-                    return <span className="text-muted text-sm">No runs</span>
-                }
-
-                if (evaluation.output_type === 'numeric') {
-                    return (
-                        <div className="text-sm">
-                            <div>{`${stats.runs_count} runs`}</div>
-                            <div>{`Mean score: ${stats.score_mean == null ? '–' : formatNumericEvaluationScore(stats.score_mean)}`}</div>
-                            {evaluation.output_config.passing_rule && (
-                                <div>{`Pass rate: ${stats.pass_rate == null ? '–' : `${stats.pass_rate.toFixed(1)}%`}`}</div>
-                            )}
-                        </div>
-                    )
-                }
-                // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
-                if (evaluation.evaluation_type === 'sentiment') {
-                    return (
-                        <div className="text-sm">
-                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
-                        </div>
-                    )
-                }
-
-                const passRateColor =
-                    stats.pass_rate == null
-                        ? 'text-muted'
-                        : stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
-                          ? 'text-success'
-                          : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                            ? 'text-warning'
-                            : 'text-danger'
-
-                return (
-                    <div className="flex flex-col items-center">
-                        <div className="text-sm">
-                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
-                        </div>
-                        <div className={`font-semibold ${passRateColor}`}>
-                            {stats.pass_rate == null ? '–' : `${parseFloat(stats.pass_rate.toFixed(2))}%`}
-                        </div>
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Created by',
-            key: 'created_by',
-            render: (_, evaluation) =>
-                evaluation.created_by ? (
-                    <ProfilePicture user={evaluation.created_by} size="md" showName />
-                ) : (
-                    <span className="text-muted text-sm">–</span>
-                ),
-            sorter: (a, b) => {
-                // Match the displayed identity: full name, falling back to email when no name is set.
-                const sortKey = (e: EvaluationConfig): string =>
-                    e.created_by ? fullName(e.created_by) || e.created_by.email : ''
-                return sortKey(a).localeCompare(sortKey(b))
-            },
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, evaluation) => (
-                <div className="flex gap-1">
-                    <LemonMenu
-                        items={[
-                            {
-                                icon: <IconFolder />,
-                                label: 'Top level',
-                                onClick: () => moveEvaluation(evaluation.id, null),
-                                disabledReason:
-                                    !evaluation.directory_id || movingEvaluationId === evaluation.id
-                                        ? 'Evaluation is already here'
-                                        : undefined,
-                            },
-                            ...evaluationDirectories.map((directory) => ({
-                                icon: <IconFolder />,
-                                label: directory.name,
-                                onClick: () => moveEvaluation(evaluation.id, directory.id),
-                                disabledReason:
-                                    evaluation.directory_id === directory.id || movingEvaluationId === evaluation.id
-                                        ? 'Evaluation is already here'
-                                        : undefined,
-                            })),
-                        ]}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconFolder />}
-                            tooltip="Move evaluation"
-                            loading={movingEvaluationId === evaluation.id}
-                            disabledReason={moveEvaluationDisabledReason(evaluation)}
-                        />
-                    </LemonMenu>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Evaluation}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={evaluation.user_access_level ?? undefined}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            onClick={() => push(evaluationUrl(evaluation.id))}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Evaluation}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={evaluation.user_access_level ?? undefined}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            icon={<IconTrash />}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: `Delete ${evaluation.name}?`,
-                                    description: 'Are you sure you want to delete this evaluation?',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        type: 'primary',
-                                        status: 'danger',
-                                        'data-attr': 'confirm-delete-evaluation',
-                                        onClick: () => deleteEvaluation(evaluation.id),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'secondary',
-                                    },
-                                })
-                            }}
-                        />
-                    </AccessControlAction>
-                </div>
-            ),
-        },
-    ]
-
-    const directoryColumns: LemonTableColumns<EvaluationDirectoryApi> = [
-        {
-            title: 'Name',
-            key: 'name',
-            render: (_, directory) => (
-                <LemonButton
-                    type="tertiary"
-                    icon={<IconFolder />}
-                    onClick={() => selectDirectory(directory.id)}
-                    data-attr="evaluation-directory-link"
-                >
-                    {directory.name}
-                </LemonButton>
-            ),
-            sorter: (a, b) => a.name.localeCompare(b.name),
-        },
-        {
-            title: 'Evaluations',
-            key: 'evaluation_count',
-            render: (_, directory) => directory.evaluation_count,
-            sorter: (a, b) => a.evaluation_count - b.evaluation_count,
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            align: 'right',
-            width: 0,
-            render: (_, directory) => (
-                <div className="flex justify-end gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Evaluation}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            tooltip="Rename directory"
-                            onClick={() => openRenameDirectory(directory)}
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Evaluation}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            status="danger"
-                            icon={<IconTrash />}
-                            tooltip="Delete directory"
-                            loading={deletingDirectoryId === directory.id}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: `Delete ${directory.name}?`,
-                                    description: `${directory.evaluation_count} evaluation${
-                                        directory.evaluation_count === 1 ? '' : 's'
-                                    } will move to the top level.`,
-                                    primaryButton: {
-                                        children: 'Delete directory',
-                                        status: 'danger',
-                                        onClick: () => deleteDirectory(directory.id),
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            }}
-                        />
-                    </AccessControlAction>
-                </div>
-            ),
-        },
-    ]
 
     // A failed list is not an empty project. The overview still loads, and in a directory it shows a retry.
     const showEmptyState =
-        !(overviewEnabled && evaluationsLoadFailed) &&
+        !evaluationsLoadFailed &&
         !evaluationsLoading &&
         !evaluationDirectoriesLoading &&
         evaluations.length === 0 &&
@@ -633,21 +91,6 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {!selectedDirectoryId && !overviewEnabled && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Evaluation}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconFolder />}
-                                onClick={() => openCreateDirectory()}
-                                data-attr="create-evaluation-directory-button"
-                            >
-                                New directory
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
                     <AccessControlAction
                         resourceType={AccessControlResourceType.Evaluation}
                         minAccessLevel={AccessControlLevel.Editor}
@@ -669,59 +112,8 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 <EvaluationTemplatesEmptyState />
             ) : (
                 <>
-                    {overviewEnabled ? (
-                        <EvaluationsOverview />
-                    ) : (
-                        <>
-                            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-
-                            <EvaluationMetrics />
-                        </>
-                    )}
-
-                    {!overviewEnabled && (
-                        <div className="flex flex-wrap items-center gap-2">
-                            <LemonInput
-                                type="search"
-                                placeholder="Search online evals..."
-                                value={evaluationsFilter}
-                                data-attr="evaluations-search-input"
-                                onChange={setEvaluationsFilter}
-                                prefix={<IconSearch />}
-                                className="max-w-sm"
-                            />
-                            <LemonButton
-                                type="secondary"
-                                active={!showDisabledEvaluations}
-                                icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
-                                onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
-                                data-attr="toggle-show-disabled-evaluations"
-                                tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
-                            >
-                                {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
-                            </LemonButton>
-                        </div>
-                    )}
-
-                    {!overviewEnabled && !evaluationsFilter && !selectedDirectoryId && (
-                        <LemonTable
-                            columns={directoryColumns}
-                            dataSource={evaluationDirectories}
-                            loading={evaluationDirectoriesLoading}
-                            rowKey="id"
-                            nouns={['directory', 'directories']}
-                        />
-                    )}
-
-                    {overviewEnabled ? (
-                        <EvaluationResultsTable />
-                    ) : (
-                        <EvaluationsWithMetricsTable
-                            columns={columns}
-                            displayedEvaluations={displayedEvaluations}
-                            loading={evaluationsLoading || evaluationDirectoriesLoading}
-                        />
-                    )}
+                    <EvaluationsOverview />
+                    <EvaluationResultsTable />
                 </>
             )}
 
@@ -760,65 +152,45 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
     )
 }
 
-/**
- * Binding mounts the metrics for the scene's lifetime. Attaching them to llmEvaluationsLogic instead would hold both
- * mounted, so the list would never reload on the next visit. The overview never shows them, so it skips their queries.
- */
-function LegacyMetricsBinding({ bound, children }: { bound: boolean; children: React.ReactNode }): JSX.Element {
-    return bound ? (
-        <BindLogic logic={evaluationMetricsLogic} props={{}}>
-            {children}
-        </BindLogic>
-    ) : (
-        <>{children}</>
-    )
-}
-
 export function AIObservabilityEvaluationsScene(): JSX.Element {
     useMountedLogic(llmEvaluationsLogic())
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const overviewEnabled = useFeatureFlag('AI_OBSERVABILITY_EVALUATIONS_OVERVIEW')
 
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <LegacyMetricsBinding bound={!overviewEnabled}>
-                <SceneContent>
-                    <SceneTitleSection
-                        name="Evaluations"
-                        description="Configure and monitor automated LLM output evaluations."
-                        resourceType={{
-                            type: 'llm_evaluations',
-                        }}
-                        actions={
-                            todayRailNav ? (
-                                <Button
-                                    variant="outline"
-                                    render={
-                                        <LinkPrimitive
-                                            to="https://posthog.com/docs/ai-evals/evaluations"
-                                            target="_blank"
-                                        />
-                                    }
-                                >
-                                    Documentation
-                                </Button>
-                            ) : (
-                                <LemonButton
-                                    to="https://posthog.com/docs/ai-evals/evaluations"
-                                    type="secondary"
-                                    targetBlank
-                                    size="small"
-                                >
-                                    Documentation
-                                </LemonButton>
-                            )
-                        }
-                    />
-                    <EvaluationsTabs activeTab="online-evals">
-                        <AIObservabilityEvaluationsContent />
-                    </EvaluationsTabs>
-                </SceneContent>
-            </LegacyMetricsBinding>
+            <SceneContent>
+                <SceneTitleSection
+                    name="Evaluations"
+                    description="Configure and monitor automated LLM output evaluations."
+                    resourceType={{
+                        type: 'llm_evaluations',
+                    }}
+                    actions={
+                        todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={
+                                    <LinkPrimitive to="https://posthog.com/docs/ai-evals/evaluations" target="_blank" />
+                                }
+                            >
+                                Documentation
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                to="https://posthog.com/docs/ai-evals/evaluations"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        )
+                    }
+                />
+                <EvaluationsTabs activeTab="online-evals">
+                    <AIObservabilityEvaluationsContent />
+                </EvaluationsTabs>
+            </SceneContent>
         </BindLogic>
     )
 }

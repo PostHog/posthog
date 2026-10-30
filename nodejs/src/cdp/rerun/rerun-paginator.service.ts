@@ -769,7 +769,7 @@ export class RerunPaginatorService {
             }
             const persistedState = parsedGlobals as Record<string, any>
             if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
-                logger.warn('⚠️', 'Skipping rerun of a sensitive email whose message data was not stored', {
+                logger.warn('⚠️', 'Skipping rerun of a sensitive message whose data was not stored', {
                     functionId,
                     teamId,
                     invocation_id: row.invocation_id,

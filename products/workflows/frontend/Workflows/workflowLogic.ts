@@ -754,6 +754,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -1640,6 +1641,7 @@ export interface workflowLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 template_id: 'template-native-push'
                                 template_uuid?: string | undefined
                             }
@@ -2479,8 +2481,19 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
+                  template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  day:
+                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
+                      | 'any'
+                      | 'weekday'
+                      | 'weekend'
+                  fallback_timezone?: string | null | undefined
+                  time: [string, string] | 'any'
+                  timezone: string | null
+                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2495,19 +2508,9 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-twilio'
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
                   template_uuid?: string | undefined
-              }
-            | {
-                  day:
-                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
-                      | 'any'
-                      | 'weekday'
-                      | 'weekend'
-                  fallback_timezone?: string | null | undefined
-                  time: [string, string] | 'any'
-                  timezone: string | null
-                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2889,8 +2892,19 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-native-push'
+                  template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  day:
+                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
+                      | 'any'
+                      | 'weekday'
+                      | 'weekend'
+                  fallback_timezone?: string | null | undefined
+                  time: [string, string] | 'any'
+                  timezone: string | null
+                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
@@ -2905,19 +2919,9 @@ export interface workflowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-twilio'
+                  sensitive?: boolean | undefined
+                  template_id: 'template-native-push'
                   template_uuid?: string | undefined
-              }
-            | {
-                  day:
-                      | ('friday' | 'monday' | 'saturday' | 'sunday' | 'thursday' | 'tuesday' | 'wednesday')[]
-                      | 'any'
-                      | 'weekday'
-                      | 'weekend'
-                  fallback_timezone?: string | null | undefined
-                  time: [string, string] | 'any'
-                  timezone: string | null
-                  use_person_timezone?: boolean | undefined
               }
             | {
                   inputs: Record<
