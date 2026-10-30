@@ -1205,6 +1205,29 @@ export interface PostHogSupportTicketDetailApi {
     has_more: boolean
 }
 
+export interface PostHogSupportReplyApi {
+    /**
+     * The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.
+     * @maxLength 8000
+     */
+    message: string
+}
+
+export interface PostHogSupportReplySentApi {
+    /** ID of the new message. */
+    message_id: string
+    /** Status of the ticket now.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    ticket_status: TicketStatusEnumApi
+    /** When support received the reply. */
+    created_at: string
+}
+
 export type ConversationsTicketsListParams = {
     /**
      * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.

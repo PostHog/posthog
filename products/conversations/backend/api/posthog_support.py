@@ -12,6 +12,7 @@ from django.db import models
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -26,6 +27,7 @@ from posthog.rate_limit import (
     PostHogSupportTicketCreateBurstThrottle,
     PostHogSupportTicketCreateSustainedThrottle,
     PostHogSupportTicketReadThrottle,
+    PostHogSupportTicketReplyThrottle,
 )
 
 from products.conversations.backend.models.constants import TicketStatus
@@ -197,6 +199,22 @@ class PostHogSupportTicketDetailSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when the ticket has more messages than this response holds.")
 
 
+class PostHogSupportReplySerializer(serializers.Serializer):
+    message = serializers.CharField(
+        max_length=8000,
+        help_text=(
+            "The reply in plain text, for example the details support asked for. "
+            "Do not include secrets, API keys or personal data."
+        ),
+    )
+
+
+class PostHogSupportReplySentSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField(help_text="ID of the new message.")
+    ticket_status = serializers.ChoiceField(choices=TicketStatus.choices, help_text="Status of the ticket now.")
+    created_at = serializers.DateTimeField(help_text="When support received the reply.")
+
+
 class SupportInboxUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "This PostHog instance has no PostHog support inbox."
@@ -244,6 +262,8 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "create":
             return [PostHogSupportTicketCreateBurstThrottle(), PostHogSupportTicketCreateSustainedThrottle()]
+        if self.action == "reply":
+            return [PostHogSupportTicketReplyThrottle()]
         # Reads share the support project's widget budget with every browser, so one agent must not use it up.
         return [PostHogSupportTicketReadThrottle()]
 
@@ -362,6 +382,40 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 raise NotFound("No PostHog support ticket with this ID belongs to you.")
             raise SupportInboxFailed()
         return Response(PostHogSupportTicketDetailSerializer(result).data)
+
+    @validated_request(
+        request_serializer=PostHogSupportReplySerializer,
+        responses={
+            201: OpenApiResponse(response=PostHogSupportReplySentSerializer, description="Reply sent."),
+            403: OpenApiResponse(description="Not available for this user or credential."),
+            404: OpenApiResponse(description="No ticket with this ID belongs to the user."),
+            502: OpenApiResponse(description="The support inbox did not accept the reply."),
+            503: OpenApiResponse(description="This instance has no support inbox."),
+        },
+        summary="Reply to a PostHog support ticket",
+        description="Add a message from the signed-in user to one of their tickets with the PostHog support team.",
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["posthog_support:write"])
+    def reply(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        client, identity, user = self._support()
+        data = cast(dict[str, Any], request.validated_data)  # type: ignore[attr-defined]
+        try:
+            result = client.reply(identity, kwargs["pk"], message=data["message"])
+        except PostHogSupportRequestFailed as e:
+            if e.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND):
+                raise NotFound("No PostHog support ticket with this ID belongs to you.")
+            raise SupportInboxFailed()
+        report_user_action(user, "posthog support ticket replied", team=self.team)
+        return Response(
+            PostHogSupportReplySentSerializer(
+                {
+                    "message_id": result["message_id"],
+                    "ticket_status": result["ticket_status"],
+                    "created_at": result["created_at"],
+                }
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 def _agent_tickets_enabled(user: User) -> bool:

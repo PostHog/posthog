@@ -48,3 +48,19 @@ tools:
             replies. Use it to check whether support has answered before you open a new ticket about the same problem.
             Read one ticket's messages with posthog-support-ticket-get.
         feature_flag: posthog-support-agent-tickets
+    posthog-support-ticket-reply:
+        operation: posthog_support_tickets_reply_create
+        enabled: true
+        feature_flag: posthog-support-agent-tickets
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Reply to a PostHog support ticket
+        description: >
+            Add a message from the signed-in user to one of their tickets with the PostHog support team, for example
+            the details support asked for. A person on the support team reads it. Show the user the reply text and get
+            their OK before you send it. Never include secrets, API keys or personal data.
+        param_overrides:
+            id:
+                description: Ticket ID from posthog-support-tickets-list or from posthog-support-ticket-create.
