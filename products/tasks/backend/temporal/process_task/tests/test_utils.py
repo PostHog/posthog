@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
@@ -12,9 +14,11 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
+from products.business_knowledge.backend.task_profiles import BUSINESS_KNOWLEDGE
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
@@ -39,6 +43,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_github_integration,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
@@ -481,22 +486,41 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
-    @parameterized.expand([(None, True), ("account_audit", False)])
+    @parameterized.expand(
+        [
+            ("no_profile", None, None, True),
+            ("account_audit", "account_audit", None, False),
+            ("profile_without_store_servers", None, BUSINESS_KNOWLEDGE, False),
+            (
+                "profile_agent",
+                None,
+                replace(BUSINESS_KNOWLEDGE, key="test.support", mcp_store_servers=True, mcp_agent="support"),
+                True,
+            ),
+        ]
+    )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(
-        self, origin_product: str | None, mounts_store: bool, mock_facade, mock_api_url
+        self,
+        _name: str,
+        origin_product: str | None,
+        profile: TaskProfile | None,
+        mounts_store: bool,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
         mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product, profile=profile
         ).configs
 
         if not mounts_store:
             assert configs == []
+            mock_facade.assert_not_called()
             return
 
         mock_facade.assert_called_once_with(
@@ -508,6 +532,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
             McpServerConfig(
@@ -638,6 +663,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            profile_agent_key=None,
         )
         assert configs == [
             McpServerConfig(
@@ -651,6 +677,19 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             ),
         ]
         assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
+
+    @parameterized.expand(
+        [
+            ("internal", True, None, False),
+            ("user_created", False, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+        ]
+    )
+    def test_include_personal_mcp_for_task(
+        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+    ) -> None:
+        task = MagicMock(internal=internal, stored_profile=profile)
+        assert include_personal_mcp_for_task(task) is expected
 
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
@@ -670,6 +709,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            profile_agent_key=None,
         )
 
     @patch(MOCK_API_URL)
