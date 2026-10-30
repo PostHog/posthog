@@ -6,6 +6,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 ## What it does
 
 - Sidebar: Tasks and Work lists with run status dots, workspace groups drawn as a tree, and keyboard or mouse selection.
+- Search: a full-screen search over your tasks, each with its sidebar status and when it was last active.
 - Panes: tmux-like splits, nested splits, focus by key or click, and a header with where the chat runs, its repo, its PR and its status.
 - Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one, and a pane shows a new run's first message, start-up state and failure reason.
 - Local chats: pi runs on this machine through the desktop's pi client factory, with a task row on the server and a session file here. Agent dialogs and MCP permission requests are answered on the bottom sheet.
@@ -19,8 +20,8 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - Tests: `../../node_modules/.bin/vitest run` or `hogli test products/desktop/apps/tui`. Typecheck: `../../node_modules/.bin/tsc --noEmit -p .`.
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
-In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+R reloads all code, Ctrl+Q quits.
-Slash commands: `/model`, `/effort`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
+In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+K (or Cmd+K) searches tasks, Ctrl+R reloads all code, Ctrl+Q quits.
+Slash commands: `/model`, `/effort`, `/new`, `/search`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
 `/local` and `/cloud` switch the current pane and set where new chats in other panes run, saved between runs.
 `!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 
@@ -35,6 +36,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |
+| `search.ts` | The task search's result rows and query editing; `hooks/useSearch.ts` asks the server after a pause in typing |
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices |
@@ -56,7 +58,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `images.ts` | Images for a local chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
-| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, turns, keys, pointer, terminal input |
+| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
 
 ## Things that bit us
 

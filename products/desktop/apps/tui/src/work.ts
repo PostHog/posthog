@@ -7,6 +7,7 @@ export interface RecentWork {
 }
 
 const LIST_TIMEOUT_MS = 20_000;
+const SEARCH_LIMIT = 50;
 
 export class WorkList {
   private userId: Promise<number> | null = null;
@@ -36,11 +37,15 @@ export class WorkList {
     return request;
   }
 
+  search(query: string): Promise<Task[]> {
+    return this.fetch(SEARCH_LIMIT, query).then(({ tasks }) => tasks);
+  }
+
   get(taskId: string): Promise<Task> {
     return this.api.getTask(taskId);
   }
 
-  private async fetch(limit: number): Promise<RecentWork> {
+  private async fetch(limit: number, search?: string): Promise<RecentWork> {
     // A failed lookup is dropped so the next refresh tries again.
     this.userId ??= this.api.getCurrentUser().then(
       (user) => user.id,
@@ -54,6 +59,7 @@ export class WorkList {
       basic: true,
       ordering: "-last_activity_at",
       createdBy: await this.userId,
+      search,
     });
     return { tasks, hasMore: count > tasks.length };
   }

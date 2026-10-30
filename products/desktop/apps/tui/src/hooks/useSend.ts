@@ -42,6 +42,7 @@ export function useSend({
   openModal,
   openModelSheet,
   openEffortSheet,
+  openSearch,
   onChatStarted,
   runShell,
   notice: { flashNotice, showNotice },
@@ -73,6 +74,7 @@ export function useSend({
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  openSearch: () => void;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
     paneId: string,
@@ -143,6 +145,10 @@ export function useSend({
     }
     if (slash?.command === "new") {
       setLayout(newChat);
+      return;
+    }
+    if (slash?.command === "search") {
+      openSearch();
       return;
     }
     if (slash?.command === "clear") {

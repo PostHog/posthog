@@ -36,6 +36,8 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+R", "\x1b[114;5u", "reload"],
     ["kitty Ctrl+Q", "\x1b[113;5u", "quit"],
     ["kitty Ctrl+N", "\x1b[110;5u", "newChat"],
+    ["legacy Ctrl+K", "\x0b", "search"],
+    ["kitty Cmd+K", "\x1b[107;9u", "search"],
     ["plain s", "s", null],
     ["Tab", "\t", null],
   ])("%s", async (_, bytes, expected) => {

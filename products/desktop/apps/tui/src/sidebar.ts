@@ -60,6 +60,27 @@ export function indicatorFor(
   return "asleep";
 }
 
+// A local chat's state is this app's own; a cloud chat has none until the list or a fetch says what its run is doing.
+export function chatIndicator(
+  taskId: string,
+  task: Task | undefined,
+  runsHere: boolean,
+  {
+    working,
+    waiting,
+    running,
+  }: { working: Set<string>; waiting: Set<string>; running: Set<string> },
+): Indicator | null {
+  if (!runsHere) {
+    return task
+      ? indicatorFor(task, working.has(taskId), waiting.has(taskId))
+      : null;
+  }
+  if (working.has(taskId)) return "working";
+  if (waiting.has(taskId)) return "waiting";
+  return running.has(taskId) ? "alive" : "asleep";
+}
+
 export interface LocalChatState {
   // Each local chat's task id, with when its session file last changed.
   active: Map<string, number>;
@@ -73,7 +94,7 @@ const NO_LOCAL_CHATS: LocalChatState = {
 };
 
 // When something last happened in a chat: the server's clock, or this machine's for a local chat the server hears nothing from.
-const activityOf = (task: Task, local: LocalChatState): number =>
+export const activityOf = (task: Task, local: LocalChatState): number =>
   Math.max(
     Date.parse(task.last_activity_at ?? "") || 0,
     local.active.get(task.id) ?? 0,
@@ -146,21 +167,14 @@ export function sidebarRows({
       paneId,
       title:
         taskId === null ? "New chat" : task?.title || savedTitle || "Untitled",
-      // A local chat's state is this app's own; a cloud chat has none until the list or a fetch says what its run is doing.
       indicator:
         taskId === null
           ? null
-          : runsHere
-            ? working.has(taskId)
-              ? "working"
-              : waiting.has(taskId)
-                ? "waiting"
-                : local.running.has(taskId)
-                  ? "alive"
-                  : "asleep"
-            : task
-              ? indicatorFor(task, working.has(taskId), waiting.has(taskId))
-              : null,
+          : chatIndicator(taskId, task, runsHere, {
+              working,
+              waiting,
+              running: local.running,
+            }),
       local: runsHere,
       nested,
       last,

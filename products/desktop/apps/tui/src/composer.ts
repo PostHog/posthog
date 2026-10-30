@@ -27,6 +27,8 @@ const APP_KEYS: KeyId[] = [
   "ctrl+c",
   "ctrl+d",
   "ctrl+n",
+  "ctrl+k",
+  "super+k",
   "ctrl+q",
   "ctrl+r",
   "pageUp",
@@ -37,7 +39,7 @@ export function isAppKey(sequence: string): boolean {
   return APP_KEYS.some((key) => matchesKey(sequence, key));
 }
 
-const PASTE_START = "\u001b[200~";
+export const PASTE_START = "\u001b[200~";
 const PLAIN_RULE = /^─+$/;
 const INVERSE = "\u001b[7m";
 // The prompt before the input, "❯ " or "! ", in cells.
@@ -55,6 +57,7 @@ export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
   { name: "effort", description: "Set how much this chat's model thinks" },
   { name: "new", description: "Start a new chat" },
+  { name: "search", description: "Search your tasks" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },
   { name: "cloud", description: "Run new chats in this pane in the cloud" },
