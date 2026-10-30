@@ -80,7 +80,7 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
@@ -860,7 +860,7 @@ def call_llm_judge(
             )
         else:
             content = image_prompt.images.content(image_prompt.text, provider, model) if image_prompt else user_prompt
-            sent_images = isinstance(content, list) and any(isinstance(part, ImagePart) for part in content)
+            sent_images = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
             request = CompletionRequest(
                 model=model,
                 system=system_prompt,

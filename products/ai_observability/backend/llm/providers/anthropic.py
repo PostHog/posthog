@@ -34,7 +34,7 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
-from products.ai_observability.backend.llm.images import ImagePart, convert_image_parts
+from products.ai_observability.backend.llm.images import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.providers.azure_openai import is_allowed_azure_endpoint
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -230,7 +230,7 @@ class AnthropicAdapter:
         effective_api_key = api_key or self._get_default_api_key()
         client = self._create_client(effective_api_key, analytics)
 
-        messages: Any = convert_image_parts(request.messages, _anthropic_image_block)
+        messages: Any = convert_attachment_parts(request.messages, _anthropic_attachment_block)
         system_prompt = request.system or ""
         use_structured = request.response_format and issubclass(request.response_format, BaseModel)
 
@@ -360,7 +360,7 @@ class AnthropicAdapter:
         tools = self._convert_tools(request.tools) if request.tools else None
 
         system = request.system or ""
-        messages = convert_image_parts(request.messages, _anthropic_image_block)
+        messages = convert_attachment_parts(request.messages, _anthropic_attachment_block)
 
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
@@ -641,7 +641,8 @@ class AnthropicAdapter:
         return prepared_messages
 
 
-def _anthropic_image_block(part: ImagePart) -> dict[str, Any]:
+def _anthropic_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    block_type = "document" if part.is_pdf else "image"
     if part.url is not None:
-        return {"type": "image", "source": {"type": "url", "url": part.url}}
-    return {"type": "image", "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64()}}
+        return {"type": block_type, "source": {"type": "url", "url": part.url}}
+    return {"type": block_type, "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64()}}

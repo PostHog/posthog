@@ -43,8 +43,9 @@ Generation evaluations extract message text without the per-message character cu
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
-Then each image becomes an `[image N]` marker instead of its base64 or link, so an output with large inline images can fit and the run continues.
-The image labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 images, plus one summary line for the rest.
+Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
+The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
+PDFs reach only OpenAI, Anthropic, Gemini and OpenRouter judges. Other providers get the marker with "could not be attached".
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.

@@ -12,7 +12,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConfigurationError,
 )
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicAdapter,
     AnthropicConfig,
@@ -173,22 +173,30 @@ class TestAnthropicStreamOutputSchema:
         assert "output_config" not in self._stream_kwargs(None)
 
 
-class TestAnthropicImageParts:
+class TestAnthropicAttachmentParts:
     @parameterized.expand(
         [
             (
                 "link",
-                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
                 {"type": "url", "url": "https://example.com/a.png"},
             ),
             (
                 "inline",
-                ImagePart(mime_type="image/png", data=b"hi"),
+                AttachmentPart(mime_type="image/png", data=b"hi"),
                 {"type": "base64", "media_type": "image/png", "data": "aGk="},
+            ),
+            (
+                "pdf_link",
+                AttachmentPart(mime_type="application/pdf", url="https://example.com/a.pdf"),
+                {"type": "url", "url": "https://example.com/a.pdf"},
+                "document",
             ),
         ]
     )
-    def test_image_parts_are_sent_as_image_blocks(self, _name: str, image: ImagePart, expected_source: dict):
+    def test_attachment_parts_are_sent_as_blocks(
+        self, _name: str, image: AttachmentPart, expected_source: dict, expected_type: str = "image"
+    ):
         request = CompletionRequest(
             model="claude-haiku-4-5",
             messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
@@ -202,7 +210,7 @@ class TestAnthropicImageParts:
             AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
 
         assert mock_client.messages.create.call_args.kwargs["messages"][0]["content"] == [
-            {"type": "image", "source": expected_source},
+            {"type": expected_type, "source": expected_source},
             {"type": "text", "text": "hi"},
         ]
 

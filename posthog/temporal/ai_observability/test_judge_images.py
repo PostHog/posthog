@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import patch
 
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.ai_observability.judge_images import MAX_IMAGES, JudgeImages
+from posthog.temporal.ai_observability.judge_images import MAX_ATTACHMENTS, JudgeImages
 
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
@@ -21,13 +21,15 @@ def _inline(digit: str, length: int = 4) -> MediaBlock:
 
 
 class TestJudgeImagesMarkers:
-    def test_numbers_images_and_reuses_the_number_for_a_repeat(self):
+    def test_numbers_each_kind_and_reuses_the_number_for_a_repeat(self):
         images = JudgeImages(team_id=7)
         inline = MediaBlock(modality="image", mime_type="image/png", base64_data="aGk=")
 
-        markers = [images.marker(media) for media in (_pointer("a"), inline, _pointer("a"))]
+        pdf = _pointer("b", mime="application%2Fpdf")
 
-        assert markers == ["[image 1]", "[image 2]", "[image 1]"]
+        markers = [images.marker(media) for media in (_pointer("a"), pdf, inline, _pointer("a"))]
+
+        assert markers == ["[image 1]", "[file 1]", "[image 2]", "[image 1]"]
 
     @pytest.mark.parametrize(
         ("media", "marker"),
@@ -53,38 +55,85 @@ class TestJudgeImagesMarkers:
 class TestJudgeImagesContent:
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
         images = JudgeImages(team_id=7)
-        markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1)]
+        markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1)]
         # The output repeats the first input image after every newer one.
         content = images.content(" ".join([*markers, markers[0]]), "openai", "gpt-5.5")
 
         assert {"type": "text", "text": "Image 1:"} in content
         assert {"type": "text", "text": "Image 2:"} not in content
-        assert {"type": "text", "text": "Images not attached, over the judge's image limit: 1."} in content
+        assert {"type": "text", "text": "Not attached, over the judge's attachment limit: 1."} in content
 
     def test_attaches_the_newest_images_when_over_the_limit(self):
         images = JudgeImages(team_id=7)
-        prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1))
+        prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1))
 
         content = images.content(prompt, "openai", "gpt-5.5")
 
         assert content[1] == {"type": "text", "text": "Image 2:"}
         assert content[-4:-1] == [
-            {"type": "text", "text": f"Image {MAX_IMAGES + 1}:"},
-            ImagePart(mime_type="image/png", data=base64.b64decode(f"{MAX_IMAGES:02}" * 4)),
-            {"type": "text", "text": "Images not attached, over the judge's image limit: 1."},
+            {"type": "text", "text": f"Image {MAX_ATTACHMENTS + 1}:"},
+            AttachmentPart(mime_type="image/png", data=base64.b64decode(f"{MAX_ATTACHMENTS:02}" * 4)),
+            {"type": "text", "text": "Not attached, over the judge's attachment limit: 1."},
         ]
 
     @pytest.mark.parametrize(
-        ("provider", "model", "expected_image"),
+        ("provider", "model", "mime", "expected_label", "expected_part"),
         [
-            pytest.param("openai", "gpt-5.5", ImagePart(mime_type="image/jpeg", url="https://signed"), id="link"),
-            pytest.param("together_ai", "any", ImagePart(mime_type="image/jpeg", data=b"hi"), id="inline"),
-            pytest.param("gemini", "gemini-2.0-flash", ImagePart(mime_type="image/jpeg", data=b"hi"), id="gemini_2_0"),
+            pytest.param(
+                "openai",
+                "gpt-5.5",
+                "image%2FJPG",
+                "Image 1:",
+                AttachmentPart(mime_type="image/jpeg", url="https://signed"),
+                id="link",
+            ),
+            pytest.param(
+                "together_ai",
+                "any",
+                "image%2FJPG",
+                "Image 1:",
+                AttachmentPart(mime_type="image/jpeg", data=b"hi"),
+                id="inline",
+            ),
+            pytest.param(
+                "gemini",
+                "gemini-2.0-flash",
+                "image%2FJPG",
+                "Image 1:",
+                AttachmentPart(mime_type="image/jpeg", data=b"hi"),
+                id="gemini_2_0",
+            ),
+            pytest.param(
+                "anthropic",
+                "claude-haiku-4-5",
+                "application%2Fpdf",
+                "File 1:",
+                AttachmentPart(mime_type="application/pdf", url="https://signed"),
+                id="pdf_link",
+            ),
+            pytest.param(
+                "openai",
+                "gpt-5.5",
+                "application%2Fpdf",
+                "File 1:",
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                id="pdf_inline_on_openai",
+            ),
+            pytest.param(
+                "together_ai",
+                "any",
+                "application%2Fpdf",
+                "File 1: could not be attached.",
+                None,
+                id="pdf_unsupported_provider",
+            ),
         ],
     )
-    def test_attaches_each_image_under_its_label(self, provider: str, model: str, expected_image: ImagePart):
+    def test_attaches_each_attachment_under_its_label(
+        self, provider: str, model: str, mime: str, expected_label: str, expected_part: AttachmentPart | None
+    ):
         images = JudgeImages(team_id=7)
-        prompt = f"Input: user: {images.marker(_pointer('a', mime='image%2FJPG'))} What does this chart show?"
+        prompt = f"Input: user: {images.marker(_pointer('a', mime=mime))} What does this chart show?"
 
         with (
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed") as presign,
@@ -94,13 +143,14 @@ class TestJudgeImagesContent:
             content = images.content(prompt, provider, model)
 
         assert content == [
-            {"type": "text", "text": "The transcript refers to these images as [image N]."},
-            {"type": "text", "text": "Image 1:"},
-            expected_image,
+            {"type": "text", "text": "The transcript refers to these attachments as [image N] or [file N]."},
+            {"type": "text", "text": expected_label},
+            *([expected_part] if expected_part else []),
             {"type": "text", "text": prompt},
         ]
-        storage_call = presign if expected_image.url else read
-        assert storage_call.call_args.args[0] == f"aio/7/sha256/{'a' * 64}"
+        if expected_part:
+            storage_call = presign if expected_part.url else read
+            assert storage_call.call_args.args[0] == f"aio/7/sha256/{'a' * 64}"
 
     @pytest.mark.parametrize(
         ("provider", "model", "media", "storage_error"),

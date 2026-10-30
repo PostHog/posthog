@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from dataclasses import replace
 
 from posthog.dataclasses import frozen
 
@@ -64,7 +65,7 @@ def parse_media_block(block: dict) -> MediaBlock | None:
         if block_type in _AUDIO_TYPES:
             return MediaBlock(modality="audio")
         if block_type in _FILE_TYPES:
-            return MediaBlock(modality="file")
+            return _file_block(block)
     return None
 
 
@@ -100,6 +101,26 @@ def _image_block(block: dict) -> MediaBlock:
     return _with_source("image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data"))
 
 
+def _file_block(block: dict) -> MediaBlock:
+    source = block.get("source")
+    if isinstance(source, dict):
+        # Anthropic document.
+        mime_type, value = source.get("media_type"), source.get("data") or source.get("url")
+    else:
+        file = block.get("file")
+        # OpenAI chat nests the file, the Responses API puts it on the block, and the Vercel AI SDK
+        # records `{"type": "file", "mediaType": ..., "file": <data>}`.
+        fields = file if isinstance(file, dict) else block
+        mime_type = block.get("mediaType")
+        value = fields.get("file_data") or fields.get("file_url") or fields.get("data")
+        if value is None and isinstance(file, str):
+            value = file
+    media = _with_source("file", mime_type if isinstance(mime_type, str) else None, value)
+    # The Vercel AI SDK sends images, audio and video as file parts too.
+    modality = media.mime_type.split("/")[0] if media.mime_type else ""
+    return replace(media, modality=modality) if modality in ("image", "audio", "video") else media
+
+
 def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBlock:
     if not isinstance(value, str) or not value:
         return MediaBlock(modality=modality, mime_type=mime_type)
@@ -112,4 +133,7 @@ def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBl
         return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith(_LINK_SCHEMES):
         return MediaBlock(modality=modality, mime_type=mime_type, url=value)
+    # Base64 never holds a space, so a value with one is an SDK placeholder such as `raw files not supported`.
+    if " " in value:
+        return MediaBlock(modality=modality, mime_type=mime_type)
     return MediaBlock(modality=modality, mime_type=mime_type, base64_data=value)

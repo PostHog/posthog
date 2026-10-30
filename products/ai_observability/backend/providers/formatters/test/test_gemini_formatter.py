@@ -5,7 +5,7 @@ import pytest
 from google.genai.types import Blob, Content, FileData, FunctionCall, FunctionResponse, Part
 from parameterized import parameterized
 
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.providers.formatters.gemini_formatter import (
     MessageConversionError,
     convert_anthropic_messages_to_gemini,
@@ -97,17 +97,17 @@ class TestConvertAnthropicMessagesToGemini:
         [
             (
                 "link",
-                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
                 Part(file_data=FileData(file_uri="https://example.com/a.png", mime_type="image/png")),
             ),
             (
                 "inline",
-                ImagePart(mime_type="image/png", data=b"hi"),
+                AttachmentPart(mime_type="image/png", data=b"hi"),
                 Part(inline_data=Blob(data=b"hi", mime_type="image/png")),
             ),
         ]
     )
-    def test_image_part_becomes_gemini_part(self, _name: str, image: ImagePart, expected: Part):
+    def test_image_part_becomes_gemini_part(self, _name: str, image: AttachmentPart, expected: Part):
         contents = _convert([{"role": "user", "content": [image]}])
 
         assert _part(contents[0], 0) == expected

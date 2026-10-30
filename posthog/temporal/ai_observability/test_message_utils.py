@@ -116,6 +116,39 @@ class TestExtractTextFromMessages:
             pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio]", id="gemini_audio"),
             pytest.param({"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio]", id="openai_audio"),
             pytest.param({"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file]", id="file"),
+            pytest.param(
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "aGk="}},
+                "[file 1]",
+                id="anthropic_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="}},
+                "[file 1]",
+                id="openai_chat_pdf",
+            ),
+            pytest.param(
+                {"type": "input_file", "filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="openai_responses_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"file_id": "file-abc"}}, "[file]", id="openai_uploaded_file_without_bytes"
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="vercel_image",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "application/pdf", "data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="vercel_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": "raw files not supported"},
+                "[image]",
+                id="vercel_sdk_placeholder",
+            ),
         ],
     )
     def test_judge_images_replace_media_blocks_with_markers(self, block, marker):

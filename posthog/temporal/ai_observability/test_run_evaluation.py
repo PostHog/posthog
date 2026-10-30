@@ -51,7 +51,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
-from products.ai_observability.backend.llm.images import ImagePart
+from products.ai_observability.backend.llm.images import AttachmentPart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -1644,7 +1644,7 @@ class TestRunEvaluationWorkflow:
             # Team ids repeat across regions, so the flag is checked against the project uuid.
             assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
-            assert ImagePart(mime_type="image/jpeg", url="https://signed") in content
+            assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
             assert "assistant: [image 2] Sales rose in March." in content[-1]["text"]
         else:
