@@ -675,6 +675,28 @@ class TestAuthUsersPagination:
         assert [state.cursor for state in manager.saved] == ["p2"]
         assert session.requests[0][1].endswith("/projects/demo-project/accounts:batchGet")
 
+    def test_service_account_without_the_auth_role_is_a_non_retryable_error(self, logger: FilteringBoundLogger) -> None:
+        # Identity Toolkit rejects a service account that lacks the IAM role to list Auth users
+        # with a 400, not a 403 — `message=INSUFFICIENT_PERMISSION` is the only stable signal.
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(status_code=400, payload={"error": {"message": "INSUFFICIENT_PERMISSION"}})
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            list(iter_auth_users(session.as_session(), token_provider(session), credentials(), manager, logger))
+
+        matches = [
+            message
+            for pattern, message in FirebaseSource().get_non_retryable_errors().items()
+            if error_message_matches(str(exc_info.value), [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "Firebase Authentication" in matches[0]
+
 
 def tenant(tenant_id: str) -> dict[str, Any]:
     return {"name": f"projects/demo-project/tenants/{tenant_id}", "displayName": tenant_id}
