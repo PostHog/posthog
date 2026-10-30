@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { accessSync, chmodSync, constants, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+    accessSync,
+    chmodSync,
+    constants,
+    readFileSync,
+    realpathSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs'
 
 import { HogError } from '@/core/errors'
 import type { Env } from '@/core/runtime'
@@ -91,27 +101,34 @@ export function savePairs(pairs: SourcePair[], serialize: (pair: SourcePair) => 
 
 // Writes every file next to its target first, then renames them all into place. A full disk or a
 // read-only target then fails before any target changes, instead of leaving a bundle injected
-// while its map keeps the old offsets, which a rerun can't repair.
+// while its map keeps the old offsets, which a rerun can't repair. A rename can still fail, for
+// example on a file another Windows process holds open, so the files already replaced get their
+// old contents back.
 function replaceFiles(files: [string, string][]): void {
-    const staged: [string, string][] = []
+    const staged: { temporary: string; target: string; original: Buffer }[] = []
+    let renamed = 0
     try {
         for (const [path, contents] of files) {
             const target = realpathSync(path)
             // A rename would replace a read-only file, where posthog-cli's write fails.
             accessSync(target, constants.W_OK)
             const temporary = `${target}.${randomUUID()}.tmp`
-            staged.push([temporary, target])
+            staged.push({ temporary, target, original: readFileSync(target) })
             writeFileSync(temporary, contents, { flag: 'wx' })
             chmodSync(temporary, statSync(target).mode & 0o7777)
         }
+        for (const { temporary, target } of staged) {
+            renameSync(temporary, target)
+            renamed++
+        }
     } catch (error) {
-        for (const [temporary] of staged) {
+        for (const { target, original } of staged.slice(0, renamed)) {
+            writeFileSync(target, original)
+        }
+        for (const { temporary } of staged.slice(renamed)) {
             rmSync(temporary, { force: true })
         }
         throw error
-    }
-    for (const [temporary, target] of staged) {
-        renameSync(temporary, target)
     }
 }
 
