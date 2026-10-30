@@ -138691,9 +138691,9 @@ export namespace Schemas {
     /**
      * Clustering level to explain: trace, generation, or evaluation.
      *
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
+     * * `trace` - Trace
+     * * `generation` - Generation
+     * * `evaluation` - Evaluation
      * @minLength 1
      */
     analysis_level: LlmAnalyticsClusteringRunsSkipReasonRetrieveAnalysisLevel;
