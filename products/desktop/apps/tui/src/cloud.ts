@@ -135,6 +135,18 @@ export function createCloud(
     (taskId, runId, options) =>
       api.getTaskRunSessionLogsPage(taskId, runId, options),
     async (taskId) => (await api.getTaskUsage(taskId)).total_cost_usd,
+    async (taskId, runId) => {
+      const all = await api.listTaskRuns(taskId);
+      const current = all.find((run) => run.id === runId);
+      return all
+        .filter(
+          (run) =>
+            run.id !== runId &&
+            (!current || run.created_at < current.created_at),
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map((run) => run.id);
+    },
   );
   const sendMessage = async (
     taskId: string,

@@ -74,6 +74,8 @@ function useRunView(
   const taskId = task?.id;
   const run = task?.latest_run;
   const cloudRunId = run && run.environment !== "local" ? run.id : null;
+  // A pi task's runs are one conversation, so its earlier runs page in above the current one.
+  const withEarlierRuns = task?.runtime === "pi";
   const [view, setView] = useState(emptyRunView);
   const subscription = useRef<RunSubscription | null>(null);
   // Keyed on ids only: each list refresh brings a new task object for the same run.
@@ -81,13 +83,15 @@ function useRunView(
     setView(emptyRunView);
     if (local) return local.watch(setView);
     if (!taskId || !cloudRunId || !runs) return;
-    const current = runs.watch(taskId, cloudRunId, setView);
+    const current = runs.watch(taskId, cloudRunId, setView, {
+      withEarlierRuns,
+    });
     subscription.current = current;
     return () => {
       subscription.current = null;
       current.stop();
     };
-  }, [runs, taskId, cloudRunId, local]);
+  }, [runs, taskId, cloudRunId, local, withEarlierRuns]);
   return { view, loadOlder: () => void subscription.current?.loadOlder() };
 }
 

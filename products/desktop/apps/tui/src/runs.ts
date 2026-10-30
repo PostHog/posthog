@@ -198,6 +198,11 @@ export class CloudRuns {
     private readonly sessionLogs: SessionLogs,
     // The task's estimated cost in USD so far, the figure the desktop shows.
     readonly taskCost?: (taskId: string) => Promise<number>,
+    // The task's runs before this one, newest first.
+    private readonly earlierRuns?: (
+      taskId: string,
+      runId: string,
+    ) => Promise<string[]>,
   ) {}
 
   // Fetches the last `entries` log entries so opening the run shows its recent messages at once.
@@ -221,25 +226,39 @@ export class CloudRuns {
     });
   }
 
+  // A pi task's runs share one pi session, so with `withEarlierRuns` the earlier runs' logs page in above this
+  // run's, oldest last, and a restart that started a new sandbox still shows the whole chat.
   watch(
     taskId: string,
     runId: string,
     onView: (view: RunView) => void,
-    { olderPageSize = OLDER_PAGE_SIZE }: { olderPageSize?: number } = {},
+    {
+      olderPageSize = OLDER_PAGE_SIZE,
+      withEarlierRuns = false,
+    }: { olderPageSize?: number; withEarlierRuns?: boolean } = {},
   ): RunSubscription {
-    let view = this.previews.get(keyOf(taskId, runId)) ?? emptyRunView;
+    let own = this.previews.get(keyOf(taskId, runId)) ?? emptyRunView;
     let stopped = false;
+    // Entries paged in from earlier runs, and how many each earlier run still holds above them.
+    let earlierEntries: StoredLogEntry[] = [];
+    const earlier: { runId: string; remaining: number }[] = [];
+    const compose = (): RunView => ({
+      ...own,
+      entries: [...earlierEntries, ...own.entries],
+      windowStart:
+        own.windowStart + earlier.reduce((sum, run) => sum + run.remaining, 0),
+    });
     const publish = (next: RunView): void => {
-      view = next;
-      if (!stopped) onView(view);
+      own = next;
+      if (!stopped) onView(compose());
     };
-    if (view.loaded) onView(view);
+    if (own.loaded) onView(compose());
 
     const listener = (update: CloudTaskUpdatePayload): void => {
       if (update.taskId !== taskId || update.runId !== runId) return;
-      publish(applyUpdate(view, update));
+      publish(applyUpdate(own, update));
       if (update.kind === "snapshot") {
-        this.previews.set(keyOf(taskId, runId), view);
+        this.previews.set(keyOf(taskId, runId), own);
       }
     };
     this.engine.on(CloudTaskEvent.Update, listener);
@@ -249,10 +268,53 @@ export class CloudRuns {
       },
       (error: unknown) =>
         publish({
-          ...view,
+          ...own,
           error: error instanceof Error ? error.message : String(error),
         }),
     );
+    // Only each earlier run's size is read up front; its entries load as the reader scrolls up to them.
+    if (withEarlierRuns && this.earlierRuns) {
+      this.earlierRuns(taskId, runId)
+        .then((runIds) =>
+          Promise.all(
+            runIds.map(async (earlierRunId) => {
+              const probe = await this.sessionLogs(taskId, earlierRunId, {
+                limit: 1,
+              });
+              return {
+                runId: earlierRunId,
+                remaining: probe.matchingCount ?? probe.entries.length,
+              };
+            }),
+          ),
+        )
+        .then(
+          (sizes) => {
+            earlier.push(...sizes.filter((run) => run.remaining > 0));
+            if (earlier.length > 0) publish(own);
+          },
+          // Without the earlier runs, the chat still shows this run's own log.
+          () => {},
+        );
+    }
+
+    // Loads one older page and places it, showing the load while it runs.
+    const pageIn = async (
+      read: () => Promise<StoredLogEntry[]>,
+      place: (entries: StoredLogEntry[]) => void,
+    ): Promise<void> => {
+      publish({ ...own, loadingOlder: true });
+      try {
+        place(await read());
+        publish({ ...own, loadingOlder: false });
+      } catch (error) {
+        publish({
+          ...own,
+          loadingOlder: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
 
     return {
       stop: () => {
@@ -261,33 +323,47 @@ export class CloudRuns {
         this.engine.unwatch(taskId, runId);
       },
       loadOlder: async () => {
-        const windowStart = view.windowStart;
-        if (windowStart <= 0 || view.loadingOlder) return;
-        publish({ ...view, loadingOlder: true });
-        const offset = Math.max(0, windowStart - olderPageSize);
-        try {
-          const page = await this.sessionLogs(taskId, runId, {
-            limit: windowStart - offset,
-            offset,
-          });
-          // A new snapshot may have replaced the window while this page loaded.
-          if (view.windowStart !== windowStart) {
-            publish({ ...view, loadingOlder: false });
-            return;
-          }
-          publish({
-            ...view,
-            entries: [...page.entries, ...view.entries],
-            windowStart: offset,
-            loadingOlder: false,
-          });
-        } catch (error) {
-          publish({
-            ...view,
-            loadingOlder: false,
-            error: error instanceof Error ? error.message : String(error),
-          });
+        if (own.loadingOlder) return;
+        const windowStart = own.windowStart;
+        if (windowStart > 0) {
+          const offset = Math.max(0, windowStart - olderPageSize);
+          await pageIn(
+            async () =>
+              (
+                await this.sessionLogs(taskId, runId, {
+                  limit: windowStart - offset,
+                  offset,
+                })
+              ).entries,
+            (entries) => {
+              // A new snapshot may have replaced the window while this page loaded.
+              if (own.windowStart !== windowStart) return;
+              own = {
+                ...own,
+                entries: [...entries, ...own.entries],
+                windowStart: offset,
+              };
+            },
+          );
+          return;
         }
+        const next = earlier.find((run) => run.remaining > 0);
+        if (!next) return;
+        const end = next.remaining;
+        const offset = Math.max(0, end - olderPageSize);
+        await pageIn(
+          async () =>
+            (
+              await this.sessionLogs(taskId, next.runId, {
+                limit: end - offset,
+                offset,
+              })
+            ).entries,
+          (entries) => {
+            earlierEntries = [...entries, ...earlierEntries];
+            next.remaining = offset;
+          },
+        );
       },
     };
   }
