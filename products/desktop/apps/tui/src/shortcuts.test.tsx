@@ -1,36 +1,18 @@
-import { PassThrough } from "node:stream";
-import { type Key, render, useInput } from "ink";
+import { type Key, useInput } from "ink";
 import { describe, expect, it } from "vitest";
 import { DoublePress, type Shortcut, shortcutFor } from "./shortcuts";
+import { renderInTerminal } from "./testing";
 
 // Feeds raw terminal bytes through a real Ink instance and reports the shortcut they map to.
 async function shortcutFromBytes(bytes: string): Promise<Shortcut | null> {
-  const stdin = Object.assign(new PassThrough(), {
-    isTTY: true,
-    setRawMode: () => stdin,
-    ref: () => stdin,
-    unref: () => stdin,
-  });
-  const stdout = Object.assign(new PassThrough(), {
-    isTTY: true,
-    columns: 80,
-    rows: 24,
-  });
-  stdout.resume();
   const seen: Array<Shortcut | null> = [];
   function Probe(): null {
     useInput((input: string, key: Key) => seen.push(shortcutFor(input, key)));
     return null;
   }
-  const instance = render(<Probe />, {
-    stdin: stdin as unknown as NodeJS.ReadStream,
-    stdout: stdout as unknown as NodeJS.WriteStream,
-    exitOnCtrlC: false,
-    patchConsole: false,
-    kittyKeyboard: { mode: "enabled" },
-  });
+  const { instance, type } = renderInTerminal(<Probe />);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  stdin.write(bytes);
+  type(bytes);
   await new Promise((resolve) => setTimeout(resolve, 30));
   instance.unmount();
   return seen[0] ?? null;

@@ -36,14 +36,16 @@ function Line({ line }: { line: TranscriptLine }): ReactElement {
 }
 
 function useRunView(runs: CloudRuns, task: Task | undefined): RunView {
+  const taskId = task?.id;
   const run = task?.latest_run;
   const cloudRunId = run && run.environment !== "local" ? run.id : null;
   const [view, setView] = useState(emptyRunView);
+  // Keyed on ids only: each list refresh brings a new task object for the same run.
   useEffect(() => {
     setView(emptyRunView);
-    if (!task || !cloudRunId) return;
-    return runs.watch(task.id, cloudRunId, setView);
-  }, [runs, task?.id, cloudRunId, task]);
+    if (!taskId || !cloudRunId) return;
+    return runs.watch(taskId, cloudRunId, setView);
+  }, [runs, taskId, cloudRunId]);
   return view;
 }
 
