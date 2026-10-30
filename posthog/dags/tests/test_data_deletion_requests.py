@@ -65,6 +65,7 @@ from posthog.dags.data_deletion_requests import (
     verify_property_removal_shard,
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -74,6 +75,7 @@ from posthog.models.data_deletion_request import (
     count_remaining_for_request,
 )
 from posthog.models.deletion_targets import (
+    AI_EVENTS,
     EVENTS,
     EVENTS_JSON,
     DeletionTarget,
@@ -3548,6 +3550,40 @@ def test_native_property_removal_gate_checks_retained_copies(
         # gate's predicate.
         unsweepable = replace(EVENTS_JSON, accepts_property_rewrite=False)
         _refuse_property_removal_unsweepable(cluster, [unsweepable], request, marker, log=logging.getLogger(__name__))
+
+
+@pytest.mark.parametrize("properties,person_properties", [(["$ai_input"], []), ([], ["email"])])
+def test_property_removal_refuses_while_ai_events_holds_rows_in_its_window(
+    properties: list[str], person_properties: list[str]
+) -> None:
+    # ai_events has no person_properties or inserted_at, and keeps $ai_input in its own column, so the
+    # presence predicate cannot run there.
+    bulk_create_ai_events(
+        [
+            {
+                "event": "$ai_generation",
+                "distinct_id": "d",
+                "team_id": TEAM_ID,
+                "properties": {"$ai_input": "prompt"},
+                "timestamp": datetime.now() - timedelta(days=1),
+            }
+        ]
+    )
+    request = _property_removal_ctx(
+        events=["$ai_generation"], properties=properties, person_properties=person_properties
+    )
+
+    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
+        result: Future[list[tuple[object, ...]]] = Future()
+        result.set_result(sync_execute(query.query, query.parameters))
+        return result
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.any_host_by_role.side_effect = execute_query
+    with pytest.raises(dagster.Failure, match="cannot be deleted"):
+        _refuse_property_removal_unsweepable(
+            cluster, [AI_EVENTS], request, "2026-01-01 00:00:00.000000", log=logging.getLogger(__name__)
+        )
 
 
 @pytest.mark.parametrize(

@@ -619,6 +619,8 @@ def _refuse_property_removal_unsweepable(
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
+        if not target.property_presence_checkable:
+            return portable_event_removal_where(deletion_request)
         return _property_removal_where(
             deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
         )
@@ -956,9 +958,7 @@ def complete_event_deletion(
 
 
 _PROPERTY_REWRITE_UNSWEEPABLE_REASON = (
-    "the property rewrite does not clean every copy of a property this table keeps. The native-JSON "
-    "events table also retains temporary properties and quarantine diagnostics, which the rewrite "
-    f"leaves in place. See {COVERAGE_DOC}."
+    f"the property rewrite does not clean every copy of a property this table keeps. See {COVERAGE_DOC}."
 )
 
 
