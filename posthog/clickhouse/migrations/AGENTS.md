@@ -140,6 +140,10 @@ engine=AggregatingMergeTree(
 - `sharding_key`: Expression like `"sipHash64(person_id)"` (optional, omit for non-sharded)
 - `cluster`: Override cluster (default: `settings.CLICKHOUSE_CLUSTER`)
   - Use `cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER` for non-sharded tables to point to single shard
+  - `cluster=settings.CLICKHOUSE_WRITABLE_CLUSTER` (`posthog_writable`) and the other `<cluster>_writable` clusters list every online writable replica of a shard, primary first. Any of those replicas can receive a write.
+    - The target must be `Replicated*` (`ReplicationScheme.SHARDED` or `REPLICATED`). A non-replicated target keeps those rows on the one replica that received them. `test_writable_cluster_targets.py` checks the generated HCL SQL.
+    - Every materialized view on the target must exist on every replica of its role. A view fires only on the replica that receives the insert, and replication does not run it again. Nothing checks this, so create such views with the target's `node_roles`.
+  - `cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER` (`posthog_primary_replica`) lists only the primary of each shard. Use it for reads that cannot accept replica lag.
 
 Examples:
 

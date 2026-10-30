@@ -108,6 +108,7 @@ SETTINGS kafka_skip_broken_messages = 100,
 - When dropping and recreating replicated table in same migration, use `DROP TABLE IF EXISTS ... SYNC`
 - If a function generating SQL has on_cluster param, always set `on_cluster=False`
 - Use `sharded=True` when altering sharded tables
+- A `Distributed` table on a `<cluster>_writable` cluster targets a `Replicated*` table, and every MV on that target exists on every replica of its role: any online replica can receive the write. `migrations/AGENTS.md` has the reasons
 - Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
 - **Never write `CODEC(ZSTD(1))` on a column** — the server already compresses every column with ZSTD, so it buys nothing. Declare a CODEC only where it beats that default, and check the `ORDER BY` first: `Delta`/`DoubleDelta` need the column near-sorted in storage order (a leading sort-key prefix), and lose on a column the key only buckets or omits. `T64`/`Gorilla` are ordering-independent. Put it on the storage table only — a CODEC on a Distributed or Kafka table is inert metadata that drifts from the sharded table it fronts.
 - **Never write a `DROP COLUMN` migration yourself** — `DROP COLUMN` can get stuck in ClickHouse and block releases. Column removal is a two-step process: (1) the ClickHouse team drops the column directly on the cluster, then (2) you write a migration with the matching `DROP COLUMN` so the codebase schema stays in sync. Never initiate the drop from a migration without the ClickHouse team having done step 1 first.
