@@ -8,8 +8,8 @@ import { LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
