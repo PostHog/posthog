@@ -156,6 +156,7 @@ export function sidebarRows({
   layout: LayoutState;
   work: WorkPage;
   collapsed: Set<string>;
+  // Chats mid-turn by task id, and new chats whose first message is on its way by pane id.
   working: Set<string>;
   waiting?: Set<string>;
   /** Open tasks outside the recent page, fetched on their own. */
@@ -195,7 +196,9 @@ export function sidebarRows({
           : titles.get(taskId) || task?.title || savedTitle || "Untitled",
       indicator:
         taskId === null
-          ? null
+          ? paneId && working.has(paneId)
+            ? "working"
+            : null
           : chatIndicator(taskId, task, runsHere, {
               working,
               waiting,
