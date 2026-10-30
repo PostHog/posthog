@@ -29,7 +29,10 @@ from posthog.helpers.dashboard_templates import (
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
 )
 from posthog.models.team.team import Team
-from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
+from posthog.tasks.tasks import (
+    calculate_decide_usage,
+    find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task,
+)
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
@@ -1369,3 +1372,16 @@ class TestEnrichedFlagKeyExprSQL(SimpleTestCase):
         ):
             sql = _enriched_flag_key_expr_sql()
         assert sql == "ifNull(`mat_feature_flag`, '')"
+
+
+class TestCalculateDecideUsage(SimpleTestCase):
+    @patch(
+        "products.feature_flags.backend.flag_analytics.capture_usage_for_all_teams",
+        side_effect=ConnectionError("redis"),
+    )
+    @patch("posthog.tasks.tasks.get_regional_ph_client")
+    def test_shuts_down_the_client_when_the_export_fails(self, get_regional_ph_client, _capture):
+        with pytest.raises(ConnectionError):
+            calculate_decide_usage()
+
+        get_regional_ph_client.return_value.shutdown.assert_called_once()
