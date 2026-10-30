@@ -243,8 +243,13 @@ class TestCheckMatchesCurrentRules(BaseTest):
         other = authorization.check(
             resource=resource_for_object(other_dashboard), action=Action.MANAGE_ACCESS, subject=subject
         )
+        other_with_view_team = authorization.check(
+            resource=resource_for_object(other_dashboard, team=self.team),
+            action=Action.MANAGE_ACCESS,
+            subject=subject,
+        )
 
-        assert (own_team, other) == (True, False)
+        assert (own_team, other, other_with_view_team) == (True, False, False)
 
     def test_resource_for_object_with_a_team_reads_that_team_rules(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -268,8 +273,6 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert (own_team, view_team) == (False, True)
         assert view_team == UserAccessControl(self.user, self.team).check_access_level_for_object(source, "editor")
-        with pytest.raises(ValueError, match="dashboard"):
-            resource_for_object(self.dashboard, team=self.team)
 
     @parameterized.expand(
         [

@@ -24,7 +24,7 @@ def resource_for_object(obj: Model, *, team: Team | None = None) -> Resource:
 
     `project_id` is the object's team id, because access rules are scoped to a team. Pass `team`
     only where today's check reads another team's rules for this object, such as the view's team.
-    Never for dashboards: all of a dashboard's rules come from its own team.
+    A dashboard ignores `team`, because all of its rules come from its own team.
     """
     scope = model_to_resource(obj)
     if scope is None:
@@ -32,9 +32,8 @@ def resource_for_object(obj: Model, *, team: Team | None = None) -> Resource:
     resource_type = ResourceType(scope)
     if resource_type in MEMBERSHIP_RESOURCES:
         raise NotImplementedError(f"Building a {resource_type} resource from a model is not supported yet.")
-    if team is not None and resource_type == ResourceType.DASHBOARD:
-        raise ValueError("A dashboard always uses its own team's rules, so do not pass `team`.")
-    team_id = team.id if team is not None else getattr(obj, "team_id", None)
+    rules_team = team if resource_type != ResourceType.DASHBOARD else None
+    team_id = rules_team.id if rules_team is not None else getattr(obj, "team_id", None)
     if team_id is None:
         raise ValueError(f"{type(obj).__name__} has no team, so its access rules cannot be resolved.")
     parent = RESOURCE_FALLBACK_MAP.get(scope)
