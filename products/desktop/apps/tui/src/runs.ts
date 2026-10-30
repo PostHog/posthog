@@ -6,7 +6,8 @@ import type {
   StoredLogEntry,
   TaskRunStatus,
 } from "@posthog/shared";
-import type { Transcript, TranscriptLine } from "./transcript";
+import type { ChatNotice } from "./chatView";
+import { activityOf, type Transcript, type TranscriptLine } from "./transcript";
 
 export interface RunView {
   loaded: boolean;
@@ -112,7 +113,7 @@ export function runNotice(
   turnOpen: boolean,
   lastTurn: Transcript["lastTurn"],
   turnStartedAt: number | null = null,
-): { text: string; tone: "working" | "error" | "done" } | null {
+): ChatNotice | null {
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
   }
@@ -130,9 +131,21 @@ export function runNotice(
     const tools = lines
       .slice(since + 1)
       .filter((line) => line.kind === "tool").length;
-    const parts = ["Working", formatDuration(Date.now() - turnStartedAt)];
+    // A call still in flight names the work; between calls the agent is thinking it over.
+    const last = lines.at(-1);
+    const call =
+      last?.kind === "tool" &&
+      (last.status === "pending" || last.status === "in_progress")
+        ? last
+        : null;
+    const parts = [formatDuration(Date.now() - turnStartedAt)];
+    if (call?.detail) parts.unshift(call.detail.split("\n")[0]);
     if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
-    return { text: parts.join(" · "), tone: "working" };
+    return {
+      text: call ? activityOf(call.title) : "Working",
+      detail: parts.join(" · "),
+      tone: "working",
+    };
   }
   if (lastTurn && !waiting) {
     const done = new Date(lastTurn.endedAt).toLocaleTimeString("en-US", {

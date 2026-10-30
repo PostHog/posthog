@@ -43,6 +43,8 @@ const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 export interface ChatNotice {
   text: string;
+  // Said in lighter text after it, such as the command a call runs and how long the turn has taken.
+  detail?: string;
   tone: "working" | "error" | "done";
 }
 
@@ -56,7 +58,8 @@ class NoticeRow implements Component {
     }
     if (this.notice.tone === "done") return [DIM(` ✻ ${this.notice.text}`)];
     const frame = SPINNER[Math.floor(Date.now() / 80) % SPINNER.length];
-    return [DIM(` ${frame} ${this.notice.text}`)];
+    const detail = this.notice.detail ? ` ${this.notice.detail}` : "";
+    return [`${DIM(` ${frame}`)} ${this.notice.text}${DIM(detail)}`];
   }
 
   invalidate(): void {}
@@ -131,14 +134,20 @@ class ToolGroup implements Component {
     private readonly tools: ToolLine[],
     private readonly isOpen: () => boolean,
     private readonly isHovered: () => boolean,
+    // While the turn is open, the group's row is the run's status line.
+    private readonly live: ChatNotice | null = null,
   ) {}
 
   render(width: number): string[] {
     const open = this.isOpen();
     const failed = this.tools.filter((tool) => tool.status === "failed").length;
-    const label = `${open ? "▾" : "▸"} ${toolSummary(this.tools)}`;
+    const arrow = open ? "▾" : "▸";
     // Under the pointer it goes from grey to full colour, so it reads as clickable.
-    const summary = `${this.isHovered() ? label : DIM(label)}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
+    const dim = this.isHovered() ? (text: string): string => text : DIM;
+    const label = this.live
+      ? `${dim(arrow)} ${this.live.text}${dim(this.live.detail ? ` ${this.live.detail}` : "")}`
+      : dim(`${arrow} ${toolSummary(this.tools)}`);
+    const summary = `${label}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
     const lines = [truncateToWidth(` ${summary}`, width)];
     if (!open) return lines;
     for (const tool of this.tools) {
@@ -241,6 +250,11 @@ export class ChatView {
     this.groups = new Set(
       shown.flatMap((block) => (block.kind === "tools" ? [block.id] : [])),
     );
+    // An open turn's latest tool calls and its status read as one row, not two that say the same.
+    const folded =
+      notice?.tone === "working" && shown.at(-1)?.kind === "tools"
+        ? notice
+        : null;
     this.items = shown.flatMap((block, index) => {
       const component =
         block.kind === "tools"
@@ -248,6 +262,7 @@ export class ChatView {
               block.tools,
               () => this.expanded.has(block.id),
               () => this.hovered === block.id,
+              index === shown.length - 1 ? folded : null,
             )
           : new Trimmed(componentFor(block));
       const item = { id: block.id, component };
@@ -255,7 +270,7 @@ export class ChatView {
         ? [{ id: `${block.id}:gap`, component: new Spacer(1) }, item]
         : [item];
     });
-    if (notice) {
+    if (notice && !folded) {
       this.items.push(
         { id: "notice:gap", component: new Spacer(1) },
         { id: "notice", component: new NoticeRow(notice) },

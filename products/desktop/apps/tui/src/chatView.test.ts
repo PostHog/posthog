@@ -282,6 +282,39 @@ describe("ChatView", () => {
     expect(lines[1]).toBe("");
     expect(lines[2]).toMatch(/Thinking…$/);
   });
+
+  it("folds an open turn's latest tool calls into the status line, which a click opens", () => {
+    const chat = new ChatView();
+    chat.setTranscript(
+      [
+        { kind: "user", id: "u1", text: "yo" },
+        tool("t1", "bash"),
+        tool("t2", "bash", "in_progress", "pnpm test"),
+      ],
+      {
+        notice: {
+          text: "Running",
+          detail: "pnpm test · 30s · 2 tools",
+          tone: "working",
+        },
+      },
+    );
+    const trimmed = (height: number): string[] =>
+      plain(chat.render(60, height)).map((line) => line.trim());
+
+    expect(trimmed(4)).toEqual([
+      "yo",
+      "",
+      "▸ Running pnpm test · 30s · 2 tools",
+      "",
+    ]);
+    expect(chat.toggleAt(2)).toBe(true);
+    expect(trimmed(5).slice(2)).toEqual([
+      "▾ Running pnpm test · 30s · 2 tools",
+      "● bash cmd",
+      "● bash pnpm test",
+    ]);
+  });
 });
 
 describe("overlayBottom", () => {

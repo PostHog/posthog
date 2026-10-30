@@ -321,15 +321,23 @@ describe("runNotice after a finished turn", () => {
 });
 
 describe("runNotice during a turn", () => {
-  it("says how long the agent has worked and how many tools it called", () => {
+  it.each([
+    ["between calls", "completed", "Working", "30s · 2 tools"],
+    [
+      "during a call, naming it by its first line",
+      "in_progress",
+      "Running",
+      "pnpm test · 30s · 2 tools",
+    ],
+  ])("says what the agent is doing %s", (_, status, text, detail) => {
     const lines = [
       { kind: "user" as const, id: "u", text: "hi" },
       ...["t1", "t2"].map((id) => ({
         kind: "tool" as const,
         id,
         title: "bash",
-        status: "completed",
-        detail: "",
+        status: id === "t2" ? status : "completed",
+        detail: "pnpm test\n--watch",
         output: "",
       })),
     ];
@@ -340,10 +348,7 @@ describe("runNotice during a turn", () => {
       null,
       Date.now() - 30_000,
     );
-    expect(notice).toEqual({
-      text: "Working · 30s · 2 tools",
-      tone: "working",
-    });
+    expect(notice).toEqual({ text, detail, tone: "working" });
   });
 });
 

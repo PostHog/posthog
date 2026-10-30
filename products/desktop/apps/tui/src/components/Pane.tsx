@@ -2,7 +2,7 @@ import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
-import { type ChatView, overlayBottom } from "../chatView";
+import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
 import type { LocalSession } from "../local";
@@ -183,7 +183,7 @@ export function Pane({
     onLines(lines);
   });
   // A new chat shows its message and start-up state before the run even exists.
-  const notice = task?.latest_run
+  const notice: ChatNotice | null = task?.latest_run
     ? runNotice(
         withListedRun(view, task.latest_run),
         lines,
@@ -205,7 +205,9 @@ export function Pane({
             tone: "working",
           } as const)
         : null;
-  const noticeKey = notice ? `${notice.tone}:${notice.text}` : "";
+  const noticeKey = notice
+    ? `${notice.tone}:${notice.text}:${notice.detail ?? ""}`
+    : "";
   // Keeps a working notice's spinner turning.
   useAnimation({ interval: 80, isActive: notice?.tone === "working" });
   const hasOlder = view.windowStart > 0;
