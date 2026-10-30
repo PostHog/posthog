@@ -135,6 +135,36 @@ def incoming_links(
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
 
 
+def incoming_links_by_report(
+    *,
+    team_id: int,
+    report_ids: Collection[str],
+    kinds: Collection[ReportLinkKind] | None = None,
+    include_deleted_sources: bool = False,
+) -> dict[str, list[ReportEdge]]:
+    """`incoming_links` for several reports in one query, keyed by target report id."""
+    target_ids = {target_id for target_id in map(_canonical_report_id, report_ids) if target_id is not None}
+    if not target_ids:
+        return {}
+    candidates = SignalReportArtefact.objects.using("default").filter(
+        team_id=team_id,
+        type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+        link_target_id__in=target_ids,
+    )
+    if not include_deleted_sources:
+        candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
+    rows = list(
+        candidates.order_by("created_at", "id").values_list("report_id", "content")[
+            : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
+        ]
+    )
+    edges_by_report: dict[str, list[ReportEdge]] = {}
+    for edge in _edges_from_rows(rows, kinds=kinds):
+        if edge.target_id in target_ids:
+            edges_by_report.setdefault(edge.target_id, []).append(edge)
+    return edges_by_report
+
+
 def duplicate_chain(*, team_id: int, report_id: str | uuid.UUID) -> list[str]:
     """The reports this one duplicates, nearest first, ending at the one that duplicates nothing.
 

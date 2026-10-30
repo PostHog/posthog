@@ -32,8 +32,8 @@ from products.signals.backend.emission.steering import SourceSteering, apply_ste
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord, SignalReport
-from products.signals.backend.recurrence import forks_recurrence
-from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.recurrence import reports_fork_recurrence
+from products.signals.backend.report_merge import signal_target_reports
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
@@ -634,8 +634,10 @@ def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[s
     """The matched reports whose signals would fork a recurrence, after following merges and recurrences."""
     if not report_ids:
         return set()
-    reports = SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-    return {str(report.id) for report in reports if forks_recurrence(signal_target_report(report))}
+    reports = list(SignalReport.objects.filter(team_id=team_id, id__in=report_ids))
+    targets = signal_target_reports(team_id=team_id, reports=reports)
+    closed_targets = reports_fork_recurrence(team_id=team_id, reports=list(targets.values()))
+    return {report_id for report_id, target in targets.items() if str(target.id) in closed_targets}
 
 
 async def run_signal_pipeline(
