@@ -198,6 +198,7 @@ export function createCloud(
           sessionFile: join(LOCAL_SESSIONS, `${id}.jsonl`),
           taskContext: { taskId: id, cwd: process.cwd() },
         }),
+        mcp,
       );
       await session.start();
       return session;

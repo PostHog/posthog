@@ -49,6 +49,13 @@ import {
   type Wheel,
 } from "../mouse";
 import { openUrl } from "../openUrl";
+import {
+  type AgentPrompt,
+  promptId,
+  promptReply,
+  promptSheet,
+  takesText,
+} from "../prompts";
 import type { CloudRuns } from "../runs";
 import { moveCursor, type Sheet, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, shortcutFor } from "../shortcuts";
@@ -75,6 +82,10 @@ interface OpenModal {
   sheet: Sheet;
   index: number;
   choose: (index: number) => void;
+  // Runs on Esc, for a sheet whose opener needs to hear about a cancel.
+  dismiss?: () => void;
+  // Set when the answer is typed in the composer instead of picked from the list.
+  submitText?: (text: string) => void;
 }
 const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
@@ -147,8 +158,12 @@ export function App({
       started = startLocal(id);
       locals.current.set(id, started);
       started.then(
-        (local) =>
-          setLocalSessions((current) => new Map(current).set(id, local)),
+        (local) => {
+          setLocalSessions((current) => new Map(current).set(id, local));
+          local.watchPrompts((list) =>
+            setPrompts((current) => new Map(current).set(id, list)),
+          );
+        },
         (error: unknown) => {
           locals.current.delete(id);
           flashNotice(`Couldn't start the local agent: ${messageOf(error)}`);
@@ -196,6 +211,11 @@ export function App({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   // Modal sheets the app opened, one per pane; they take the pane's keys until closed.
   const [modals, setModals] = useState<Map<string, OpenModal>>(new Map());
+  // What each local chat waits on the user for, and the cursor in each prompt's sheet.
+  const [prompts, setPrompts] = useState<Map<string, AgentPrompt[]>>(new Map());
+  const [promptCursors, setPromptCursors] = useState<Map<string, number>>(
+    new Map(),
+  );
   // Models: the last list a live run gave us, each task's model, and picks held until a pane's run is live.
   const knownModels = useRef<ModelChoice[] | null>(null);
   const [taskModels, setTaskModels] = useState<Map<string, ModelChoice>>(
@@ -368,6 +388,46 @@ export function App({
     );
   };
 
+  const paneTaskId = (paneId: string): string | null =>
+    layout.workspaces
+      .flatMap((w) => panes(w.root))
+      .find((candidate) => candidate.id === paneId)?.taskId ?? null;
+
+  // A local chat's oldest waiting prompt shows in any pane that has the chat open.
+  const promptModal = (taskId: string | null): OpenModal | undefined => {
+    const prompt = taskId ? prompts.get(taskId)?.[0] : undefined;
+    const local = taskId ? localSessions.get(taskId) : undefined;
+    if (!prompt || !local) return undefined;
+    const reply = (answer: number | string | null): void => {
+      local
+        .answer(prompt, promptReply(prompt, answer))
+        .catch((error: unknown) =>
+          flashNotice(`Couldn't answer: ${messageOf(error)}`),
+        );
+    };
+    return {
+      sheet: promptSheet(prompt),
+      index: promptCursors.get(promptId(prompt)) ?? 0,
+      choose: reply,
+      dismiss: () => reply(null),
+      submitText: takesText(prompt) ? reply : undefined,
+    };
+  };
+  const modalFor = (paneId: string): OpenModal | undefined =>
+    modals.get(paneId) ?? promptModal(paneTaskId(paneId));
+  // An editor prompt starts from the text the agent gave it.
+  const prefilled = useRef(new Set<string>());
+  useEffect(() => {
+    for (const pane of layout.workspaces.flatMap((w) => panes(w.root))) {
+      const prompt = pane.taskId ? prompts.get(pane.taskId)?.[0] : undefined;
+      if (prompt?.kind !== "dialog" || prompt.request.method !== "editor")
+        continue;
+      if (prefilled.current.has(prompt.request.id)) continue;
+      prefilled.current.add(prompt.request.id);
+      composerFor(pane.id).setText(prompt.request.prefill ?? "");
+    }
+  });
+
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
     const run = task?.latest_run;
     const pane = layout.workspaces
@@ -532,6 +592,11 @@ export function App({
       .flatMap((w) => panes(w.root))
       .find((candidate) => candidate.id === paneId);
     const current = taskOf(pane?.taskId ?? null);
+    const textPrompt = modalFor(paneId)?.submitText;
+    if (textPrompt) {
+      textPrompt(text);
+      return;
+    }
     const slash = parseSlash(text);
     if (slash?.command === "model") {
       openModelSheet(paneId, current);
@@ -783,7 +848,11 @@ export function App({
       return;
     }
     const key = sheetKey(sequence);
-    const modal = modals.get(paneId);
+    const modal = modalFor(paneId);
+    if (modal?.submitText && key?.kind !== "dismiss") {
+      composerFor(paneId).handleInput(sequence);
+      return;
+    }
     if (modal) {
       if (key) onModalKey(paneId, modal, key);
       return;
@@ -834,11 +903,22 @@ export function App({
         modal.index,
         key.kind === "up" ? -1 : 1,
       );
-      setModals((current) => new Map(current).set(paneId, { ...modal, index }));
+      const prompt = modals.has(paneId)
+        ? undefined
+        : prompts.get(paneTaskId(paneId) ?? "")?.[0];
+      if (prompt)
+        setPromptCursors((current) =>
+          new Map(current).set(promptId(prompt), index),
+        );
+      else
+        setModals((current) =>
+          new Map(current).set(paneId, { ...modal, index }),
+        );
       return;
     }
     if (key.kind === "dismiss") {
       closeModal(paneId);
+      modal.dismiss?.();
       return;
     }
     const index = key.kind === "number" ? key.index : modal.index;
@@ -936,7 +1016,7 @@ export function App({
               index: pickerIndex.get(node.id) ?? 0,
               dismissed,
             }}
-            modal={modals.get(node.id) ?? null}
+            modal={modalFor(node.id) ?? null}
             model={
               heldModels.get(node.id)?.name ??
               (node.taskId ? taskModels.get(node.taskId)?.name : undefined)

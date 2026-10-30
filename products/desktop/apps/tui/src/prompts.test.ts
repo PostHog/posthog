@@ -1,0 +1,87 @@
+import { describe, expect, it } from "vitest";
+import { type AgentPrompt, promptReply } from "./prompts";
+
+const dialog = (request: Record<string, unknown>): AgentPrompt =>
+  ({
+    kind: "dialog",
+    request: {
+      type: "extension_ui_request",
+      id: "d1",
+      title: "Title",
+      ...request,
+    },
+  }) as AgentPrompt;
+const permission: AgentPrompt = {
+  kind: "permission",
+  request: {
+    requestId: "p1",
+    serverName: "posthog",
+    toolName: "query",
+    installationId: "i1",
+    arguments: {},
+  },
+};
+
+describe("promptReply", () => {
+  it.each([
+    [
+      "a picked option",
+      dialog({ method: "select", options: ["a", "b"] }),
+      1,
+      {
+        kind: "dialog",
+        response: { type: "extension_ui_response", id: "d1", value: "b" },
+      },
+    ],
+    [
+      "yes to a confirm",
+      dialog({ method: "confirm", message: "Sure?" }),
+      0,
+      {
+        kind: "dialog",
+        response: { type: "extension_ui_response", id: "d1", confirmed: true },
+      },
+    ],
+    [
+      "no to a confirm",
+      dialog({ method: "confirm", message: "Sure?" }),
+      1,
+      {
+        kind: "dialog",
+        response: { type: "extension_ui_response", id: "d1", confirmed: false },
+      },
+    ],
+    [
+      "typed text",
+      dialog({ method: "input" }),
+      "hello",
+      {
+        kind: "dialog",
+        response: { type: "extension_ui_response", id: "d1", value: "hello" },
+      },
+    ],
+    [
+      "a dismissed dialog",
+      dialog({ method: "editor" }),
+      null,
+      {
+        kind: "dialog",
+        response: { type: "extension_ui_response", id: "d1", cancelled: true },
+      },
+    ],
+    [
+      "allow once",
+      permission,
+      0,
+      { kind: "permission", requestId: "p1", decision: "allow" },
+    ],
+    [
+      "a dismissed permission",
+      permission,
+      null,
+      { kind: "permission", requestId: "p1", decision: "reject" },
+    ],
+  ])("answers %s", (_name, prompt, answer, expected) => {
+    expect(promptReply(prompt, answer)).toEqual(expected);
+  });
+});

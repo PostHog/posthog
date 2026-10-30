@@ -87,7 +87,11 @@ export function Pane({
   onOffer: (offer: ActionsLine | null) => void;
   picker: { index: number; dismissed: Set<string> };
   // A sheet the app opened for this pane, such as the model picker.
-  modal: { sheet: Sheet; index: number } | null;
+  modal: {
+    sheet: Sheet;
+    index: number;
+    submitText?: (text: string) => void;
+  } | null;
   // The model this chat runs on, when known.
   model: string | undefined;
   // Where the chat runs, its repository and pull request.
@@ -192,7 +196,7 @@ export function Pane({
   useEffect(() => {
     onOffer(offer);
   });
-  // A modal sheet takes the composer's place; an offer sheet sits above the composer.
+  // A modal sheet takes the composer's place, unless its answer is typed; an offer sheet sits above the composer.
   const offerOpen = offer !== null && !picker.dismissed.has(offer.id);
   const sheetLines =
     width <= 0
@@ -202,7 +206,8 @@ export function Pane({
         : offerOpen
           ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
           : [];
-  const bottomLines = modal ? sheetLines : [...sheetLines, ...composerLines];
+  const bottomLines =
+    modal && !modal.submitText ? sheetLines : [...sheetLines, ...composerLines];
   const chatHeight = height - bottomLines.length - (view.error ? 1 : 0);
 
   const popupContent = (
