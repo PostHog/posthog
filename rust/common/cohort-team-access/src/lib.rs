@@ -24,6 +24,11 @@ use tracing::{debug, warn};
 const QUERY_TIMEOUT_SQL: &str = "SET LOCAL statement_timeout = '5s'";
 const ACCESS_ROWS_SQL: &str = "SELECT team_id, level FROM cohort_realtime_team_access";
 
+/// Bounds the whole poll on the client. The statement timeout stops only the server, so a socket
+/// that dies after the pool hands it out would otherwise hang the poll and freeze every grant and
+/// revoke. Longer than the statement timeout, so the server cancels a slow read first.
+const POLL_TIMEOUT: Duration = Duration::from_secs(10);
+
 const POLL_INTERVAL: Duration = Duration::from_secs(15);
 const POLL_JITTER: Duration = Duration::from_secs(3);
 
@@ -36,6 +41,8 @@ const LAST_SUCCESS: &str = "posthog_cohort_team_access_last_success_timestamp_se
 pub enum PollError {
     #[error("querying cohort_realtime_team_access failed: {0}")]
     Query(#[from] sqlx::Error),
+    #[error("reading cohort_realtime_team_access timed out")]
+    TimedOut(#[from] tokio::time::error::Elapsed),
     #[error("team {team_id} has the unknown level {level:?}")]
     UnknownLevel { team_id: i32, level: String },
     /// Such a read is wrong: an empty table, another database, or a replica that lags behind the
@@ -185,14 +192,18 @@ impl TeamAccessPoller {
     /// So a row deleted or granted again by hand keeps its old state, and fails every later poll,
     /// until the service restarts.
     pub async fn poll(&mut self, pool: &PgPool) -> Result<usize, PollError> {
-        let mut transaction = pool.begin().await?;
-        sqlx::query(QUERY_TIMEOUT_SQL)
-            .execute(&mut *transaction)
-            .await?;
-        let fetched = sqlx::query_as::<_, (i32, String)>(ACCESS_ROWS_SQL)
-            .fetch_all(&mut *transaction)
-            .await?;
-        transaction.commit().await?;
+        let read = async {
+            let mut transaction = pool.begin().await?;
+            sqlx::query(QUERY_TIMEOUT_SQL)
+                .execute(&mut *transaction)
+                .await?;
+            let fetched = sqlx::query_as::<_, (i32, String)>(ACCESS_ROWS_SQL)
+                .fetch_all(&mut *transaction)
+                .await?;
+            transaction.commit().await?;
+            Ok::<_, sqlx::Error>(fetched)
+        };
+        let fetched = tokio::time::timeout(POLL_TIMEOUT, read).await??;
         self.accept(AccessRows::parse(fetched)?)
     }
 
