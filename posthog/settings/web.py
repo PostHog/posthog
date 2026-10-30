@@ -1130,6 +1130,15 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
+# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
+# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
+# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
+WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
+    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
+)
+if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
+    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.

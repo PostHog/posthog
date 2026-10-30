@@ -17,7 +17,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
-from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_optional import ResearchAccessPolicy, team_has_code_access
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
@@ -76,7 +76,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
         for adapter in adapters
     ):
         return ReportResearchContext(mode="data_only", repository_status="no_repositories")
-    if resolve_team_github_integration(team_id, team_only=True) is None:
+    if not team_has_code_access(team_id):
         return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
     return ReportResearchContext(mode="code", repository_status="available")
 
