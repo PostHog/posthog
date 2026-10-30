@@ -5,6 +5,7 @@ import { LemonButton, LemonCheckbox, LemonDropdown, LemonTag } from '@posthog/le
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_REPORT_SECTION_DESCRIPTION,
     INBOX_REPORT_SECTION_KEYS,
@@ -15,18 +16,21 @@ import {
 
 /**
  * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs decision,
- * Review and merge, Resolved, Dismissed, plus Not actionable for staff). The open-work states are
+ * Review and merge, Resolved, Closed, Dismissed, plus Not actionable for staff). The open-work states are
  * selected by default (see DEFAULT_STATE_FILTER); an empty selection means every state, so the
  * trigger reads "All statuses" then.
  */
 export function InboxStateFilter(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
     const { stateFilter, visibleStateFilter } = useValues(inboxFiltersLogic)
+    const { hasProjectClosedReports } = useValues(reportListLogic(sectionListLogicProps('closed')))
     const { toggleState } = useActions(inboxFiltersLogic)
     const [visible, setVisible] = useState(false)
 
     const options = INBOX_REPORT_SECTION_KEYS.filter(
-        (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
+        (key) =>
+            (isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)) &&
+            (key !== 'closed' || hasProjectClosedReports || stateFilter.includes(key))
     )
     // Label from the visible selection: a shared link can carry the staff-only state, and the
     // trigger must not read "Not actionable" (or an inflated count) for a state whose checkbox the
