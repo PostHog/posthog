@@ -1,6 +1,10 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, it } from "vitest";
+import {
+  resetCapabilitiesCache,
+  setCapabilities,
+  stripTerminalSequences,
+} from "@earendil-works/pi-tui";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ChatView, overlayBottom } from "./chatView";
 import type { TranscriptLine } from "./transcript";
 
@@ -120,6 +124,53 @@ describe("ChatView", () => {
       "● bash cmd",
       "",
     ]);
+  });
+
+  describe.each([
+    ["supports hyperlinks", true],
+    ["prints link addresses", false],
+  ])("links, when the terminal %s", (_, hyperlinks) => {
+    afterEach(() => resetCapabilitiesCache());
+    const pr = "https://github.com/PostHog/posthog/pull/1";
+    // Finds a cell on screen by the text drawn there.
+    const cellOf = (
+      lines: string[],
+      text: string,
+    ): { row: number; column: number } => {
+      const row = plain(lines).findIndex((line) => line.includes(text));
+      return { row, column: plain(lines)[row].indexOf(text) };
+    };
+
+    it("finds the link under a cell of the visible, scrolled chat", () => {
+      setCapabilities({ images: null, trueColor: true, hyperlinks });
+      const chat = new ChatView();
+      chat.setTranscript([
+        ...replies(10),
+        { kind: "assistant", id: "link", text: `Opened ${pr}` },
+      ]);
+      const lines = chat.render(60, 5);
+
+      const start = cellOf(lines, "https://github");
+      expect(chat.linkAt(start.row, start.column + 2)).toBe(pr);
+      const opened = cellOf(lines, "Opened");
+      expect(chat.linkAt(opened.row, opened.column)).toBeNull();
+      expect(chat.linkAt(99, 0)).toBeNull();
+    });
+  });
+
+  it("opens the whole address from any row of a hyperlink that wraps", () => {
+    setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+    const chat = new ChatView();
+    const pr = "https://github.com/PostHog/posthog/pull/123456789/files";
+    chat.setTranscript([{ kind: "assistant", id: "a1", text: pr }]);
+    const lines = chat.render(30, 3);
+    resetCapabilitiesCache();
+
+    const rows = plain(lines).flatMap((line, row) =>
+      line.trim() ? [row] : [],
+    );
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(chat.linkAt(row, 2)).toBe(pr);
   });
 
   it("shows a shell command the user ran with its output, apart from the agent's tools", () => {

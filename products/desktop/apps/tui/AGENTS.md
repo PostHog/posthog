@@ -30,6 +30,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `models.ts` | `/model`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |
 | `transcript.ts` | Log entries to transcript lines, reusing the desktop's `buildConversationItems` |
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
+| `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open |
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
