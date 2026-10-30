@@ -85,7 +85,7 @@ describe('API helper', () => {
                 expect(fakeFetch).toHaveBeenCalledWith(
                     path === 'proxy'
                         ? 'https://example.com/v1/runs/run-1/stream?resync=1'
-                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'log_entries' : 'stream'}/`,
                     expect.objectContaining({
                         signal: controller.signal,
                         ...(path !== 'history' ? { headers: streamHeaders } : {}),
