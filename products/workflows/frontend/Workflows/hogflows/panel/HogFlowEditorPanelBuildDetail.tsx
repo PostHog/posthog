@@ -40,6 +40,11 @@ import {
     sanitizeVariableKey,
 } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
+import { ViewOnlyFieldset } from './ViewOnlyFieldset'
+
+function withViewOnlyContent<T extends { content: React.ReactNode }>(panels: T[]): T[] {
+    return panels.map((panel) => ({ ...panel, content: <ViewOnlyFieldset>{panel.content}</ViewOnlyFieldset> }))
+}
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
@@ -100,111 +105,120 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 contentClassName="flex flex-1 shrink-0 flex-col"
                 styledScrollbars
             >
-                <div className="flex flex-1 flex-col gap-2 p-3">
-                    <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
-                        {Step?.renderConfiguration(selectedNode)}
-                    </ErrorBoundary>
-                </div>
+                <ViewOnlyFieldset>
+                    <div className="flex flex-1 flex-col gap-2 p-3">
+                        <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                            {Step?.renderConfiguration(selectedNode)}
+                        </ErrorBoundary>
+                    </div>
 
-                {isOptOutEligibleAction(action) && (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="flex flex-col px-2 py-1">
-                            <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
-                                <span>Message category</span>
-                                <div className="flex gap-2">
-                                    {!categoriesLoading && !categories.length && (
-                                        <LemonButton
-                                            to={urls.workflows('opt-outs')}
-                                            targetBlank
-                                            type="secondary"
-                                            icon={<IconExternal />}
-                                        >
-                                            Configure
-                                        </LemonButton>
-                                    )}
-                                    <CategorySelect
-                                        onChange={(categoryId) => {
+                    {isOptOutEligibleAction(action) && (
+                        <>
+                            <LemonDivider className="my-0" />
+                            <div className="flex flex-col px-2 py-1">
+                                <LemonLabel
+                                    htmlFor="Message category"
+                                    className="flex gap-2 justify-between items-center"
+                                >
+                                    <span>Message category</span>
+                                    <div className="flex gap-2">
+                                        {!categoriesLoading && !categories.length && (
+                                            <LemonButton
+                                                to={urls.workflows('opt-outs')}
+                                                targetBlank
+                                                type="secondary"
+                                                icon={<IconExternal />}
+                                            >
+                                                Configure
+                                            </LemonButton>
+                                        )}
+                                        <CategorySelect
+                                            onChange={(categoryId) => {
+                                                setWorkflowAction(action.id, {
+                                                    ...action,
+                                                    config: {
+                                                        ...action.config,
+                                                        message_category_id: categoryId,
+                                                        message_category_type: categoryId
+                                                            ? categories.find((cat) => cat.id === categoryId)
+                                                                  ?.category_type
+                                                            : undefined,
+                                                    },
+                                                } as Extract<
+                                                    HogFlowAction,
+                                                    { type: 'function_email' | 'function_sms' }
+                                                >)
+                                            }}
+                                            value={action.config.message_category_id}
+                                        />
+                                    </div>
+                                </LemonLabel>
+                            </div>
+                        </>
+                    )}
+
+                    {isEmailAction(action) && (
+                        <>
+                            <LemonDivider className="my-0" />
+                            <div className="flex gap-2 justify-between items-center px-2 py-1">
+                                <LemonLabel info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings.">
+                                    Track opens and link clicks
+                                </LemonLabel>
+                                <LemonSwitch
+                                    checked={action.config.tracking_enabled !== false}
+                                    onChange={(checked) => {
+                                        setWorkflowAction(action.id, {
+                                            ...action,
+                                            config: { ...action.config, tracking_enabled: checked },
+                                        })
+                                    }}
+                                />
+                            </div>
+                            <div className="flex gap-2 justify-between items-center px-2 py-1">
+                                <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
+                                    Add UTM tags to links
+                                </LemonLabel>
+                                <LemonSwitch
+                                    checked={action.config.utm_tags_enabled === true}
+                                    onChange={(checked) => {
+                                        setWorkflowAction(action.id, {
+                                            ...action,
+                                            config: { ...action.config, utm_tags_enabled: checked },
+                                        })
+                                    }}
+                                    data-attr="workflow-email-utm-tags-toggle"
+                                />
+                            </div>
+                            {action.config.utm_tags_enabled === true && (
+                                <div className="px-2 pb-2 flex flex-col gap-2">
+                                    <UtmTagFields
+                                        value={action.config.utm_params ?? {}}
+                                        onChange={(utmParams) => {
                                             setWorkflowAction(action.id, {
                                                 ...action,
                                                 config: {
                                                     ...action.config,
-                                                    message_category_id: categoryId,
-                                                    message_category_type: categoryId
-                                                        ? categories.find((cat) => cat.id === categoryId)?.category_type
-                                                        : undefined,
+                                                    utm_params: utmParams,
+                                                    utm_params_from_default: utmKeysFromDefaultAfterEdit(
+                                                        action.config.utm_params_from_default,
+                                                        action.config.utm_params ?? {},
+                                                        utmParams
+                                                    ),
                                                 },
-                                            } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
+                                            })
                                         }}
-                                        value={action.config.message_category_id}
+                                        campaignDefault={workflow.name || 'Workflow name'}
+                                        contentDefault={action.name}
+                                    />
+                                    <UtmTeamDefaultControls
+                                        value={action.config.utm_params ?? {}}
+                                        onSavedAsTeamDefault={(saved) => markUtmSavedAsTeamDefault(action.id, saved)}
                                     />
                                 </div>
-                            </LemonLabel>
-                        </div>
-                    </>
-                )}
-
-                {isEmailAction(action) && (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="flex gap-2 justify-between items-center px-2 py-1">
-                            <LemonLabel info="Turn this off for emails that should never be tracked, such as transactional messages. When off, no tracking pixel is added and links are not rewritten, so opens and clicks won't appear in the workflow's metrics. Delivery, bounce, and unsubscribe events are still recorded. Marketing emails may additionally be sent untracked based on the email tracking consent setting in your environment settings.">
-                                Track opens and link clicks
-                            </LemonLabel>
-                            <LemonSwitch
-                                checked={action.config.tracking_enabled !== false}
-                                onChange={(checked) => {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        config: { ...action.config, tracking_enabled: checked },
-                                    })
-                                }}
-                            />
-                        </div>
-                        <div className="flex gap-2 justify-between items-center px-2 py-1">
-                            <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
-                                Add UTM tags to links
-                            </LemonLabel>
-                            <LemonSwitch
-                                checked={action.config.utm_tags_enabled === true}
-                                onChange={(checked) => {
-                                    setWorkflowAction(action.id, {
-                                        ...action,
-                                        config: { ...action.config, utm_tags_enabled: checked },
-                                    })
-                                }}
-                                data-attr="workflow-email-utm-tags-toggle"
-                            />
-                        </div>
-                        {action.config.utm_tags_enabled === true && (
-                            <div className="px-2 pb-2 flex flex-col gap-2">
-                                <UtmTagFields
-                                    value={action.config.utm_params ?? {}}
-                                    onChange={(utmParams) => {
-                                        setWorkflowAction(action.id, {
-                                            ...action,
-                                            config: {
-                                                ...action.config,
-                                                utm_params: utmParams,
-                                                utm_params_from_default: utmKeysFromDefaultAfterEdit(
-                                                    action.config.utm_params_from_default,
-                                                    action.config.utm_params ?? {},
-                                                    utmParams
-                                                ),
-                                            },
-                                        })
-                                    }}
-                                    campaignDefault={workflow.name || 'Workflow name'}
-                                    contentDefault={action.name}
-                                />
-                                <UtmTeamDefaultControls
-                                    value={action.config.utm_params ?? {}}
-                                    onSavedAsTeamDefault={(saved) => markUtmSavedAsTeamDefault(action.id, saved)}
-                                />
-                            </div>
-                        )}
-                    </>
-                )}
+                            )}
+                        </>
+                    )}
+                </ViewOnlyFieldset>
 
                 {!['trigger', 'exit'].includes(action.type) && (
                     <>
@@ -213,7 +227,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                         <div className="flex-0">
                             <LemonCollapse
                                 embedded
-                                panels={[
+                                panels={withViewOnlyContent([
                                     {
                                         key: 'outputs',
                                         header: (
@@ -533,7 +547,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             </div>
                                         ),
                                     },
-                                ]}
+                                ])}
                             />
                         </div>
                     </>

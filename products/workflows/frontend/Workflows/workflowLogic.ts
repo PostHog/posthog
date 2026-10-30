@@ -4807,12 +4807,15 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         setWorkflowInfo: async ({ workflow }) => {
+            if (values.isViewOnly) {
+                return
+            }
             actions.setWorkflowValues(workflow)
             actions.autoSaveWorkflow()
         },
         setWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
-            if (!action) {
+            if (!action || values.isViewOnly) {
                 return
             }
 
@@ -4869,11 +4872,17 @@ export const workflowLogic = kea<workflowLogicType>([
             captureAiEmailDraft('workflow', request, aiEmailDraft, skipped)
         },
         setWorkflowAction: async ({ actionId, action }) => {
+            if (values.isViewOnly) {
+                return
+            }
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
             actions.autoSaveWorkflow()
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
+            if (values.isViewOnly) {
+                return
+            }
             // Helper method - Replaces all edges related to the action with the new edges
             const actionEdges = values.edgesByActionId[actionId] ?? []
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
