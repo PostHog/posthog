@@ -56,12 +56,10 @@ export class ClaudeLocalSession implements LocalAgent {
   }
 
   // The agent service falls back to the gateway when Claude Code is logged out, which would bill PostHog.
-  // It pins CLAUDE_CONFIG_DIR, and the CLI keeps a separate Keychain login per explicit dir, so the user's
-  // plain `claude auth login` is not the one it sees.
   async start(): Promise<void> {
     if (!(await this.loggedIn()))
       throw new Error(
-        "Log in to Claude Code for the TUI first: run `CLAUDE_CONFIG_DIR=~/.claude claude auth login` in a terminal",
+        "Log in to Claude Code first: run `claude auth login` in a terminal",
       );
     const onEvent = ({
       taskRunId,
