@@ -46,6 +46,7 @@ from products.signals.backend.report_checks import (
     monitoring_window_end,
     parse_check_config,
 )
+from products.signals.backend.report_lifecycle import legacy_agent_checks_enabled
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
@@ -86,7 +87,7 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
             return "its report is `monitoring`"
         if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
             return "its Monitoring window ended"
-    else:
+    elif check.kind != SignalReportCheck.Kind.AGENT or not legacy_agent_checks_enabled(check.report):
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"

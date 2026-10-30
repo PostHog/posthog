@@ -28,7 +28,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
@@ -489,7 +490,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
     github = GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+        IntegrationManager.github.oauth.get(team_id, integration_row_id),
+        source="review_hog",
+        priority=Priority.CRITICAL,
     )
     return github.get_access_token(), github.github_installation_id
 

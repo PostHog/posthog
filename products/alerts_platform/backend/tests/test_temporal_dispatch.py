@@ -263,10 +263,12 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         assert child.workflow_type.name == "alerts-platform-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
         assert child.workflow_execution_timeout.ToTimedelta() == workflows.NOOP_EVALUATION_TIMEOUT
-        # One task per child start, plus the one that completed the run. A dispatcher that awaited an
-        # evaluation would need a further task to resume on its result. Counting tasks rather than
-        # forbidding a child-completion event keeps this off the race with an abandoned evaluation.
-        assert len(events_of(history, EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED)) == len(initiated) + 1
+        # A single sending task means the page's starts went out together, not one round trip each.
+        sending_tasks = {
+            event.start_child_workflow_execution_initiated_event_attributes.workflow_task_completed_event_id
+            for event in initiated
+        }
+        assert len(sending_tasks) == 1
         evaluation = client.get_workflow_handle(f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}")
         assert await evaluation.result() is None
         assert (await evaluation.describe()).status == WorkflowExecutionStatus.COMPLETED

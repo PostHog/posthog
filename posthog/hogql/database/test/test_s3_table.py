@@ -459,6 +459,19 @@ class TestS3Table(BaseTest):
             == "azureBlobStorage('https://tomposthogtest.blob.core.windows.net', 'somecontainer', 'path/to/file.parquet', 'tomposthogtest', 'blah', 'Parquet', 'auto')"
         )
 
+    @parameterized.expand(
+        [
+            ("host_in_path", "https://attacker.example/x.blob.core.windows.net/c/f.csv"),
+            ("host_in_userinfo", "https://x.blob.core.windows.net@attacker.example/c/f.csv"),
+            ("suffix_subdomain", "https://x.blob.core.windows.net.attacker.example/c/f.csv"),
+            ("backslash_authority", "https://attacker.example\\@x.blob.core.windows.net/c/f.csv"),
+        ]
+    )
+    def test_s3_build_function_call_azure_requires_azure_host(self, _name: str, url: str):
+        res = build_function_call(url, DataWarehouseTable.TableFormat.CSV, None, "key", "secret", None, None)
+
+        assert res.startswith("s3(")
+
     def test_s3_build_function_call_azure_with_context(self):
         self._init_database()
 

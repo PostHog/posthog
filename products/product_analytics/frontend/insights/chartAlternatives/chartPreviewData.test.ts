@@ -6,18 +6,17 @@ import type { TrendResult } from '~/types'
 import { PREVIEW_SERIES_LIMIT, deriveChartPreview } from './chartPreviewData'
 import type { ChartPreviewData } from './chartPreviewData'
 
-function series(overrides: Partial<TrendResult> & { math?: string }): TrendResult {
-    const { math = 'total', ...rest } = overrides
+function series(overrides: Partial<TrendResult>): TrendResult {
     return {
-        action: { id: '$pageview', type: 'events', order: 0, math } as TrendResult['action'],
+        order: 0,
         label: '$pageview',
         data: [1, 2, 3, 4],
         days: ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04'],
         labels: ['1-Jan', '2-Jan', '3-Jan', '4-Jan'],
         count: 10,
         aggregated_value: 0,
-        ...rest,
-    } as TrendResult
+        ...overrides,
+    }
 }
 
 function query(display: ChartDisplayType, overrides: Partial<TrendsQuery> = {}): TrendsQuery {
@@ -53,8 +52,10 @@ describe('deriveChartPreview', () => {
     it.each(['total', 'sum'])('derives a %s total from raw buckets', (math) => {
         const preview = deriveChartPreview(
             ChartDisplayType.BoldNumber,
-            query(ChartDisplayType.ActionsLineGraph),
-            response([series({ math })])
+            query(ChartDisplayType.ActionsLineGraph, {
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: math as MathType }],
+            }),
+            response([series({})])
         )
         expect(results(preview)[0]).toMatchObject({ data: [], aggregated_value: 10 })
     })
@@ -74,7 +75,7 @@ describe('deriveChartPreview', () => {
                     series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: math as MathType }],
                     ...queryOverrides,
                 }),
-                response([series({ math })])
+                response([series({})])
             )
         ).toBeNull()
     })
@@ -152,9 +153,7 @@ describe('deriveChartPreview', () => {
             breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
         })
         const browsers = Array.from({ length: PREVIEW_SERIES_LIMIT - 2 }, (_, index) => `browser ${index}`)
-        const rows = [0, 1].flatMap((order) =>
-            browsers.map((browser) => series({ action: null, order, breakdown_value: browser } as Partial<TrendResult>))
-        )
+        const rows = [0, 1].flatMap((order) => browsers.map((browser) => series({ order, breakdown_value: browser })))
 
         expect(results(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, response(rows)))).toHaveLength(
             PREVIEW_SERIES_LIMIT
@@ -221,7 +220,7 @@ describe('deriveChartPreview', () => {
     })
 
     it('derives time series tiles from the remembered time series when only a total value is loaded', () => {
-        const loaded = response([series({ math: 'dau', data: [], aggregated_value: 42 })])
+        const loaded = response([series({ data: [], aggregated_value: 42 })])
         const remembered = response([
             series({ compare_label: CompareLabelType.Current }),
             series({ compare_label: CompareLabelType.Previous }),

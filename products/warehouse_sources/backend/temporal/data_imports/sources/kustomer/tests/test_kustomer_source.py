@@ -26,6 +26,11 @@ EXPECTED_PATHS = {
     "queues": "/v1/routing/queues",
     "work_items": "/v1/routing/work-items",
     "work_sessions": "/v1/routing/work-sessions",
+    "routing_statuses": "/v1/routing/statuses",
+    "audit_logs": "/v1/audit-logs",
+    "klasses": "/v1/klasses",
+    # The fan-out lists klasses first and makes no child request when there are none.
+    "kobjects": "/v1/klasses",
 }
 
 

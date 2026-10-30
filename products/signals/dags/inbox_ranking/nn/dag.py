@@ -48,10 +48,10 @@ from products.signals.dags.inbox_ranking.common import (
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
-from products.signals.dags.inbox_ranking.dataset.project_vectors import EMBEDDING_COLUMNS, LABEL_COLUMNS
-from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
+from products.signals.dags.inbox_ranking.dataset.project_vectors import CONTEXT_LABEL_COLUMNS, EMBEDDING_COLUMNS
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
-from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, report_matrix
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.examples import (
     NN_HEADS,
     build_examples,
@@ -62,6 +62,7 @@ from products.signals.dags.inbox_ranking.nn.examples import (
 )
 from products.signals.dags.inbox_ranking.nn.model import (
     HOLDOUT_MODEL_FILE,
+    TrainedNetwork,
     candidate_metadata,
     champion_grades,
     network_recipe,
@@ -130,7 +131,10 @@ def _day_inputs(
         client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), columns=list(EMBEDDING_COLUMNS)
     )
     labels = read_parquet_if_exists(
-        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), columns=list(LABEL_COLUMNS)
+        client,
+        bucket,
+        partition_object_key(prefix, LABELS_TABLE, partition_key),
+        columns=list(CONTEXT_LABEL_COLUMNS),
     )
     if embeddings is None or labels is None:
         missing = [name for name, table in ((EMBEDDINGS_TABLE, embeddings), (LABELS_TABLE, labels)) if table is None]
@@ -204,6 +208,8 @@ class _ExperimentInputs:
     extras: Extras
     # The baseline family's report input for every examples row, graded against the experiment's.
     baseline_reports: np.ndarray
+    # None when the baseline reads the experiment's kinds.
+    baseline_context: ProjectContext | None = None
 
 
 def _experiment_inputs(
@@ -237,8 +243,13 @@ def _experiment_inputs(
             "as it stands"
         )
         return None
+    baseline_context = None
+    if baseline.project_vector_kinds != family.project_vector_kinds:
+        baseline_context = project_context(table.rows, day.labels, day.embeddings, baseline.project_vector_kinds)
     return _ExperimentInputs(
-        extras=extras, baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set)
+        extras=extras,
+        baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set),
+        baseline_context=baseline_context,
     )
 
 
@@ -266,13 +277,16 @@ def train_candidate(
     if day is None:
         return {"skipped": dagster.MetadataValue.bool(True)}
     extras = day.extras
-    baseline_reports = None
+    baseline_reports = baseline_context = None
     if family.experiment:
         experiment = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
         if experiment is None:
             return {"skipped": dagster.MetadataValue.bool(True)}
         extras, baseline_reports = experiment.extras, experiment.baseline_reports
-    inputs = network_inputs(examples.table, extras, day.labels, day.embeddings, family.feature_set)
+        baseline_context = experiment.baseline_context
+    inputs = network_inputs(
+        examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
+    )
     del day
     check_recipe(
         client,
@@ -291,7 +305,7 @@ def train_candidate(
     trained = train_network(examples.table, inputs, NN_HEADS, NETWORK_CONFIG)
     vs_baseline = None
     if baseline_reports is not None and family.baseline is not None:
-        baseline_inputs = NetworkInputs(reports=baseline_reports, context=inputs.context)
+        baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
         vs_baseline = vs_baseline_block(
             examples.table,
             baseline=family.baseline,
@@ -299,6 +313,40 @@ def train_candidate(
             experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
+    metadata = write_candidate(
+        context, client, bucket, partition_key, family, trained, windows=examples.windows, vs_baseline=vs_baseline
+    )
+    return {**metadata, **history_shares(inputs)}
+
+
+def history_shares(inputs: NetworkInputs) -> dict[str, dagster.MetadataValue]:
+    """The share of example rows whose team has history for each project-vector kind, so a kind that
+    is all zero for most rows shows in the run before anyone reads its grade."""
+    if inputs.context is None or len(inputs) == 0:
+        return {}
+    shares = inputs.context.has_history[inputs.context.index].mean(axis=0)
+    return {
+        f"has_{kind}_history_share": dagster.MetadataValue.float(float(share))
+        for kind, share in zip(inputs.context.kinds, shares, strict=True)
+    }
+
+
+def write_candidate(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    partition_key: str,
+    family: ModelFamily,
+    trained: TrainedNetwork,
+    *,
+    windows: Mapping[str, Mapping[str, object]],
+    vs_baseline: Mapping[str, Any] | None,
+    pair_settings: Mapping[str, Any] | None = None,
+) -> dict[str, dagster.MetadataValue]:
+    """Write a fitted `family` network's graphs and `metadata.json` under `<model_name>/dt=D/`,
+    replacing what a previous run of the partition left, capture its events, and return the asset
+    metadata."""
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     for head in trained.heads:
         context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
     for name in trained.skipped:
@@ -317,12 +365,13 @@ def train_candidate(
         trained,
         family=family,
         config=NETWORK_CONFIG,
-        windows=examples.windows,
+        windows=windows,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run_id,
+        pair_settings=pair_settings,
     )
     if vs_baseline is not None:
-        metadata = {**metadata, "vs_baseline": vs_baseline}
+        metadata = {**metadata, "vs_baseline": dict(vs_baseline)}
     metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)

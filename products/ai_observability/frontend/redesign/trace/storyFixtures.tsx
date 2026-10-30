@@ -1,8 +1,25 @@
 import type { Decorator } from '@storybook/react'
 
-import type { TraceNodeApi, TraceNodeStatsApi, TraceTimelineRowApi } from '../../generated/api.schemas'
+import type {
+    TraceFeedbackScoreApi,
+    TraceNodeApi,
+    TraceNodeStatsApi,
+    TraceSummaryContentApi,
+    TraceTimelineRowApi,
+} from '../../generated/api.schemas'
+import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
-import { ConversationTurn, EvalResult, MessagePart, NodeProperties, ThreadMessage } from './types'
+import {
+    ConversationTurn,
+    EvalResult,
+    EvalRollupOutcome,
+    EvalsChipData,
+    FeedbackModeState,
+    MessagePart,
+    NodeProperties,
+    StepFeedback,
+    ThreadMessage,
+} from './types'
 
 export const FIXTURE_STATS: TraceNodeStatsApi = {
     costUsd: 0.0021,
@@ -341,6 +358,11 @@ export const FIXTURE_EVALS: EvalResult[] = [
     },
 ]
 
+/** The roll-up of `FIXTURE_EVALS`: three passes, one fail, and the unrated and skipped runs. */
+export const FIXTURE_EVALS_CHIP: EvalsChipData = { passed: 3, graded: 4, unrated: 2 }
+
+export const FIXTURE_EVAL_OUTCOMES: Record<string, EvalRollupOutcome> = { 'gen-answer': 'fail' }
+
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
     ...result,
     target: { label: 'draft-answer', nodeId: 'gen-answer' },
@@ -361,6 +383,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         olderHref: '/older',
         newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
+        exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
         traceId: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
@@ -387,10 +410,193 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     timeline: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310 },
 }
 
+const feedbackScore = (id: string, name: string | null, value: string, minute: number): TraceFeedbackScoreApi => ({
+    id,
+    name,
+    value,
+    nodeId: 'gen-answer',
+    timestamp: `2026-09-01T10:${minute}:00Z`,
+})
+
+export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
+    scores: [
+        feedbackScore('score-helpful', 'helpfulness', '0', 16),
+        feedbackScore('score-resolved', 'resolved', 'false', 17),
+        feedbackScore('score-tone', 'tone', '4.5', 18),
+        feedbackScore('score-latency', 'latency_ok', 'true', 19),
+        feedbackScore('score-unnamed', null, '{"stars":3}', 20),
+    ],
+    responseCount: 1,
+}
+
+const answerStep = { id: 'gen-answer', name: 'draft-answer' }
+
+export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: [
+        { ...feedbackScore('score-helpful', 'helpfulness', '0', 16), step: answerStep, focused: true },
+        { ...feedbackScore('score-resolved', 'resolved', 'false', 17), step: answerStep, focused: true },
+        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: 'trace-1', step: null, focused: false },
+        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: 'trace-1', step: null, focused: false },
+    ],
+    responses: [
+        {
+            kind: 'text',
+            id: 'text-long',
+            text: 'Too long, but correct.',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:23:00Z',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'text',
+            id: 'text-step',
+            text: 'The second paragraph repeats the first one. Shorter answers would help when I am on my phone.',
+            nodeId: 'gen-answer',
+            timestamp: '2026-09-01T10:24:00Z',
+            step: answerStep,
+            focused: true,
+        },
+    ],
+    unanswered: [],
+    surveysFailed: false,
+}
+
+const answerQuality = { id: '0192f2a4-5c1e-7000-8000-00000000a001', name: 'Answer quality' }
+
+export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: FIXTURE_FEEDBACK_MODE.scores.map((row) => ({ ...row, focused: false })),
+    responses: [
+        { ...FIXTURE_FEEDBACK_MODE.responses[0], focused: false },
+        {
+            kind: 'survey',
+            id: 'submission-full',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:25:00Z',
+            survey: answerQuality,
+            answers: [
+                { kind: 'thumbs', question: 'Was this answer useful?', up: true },
+                {
+                    kind: 'rating',
+                    question: 'How good was it?',
+                    value: '4',
+                    scale: 5,
+                    lowerLabel: 'Bad',
+                    upperLabel: 'Great',
+                },
+                { kind: 'choice', question: 'What could be better?', choices: ['Accuracy', 'Tone'] },
+                { kind: 'text', question: 'Anything else?', text: 'Shorter answers, please.' },
+            ],
+            complete: true,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-partial',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:26:00Z',
+            survey: answerQuality,
+            answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: false }],
+            complete: false,
+            unavailable: null,
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-deleted',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:27:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a002', name: null },
+            answers: [],
+            complete: true,
+            unavailable: 'survey_not_found',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'survey',
+            id: 'submission-empty',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:28:00Z',
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a003', name: 'Draft survey' },
+            answers: [],
+            complete: true,
+            unavailable: 'no_questions',
+            step: null,
+            focused: false,
+        },
+    ],
+    unanswered: [
+        {
+            survey: { id: '0192f2a4-5c1e-7000-8000-00000000a004', name: 'Follow-up' },
+            timestamp: '2026-09-01T10:29:00Z',
+        },
+        { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
+    ],
+    surveysFailed: false,
+}
+
+export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
+    title: 'Billing question answered from invoice history',
+    bullets: [
+        { text: 'The user asks why their latest invoice is higher than the one before.', nodeId: 'gen-answer' },
+        { text: 'The agent searches the billing records for seat changes in the period.', nodeId: 'span-search' },
+        {
+            text: 'Two seats were added mid-cycle, and the prorated charge for them explains the whole difference between the two invoices.',
+            nodeId: 'gen-answer',
+        },
+        { text: 'The answer cites the seat change dates.', nodeId: null },
+    ],
+    notes: [
+        { text: 'The retrieval step returned three documents but the answer uses only one.', nodeId: 'span-retrieve' },
+    ],
+    flow: 'question → retrieve-context → search-billing → answer\n                      └─→ 3 documents found ✓',
+    model: 'gpt-4.1-mini',
+    generatedAt: '2026-09-01T10:20:00Z',
+}
+
 export function withWidth(px: number): Decorator {
     return (Story) => (
         <div className="border border-dashed border-primary" style={{ width: px }}>
             <Story />
         </div>
     )
+}
+
+export const FIXTURE_CLUSTER: ClusterChipItem = {
+    label: 'Billing questions',
+    description: 'Users ask why an invoice changed after adding seats.',
+    jobName: 'Support conversations',
+    isOutlier: false,
+    runAt: '2026-09-02T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260902_030000/3',
+}
+
+export const FIXTURE_OUTLIER_CLUSTER: ClusterChipItem = {
+    label: 'Outliers',
+    description: null,
+    jobName: 'Agent runs',
+    isOutlier: true,
+    runAt: '2026-09-01T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260901_030000/-1',
+}
+
+export const FIXTURE_CLUSTERS_CHIP: TraceClustersChipProps = {
+    first: FIXTURE_CLUSTER,
+    others: [
+        FIXTURE_OUTLIER_CLUSTER,
+        {
+            label: 'Refund requests',
+            description: 'Users ask for money back on an annual plan.',
+            jobName: null,
+            isOutlier: false,
+            runAt: '2026-09-02T04:40:00Z',
+            href: '/ai-observability/clusters/1_trace_20260902_040000/5',
+        },
+    ],
 }

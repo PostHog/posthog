@@ -2,11 +2,13 @@ import type { UserBasicType } from '~/types'
 
 import {
     type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -23,6 +25,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -88,6 +96,9 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    startup_failure?: SignalReportApi['startup_failure']
+    research_context?: SignalReportApi['research_context']
+    repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string
@@ -125,6 +136,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
     scout_name?: string | null
+    /** Whether the report proposes an improvement to a scout. */
+    is_self_improvement_report?: boolean
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
@@ -166,6 +179,7 @@ export enum SignalReportStatus {
     READY = 'ready',
     MONITORING = 'monitoring',
     RESOLVED = 'resolved',
+    CLOSED = 'closed',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
     DELETED = 'deleted',
@@ -206,6 +220,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -242,6 +257,7 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
 export type InboxTabKey =
     | 'reports'
     | 'scouts'
+    | 'sources'
     | 'settings'
     | 'pulls'
     | 'not-actionable'
@@ -250,11 +266,12 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     scouts: 'Scouts',
+    sources: 'Sources',
     settings: 'Settings',
     pulls: 'Pull requests',
     'not-actionable': 'Not actionable',
@@ -266,8 +283,9 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
-    scouts: 'Scheduled agents that sweep this project and file what they find.',
-    settings: 'Signal sources, PR generation, code access, and notifications.',
+    scouts: 'Scouts run on a schedule and investigate the areas you choose.',
+    sources: 'Sources send signals for self-driving to investigate.',
+    settings: 'Configure autonomy, agent instructions, code access, and notifications.',
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
@@ -340,10 +358,14 @@ export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'St
  */
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
-/** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
-export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
+/**
+ * `for-you` (suggested-reviewer reports), `claimed-by-you` (reports the user claimed), `entire-project`
+ * (all), or `teammate:<uuid>`.
+ */
+export type InboxScope = 'for-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
+export const INBOX_SCOPE_CLAIMED_BY_YOU: InboxScope = 'claimed-by-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
@@ -376,6 +398,8 @@ export interface SignalTeamConfig {
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
+    /** Slack integration that owns the team channel. Send it together with the channel. */
+    default_slack_notification_integration?: number | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
     /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
@@ -392,6 +416,12 @@ export interface SignalTeamConfig {
     pull_request_label_enabled?: boolean
     /** The label name to apply, at most 50 characters. Null or blank means the default label. */
     pull_request_label?: string | null
+    /** Extra 'org/repo' names implementation tasks can read and write. They are not cloned and never become the PR target. */
+    implementation_repositories?: string[]
+    /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
+    anomaly_scoring_enabled?: boolean
+    /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */
+    anomaly_scoring_available?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */

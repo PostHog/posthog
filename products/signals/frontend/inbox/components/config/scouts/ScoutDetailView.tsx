@@ -74,7 +74,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     // Registered by the page as well as the AI panel, so the scout is already attached when the
     // panel composer mounts and sends the question at once. Any PostHog AI chat opened here gets it.
-    useAttachedContext(scoutName ? scoutAiContextItems({ skillName, scoutName }) : null)
+    useAttachedContext(config && scoutName ? scoutAiContextItems({ scoutId: config.id, skillName, scoutName }) : null)
 
     // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
     // off the polled window, so the counts are whatever had loaded by then.
@@ -201,7 +201,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     return (
         <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
             <ScoutDetailHeader config={config} rollup={rollup} noteCount={toldCount} learnedCount={learnedCount} />
-            <ScoutAskAiComposer skillName={skillName} scoutName={scoutDisplayName(config)} />
+            <ScoutAskAiComposer scoutId={config.id} skillName={skillName} scoutName={scoutDisplayName(config)} />
 
             <div className="flex min-w-0 flex-col gap-4 px-4 py-4">
                 <ScoutAttentionBanner config={config} />

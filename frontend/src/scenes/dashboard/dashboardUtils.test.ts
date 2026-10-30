@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -38,6 +39,7 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
     TaskQueue,
+    TileLoads,
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
@@ -398,6 +400,7 @@ describe('getInsightWithRetry', () => {
                 })
             )
             .mockResolvedValueOnce(insightResponse({ ...insight, result: [{ count: 1 }] }))
+        const onRequestTiming = jest.fn()
 
         const request = getInsightWithRetry(
             1,
@@ -405,7 +408,7 @@ describe('getInsightWithRetry', () => {
             60,
             'query-id',
             'blocking',
-            undefined,
+            { onRequestTiming },
             undefined,
             undefined,
             undefined,
@@ -416,7 +419,16 @@ describe('getInsightWithRetry', () => {
         const result = await request
 
         expect(getResponseSpy).toHaveBeenCalledTimes(2)
+        expect(getResponseSpy).toHaveBeenLastCalledWith(
+            expect.any(String),
+            { onRequestTiming },
+            expect.any(ApiRequestTimingRecorder)
+        )
         expect(result?.result).toEqual([{ count: 1 }])
+        expect(onRequestTiming).toHaveBeenCalledTimes(2)
+        expect(onRequestTiming).toHaveBeenLastCalledWith(
+            expect.objectContaining({ body_read_ms: expect.any(Number), json_parse_ms: expect.any(Number) })
+        )
         expect(capture).toHaveBeenCalledWith(
             'dashboard tile recovered from capacity error',
             { insight_short_id: 'abc123', dashboard_id: 60, attempts: 1 },
@@ -712,5 +724,31 @@ describe('getInsightQueryError', () => {
 
     it('returns null when the query did not error', () => {
         expect(getInsightQueryError({} as InsightModel)).toBeNull()
+    })
+})
+
+describe('TileLoads', () => {
+    it('cancels every tile that shares a load, and settles once that load finishes', async () => {
+        const tileLoads = new TileLoads<string>()
+        const refresh = new AbortController()
+        const removeListener = jest.spyOn(refresh.signal, 'removeEventListener')
+        const batch = tileLoads.start([1, 2], refresh.signal, 'batch')
+        const single = tileLoads.start([3], refresh.signal, 'single')
+
+        const cancelled = tileLoads.cancel([1])
+        let settled = false
+        void cancelled.settled.then(() => (settled = true))
+        await Promise.resolve()
+
+        expect(cancelled.tiles).toEqual([
+            { tileId: 1, refresh: 'batch' },
+            { tileId: 2, refresh: 'batch' },
+        ])
+        expect([batch.signal.aborted, single.signal.aborted, settled]).toEqual([true, false, false])
+
+        batch.finish()
+        await cancelled.settled
+        expect(removeListener).toHaveBeenCalledTimes(1)
+        expect(tileLoads.cancel([2]).tiles).toEqual([])
     })
 })

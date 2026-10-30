@@ -47,13 +47,13 @@ async def resolve_repositories_for_issue(issue) -> list[RepositoryContext]:
     """
     Task = apps.get_model("tasks", "Task")
 
-    if issue.repository_scope == Task.RepositoryScope.SINGLE:
+    if issue.repository_scope == Task.RepositoryScope.SINGLE:  # type: ignore[attr-defined]  # Task has no RepositoryScope; nothing calls this module
         return await resolve_single_repository(issue)
 
-    elif issue.repository_scope == Task.RepositoryScope.MULTIPLE:
+    elif issue.repository_scope == Task.RepositoryScope.MULTIPLE:  # type: ignore[attr-defined]  # Task has no RepositoryScope; nothing calls this module
         return await resolve_multiple_repositories(issue)
 
-    elif issue.repository_scope == Task.RepositoryScope.SMART_SELECT:
+    elif issue.repository_scope == Task.RepositoryScope.SMART_SELECT:  # type: ignore[attr-defined]  # Task has no RepositoryScope; nothing calls this module
         return await resolve_smart_select_repositories(issue)
 
     # Fallback to legacy behavior
@@ -251,7 +251,7 @@ async def _update_issue_selected_repositories(issue, selected_repos: list[Reposi
     # Update the issue's repository config
     issue.repository_config = {**issue.repository_config, "available_repositories": available_repositories}
 
-    await Task.objects.filter(id=issue.id).aupdate(repository_config=issue.repository_config)
+    await Task.objects.filter(id=issue.id).aupdate(repository_config=issue.repository_config)  # type: ignore[misc]  # Task has no repository_config; nothing calls this module
 
 
 # Smart selection AI helpers (placeholder for future implementation)

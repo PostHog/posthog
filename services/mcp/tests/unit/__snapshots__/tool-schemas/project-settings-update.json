@@ -4437,7 +4437,7 @@
                     "type": "object"
                 },
                 "email_utm_tags_enabled": {
-                    "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.",
+                    "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.",
                     "type": "boolean"
                 },
                 "marketing_frequency_cap_max_messages": {

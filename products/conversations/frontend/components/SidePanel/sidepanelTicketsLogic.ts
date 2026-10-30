@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 
 import {
     appendExceptionToMessage,
+    appendTicketContext,
     captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
@@ -30,6 +31,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { type BillingType, SidePanelTab } from '~/types'
@@ -43,6 +45,7 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
+import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -126,6 +129,7 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
+    newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
     pendingTicketId: string | null
@@ -159,6 +163,15 @@ export interface sidepanelTicketsLogicActions {
     resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
         values?: SupportFormFields
     } // supportLogic
+    logout: (
+        preserveLocation?: any,
+        nextUrl?: string | undefined,
+        reason?: string | undefined
+    ) => {
+        nextUrl: string | undefined
+        preserveLocation: any
+        reason: string | undefined
+    } // userLogic
     grantSupportExemption: () => {
         value: true
     }
@@ -168,8 +181,8 @@ export interface sidepanelTicketsLogicActions {
     loadMessages: (ticketId: string) => {
         ticketId: string
     }
-    loadTickets: () => {
-        value: true
+    loadTickets: (force?: boolean) => {
+        force: boolean
     }
     markAsRead: (ticketId: string) => {
         ticketId: string
@@ -207,6 +220,9 @@ export interface sidepanelTicketsLogicActions {
     }
     setMessagesLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setNewTicketContext: (context: string | null) => {
+        context: string | null
     }
     setNewTicketDraft: (content: JSONContent | null) => {
         content: JSONContent | null
@@ -296,12 +312,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             ['closeEmailForm', 'closeSupportForm', 'clearPendingViewTicket', 'resetSendSupportRequest'],
             sidePanelStateLogic,
             ['closeSidePanel', 'setSidePanelOptions'],
+            userLogic,
+            ['logout'],
         ],
     })),
     actions({
         grantSupportExemption: true,
         initTickets: true,
-        loadTickets: true,
+        loadTickets: (force: boolean = false) => ({ force }),
         startPolling: true,
         stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
@@ -315,6 +333,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         setNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        setNewTicketContext: (context: string | null) => ({ context }),
         startTicketFromSupportForm: true,
         openPendingTicket: true,
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
@@ -376,6 +395,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             {
                 setNewTicketDraft: (_, { content }) => content,
                 // Clear once we leave the composer so a later blank "New ticket" doesn't show a stale prefill
+                setView: (state, { view }) => (view === 'new' ? state : null),
+            },
+        ],
+        // Cleared with the draft, so a later blank "New ticket" doesn't carry it
+        newTicketContext: [
+            null as string | null,
+            {
+                setNewTicketContext: (_, { context }) => context,
                 setView: (state, { view }) => (view === 'new' ? state : null),
             },
         ],
@@ -528,6 +555,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        logout: () => {
+            clearSharedTickets()
+        },
         initTickets: () => {
             if (cache.initialized) {
                 return
@@ -552,7 +582,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 document.addEventListener('visibilitychange', cache.onVisibilityChange)
             }
         },
-        loadTickets: async () => {
+        loadTickets: async ({ force }) => {
             // We don't support self-hosted, and the conversations extension is cloud-only — both the
             // panel and the tickets scene already render a community-forum message instead. This logic
             // still mounts there (the scene declares it in its SceneExport), so without this it would
@@ -576,7 +606,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Conversations extension loads lazily — retry until it's ready
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
-                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(force), 500)
                     return
                 }
                 // Out of retries. Kept separate from the send-failure event because nothing was
@@ -616,13 +646,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setTicketsLoading(true)
             }
             try {
-                const response = await posthog.conversations.getTickets({ limit: 50 })
-                if (response) {
+                const tickets = await loadTicketsAcrossTabs(
+                    async () => {
+                        const response = await posthog.conversations.getTickets({ limit: 50 })
+                        return response ? (response.results as ConversationTicket[]) : null
+                    },
+                    { force, maxAgeMs: POLL_INTERVAL_THREAD }
+                )
+                if (tickets) {
                     cache.ticketsFetched = true
-                    actions.setTickets(response.results as ConversationTicket[])
+                    actions.setTickets(tickets)
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
-                    if (response.results.length > 0) {
+                    if (tickets.length > 0) {
                         actions.startPolling()
                     } else {
                         actions.stopPolling()
@@ -638,7 +674,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                lemonToast.error('Failed to load tickets.')
+                // The background poll for the unread badge runs on every page, so a transient
+                // failure there would toast on surfaces that have nothing to do with support
+                if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
+                    lemonToast.error('Failed to load tickets.')
+                }
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -739,10 +779,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending) {
+        sendMessage: async ({ content: typed, onSuccess }) => {
+            if (!typed.trim() || values.messageSending) {
                 return
             }
+            const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
@@ -784,7 +825,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         })
                         actions.setView('ticket')
                     }
-                    actions.loadTickets()
+                    actions.loadTickets(true)
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
                     onSuccess()
@@ -912,6 +953,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (draft) {
                 actions.setNewTicketDraft(messageToRichContent(draft))
             }
+            actions.setNewTicketContext(request?.ticket_context || null)
             actions.setView('new')
             // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
             // open and ignores future URL-driven opens), and reset so a stale message can't resurface
@@ -936,7 +978,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 unread_count: 0,
                 last_message_at: pending.created_at,
             })
-            actions.loadTickets()
+            actions.loadTickets(true)
         },
         requestRestoreLink: async ({ email }) => {
             const conversations = posthog.conversations as any
@@ -977,7 +1019,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
                 } else {
                     removeRestoreTokenFromUrl()
-                    actions.loadTickets()
+                    actions.loadTickets(true)
                 }
                 return
             }
@@ -1000,7 +1042,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
-                actions.loadTickets()
+                actions.loadTickets(true)
             }
         },
     })),

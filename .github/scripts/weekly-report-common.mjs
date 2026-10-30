@@ -1,7 +1,8 @@
-// Shared machinery for the weekly CI report scripts (weekly-flaky-report.mjs,
-// weekly-slow-tests-report.mjs): PostHog API plumbing, HogQL, repo path and owner
-// resolution, Slack table cells, and the Slack post. Everything here reads the same
-// environment both workflows set, so each report owns only its signal and its table.
+// Shared machinery for the weekly report scripts (weekly-flaky-report.mjs,
+// weekly-slow-tests-report.mjs, weekly-mcp-tool-health-report.mjs): PostHog API plumbing,
+// HogQL, repo path and owner resolution, Slack table cells, the Slack post, and the per-team
+// delivery. Everything here reads the same environment every workflow sets, so each report owns
+// only its signal and its table.
 
 import { execFileSync } from 'node:child_process'
 
@@ -200,4 +201,102 @@ export async function slackPermalink({ channel, ts }) {
         throw new Error(`Slack chat.getPermalink failed: ${data.error}`)
     }
     return data.permalink
+}
+
+export const teamLabel = (owner) => owner.replace(/^team-/, '')
+
+// The per-team slices carry the same rows as the channel digest. Takes [{owner, slack, row}]
+// and groups by owner.
+export function buildTeamDigests(entries) {
+    const byOwner = new Map()
+    for (const { owner, slack, row } of entries) {
+        if (owner === 'unowned' || !slack) {
+            continue
+        }
+        if (!byOwner.has(owner)) {
+            byOwner.set(owner, { owner, channel: slack, rows: [] })
+        }
+        byOwner.get(owner).rows.push(row)
+    }
+    return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
+}
+
+function buildTeamIndexBlocks(posted, rowLabel) {
+    return [
+        {
+            type: 'table',
+            column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'left' }],
+            rows: [
+                [cell('team'), cell(rowLabel), cell('post')],
+                ...posted.map(({ owner, channel, rows, url }) => [
+                    cell(teamLabel(owner)),
+                    cell(String(rows.length)),
+                    url ? linkedCell([{ url, text: channel }]) : cell(channel),
+                ]),
+            ],
+        },
+    ]
+}
+
+const SLACK = {
+    post: postToSlack,
+    permalink: slackPermalink,
+    // chat.postMessage allows about one message per second per channel.
+    pause: () => new Promise((resolve) => setTimeout(resolve, 1100)),
+}
+
+async function postToTeamChannel(team, { report, digestUrl, slack }) {
+    try {
+        const post = await slack.post(report.teamBlocks(team, digestUrl), report.title, { channel: team.channel })
+        return { ...team, url: await slack.permalink(post).catch(() => null) }
+    } catch (err) {
+        console.warn(`team digest for ${team.owner} failed: ${err.message}`)
+        return null
+    }
+}
+
+// Sends each team its slice, then indexes those posts in the digest thread. A slice that cannot
+// go to its channel stays in the thread, so no team's rows are lost. `withheld` names a reason to
+// keep every slice in the thread. A team whose channel is `digestChannel` keeps its slice in the
+// thread too, so that channel does not get the digest twice. `report` supplies the report's
+// `title`, the `rowLabel` for the index, and its `teamBlocks(team, digestUrl)` and
+// `threadSliceBlocks(team, reason)` builders.
+export async function deliverTeamDigests(
+    teamDigests,
+    { digest, report, withheld = null, digestChannel = SLACK_CHANNEL, slack = SLACK }
+) {
+    const digestUrl = withheld ? null : await slack.permalink(digest).catch(() => null)
+    const posted = []
+    for (const [index, team] of teamDigests.entries()) {
+        if (index > 0) {
+            await slack.pause()
+        }
+        const kept = withheld || (team.channel === digestChannel ? 'report already in' : null)
+        const sent = kept ? null : await postToTeamChannel(team, { report, digestUrl, slack })
+        if (sent) {
+            posted.push(sent)
+            continue
+        }
+        // A failed slice must not sink the slices behind it; the digest itself already landed.
+        try {
+            await slack.post(
+                report.threadSliceBlocks(team, kept || 'not delivered to'),
+                `${report.title}: ${teamLabel(team.owner)}`,
+                { threadTs: digest.ts }
+            )
+        } catch (err) {
+            console.warn(`thread slice for ${team.owner} failed: ${err.message}`)
+        }
+    }
+    if (posted.length > 0) {
+        // The team posts already landed. A failed run would invite a re-dispatch that repeats them.
+        try {
+            await slack.post(buildTeamIndexBlocks(posted, report.rowLabel), `${report.title}: team posts`, {
+                threadTs: digest.ts,
+            })
+        } catch (err) {
+            console.warn(`team post index failed: ${err.message}`)
+        }
+    }
+    return posted
 }

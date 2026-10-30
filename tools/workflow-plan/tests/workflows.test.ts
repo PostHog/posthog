@@ -1,8 +1,7 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -453,6 +452,27 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 )
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
+        { name: 'schema cache miss', matched: '', runs: false },
+        { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
+    ].map(({ name, matched, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'check-migrations',
+        step: 'validate-master-schema',
+        scenario: {
+            name,
+            github: mergeQueue(),
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                'check-migrations': {
+                    'master-schema-key': { outputs: { key: 'posthog-schema-mig-v2-exact' } },
+                    'master-schema-cache': { outputs: { 'cache-matched-key': matched } },
+                },
+            },
+        },
+        runs,
+    })),
     ...pathsFilterJobs.flatMap(({ file, job }) => [
         {
             file,
@@ -477,11 +497,11 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
     ]),
     ...[
-        { name: 'known fallback', selective: '', changedFiles: '', fork: false },
-        { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
-        { name: 'selective PR', selective: 'true', changedFiles: 'src/example.ts', fork: false },
-        { name: 'selective fork PR', selective: 'true', changedFiles: 'src/example.ts', fork: true },
-    ].flatMap(({ name, selective, changedFiles, fork }) =>
+        { name: 'known fallback', needsDependencies: 'false', fork: false },
+        { name: 'empty source selection', needsDependencies: 'false', fork: false },
+        { name: 'selective PR', needsDependencies: 'true', fork: false },
+        { name: 'selective fork PR', needsDependencies: 'true', fork: true },
+    ].flatMap(({ name, needsDependencies, fork }) =>
         ['setup-gh-token', 'selector-install'].map((step) => ({
             file: 'ci-frontend.yml',
             job: 'select-jest-tests',
@@ -491,10 +511,10 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
                 github: pullRequest({ fork }),
                 steps: {
                     ...allFiltersChanged(workflow('ci-frontend.yml')),
-                    'select-jest-tests': { prepare: { outputs: { selective, changed_files: changedFiles } } },
+                    'select-jest-tests': { prepare: { outputs: { needs_dependencies: needsDependencies } } },
                 },
             },
-            runs: selective === 'true' && changedFiles !== '' && (step === 'selector-install' || !fork),
+            runs: needsDependencies === 'true' && (step === 'selector-install' || !fork),
         }))
     ),
     {
@@ -543,6 +563,127 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        {
+            name: 'mobile PR',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'fork PR',
+            github: pullRequest({ fork: true }),
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'Dependabot PR',
+            github: { ...pullRequest(), actor: 'dependabot[bot]' },
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'API types only',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: true,
+            checks: 'typecheck',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'mobile and API types',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: true,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'unrelated PR',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: false,
+            checks: 'none',
+            install: false,
+            appToken: true,
+        },
+        {
+            name: 'master cache warmer',
+            github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
+            mobile: true,
+            apiTypes: false,
+            checks: 'none',
+            install: true,
+            appToken: false,
+        },
+        {
+            name: 'release checks',
+            github: { ...push(), workflow: 'Mobile Release' },
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: false,
+        },
+    ])('mobile CI on $name', ({ name, github, mobile, apiTypes, checks, install, appToken }) => {
+        const plan = planWorkflow(workflow('mobile-ci.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ mobile, api_types: apiTypes }) } },
+        })
+        const validationSteps = [
+            'Typecheck',
+            'Lint',
+            'Test',
+            'Fetch release validation base',
+            'Validate release requests',
+            'Test release policy',
+        ]
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'app-token')?.runs).toBe(appToken)
+        expect(plan.jobs.check?.steps.find((step) => step.name === 'Install dependencies')?.runs ?? false).toBe(install)
+        expect(
+            plan.jobs.check?.steps
+                .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
+                .map((step) => step.name)
+        ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        { result: 'success', exitCode: 0 },
+        { result: 'failure', exitCode: 1 },
+        { result: 'cancelled', exitCode: 1 },
+    ])('mobile gate reports an API-only typecheck $result', ({ result, exitCode }) => {
+        const script = evaluateValue(
+            workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+            {
+                needs: {
+                    changes: { result: 'success', outputs: { mobile: 'false', api_types: 'true' } },
+                    check: { result },
+                },
+            },
+            planFunctions({
+                dependenciesSucceeded: result === 'success',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+        )
+        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+        expect(gate.error).toBeUndefined()
+        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+    })
+
+    it.each([
         { name: 'canonical PR', github: pullRequest(), runs: true },
         { name: 'mirror PR', github: mirrorPullRequest(), runs: false },
         { name: 'fork PR', github: pullRequest({ fork: true }), runs: false },
@@ -566,47 +707,6 @@ describe('CI workflow run plans', () => {
                     planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
                 )
             ).toBe('stub-token')
-        }
-    })
-
-    it.each([
-        ['failed install', 'failure', 'src/example.ts', 'full'],
-        ['empty source selection', 'skipped', '', 'selective'],
-        ['successful install', 'success', 'src/example.ts', 'selective'],
-    ])('Jest selection after %s', (_name, installOutcome, changedFiles, mode) => {
-        const script = workflow('ci-frontend.yml').jobs['select-jest-tests']?.steps?.find(
-            (step) => step.id === 'classify'
-        )?.run
-        if (!script) {
-            throw new Error('Missing Jest matrix classification script')
-        }
-        const directory = mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
-        const output = path.join(directory, 'output')
-        const fallback = path.join(directory, 'fallback')
-        try {
-            writeFileSync(fallback, 'mode=full\nshould_run=true\n')
-            const result = spawnSync(
-                'bash',
-                [
-                    '-e',
-                    '-c',
-                    `node() { printf 'mode=selective\\nshould_run=false\\n' >> "$GITHUB_OUTPUT"; }\n${script.replaceAll('/tmp/jest-selection-fallback', fallback)}`,
-                ],
-                {
-                    encoding: 'utf8',
-                    env: {
-                        PATH: process.env.PATH,
-                        SELECTIVE: 'true',
-                        INSTALL_OUTCOME: installOutcome,
-                        CHANGED_FILES: changedFiles,
-                        GITHUB_OUTPUT: output,
-                    },
-                }
-            )
-            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
-            expect(readFileSync(output, 'utf8')).toBe(`mode=${mode}\nshould_run=${mode === 'full'}\n`)
-        } finally {
-            rmSync(directory, { recursive: true, force: true })
         }
     })
 
