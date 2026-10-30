@@ -2875,6 +2875,10 @@ describe('Workflows E2E (postgres-v2)', () => {
                 approver: 'sam@example.com',
                 status: 'completed',
             })
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => j.status)).toEqual(['completed'])
+            }, 10000)
 
             const replay = await supertest(app)
                 .post(callbackPath(sent.callback_url))

@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import type { CommonConfig } from '~/common/config'
-import { defaultConfig } from '~/common/config/config'
 
 import type { CdpConfig } from '../../config'
 import type { CyclotronJobInvocationHogFunction } from '../../types'
@@ -77,7 +76,3 @@ export class WorkflowStepCallbacks {
         return { teamId, originKey: originKey as string, ...key }
     }
 }
-
-let defaultCallbacks: WorkflowStepCallbacks | undefined
-export const getWorkflowStepCallbacks = (): WorkflowStepCallbacks =>
-    (defaultCallbacks ??= new WorkflowStepCallbacks(defaultConfig))
