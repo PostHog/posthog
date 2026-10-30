@@ -30,6 +30,7 @@ class LLMJudgeConfig(BaseModel):
     judge_method: Literal["llm", "decision"] | None = Field(
         default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
     )
+    include_media: bool | None = Field(default=None, description="Set to false to judge text only.")
     # Matches llm.types.ReasoningLevel; importing the llm package here would load provider SDKs at startup.
     reasoning_level: Literal["minimal", "low", "medium", "high"] | None = Field(
         default=None,

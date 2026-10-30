@@ -4233,71 +4233,86 @@ describe("AgentServer HTTP Mode", () => {
       expect(body.error).toBe("No active session for this run");
     }, 20000);
 
-    it("continues a cloud task after a manual compact command", async () => {
-      const s = createServer();
-      await s.start();
-      const broadcastEvent = vi.fn();
-      let serverInternals!: {
-        session: { clientConnection: { prompt: typeof prompt } };
-        broadcastEvent: typeof broadcastEvent;
-        handleAcpTransportMessage(message: unknown): void;
-      };
-      const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => {
-        serverInternals.handleAcpTransportMessage({
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-          params: { sessionId: "session-1", stopReason: "end_turn" },
+    it.each([
+      { label: "continues a cloud task after", meta: undefined, prompts: 2 },
+      {
+        label: "does not continue a cloud task after a failed",
+        meta: { compactionFailed: true },
+        prompts: 1,
+      },
+    ])(
+      "$label manual compact command",
+      async ({ meta, prompts }) => {
+        const s = createServer();
+        await s.start();
+        const broadcastEvent = vi.fn();
+        let serverInternals!: {
+          session: { clientConnection: { prompt: typeof prompt } };
+          broadcastEvent: typeof broadcastEvent;
+          handleAcpTransportMessage(message: unknown): void;
+        };
+        const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => {
+          serverInternals.handleAcpTransportMessage({
+            jsonrpc: "2.0",
+            method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+            params: { sessionId: "session-1", stopReason: "end_turn" },
+          });
+          return prompt.mock.calls.length === 1 && meta
+            ? { stopReason: "end_turn", _meta: meta }
+            : { stopReason: "end_turn" };
         });
-        return { stopReason: "end_turn" };
-      });
-      serverInternals = s as unknown as typeof serverInternals;
-      serverInternals.session.clientConnection.prompt = prompt;
-      serverInternals.broadcastEvent = broadcastEvent;
+        serverInternals = s as unknown as typeof serverInternals;
+        serverInternals.session.clientConnection.prompt = prompt;
+        serverInternals.broadcastEvent = broadcastEvent;
 
-      const token = createToken();
-      const response = await fetch(`http://localhost:${port}/command`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "compact-and-continue",
-          method: "user_message",
-          params: {
-            content:
-              "/compact Continue with the task using the question tool and plan.",
+        const token = createToken();
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "compact-and-continue",
+            method: "user_message",
+            params: {
+              content:
+                "/compact Continue with the task using the question tool and plan.",
+            },
+          }),
+        });
 
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        result?: { stopReason?: string };
-      };
-      expect(body.result?.stopReason).toBe("end_turn");
-      expect(prompt).toHaveBeenCalledTimes(2);
-      expect(prompt.mock.calls[0]?.[0].prompt).toEqual([
-        {
-          type: "text",
-          text: "/compact Continue with the task using the question tool and plan.",
-        },
-      ]);
-      expect(prompt.mock.calls[1]?.[0].prompt).toEqual([
-        {
-          type: "text",
-          text: expect.stringContaining("Continue working on the task"),
-          _meta: { ui: { hidden: true } },
-        },
-      ]);
-      const turnCompleteEvents = broadcastEvent.mock.calls.filter(
-        ([event]) =>
-          (event as { notification?: { method?: string } }).notification
-            ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-      );
-      expect(turnCompleteEvents).toHaveLength(1);
-    }, 20000);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          result?: { stopReason?: string };
+        };
+        expect(body.result?.stopReason).toBe("end_turn");
+        expect(prompt).toHaveBeenCalledTimes(prompts);
+        expect(prompt.mock.calls[0]?.[0].prompt).toEqual([
+          {
+            type: "text",
+            text: "/compact Continue with the task using the question tool and plan.",
+          },
+        ]);
+        if (prompts === 2) {
+          expect(prompt.mock.calls[1]?.[0].prompt).toEqual([
+            {
+              type: "text",
+              text: expect.stringContaining("Continue working on the task"),
+              _meta: { ui: { hidden: true } },
+            },
+          ]);
+        }
+        const turnCompleteEvents = broadcastEvent.mock.calls.filter(
+          ([event]) =>
+            (event as { notification?: { method?: string } }).notification
+              ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+        );
+        expect(turnCompleteEvents).toHaveLength(1);
+      },
+      20000,
+    );
 
     it("honors cancellation while preparing a human follow-up", async () => {
       const s = createServer();

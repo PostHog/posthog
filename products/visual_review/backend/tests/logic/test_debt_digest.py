@@ -709,7 +709,7 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-one", _OTHER_PATH: "team-two", _PRODUCT_PATH: "team-two"}),
             ),
-            patch("products.visual_review.backend.logic.team_channels.Integration") as integration,
+            patch("products.visual_review.backend.logic.team_channels.IntegrationManager") as manager,
             patch("products.visual_review.backend.logic.team_channels.SlackIntegration") as slack,
             patch(
                 "products.visual_review.backend.logic.team_channels.fetch_channel_map",
@@ -724,7 +724,7 @@ class TestCollectAndSend:
             ) as post,
             patch("products.visual_review.backend.logic.team_channels.post_message") as thread_post,
         ):
-            integration.objects.filter.return_value.first.return_value = MagicMock()
+            manager.slack.oauth.find.return_value = MagicMock()
             slack.return_value.client.conversations_info.return_value = {"channel": {"id": "C1"}}
             debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
 
