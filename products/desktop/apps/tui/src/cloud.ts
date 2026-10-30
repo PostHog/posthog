@@ -2,7 +2,9 @@ import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { AuthService } from "@posthog/core/auth/auth";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
+import { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
@@ -163,10 +165,28 @@ export function createCloud(
     authenticatedFetch: (fetch, input, init) =>
       authenticatedFetch(auth, fetch)(input, init),
   };
+  // createCloud runs once per sign-in, so the auth state the token service reads never changes.
+  const gateway = new GatewayTokenService(
+    {
+      getValidAccessToken: agentAuth.getValidAccessToken,
+      authenticatedFetch: authenticatedFetch(auth),
+    },
+    { goEnabled: true, override: null },
+    {
+      getState: () => ({
+        status: "authenticated",
+        cloudRegion: auth.region,
+        currentProjectId: projectId,
+      }),
+      on: () => {},
+    } as unknown as AuthService,
+    logger,
+  );
   // The same auth proxy, MCP servers and gateway attribution the desktop app gives local pi sessions.
   const authProxy = new AuthProxyService(
     { authenticatedFetch: authenticatedFetch(auth) },
     logger,
+    gateway,
   );
   const mcp = new AgentAuthAdapter(
     agentAuth,
@@ -179,6 +199,7 @@ export function createCloud(
       logger,
     ),
     logger,
+    gateway,
   );
   const piClients = new LocalPiRpcClientFactory(
     agentAuth,
@@ -186,6 +207,7 @@ export function createCloud(
     mcp,
     noMcpApps,
     logger,
+    gateway,
   );
   const localChats = new LocalChats();
   const sendPi: PiCommand = async (input) =>
