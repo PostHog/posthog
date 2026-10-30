@@ -290,8 +290,10 @@ def _deliveries(
         queryset = queryset.filter(subscription_id=subscription_id)
     if status:
         queryset = queryset.filter(status=status)
-    queryset = queryset.filter(viewable_delivery_filter(viewer, team_id)).distinct()
-    return queryset.filter(team_id=team_id)
+    # The visibility joins can repeat a row. An id subquery removes the repeats without DISTINCT over
+    # content_snapshot, which holds full query results and makes the page and count queries slow.
+    visible_ids = SubscriptionDelivery.objects.filter(viewable_delivery_filter(viewer, team_id)).values("id")
+    return queryset.filter(team_id=team_id, id__in=visible_ids)
 
 
 def list_subscription_deliveries(
