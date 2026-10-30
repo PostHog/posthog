@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LocalChats } from "./localChats";
 import { localHistory } from "./localHistory";
+import type { RunView } from "./runs";
 import { transcriptFrom } from "./transcript";
 
 const line = (entry: object): string => `${JSON.stringify(entry)}\n`;
@@ -21,9 +22,17 @@ describe("localHistory", () => {
         cwd: dir,
       }) +
         line({
+          type: "model_change",
+          id: "c1",
+          parentId: null,
+          timestamp: "2026-10-09T09:04:45.500Z",
+          provider: "openai-codex",
+          modelId: "gpt-6",
+        }) +
+        line({
           type: "message",
           id: "m1",
-          parentId: null,
+          parentId: "c1",
           timestamp: "2026-10-09T09:04:46.000Z",
           message: {
             role: "user",
@@ -33,12 +42,17 @@ describe("localHistory", () => {
         }),
     );
 
-    const view = await localHistory(new LocalChats(dir), "t1");
+    const cold = await localHistory(new LocalChats(dir), "t1");
+    let view: RunView | null = null;
+    cold?.watch((next) => {
+      view = next;
+    });
 
+    expect(cold).toMatchObject({ runtime: "pi", plan: true, model: "gpt-6" });
     expect(view).toMatchObject({ loaded: true, local: true });
-    expect(transcriptFrom("pi", view?.entries ?? []).lines).toMatchObject([
-      { kind: "user", text: "earlier" },
-    ]);
+    expect(
+      transcriptFrom("pi", (view as unknown as RunView).entries).lines,
+    ).toMatchObject([{ kind: "user", text: "earlier" }]);
     expect(await localHistory(new LocalChats(dir), "t2")).toBeNull();
   });
 
@@ -51,9 +65,14 @@ describe("localHistory", () => {
       timestamp: "2026-10-09T09:04:46.000Z",
     } as never);
 
-    const view = await localHistory(chats, "c1");
+    const cold = await localHistory(chats, "c1");
+    let view: RunView | null = null;
+    cold?.watch((next) => {
+      view = next;
+    });
 
+    expect(cold).toMatchObject({ runtime: "acp", plan: true });
     expect(view).toMatchObject({ loaded: true, local: true });
-    expect(view?.entries).toHaveLength(1);
+    expect((view as unknown as RunView).entries).toHaveLength(1);
   });
 });

@@ -118,6 +118,11 @@ export function useModels({
   >(new Map());
   const rememberMode = (taskId: string, available: Mode[], current: string) =>
     setTaskModes((known) => new Map(known).set(taskId, { available, current }));
+  // The model a local chat's agent started on, or was on before this run of the app.
+  const started = (taskId: string): string | undefined => {
+    const model = localSessions.get(taskId)?.model;
+    return model && shortModelName(model);
+  };
 
   // The pane's held picks, less any the chat's agent cannot start on. A new chat starts on the last model picked.
   const held = (paneId: string, starting = startingFor(paneId)): HeldPick =>
@@ -521,7 +526,8 @@ export function useModels({
         picks.model?.name ??
           (taskId
             ? (taskModels.get(taskId)?.name ??
-              (runModel && shortModelName(runModel)))
+              (runModel && shortModelName(runModel)) ??
+              started(taskId))
             : starting.model?.name),
         picks.effort ??
           (taskId ? taskEfforts.get(taskId) : (starting.effort ?? undefined)),

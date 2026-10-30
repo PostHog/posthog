@@ -9,13 +9,12 @@ import {
 import { localHarnessFor } from "../billing";
 import { currentRepository, type PiChats, type StartPick } from "../chats";
 import { messageOf } from "../errors";
-import { type LayoutState, renameTask } from "../layout";
+import { allPanes, type LayoutState, renameTask } from "../layout";
 import { type LocalAgent, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import { localHistory } from "../localHistory";
 import { loadPrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
-import type { RunView } from "../runs";
 import type { FlashNotice } from "./useNotice";
 
 export interface LocalChatsState {
@@ -23,8 +22,8 @@ export interface LocalChatsState {
   isLocal: (taskId: string | null) => taskId is string;
   // The chat's agent, started on first use.
   localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
-  // A chat's saved conversation from its files, for a pane that shows it before its agent has started.
-  historyOf: (id: string) => Promise<RunView | null>;
+  // The saved conversation of each local chat a pane shows whose agent has not started, read from its files.
+  coldSessions: Map<string, LocalAgent>;
   // Agents that have started, by task id.
   localSessions: Map<string, LocalAgent>;
   // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
@@ -171,10 +170,49 @@ export function useLocalChats({
     setPrompts(new Map());
   }, [startLocal, watched]);
 
+  // A local chat in a pane shows its saved conversation until its agent starts; a chat no pane shows is dropped.
+  const [coldSessions, setColdSessions] = useState<Map<string, LocalAgent>>(
+    new Map(),
+  );
+  const coldIds = allPanes(layout)
+    .flatMap((pane) =>
+      isLocal(pane.taskId) && !localSessions.has(pane.taskId)
+        ? [pane.taskId]
+        : [],
+    )
+    .join();
+  // Read once per chat: a long log takes a moment to parse, and the panes change more often than their chats.
+  const coldLoaded = useRef(coldSessions);
+  coldLoaded.current = coldSessions;
+  useEffect(() => {
+    const wanted = new Set(coldIds ? coldIds.split(",") : []);
+    setColdSessions((current) =>
+      [...current.keys()].every((id) => wanted.has(id))
+        ? current
+        : new Map([...current].filter(([id]) => wanted.has(id))),
+    );
+    let left = false;
+    for (const id of wanted) {
+      if (coldLoaded.current.has(id)) continue;
+      void localHistory(localChats, id).then(
+        (cold) => {
+          if (left || !cold) return;
+          setColdSessions((current) =>
+            current.has(id) ? current : new Map(current).set(id, cold),
+          );
+        },
+        () => {},
+      );
+    }
+    return () => {
+      left = true;
+    };
+  }, [coldIds, localChats]);
+
   return {
     isLocal,
     localFor,
-    historyOf: (id) => localHistory(localChats, id),
+    coldSessions,
     localSessions,
     clear,
     localActive,

@@ -105,7 +105,7 @@ const configHolder = (value: unknown): unknown[] | undefined => {
     : undefined;
 };
 
-function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
+export function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
   let modes: Transcript["modes"] = null;
   for (const entry of entries) {
     const notification = (entry as { notification?: unknown }).notification as
