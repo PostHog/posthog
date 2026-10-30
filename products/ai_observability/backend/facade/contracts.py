@@ -393,6 +393,10 @@ class TraceExport(Contract):
 
 class TraceExportFile(Contract):
     trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
     nodes: list[TraceNodeDetail] = Field(
         description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
         "then the tree in pre-order."

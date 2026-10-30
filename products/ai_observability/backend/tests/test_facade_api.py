@@ -619,7 +619,9 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
                         "$ai_provider": "openai",
                     },
                 ),
-                self._event(LATER, timestamp=T0 + timedelta(seconds=3), properties={"$ai_parent_id": "trace-1"}),
+                self._event(
+                    LATER, timestamp=T0 + timedelta(milliseconds=1500), properties={"$ai_parent_id": "trace-1"}
+                ),
             ]
         )
 
@@ -645,17 +647,31 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
         with (
             patch.object(api, "TRACE_EXPORT_NODE_BATCH_SIZE", batch_size),
             patch.object(trace_queries, "query_ai_events", wraps=trace_queries.query_ai_events) as reads,
+            patch.object(trace_queries, "execute_hogql_query", wraps=trace_queries.execute_hogql_query) as person_reads,
         ):
             asset = self._export()
 
         file = self._file(asset)
         assert asset.exception is None
-        assert {call.kwargs["workload"] for call in reads.call_args_list} == {Workload.OFFLINE}
+        assert person_reads.call_count == 1
+        assert {call.kwargs["workload"] for call in [*reads.call_args_list, *person_reads.call_args_list]} == {
+            Workload.OFFLINE
+        }
         assert file.trace.id == "trace-1"
+        assert file.truncated is False
         assert [node.id for node in file.nodes] == ["trace-1", SPAN, GENERATION, LATER]
         root, generation = file.nodes[0].event, file.nodes[2].event
         assert root is not None and root.properties["$ai_input_state"] == {"question": "Why?"}
         assert generation is not None and generation.properties["$ai_input"] == QUESTION
+
+    def test_a_trace_over_the_event_limit_exports_what_was_read_and_says_so(self) -> None:
+        with patch.object(trace_queries, "MAX_TRACE_EVENTS", 2):
+            asset = self._export()
+
+        file = self._file(asset)
+        assert asset.exception is None
+        assert file.truncated is True
+        assert [node.id for node in file.nodes] == ["trace-1", SPAN]
 
     def test_leaves_out_properties_the_creator_may_not_read(self) -> None:
         hide_event_property(self.team, self.user, "$ai_input")

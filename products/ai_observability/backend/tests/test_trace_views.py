@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
@@ -793,6 +793,28 @@ class TestTraceExportViews(APIBaseTest):
 
         for suffix in ("", "content/"):
             assert self.client.get(self._url(_encode(url_trace_id), export_id, suffix)).status_code == 404
+
+    def test_an_export_whose_workflow_never_started_fails_at_once(self) -> None:
+        self.start_workflow.side_effect = RuntimeError("Temporal is unreachable")
+
+        export = self._create()
+        status = self.client.get(self._url(_encode("a/b"), export["id"])).json()
+
+        expected = ("failed", "The export could not be started. Try again.")
+        assert (export["status"], export["exception"]) == expected
+        assert (status["status"], status["exception"]) == expected
+
+    @patch("products.ai_observability.backend.presentation.views.report_user_action")
+    def test_tracks_a_download(self, report_user_action: MagicMock) -> None:
+        export_id = self._create()["id"]
+        ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+
+        report_user_action.assert_called_once_with(
+            self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
+        )
 
     def test_a_failed_export_reports_its_reason(self) -> None:
         export_id = self._create()["id"]

@@ -85,12 +85,12 @@ class TraceExportState:
 class TraceExportWriter:
     """Writes `{"trace": ..., "nodes": [...]}` to a stream one node at a time, so the document never sits in memory."""
 
-    def __init__(self, stream: IO[bytes], trace_json: str, *, max_bytes: int) -> None:
+    def __init__(self, stream: IO[bytes], trace_json: str, *, truncated: bool, max_bytes: int) -> None:
         self._stream = stream
         self._max_bytes = max_bytes
         self._written = 0
         self._has_nodes = False
-        self._write('{"trace":' + trace_json + ',"nodes":[')
+        self._write('{"trace":' + trace_json + ',"truncated":' + ("true" if truncated else "false") + ',"nodes":[')
 
     def add_node(self, node_json: str) -> None:
         self._write(("," if self._has_nodes else "") + node_json)

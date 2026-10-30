@@ -96,6 +96,10 @@ class LoadedTrace:
     rows: tuple[TraceEventRow, ...]
     person: PersonRow | None
 
+    @property
+    def truncated(self) -> bool:
+        return len(self.rows) >= MAX_TRACE_EVENTS
+
 
 @frozen
 class TraceRootLookup:

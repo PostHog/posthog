@@ -1,7 +1,9 @@
 from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from typing import Any
 
+from django.db import transaction
 from django.http import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
@@ -17,6 +19,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
@@ -472,7 +475,19 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if export.status != "complete" or asset is None:
             detail = export.exception or "The export is still being prepared."
             return Response({"detail": detail}, status=status.HTTP_409_CONFLICT)
-        return get_export_asset_content_response(asset=asset, download=True)
+        response = get_export_asset_content_response(asset=asset, download=True)
+        transaction.on_commit(
+            partial(
+                report_user_action,
+                request.user,
+                "llma trace export downloaded",
+                {"export_id": export.id},
+                team=self.team,
+                request=request,
+            ),
+            robust=True,
+        )
+        return response
 
     def _trace_export(self, request: Request, pk: str, export_id: str) -> contracts.TraceExport:
         return api.get_trace_export(self.team, _user(request), decode_trace_id_segment(pk), int(export_id))

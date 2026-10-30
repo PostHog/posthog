@@ -671,7 +671,10 @@ def write_trace_export(team: Team, user: User, export_context: Mapping[str, obje
         raise TraceNotFoundError(request.trace_id)
     trace = Trace(request.trace_id, loaded.rows, loaded.person)
     writer = TraceExportWriter(
-        stream, _to_trace(trace).model_dump_json(by_alias=True), max_bytes=MAX_TRACE_EXPORT_BYTES
+        stream,
+        _to_trace(trace).model_dump_json(by_alias=True),
+        truncated=loaded.truncated,
+        max_bytes=MAX_TRACE_EXPORT_BYTES,
     )
     root = load_trace_root(team, user, trace.id, trace.created_at, workload=Workload.OFFLINE)
     writer.add_node(_to_root_detail(trace.id, root.trace_event).model_dump_json(by_alias=True))
@@ -685,7 +688,7 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
     state = TraceExportState.of(
         has_content=asset.has_content,
         exception=asset.exception,
-        failure_is_final=is_export_failure_final(asset.exception_type),
+        failure_is_final=is_export_failure_final(exception_type=asset.exception_type, failure_type=asset.failure_type),
         created_at=asset.created_at,
         now=now(),
         stuck_after=_TRACE_EXPORT_STUCK_AFTER,

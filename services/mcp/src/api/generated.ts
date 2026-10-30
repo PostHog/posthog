@@ -122453,6 +122453,8 @@ export namespace Schemas {
     export interface TraceExportFile {
       /** The trace as the trace endpoint returns it. */
       trace: Trace;
+      /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
+      truncated: boolean;
       /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
       nodes: TraceNodeDetail[];
     }

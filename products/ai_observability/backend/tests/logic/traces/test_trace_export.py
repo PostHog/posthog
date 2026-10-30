@@ -70,19 +70,25 @@ def test_export_state(
     assert (state.status, state.exception) == expected
 
 
-@parameterized.expand([("nodes", ['{"id":"a"}', '{"id":"b"}']), ("no nodes", [])])
-def test_the_writer_streams_one_json_document(_name: str, nodes: list[str]) -> None:
+@parameterized.expand(
+    [("nodes", ['{"id":"a"}', '{"id":"b"}'], False), ("no nodes", [], False), ("a truncated trace", [], True)]
+)
+def test_the_writer_streams_one_json_document(_name: str, nodes: list[str], truncated: bool) -> None:
     stream = io.BytesIO()
-    writer = TraceExportWriter(stream, '{"id":"trace-1"}', max_bytes=1_000)
+    writer = TraceExportWriter(stream, '{"id":"trace-1"}', truncated=truncated, max_bytes=1_000)
     for node in nodes:
         writer.add_node(node)
     writer.close()
 
-    assert json.loads(stream.getvalue()) == {"trace": {"id": "trace-1"}, "nodes": [json.loads(node) for node in nodes]}
+    assert json.loads(stream.getvalue()) == {
+        "trace": {"id": "trace-1"},
+        "truncated": truncated,
+        "nodes": [json.loads(node) for node in nodes],
+    }
 
 
 def test_the_writer_stops_at_the_byte_cap() -> None:
-    writer = TraceExportWriter(io.BytesIO(), '{"id":"trace-1"}', max_bytes=50)
+    writer = TraceExportWriter(io.BytesIO(), '{"id":"trace-1"}', truncated=False, max_bytes=60)
 
     with pytest.raises(TraceExportTooLargeError):
         writer.add_node(json.dumps({"content": "x" * 100}))
