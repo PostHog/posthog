@@ -3,12 +3,13 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError, connection
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership, tombstone_organization_record
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.organization_tombstone import tombstone_organization_record
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -88,6 +89,20 @@ class TestTombstoneOrganizationRecord(BaseTest):
         assert tombstone.slug != fixed_slug
         assert tombstone.slug.startswith("deleted-")
         assert Organization.objects.get(id=squatter.id).slug == fixed_slug
+
+    def test_a_child_row_the_cascade_misses_fails_the_deletion(self):
+        organization, _ = self._bootstrap_doomed_org()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE test_untracked_org_child (organization_id uuid NOT NULL "
+                "REFERENCES posthog_organization (id) DEFERRABLE INITIALLY DEFERRED)"
+            )
+            cursor.execute("INSERT INTO test_untracked_org_child (organization_id) VALUES (%s)", [organization.id])
+
+        with self.assertRaises(IntegrityError):
+            tombstone_organization_record(str(organization.id))
+
+        assert Organization.objects.filter(id=organization.id).exists()
 
     def test_join_refuses_a_tombstoned_organization(self):
         organization, _ = self._bootstrap_doomed_org()
