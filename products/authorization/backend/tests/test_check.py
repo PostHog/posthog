@@ -185,11 +185,11 @@ class TestCheckMatchesCurrentRules(BaseTest):
     ) -> None:
         resource = Resource(type=resource_type, id="1", project_id=self.team.id, parent=parent)
         ref = ObjectAccessRef(
-            resource=resource_type.value,
+            resource=resource_type.value,  # type: ignore[arg-type]
             id="1",
             team_id=self.team.id,
             created_by_id=None,
-            fallback_parent=FallbackParent(resource=parent.type.value, id=parent.id) if parent else None,
+            fallback_parent=FallbackParent(resource=parent.type.value, id=parent.id) if parent else None,  # type: ignore[arg-type]
         )
         access = UserAccessControl(self.user, self.team)
 
