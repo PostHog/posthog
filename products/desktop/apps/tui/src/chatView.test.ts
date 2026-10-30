@@ -63,6 +63,25 @@ describe("ChatView", () => {
     expect(plain(chat.render(40, 5)).join("\n")).toContain("Reply 30");
   });
 
+  it("offers a way back to the latest message only while scrolled up", () => {
+    const chat = new ChatView();
+    chat.setTranscript(replies(30));
+    expect(plain(chat.render(40, 5)).join("\n")).not.toContain(
+      "Jump to bottom",
+    );
+
+    chat.scrollBy(-20);
+    const scrolled = plain(chat.render(40, 5));
+    const column = scrolled[4].indexOf("Jump to bottom");
+    expect(column).toBeGreaterThan(0);
+    expect(chat.jumpAt(3, column)).toBe(false);
+    expect(chat.jumpAt(4, column)).toBe(true);
+
+    const latest = plain(chat.render(40, 5)).join("\n");
+    expect(latest).toContain("Reply 29");
+    expect(latest).not.toContain("Jump to bottom");
+  });
+
   it("marks the top while earlier messages exist, and keeps the reader's place when they arrive", () => {
     const chat = new ChatView();
     chat.setTranscript(replies(30).slice(20), { hasOlder: true });
@@ -383,7 +402,8 @@ describe("ChatView", () => {
       chat.scrollBy(-2);
 
       expect(chat.selectedText()).toBe("gamma");
-      expect(highlighted(chat.render(40, 5))).toEqual(["gamma"]);
+      // A row taller, so the way back to the latest message does not cover it.
+      expect(highlighted(chat.render(40, 6))).toEqual(["gamma"]);
     });
 
     it("keeps a drag past the chat's edges inside the chat", () => {
