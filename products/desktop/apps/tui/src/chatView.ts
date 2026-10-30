@@ -15,6 +15,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { inverseCells } from "./highlight";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
 import { orange } from "./theme";
@@ -107,50 +108,6 @@ function textBetween(line: string, start: number, end: number): string {
   );
   if (width <= start) return "";
   return stripTerminalSequences(sliceByColumn(line, start, width - start));
-}
-
-// The length of the escape sequence at index: CSI (ESC [ … final byte) or OSC (ESC ] … BEL or ESC \), else 0.
-function escapeLength(line: string, index: number): number {
-  if (line[index] !== "\u001b") return 0;
-  const kind = line[index + 1];
-  if (kind === "[") {
-    let at = index + 2;
-    while (at < line.length && !/[@-~]/.test(line[at])) at++;
-    return at + 1 - index;
-  }
-  if (kind === "]") {
-    for (let at = index + 2; at < line.length; at++) {
-      if (line[at] === "\u0007") return at + 1 - index;
-      if (line[at] === "\u001b" && line[at + 1] === "\\") return at + 2 - index;
-    }
-    return line.length - index;
-  }
-  return 0;
-}
-
-const graphemes = new Intl.Segmenter();
-
-// A line cut at a column with its escapes in place, and the style codes met before the cut.
-// Replaying those codes after a reset gives the style the line has at that column.
-function cutAt(line: string, column: number): { head: string; styles: string } {
-  let width = 0;
-  let index = 0;
-  let styles = "";
-  while (index < line.length) {
-    const length = escapeLength(line, index);
-    if (length > 0) {
-      const sequence = line.slice(index, index + length);
-      if (sequence[1] === "[" && sequence.endsWith("m")) styles += sequence;
-      index += length;
-      continue;
-    }
-    const [grapheme] = graphemes.segment(line.slice(index));
-    const cells = visibleWidth(grapheme.segment);
-    if (width + cells > column) break;
-    width += cells;
-    index += grapheme.segment.length;
-  }
-  return { head: line.slice(0, index), styles };
 }
 
 // pi pads its message blocks for a full screen; panes keep them tight and space them here instead.
@@ -396,7 +353,6 @@ export class ChatView {
     this.selection = null;
   }
 
-  // The selected text as drawn, one line per row.
   // The selected text as it reads: a paragraph wrapped over rows comes back as one line, without the pane's padding.
   selectedText(): string {
     const range = this.range();
@@ -470,10 +426,7 @@ export class ChatView {
     const [start, end] = this.columnsOn(row, range);
     const text = textBetween(line, start, end);
     if (!text) return line;
-    const after = start + visibleWidth(text);
-    // The selection replaces styled text, so the rest of the row gets back the style it had there, not one that leaked past it.
-    const rest = cutAt(line, after);
-    return `${cutAt(line, start).head}\u001b[0m\u001b[7m${text}\u001b[27m\u001b[0m${rest.styles}${line.slice(rest.head.length)}`;
+    return inverseCells(line, start, start + visibleWidth(text));
   }
 
   // The web link at a cell within the chat, as last drawn, or null.

@@ -111,6 +111,7 @@ export function Pane({
   chips,
   onPrChip,
   onChatBox,
+  onComposerBox,
   onRunLive,
   onTurn,
   focused,
@@ -150,6 +151,8 @@ export function Pane({
   onPrChip: (element: DOMElement | null, url: string | null) => void;
   // The chat's box, so a click on a tool group can open it.
   onChatBox: (element: DOMElement | null) => void;
+  // The composer's box, from its top rule down, so a click can place the cursor and a drag can select.
+  onComposerBox: (element: DOMElement | null) => void;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -275,8 +278,10 @@ export function Pane({
         : offerOpen
           ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
           : [];
-  const bottomLines =
-    modal && !modal.submitText ? sheetLines : [...sheetLines, ...composerLines];
+  const showsComposer = !modal || Boolean(modal.submitText);
+  const bottomLines = showsComposer
+    ? [...sheetLines, ...composerLines]
+    : sheetLines;
   const chatHeight = height - bottomLines.length - (view.error ? 1 : 0);
 
   const popupContent = (
@@ -376,12 +381,22 @@ export function Pane({
         >
           {content}
         </Box>
-        {bottomLines.map((line, index) => (
+        {sheetLines.map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
-          <Text key={`bottom-${index}`} wrap="truncate-end">
+          <Text key={`sheet-${index}`} wrap="truncate-end">
             {line}
           </Text>
         ))}
+        {showsComposer && (
+          <Box ref={onComposerBox} flexDirection="column" flexShrink={0}>
+            {composerLines.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+              <Text key={`composer-${index}`} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
+          </Box>
+        )}
       </Box>
     </Box>
   );

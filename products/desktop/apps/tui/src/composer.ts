@@ -12,7 +12,9 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { inverseCells } from "./highlight";
 import type { RunCommand } from "./models";
+import type { Click } from "./mouse";
 import { orange } from "./theme";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
@@ -65,6 +67,25 @@ export const SLASH_COMMANDS = [
   { name: "logout", description: "Sign out and clear your workspaces" },
 ];
 
+// A point in the text: a logical line and a string index within it.
+type Position = { line: number; col: number };
+
+// pi's editor has no public way to place the cursor or to say how it wrapped the text, so these are its own fields for both.
+// The composer tests cover each one, so a pi upgrade that renames them fails there first.
+interface EditorInternals {
+  state: { cursorLine: number };
+  scrollOffset: number;
+  lastWidth: number;
+  buildVisualLineMap(
+    width: number,
+  ): { logicalLine: number; startCol: number; length: number }[];
+  setCursorCol(col: number): void;
+}
+
+const graphemes = new Intl.Segmenter();
+const before = (a: Position, b: Position): boolean =>
+  a.line < b.line || (a.line === b.line && a.col < b.col);
+
 // Faint grey, the same as the pane dividers, so the rule recedes behind the chat.
 const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 
@@ -76,6 +97,7 @@ export class Composer {
   private readonly images = new Map<string, ImageContent>();
   private imageCount = 0;
   private suggestions: CombinedAutocompleteProvider | undefined;
+  private selection: { from: Position; to: Position } | null = null;
 
   constructor(
     private readonly repaint: () => void,
@@ -152,6 +174,8 @@ export class Composer {
 
   // ! in an empty composer enters shell mode instead of typing; Backspace on an empty command leaves it.
   handleInput(sequence: string): void {
+    // A selection is for copying; any key carries on from the cursor.
+    this.selection = null;
     const empty = this.editor.getText() === "";
     const bang = sequence === "!" || decodeKittyPrintable(sequence) === "!";
     if (empty && !this.shellMode && bang) this.shellMode = true;
@@ -179,6 +203,98 @@ export class Composer {
     // Mid-delete the text can end in "#", which starts pi's file suggestions; setting the provider again cancels them.
     if (this.suggestions) this.editor.setAutocompleteProvider(this.suggestions);
     return true;
+  }
+
+  // Moves the cursor to the text under a cell of the drawn composer, where row 0 is its top rule.
+  placeCursor(at: Click): void {
+    const { line, col } = this.positionAt(at);
+    this.internals().state.cursorLine = line;
+    this.internals().setCursorCol(col);
+    this.selection = null;
+    this.repaint();
+  }
+
+  // Selects the text between two cells of the drawn composer, including the cell under each end.
+  select(from: Click, to: Click): void {
+    const forward = before(this.positionAt(from), this.positionAt(to));
+    const [start, end] = forward ? [from, to] : [to, from];
+    this.selection = {
+      from: this.positionAt(start),
+      to: this.positionAt({ ...end, column: end.column + 1 }),
+    };
+    this.repaint();
+  }
+
+  clearSelection(): void {
+    if (!this.selection) return;
+    this.selection = null;
+    this.repaint();
+  }
+
+  // The selected text from the editor's own lines, so wrapping never adds a line break.
+  selectedText(): string {
+    if (!this.selection) return "";
+    const { from, to } = this.selection;
+    const lines = this.editor.getLines();
+    if (from.line === to.line)
+      return (lines[from.line] ?? "").slice(from.col, to.col);
+    return [
+      (lines[from.line] ?? "").slice(from.col),
+      ...lines.slice(from.line + 1, to.line),
+      (lines[to.line] ?? "").slice(0, to.col),
+    ].join("\n");
+  }
+
+  private internals(): EditorInternals {
+    return this.editor as unknown as EditorInternals;
+  }
+
+  // The visual rows the editor drew last, top to bottom, scrolled as it scrolled them.
+  private visibleRows(): {
+    logicalLine: number;
+    startCol: number;
+    length: number;
+  }[] {
+    const { lastWidth, scrollOffset } = this.internals();
+    return this.internals().buildVisualLineMap(lastWidth).slice(scrollOffset);
+  }
+
+  // The text position under a cell; rows above or below the input land on its first or last row.
+  private positionAt({ row, column }: Click): Position {
+    const rows = this.visibleRows();
+    const visual = rows[Math.max(0, Math.min(row - 1, rows.length - 1))];
+    if (!visual) return { line: 0, col: 0 };
+    const line = this.editor.getLines()[visual.logicalLine] ?? "";
+    const chunk = line.slice(visual.startCol, visual.startCol + visual.length);
+    let cells = column - PROMPT_WIDTH;
+    let offset = 0;
+    for (const { segment } of graphemes.segment(chunk)) {
+      const width = visibleWidth(segment);
+      if (cells < width) break;
+      cells -= width;
+      offset += segment.length;
+    }
+    return { line: visual.logicalLine, col: visual.startCol + offset };
+  }
+
+  // Draws the selected part of an input row in inverse video.
+  private highlight(row: string, index: number): string {
+    if (!this.selection) return row;
+    const { from, to } = this.selection;
+    const visual = this.visibleRows()[index];
+    if (!visual) return row;
+    const rowStart = { line: visual.logicalLine, col: visual.startCol };
+    const rowEnd = {
+      line: visual.logicalLine,
+      col: visual.startCol + visual.length,
+    };
+    const start = before(rowStart, from) ? from : rowStart;
+    const end = before(to, rowEnd) ? to : rowEnd;
+    if (start.line !== visual.logicalLine || !before(start, end)) return row;
+    const line = this.editor.getLines()[visual.logicalLine] ?? "";
+    const cellsTo = (col: number): number =>
+      PROMPT_WIDTH + visibleWidth(line.slice(visual.startCol, col));
+    return inverseCells(row, cellsTo(start.col), cellsTo(end.col));
   }
 
   // The input and its rule, and apart from them any suggestion list, which the pane floats over the chat.
@@ -212,7 +328,8 @@ export class Composer {
         index === 0
           ? `${prompt} ${line}`
           : `${" ".repeat(PROMPT_WIDTH)}${line}`,
-      );
+      )
+      .map((line, index) => this.highlight(line, index));
     const statusWidth = status ? visibleWidth(status) + 1 : 0;
     const top =
       status && statusWidth < width
