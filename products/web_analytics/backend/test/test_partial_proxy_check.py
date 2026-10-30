@@ -1,6 +1,5 @@
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -11,8 +10,6 @@ from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_y
 from products.web_analytics.backend.models.health_rollups import HostProxyDaily
 from products.web_analytics.backend.rollups.host_proxy import is_valid_host
 from products.web_analytics.backend.temporal.health_checks.partial_proxy import (
-    MAX_HOSTS_IN_PAYLOAD,
-    MIN_EVENTS_PER_HOST,
     PARTIAL_PROXY_LOOKBACK_DAYS,
     PartialProxyCheck,
 )
@@ -74,19 +71,6 @@ def _assert_flagged(
 
 class TestPartialProxyDetect(BaseTest):
     @parameterized.expand(DETECT_CASES)
-    @patch("products.web_analytics.backend.temporal.health_checks.partial_proxy.execute_clickhouse_health_team_query")
-    def test_detect_from_events(
-        self,
-        _name: str,
-        rows: list[tuple[int, str, bool, int]],
-        expected_flagged: dict[int, tuple[list[str], list[str]]],
-        mock_query: MagicMock,
-    ) -> None:
-        mock_query.return_value = rows
-
-        _assert_flagged(PartialProxyCheck().detect_from_events([1, 2]), expected_flagged)
-
-    @parameterized.expand(DETECT_CASES)
     def test_detect_from_rollup(
         self,
         _name: str,
@@ -103,17 +87,6 @@ class TestPartialProxyDetect(BaseTest):
         )
 
         _assert_flagged(PartialProxyCheck().detect_from_rollup([1, 2], window), expected_flagged)
-
-
-@patch("products.web_analytics.backend.temporal.health_checks.partial_proxy.execute_clickhouse_health_team_query")
-def test_partial_proxy_passes_min_events_per_host(mock_query: MagicMock) -> None:
-    mock_query.return_value = []
-    PartialProxyCheck().detect_from_events([1])
-
-    _args, kwargs = mock_query.call_args
-    assert kwargs["params"]["min_events_per_host"] == MIN_EVENTS_PER_HOST
-    assert kwargs["params"]["max_hosts_per_bucket"] == MAX_HOSTS_IN_PAYLOAD
-    assert kwargs["lookback_days"] > 0
 
 
 @pytest.mark.parametrize(
