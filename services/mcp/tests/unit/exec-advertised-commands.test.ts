@@ -24,7 +24,6 @@ const CATALOG = new Set(CATALOG_TOOL_NAMES)
 const UNGATED_BY_DESIGN = new Set([
     'actions-get-all',
     'agent-feedback',
-    'business-knowledge-document-window-retrieve',
     'dashboard-create',
     'dashboard-get',
     'dashboard-widgets-batch-add',

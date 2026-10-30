@@ -42,10 +42,12 @@ export function HarnessBarChart({
     rows,
     loading,
     theme,
+    fillHeight = false,
 }: {
     rows: HarnessRow[]
     loading: boolean
     theme: ChartTheme
+    fillHeight?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const { totalCalls, chartRows: sortedRows, allRows } = useMemo(() => summarizeHarnessBreakdown(rows), [rows])
@@ -81,7 +83,7 @@ export function HarnessBarChart({
                     </LemonButton>
                 )}
             </div>
-            <div className="p-3">
+            <div className="flex min-h-0 flex-1 flex-col p-3">
                 <CardState
                     loading={loading}
                     isEmpty={rows.length === 0}
@@ -119,7 +121,14 @@ export function HarnessBarChart({
                             </Tooltip>
                         )}
                     </div>
-                    <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
+                    <ShareBarChart
+                        rows={chartRows}
+                        totalCalls={totalCalls}
+                        theme={theme}
+                        tooltip={renderTooltip}
+                        fillHeight={fillHeight}
+                        label="Calls by harness"
+                    />
                 </CardState>
             </div>
             <LemonModal title="All harnesses" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>

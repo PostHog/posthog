@@ -453,6 +453,26 @@ class UpdatePersonPropertiesResponse(_message.Message):
     updated: bool
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
 
+class RaisePersonVersionRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "min_version")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    min_version: int
+    def __init__(
+        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
+    ) -> None: ...
+
+class RaisePersonVersionResponse(_message.Message):
+    __slots__ = ("person", "raised")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    RAISED_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    raised: bool
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., raised: bool = ...) -> None: ...
+
 class DeletePersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_uuids", "mode")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

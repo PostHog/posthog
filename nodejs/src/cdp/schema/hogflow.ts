@@ -300,6 +300,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-native-push'),
+            // When true, the stored asset keeps a placeholder instead of the notification's content, and the
+            // run snapshot keeps no variables.
+            sensitive: z.boolean().optional(),
             inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
