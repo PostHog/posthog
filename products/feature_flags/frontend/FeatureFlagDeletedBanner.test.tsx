@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -52,11 +51,11 @@ describe('FeatureFlagDeletedBanner', () => {
         cleanup()
     })
 
-    it('lets an editor restore the flag', async () => {
+    it('lets an editor restore the flag', () => {
         renderBanner(deletedFlag)
 
         expect(screen.getByText(/This feature flag is deleted\. .* Restore it to use it again\./)).toBeInTheDocument()
-        await userEvent.click(restoreButtons()[0])
+        fireEvent.click(restoreButtons()[0])
         expect(onRestore).toHaveBeenCalledTimes(1)
     })
 
