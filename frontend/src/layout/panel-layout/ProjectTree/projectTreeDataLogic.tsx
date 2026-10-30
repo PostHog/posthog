@@ -1082,12 +1082,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
-                    const response = await withTimeout(
-                        (signal) => api.fileSystemShortcuts.list({ signal }),
-                        SHORTCUTS_LOADER_TIMEOUT_MS,
-                        'loadShortcuts timed out'
-                    )
-                    return response.results.map(withProductShortcutHref)
+                    // Each page gets its own timeout. A star past the first page would otherwise look unstarred.
+                    const listPage = (offset: number): ReturnType<typeof api.fileSystemShortcuts.list> =>
+                        withTimeout(
+                            (signal) => api.fileSystemShortcuts.list(offset ? { offset, signal } : { signal }),
+                            SHORTCUTS_LOADER_TIMEOUT_MS,
+                            'loadShortcuts timed out'
+                        )
+                    let page = await listPage(0)
+                    const shortcuts = [...page.results]
+                    while (page.next) {
+                        page = await listPage(shortcuts.length)
+                        shortcuts.push(...page.results)
+                    }
+                    return shortcuts.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item, successMessage }) => {
                     const shortcutItem = shortcutFromEntry(item)

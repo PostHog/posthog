@@ -48,7 +48,11 @@ describe('sourceSteeringModalLogic', () => {
                     patchBodies.push(body)
                     patchedIds.push(String(params.id))
                     // The serializer recomputes the sync status on every response.
-                    return [200, { ...sourceConfig, ...body, status: 'completed' }]
+                    const config = { ...sourceConfig.config, ...body.config_set }
+                    for (const key of body.config_remove ?? []) {
+                        delete config[key]
+                    }
+                    return [200, { ...sourceConfig, config, status: 'completed' }]
                 },
             },
         })
@@ -62,7 +66,7 @@ describe('sourceSteeringModalLogic', () => {
         logic?.unmount()
     })
 
-    it('saves the whole config with trimmed steering merged in, keeping keys it does not own and dropping the retired posture flag', async () => {
+    it('sends only trimmed guidance and explicitly removes the retired posture flag', async () => {
         expect(logic.values.sourceSteering).toEqual({ steering: 'old rules' })
 
         logic.actions.setSourceSteeringValue('steering', '  skip chores  ')
@@ -72,10 +76,8 @@ describe('sourceSteeringModalLogic', () => {
 
         expect(patchBodies).toEqual([
             {
-                config: {
-                    recording_filters: { events: [] },
-                    steering: 'skip chores',
-                },
+                config_set: { steering: 'skip chores' },
+                config_remove: ['default_not_actionable'],
             },
         ])
         expect(onClose).toHaveBeenCalled()
@@ -109,7 +111,12 @@ describe('sourceSteeringModalLogic', () => {
             SignalSourceType.IssueReopened,
             SignalSourceType.IssueSpiking,
         ])
-        expect(patchBodies).toEqual(rows.map(() => ({ config: { steering: 'Ignore errors from localhost.' } })))
+        expect(patchBodies).toEqual(
+            rows.map(() => ({
+                config_set: { steering: 'Ignore errors from localhost.' },
+                config_remove: ['default_not_actionable'],
+            }))
+        )
     })
 
     it('keeps writing the remaining rows when one fails, and stays open to be retried', async () => {
@@ -140,7 +147,7 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).not.toHaveBeenCalled()
     })
 
-    it('merges onto the freshest cached config, not the open-time snapshot', async () => {
+    it('does not send unrelated cached settings when saving guidance', async () => {
         // A reload landed while the modal was open and changed a key steering does not own.
         signalSourcesLogic.actions.loadSourceConfigsSuccess([
             { ...sourceConfig, config: { ...sourceConfig.config, recording_filters: { events: ['$pageview'] } } },
@@ -151,7 +158,10 @@ describe('sourceSteeringModalLogic', () => {
             logic.actions.submitSourceSteering()
         }).toDispatchActions(['submitSourceSteeringSuccess'])
 
-        expect(patchBodies[0].config.recording_filters).toEqual({ events: ['$pageview'] })
+        expect(patchBodies[0]).toEqual({
+            config_set: { steering: 'new rules' },
+            config_remove: ['default_not_actionable'],
+        })
     })
 
     it('caches the saved config from the response even when the list reload fails', async () => {

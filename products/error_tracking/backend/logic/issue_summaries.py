@@ -85,6 +85,8 @@ from products.error_tracking.backend.logic.issue_summary_config import (
 from products.error_tracking.backend.logic.issue_summary_prompt import (
     ISSUE_SUMMARY_CATEGORY_QUESTION,
     ISSUE_SUMMARY_CATEGORY_QUESTION_ID,
+    ISSUE_SUMMARY_IMPACT_LINE,
+    ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET,
     ISSUE_SUMMARY_INPUT_TEMPLATE,
     ISSUE_SUMMARY_PROMPT_VERSION,
     ISSUE_SUMMARY_SYSTEM_PROMPT,
@@ -817,7 +819,6 @@ def build_issue_summary_inputs_from_event(
     stack_trace = _summary_stack_trace(source_properties)
     if not stack_trace:
         return IssueSummaryOutcome.NO_EXCEPTION
-    session_id = event_properties.get("$session_id")
     return _summary_inputs(
         team,
         issue_id,
@@ -825,7 +826,7 @@ def build_issue_summary_inputs_from_event(
         event_properties=source_properties,
         first_event_properties=source_properties,
         stack_trace=stack_trace,
-        impact={"occurrences": 1, "users": 1, "sessions": 1 if isinstance(session_id, str) and session_id else 0},
+        impact=None,
         trend={},
     )
 
@@ -848,7 +849,7 @@ def _summary_inputs(
     event_properties: dict[str, object],
     first_event_properties: dict[str, object],
     stack_trace: str,
-    impact: dict[str, object],
+    impact: dict[str, object] | None,
     trend: dict[str, object],
 ) -> IssueSummaryInputs:
     latest_release = extract_release(event_properties).get("version")
@@ -870,9 +871,7 @@ def _summary_inputs(
         "trend_direction": _text(trend.get("direction")),
         "previous_occurrences": _count(trend.get("previous_occurrences")),
         "current_occurrences": _count(trend.get("current_occurrences")),
-        "occurrences": _count(impact.get("occurrences")),
-        "users": _count(impact.get("users")),
-        "sessions": _count(impact.get("sessions")),
+        "impact": _impact_line(impact),
     }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
         **{name: ISSUE_FENCE_TAG.sub("", value) for name, value in fields.items()}
@@ -882,7 +881,9 @@ def _summary_inputs(
             "fingerprint", flat=True
         )
     )
-    occurrences = to_number(impact.get("occurrences"))
+    # A new issue holds only its first event, so it hashes as the one occurrence the read path counts.
+    # The first read then finds the hash unchanged unless the issue grew.
+    occurrences = to_number(impact.get("occurrences")) if impact is not None else 1
     return IssueSummaryInputs(
         prompt=prompt,
         input_hash=compute_input_hash(
@@ -929,6 +930,16 @@ def _text(value: object) -> str:
 def _count(value: object) -> str:
     number = to_number(value)
     return str(int(number)) if number is not None else UNKNOWN
+
+
+def _impact_line(impact: dict[str, object] | None) -> str:
+    if impact is None:
+        return ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET
+    return ISSUE_SUMMARY_IMPACT_LINE.format(
+        occurrences=_count(impact.get("occurrences")),
+        users=_count(impact.get("users")),
+        sessions=_count(impact.get("sessions")),
+    )
 
 
 def _exception_event_properties(

@@ -1548,6 +1548,67 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             self.team,
         )
         flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+        )
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_srm_segments_after_a_split_change_count_only_the_users_first_exposed_after_it(self) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        # Web 1.0.0 got the old 90/10 split before the change. After it, web 2.0.0 matches the current 50/50 split
+        # and posthog-node 4.2.1 doesn't.
+        journeys_for(
+            {
+                f"user_{library}_{version}_{variant}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": day,
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                            "$lib": library,
+                            "$lib_version": version,
+                        },
+                    }
+                ]
+                for day, library, version, counts in (
+                    ("2024-01-02", "web", "1.0.0", (("control", 200), ("test", 10))),
+                    ("2024-01-04", "web", "2.0.0", (("control", 60), ("test", 60))),
+                    ("2024-01-04", "posthog-node", "4.2.1", (("control", 15), ("test", 105))),
+                )
+                for variant, count in counts
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        [finding] = response.health_findings or []
+        versions = sorted(
+            str(value) for key, value in finding.evidence.items() if re.fullmatch(r"library_version_\d+", key)
+        )
+        self.assertEqual((finding.subcode, versions), ("split_changed", ["2.0.0", "4.2.1"]))
+        self.assertIn(
+            'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+            "library.",
+            finding.detail,
+        )
+
+    def _log_split_change_from_90_10_on_2024_01_03(self) -> None:
         before = {
             **self.feature_flag.filters,
             "multivariate": {
@@ -1573,36 +1634,44 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             created_at=datetime(2024, 1, 3, tzinfo=UTC),
         )
 
-        response = ExperimentExposuresQueryRunner(
-            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
-        ).calculate()
-
-        self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
-        )
-
     @parameterized.expand(
         [
             (
                 "reader_who_sees_the_findings",
                 True,
-                'The mismatch comes from users whose first exposure was sent by the "posthog-node" library.',
+                'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+                "library.",
+                "library_version",
                 {
-                    "reason": "library",
+                    "located_dimensions": "library,library_version",
                     "library_1": "web",
                     "library_1_exposed_control": 100,
                     "library_1_exposed_test": 100,
                     "library_2": "posthog-node",
                     "library_2_exposed_control": 5,
                     "library_2_exposed_test": 120,
+                    "library_3": "posthog-ios",
+                    "library_3_exposed_control": 10,
+                    "library_3_exposed_test": 10,
+                    "library_version_1": "1.200.0",
+                    "library_version_1_library": "web",
+                    "library_version_1_exposed_control": 100,
+                    "library_version_1_exposed_test": 100,
+                    "library_version_2": "4.2.1",
+                    "library_version_2_library": "posthog-node",
+                    "library_version_2_exposed_control": 5,
+                    "library_version_2_exposed_test": 120,
+                    "library_version_3": "3.0.0",
+                    "library_version_3_library": "posthog-ios",
+                    "library_version_3_exposed_control": 10,
+                    "library_version_3_exposed_test": 10,
                     "page_1": "/",
                     "page_1_exposed_control": 34,
                     "page_1_exposed_test": 34,
                     "page_2": "/pricing",
                     "page_2_exposed_control": 20,
                     "page_2_exposed_test": 20,
-                    "page_3": "/docs",
+                    "page_3": "/docs/:page",
                     "page_3_exposed_control": 15,
                     "page_3_exposed_test": 15,
                     "page_4": "/blog",
@@ -1614,57 +1683,77 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "page_6": BREAKDOWN_OTHER_STRING_LABEL,
                     "page_6_exposed_control": 9,
                     "page_6_exposed_test": 9,
+                    "screen_1": "Checkout",
+                    "screen_1_exposed_control": 10,
+                    "screen_1_exposed_test": 10,
                 },
             ),
             (
                 "reader_who_does_not_see_them",
                 False,
                 "This may indicate issues with randomization or data collection.",
+                None,
                 {},
             ),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_splits_the_exposures_by_the_library_and_page_of_the_first_exposure(
-        self, _name: str, findings_shown: bool, detail: str, evidence: dict[str, str | int]
+        self, _name: str, findings_shown: bool, detail: str, reason: str | None, evidence: dict[str, str | int]
     ) -> None:
-        def exposure(variant: str, timestamp: str, library: str, path: str | None) -> dict[str, Any]:
-            properties = {"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key, "$lib": library}
+        def exposure(variant: str, timestamp: str, library: str, version: str, **place: str | None) -> dict[str, Any]:
             return {
                 "event": "$feature_flag_called",
                 "timestamp": timestamp,
-                "properties": {**properties, "$pathname": path} if path else properties,
+                "properties": {
+                    "$feature_flag_response": variant,
+                    "$feature_flag": self.feature_flag.key,
+                    "$lib": library,
+                    "$lib_version": version,
+                    **{key: value for key, value in place.items() if value},
+                },
             }
 
-        # Seven pages, so that the two smallest share the "other" segment. Half of the users first exposed on the
-        # web are exposed by the server later, and stay web users.
+        # Seven pages, so that the two smallest share the "other" segment, and one of them has a path per document
+        # that the team's path cleaning groups. Half of the users first exposed on the web are exposed by the server
+        # later, and stay web users.
+        self.team.path_cleaning_filters = [{"alias": "/docs/:page", "regex": "/docs/\\d+"}]
+        self.team.save()
         pages = [
             page
             for page, users in (
                 ("/", 34),
                 ("/pricing", 20),
-                ("/docs", 15),
+                ("/docs/{i}", 15),
                 ("/blog", 12),
                 ("/about", 10),
                 ("/careers", 5),
                 ("/contact", 4),
             )
-            for _ in range(users)
+            for i in range(users)
+            for page in (page.format(i=i),)
         ]
         web_first = {
             f"web_{variant}_{i}": [
-                exposure(variant, "2024-01-02T10:00:00Z", "web", page),
-                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)] if i % 2 else []),
+                exposure(variant, "2024-01-02T10:00:00Z", "web", "1.200.0", **{"$pathname": page}),
+                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")] if i % 2 else []),
             ]
             for variant in ("control", "test")
             for i, page in enumerate(pages)
         }
         server_only = {
-            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)]
+            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")]
             for variant, count in (("control", 5), ("test", 120))
             for i in range(count)
         }
-        journeys_for({**web_first, **server_only}, self.team)
+        mobile = {
+            f"mobile_{variant}_{i}": [
+                exposure(variant, "2024-01-02T11:00:00Z", "posthog-ios", "3.0.0", **{"$screen_name": "Checkout"})
+            ]
+            for variant in ("control", "test")
+            for i in range(10)
+        }
+        journeys_for({**web_first, **server_only, **mobile}, self.team)
         flush_persons_and_events()
 
         with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):
@@ -1673,7 +1762,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ).calculate()
 
         [finding] = response.health_findings or []
-        self.assertEqual((finding.code, finding.subcode), (ExperimentExposureHealthFindingCode.SRM, None))
+        self.assertEqual(
+            (finding.code, finding.subcode, finding.reason), (ExperimentExposureHealthFindingCode.SRM, None, reason)
+        )
         self.assertIn(detail, finding.detail)
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence

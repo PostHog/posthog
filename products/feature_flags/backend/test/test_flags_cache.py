@@ -34,7 +34,7 @@ from posthog.models import Team
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     KAFKA_ROUTING_FLAG,
@@ -848,18 +848,18 @@ class TestHasExperimentField(BaseTest):
     def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
         flag = self._make_flag("exp-flag")
         if experiment_state == "active":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
         elif experiment_state == "stopped":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, end_date=datetime.now(UTC))
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", end_date=datetime.now(UTC))
         elif experiment_state == "deleted":
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp", deleted=True)
 
         flags = _get_feature_flags_for_service(self.team)["flags"]
         assert flags[0]["has_experiment"] is expected
 
     def test_has_experiment_present_in_batch_output(self):
         flag = self._make_flag("exp-flag")
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="exp")
 
         flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
         assert flags[0]["has_experiment"] is True
@@ -873,14 +873,14 @@ class TestHasExperimentField(BaseTest):
             return sum(1 for q in ctx.captured_queries if "posthog_experiment" in q["sql"])
 
         first = self._make_flag("flag-0")
-        Experiment.objects.create(team=self.team, name="exp-0", feature_flag=first)
+        create_experiment(team_id=self.team.id, feature_flag_id=first.id, name="exp-0")
 
         with CaptureQueriesContext(connection) as baseline:
             _get_feature_flags_for_service(self.team)
 
         for i in range(1, 6):
             extra = self._make_flag(f"flag-{i}")
-            Experiment.objects.create(team=self.team, name=f"exp-{i}", feature_flag=extra)
+            create_experiment(team_id=self.team.id, feature_flag_id=extra.id, name=f"exp-{i}")
 
         with CaptureQueriesContext(connection) as scaled:
             _get_feature_flags_for_service(self.team)
@@ -970,15 +970,14 @@ class TestServiceFlagsSignals(BaseTest):
         if action == "create":
             # Reset first so we assert on the experiment-create signal, not the flag-create one.
             mock_task.reset_mock()
-            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
         else:
-            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
             mock_task.reset_mock()
             if action == "soft_delete":
-                experiment.deleted = True
-                experiment.save()
+                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
             else:
-                experiment.delete()
+                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
 
         mock_task.delay.assert_called_once_with(self.team.id)
 

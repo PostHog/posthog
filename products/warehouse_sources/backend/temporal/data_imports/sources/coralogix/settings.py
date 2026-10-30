@@ -10,6 +10,7 @@ CORALOGIX_DOMAINS = frozenset(
     {
         "coralogix.us",
         "cx498.coralogix.com",
+        "us3.coralogix.com",
         "coralogix.com",
         "eu2.coralogix.com",
         "coralogix.in",

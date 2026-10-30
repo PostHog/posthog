@@ -3,11 +3,13 @@ import { LiquidRenderer } from './liquid'
 describe('LiquidRenderer', () => {
     const context = { person: { properties: { first_name: 'Ada', company: null } } }
 
-    it('renders a template the editor has escaped', () => {
-        // Unlayer stores `>` as `&gt;`, so a renderer that skips the decode step compares the
-        // literal entity and silently takes the wrong branch.
-        const template =
-            '{% if person.properties.first_name != &quot;&quot; %}Hi {{ person.properties.first_name }}{% endif %}'
+    // Unlayer stores `>` as `&gt;`, so a renderer that skips the decode step compares the
+    // literal entity and silently takes the wrong branch.
+    it.each([
+        ['on one line', '{% if person.properties.first_name != &quot;&quot; %}'],
+        ['across lines', '{% if person.properties.first_name\n  != &quot;&quot; %}'],
+    ])('renders a tag the editor has escaped %s', (_, openTag) => {
+        const template = `${openTag}Hi {{ person.properties.first_name }}{% endif %}`
         expect(LiquidRenderer.render(template, context)).toBe('Hi Ada')
     })
 
