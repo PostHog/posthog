@@ -347,6 +347,12 @@ for (let key, value in inputs.userData) {
     }
 }
 
+// Meta rejects an event without customer information (error 2804050), so it is skipped instead.
+if (empty(body.data.1.user_data)) {
+    print('No customer information left after normalization. Skipping...')
+    return
+}
+
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
         body.data.1.custom_data[key] := parseValueIfArray(value)
@@ -461,6 +467,7 @@ if (res.status >= 400) {
                 country: '{person.properties.$geoip_country_code}',
                 fbc,
                 fbp,
+                client_ip_address: '{event.properties.$ip}',
                 client_user_agent: '{event.properties.$raw_user_agent}',
             },
             secret: false,

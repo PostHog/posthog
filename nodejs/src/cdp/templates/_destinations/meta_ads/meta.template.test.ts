@@ -146,6 +146,46 @@ describe('meta ads template', () => {
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
     })
+
+    it('sends the IP address and user agent of an anonymous visitor', async () => {
+        const response = await tester.invokeMapping(
+            'Page Viewed',
+            { accessToken: 'access-token', pixelId: 'pixel-id' },
+            createAdDestinationPayload({
+                event: {
+                    event: '$pageview',
+                    properties: { $ip: '203.0.113.7', $raw_user_agent: 'Mozilla/5.0' },
+                },
+                person: { properties: { email: '', phone: '', first_name: '', last_name: '' } },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.data[0].user_data).toEqual({
+            client_ip_address: '203.0.113.7',
+            client_user_agent: 'Mozilla/5.0',
+        })
+    })
+
+    it('skips an event with no customer information left after normalization', async () => {
+        const response = await tester.invokeMapping(
+            'Page Viewed',
+            { accessToken: 'access-token', pixelId: 'pixel-id' },
+            createAdDestinationPayload({
+                event: { event: '$pageview', properties: {} },
+                person: { properties: { email: 'not-an-email', phone: '', first_name: '', last_name: '' } },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+        expect(response.invocation.queueParameters).toBeUndefined()
+        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
+            [
+              "No customer information left after normalization. Skipping...",
+            ]
+        `)
+    })
+
     describe('fbc click ID', () => {
         // The event is fixed at 2025-01-01T00:00:00Z, so a click stamped 89 days earlier is inside
         // Meta's 90-day window and one stamped 91 days earlier is outside it.
@@ -516,13 +556,13 @@ describe('meta ads template', () => {
             },
             {
                 name: 'sends nothing for an unknown gender or an incomplete date of birth',
-                userData: { ge: 'other', db: '1990-01' },
-                expected: {},
+                userData: { ge: 'other', db: '1990-01', client_user_agent: 'Mozilla/5.0' },
+                expected: { client_user_agent: 'Mozilla/5.0' },
             },
             {
                 name: 'drops a name too long to normalize safely',
-                userData: { fn: 'a'.repeat(300) },
-                expected: {},
+                userData: { fn: 'a'.repeat(300), client_user_agent: 'Mozilla/5.0' },
+                expected: { client_user_agent: 'Mozilla/5.0' },
             },
             {
                 name: 'recognizes the US from a list-valued country when shortening a ZIP+4 code',
