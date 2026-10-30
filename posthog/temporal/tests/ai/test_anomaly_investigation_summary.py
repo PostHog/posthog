@@ -1,6 +1,13 @@
 import pytest
+from unittest.mock import MagicMock
 
-from posthog.tasks.alerts.utils import INVESTIGATION_SUMMARY_TEASER_MAX_CHARS, investigation_summary_teaser
+from posthog.tasks.alerts.utils import (
+    INVESTIGATION_SUMMARY_TEASER_MAX_CHARS,
+    chat_investigation_summary,
+    investigation_summary_teaser,
+)
+
+from products.alerts.backend.models import AlertConfiguration
 
 
 @pytest.mark.parametrize(
@@ -15,6 +22,7 @@ from posthog.tasks.alerts.utils import INVESTIGATION_SUMMARY_TEASER_MAX_CHARS, i
             "- `signup_count` rose to **240** at _10:00 UTC_\n- Most new users came from [the docs](https://example.com)",
             "signup_count rose to 240 at 10:00 UTC. Most new users came from the docs.",
         ),
+        ("Latency rose for <none> service.", "Latency rose for <none> service."),
     ],
 )
 def test_investigation_summary_teaser_basic(input, expected) -> None:
@@ -38,3 +46,19 @@ def test_investigation_summary_teaser_clips_on_sentence_boundary() -> None:
     body = clipped.removesuffix(" …")
     assert body.endswith(".")
     assert text.startswith(body)
+
+
+@pytest.mark.parametrize(
+    "detector_config,expect_teaser",
+    [({"type": "zscore"}, True), (None, False)],
+)
+def test_chat_investigation_summary_keeps_metrics_summaries_whole(detector_config, expect_teaser) -> None:
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.detector_config = detector_config
+    summary = "http_requests_total *rose* on <none> " + "x " * 400
+
+    result = chat_investigation_summary(alert, summary)
+
+    assert result == (investigation_summary_teaser(summary) if expect_teaser else summary)
+    if expect_teaser:
+        assert result is not None and len(result) <= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS

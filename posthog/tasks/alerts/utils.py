@@ -316,9 +316,9 @@ def investigation_summary_teaser(summary: str | None) -> str | None:
         if token.type != "inline":
             continue
         words = "".join(
-            child.content if child.type in ("text", "code_inline") else " "
+            child.content if child.type in ("text", "code_inline", "html_inline") else " "
             for child in token.children or []
-            if child.type in ("text", "code_inline", "softbreak", "hardbreak")
+            if child.type in ("text", "code_inline", "html_inline", "softbreak", "hardbreak")
         )
         sentence = " ".join(words.split())
         if sentence:
@@ -326,6 +326,15 @@ def investigation_summary_teaser(summary: str | None) -> str | None:
     if not sentences:
         return None
     return _clip_summary(" ".join(sentences))
+
+
+def chat_investigation_summary(alert: AlertConfiguration, summary: str | None) -> str | None:
+    """The stored investigation summary in the form chat destinations show.
+
+    Only the anomaly investigation agent writes Markdown. The metrics alert investigation
+    stores plain text, which chat shows as is.
+    """
+    return investigation_summary_teaser(summary) if alert.detector_config else summary
 
 
 def send_notifications_for_breaches(
@@ -734,8 +743,8 @@ def dispatch_alert_notification(
                             .order_by("tag__name")[:10]
                         ),
                         metric_name=alert.insight.name or alert.insight.derived_name or "Insight",
-                        summary=investigation_summary_teaser(
-                            properties.get("investigation_summary") or alert_check.investigation_summary
+                        summary=chat_investigation_summary(
+                            alert, properties.get("investigation_summary") or alert_check.investigation_summary
                         ),
                         verdict=properties.get("investigation_verdict") or alert_check.investigation_verdict,
                         investigation_status=alert_check.investigation_status,
