@@ -370,7 +370,13 @@ export class ChatView {
   } | null = null;
   private readonly scroll = new ScrollView(new Container(), { follow: "end" });
   // The message at the top of the screen, so new history above it does not move the reader.
-  private anchor: { id: string; within: number } | null = null;
+  private anchor: {
+    id: string;
+    within: number;
+    // Where the top of the screen was, and how long the content was, in case the id does not survive a page.
+    top: number;
+    contentLength: number;
+  } | null = null;
   private transcriptChanged = false;
   // Tool groups the reader opened, and where each item sat in the last render, for clicks.
   private readonly expanded = new Set<string>();
@@ -531,14 +537,16 @@ export class ChatView {
     this.content = content;
     this.size = { width: contentWidth, height };
     this.scroll.updateLayout(content.length, height, () => {});
-    const start = this.anchor ? starts.get(this.anchor.id) : undefined;
-    if (
-      this.transcriptChanged &&
-      this.anchor &&
-      start !== undefined &&
-      !this.scroll.isFollowingEnd
-    ) {
-      this.scroll.scrollTo(start + this.anchor.within);
+    if (this.transcriptChanged && this.anchor && !this.scroll.isFollowingEnd) {
+      const start = starts.get(this.anchor.id);
+      // A window that starts mid-turn gets new ids for the turn with every page, so the anchor may be gone; the
+      // place is then kept by how much the content grew, as a page only ever lands above.
+      const grown = content.length - this.anchor.contentLength;
+      this.scroll.scrollTo(
+        start !== undefined
+          ? start + this.anchor.within
+          : this.anchor.top + Math.max(0, grown),
+      );
     }
     this.transcriptChanged = false;
 
@@ -548,7 +556,12 @@ export class ChatView {
       [...starts].filter(([id, at]) => at <= top && id !== OLDER_ROW).at(-1) ??
       [...starts].find(([id]) => id !== OLDER_ROW);
     this.anchor = anchorItem
-      ? { id: anchorItem[0], within: top - anchorItem[1] }
+      ? {
+          id: anchorItem[0],
+          within: top - anchorItem[1],
+          top,
+          contentLength: content.length,
+        }
       : null;
     const visible = this.content
       .slice(top, top + height)
@@ -744,6 +757,11 @@ export class ChatView {
 
   isAtTop(): boolean {
     return this.scroll.scrollTop === 0;
+  }
+
+  // The chat has fewer lines than the pane shows, as drawn last.
+  fitsPane(): boolean {
+    return this.content.length <= this.size.height;
   }
 
   scrollBy(lines: number): void {

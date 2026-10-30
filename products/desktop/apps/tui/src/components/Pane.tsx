@@ -367,10 +367,20 @@ export function Pane({
     chat.setTranscript(lines, { hasOlder, notice, queued });
     shown.current = { chat, lines, hasOlder, noticeKey, queued };
   }
-  // Reaching the top, or a transcript shorter than the pane, pulls in the page above.
+  // Scrolling to the top pulls in the page above. A transcript shorter than the pane pulls one in too, once: a
+  // long log of tool noise can show a few lines per window, and paging until it filled the pane locked the app.
+  const pagedAt = useRef<number | null>(null);
+  const filledOnce = useRef<ChatView | null>(null);
   useEffect(() => {
-    if (width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop())
-      loadOlder();
+    if (!(width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop()))
+      return;
+    if (pagedAt.current === view.windowStart) return;
+    if (chat.fitsPane()) {
+      if (filledOnce.current === chat) return;
+      filledOnce.current = chat;
+    }
+    pagedAt.current = view.windowStart;
+    loadOlder();
   });
   const run = task?.latest_run;
 
