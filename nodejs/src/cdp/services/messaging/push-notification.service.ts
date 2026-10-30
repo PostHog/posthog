@@ -893,7 +893,9 @@ export class PushNotificationService {
 
         if (!fetchResponse || (status && status >= 400)) {
             const err = normalizeApnsError(status, body, fetchError)
-            addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            if (result.invocation.hogFunction.metadata?.sensitive !== true) {
+                addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            }
             // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
             // retrying a token that will never work; other reasons are surfaced as failures.
             if (err.unregistered) {
