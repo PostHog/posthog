@@ -1321,7 +1321,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and (profile is None or profile.create_pr),
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
