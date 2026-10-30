@@ -19,7 +19,6 @@ from products.cohorts.backend.realtime_teams import (
     backfill_triggers_suppressed,
     is_cohort_backfill_trigger_team,
     is_processing_team,
-    is_processing_team_uncached,
     is_serving_team,
     realtime_allowlist_matches,
 )
@@ -83,7 +82,7 @@ class TestRealtimeLevel(BaseTest):
             self.assertEqual(
                 (
                     is_processing_team(self.team.pk),
-                    is_processing_team_uncached(self.team.pk),
+                    is_processing_team(self.team.pk, fresh=True),
                     is_serving_team(self.team.pk),
                 ),
                 (processing, processing, serving),

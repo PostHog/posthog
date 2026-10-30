@@ -22,7 +22,8 @@ class RealtimeCohortTeamAccess(models.Model):
     `get_or_create_team_extension`, because that creates the row.
 
     Rows are never deleted: a revoke sets `off`, and a team deletion leaves the row (`DO_NOTHING`).
-    So a read of the table that loses a row is a broken read, not a revoke.
+    So when a team's row appears on one read and is missing on a later one, the later read failed.
+    A reader treats that as an error, not as a revoke.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE lock on

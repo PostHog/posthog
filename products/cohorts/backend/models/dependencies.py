@@ -21,8 +21,8 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortB
 from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
 from products.cohorts.backend.realtime_teams import (
     is_cohort_backfill_trigger_team,
-    is_processing_team_uncached,
-    readiness_stamps_count,
+    is_processing_team,
+    team_honors_readiness_stamps,
 )
 
 logger = get_logger(__name__)
@@ -224,9 +224,10 @@ def get_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime_back
     # feature_enabled can return None when the flag can't be evaluated; normalize so the
     # cache key is stable and the compute path sees a real bool.
     #
-    # A team whose stamps do not count has no flag-compatible cohort, so it shares the answer without
-    # backfilled cohorts. Otherwise a grant or a revoke would serve the cached answer from before it.
-    allow_realtime_backfilled = bool(allow_realtime_backfilled) and readiness_stamps_count(team_id)
+    # A team that does not honor readiness stamps has no flag-compatible cohort, so it uses the cache
+    # entry for allow_realtime_backfilled=False. A grant or a revoke then moves the team to the other
+    # entry instead of reading one computed before the change.
+    allow_realtime_backfilled = bool(allow_realtime_backfilled) and team_honors_readiness_stamps(team_id)
     cache_key = _behavioral_cohort_ids_key(team_id, allow_realtime_backfilled)
     cached = cache.get(cache_key)
     if cached is not None:  # empty list is a valid cached result, not a miss
@@ -689,7 +690,7 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
             return
         if not is_cohort_backfill_trigger_team(instance.team_id):
             return
-        if not is_processing_team_uncached(instance.team_id):
+        if not is_processing_team(instance.team_id, fresh=True):
             COHORT_BACKFILL_TRIGGER_COUNTER.labels(
                 backfill_kind=CohortBackfillKind.BEHAVIORAL, outcome="not_realtime_team"
             ).inc()
@@ -724,7 +725,7 @@ def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
             return
         if not is_cohort_backfill_trigger_team(instance.team_id):
             return
-        if not is_processing_team_uncached(instance.team_id):
+        if not is_processing_team(instance.team_id, fresh=True):
             COHORT_BACKFILL_TRIGGER_COUNTER.labels(
                 backfill_kind=CohortBackfillKind.PERSON_PROPERTY, outcome="not_realtime_team"
             ).inc()

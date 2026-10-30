@@ -79,27 +79,39 @@ def realtime_allowlist_matches(team_id: int) -> bool:
 
 # Cohort saves and every row of the cohort list read this, so it is cached per process rather than
 # queried per call. `cache_for` is off under tests, so a test reads the rows it wrote. It keeps `off`
-# rows, because `readiness_stamps_count` must tell a revoked team from one that never had a row.
+# rows, because `team_honors_readiness_stamps` must tell a revoked team from one that never had a row.
 @cache_for(timedelta(seconds=30))
 def _access_rows() -> dict[int, RealtimeCohortTeamAccess]:
     return {row.team_id: row for row in RealtimeCohortTeamAccess.objects.all()}
 
 
-def realtime_level(team_id: int) -> RealtimeCohortLevel:
+def _access_row(team_id: int, *, fresh: bool) -> RealtimeCohortTeamAccess | None:
+    if fresh:
+        return RealtimeCohortTeamAccess.objects.filter(team_id=team_id).first()
+    return _access_rows().get(team_id)
+
+
+def realtime_level(team_id: int, *, fresh: bool = False) -> RealtimeCohortLevel:
     """The team's effective level: the union of the env allowlist and the team's access row.
 
     The env allowlist grants `serving`, because before the levels existed it gated the screens users
-    see as well as the pipeline. The row comes from a per-process snapshot up to 30 seconds old.
+    see as well as the pipeline. The row comes from a per-process snapshot up to 30 seconds old,
+    unless ``fresh`` reads it as it is now.
     """
     if realtime_allowlist_matches(team_id):
         return RealtimeCohortLevel.SERVING
-    row = _access_rows().get(team_id)
+    row = _access_row(team_id, fresh=fresh)
     return RealtimeCohortLevel(row.level) if row is not None else RealtimeCohortLevel.OFF
 
 
-def is_processing_team(team_id: int) -> bool:
-    """Whether the realtime-cohort pipeline maintains membership for ``team_id``."""
-    return realtime_level(team_id) != RealtimeCohortLevel.OFF
+def is_processing_team(team_id: int, *, fresh: bool = False) -> bool:
+    """Whether the realtime-cohort pipeline maintains membership for ``team_id``.
+
+    The run creators and the cohort save path pass ``fresh``. A creator reading the snapshot could
+    create a run after a revoke, and an edit reading it right after a grant could skip the supersede
+    of the team's runs, or the trigger of a new one.
+    """
+    return realtime_level(team_id, fresh=fresh) != RealtimeCohortLevel.OFF
 
 
 def is_serving_team(team_id: int) -> bool:
@@ -107,7 +119,7 @@ def is_serving_team(team_id: int) -> bool:
     return realtime_level(team_id) == RealtimeCohortLevel.SERVING
 
 
-def readiness_stamps_count(team_id: int) -> bool:
+def team_honors_readiness_stamps(team_id: int) -> bool:
     """Whether ``team_id``'s backfill stamps can make its cohorts usable in flags and workflows.
 
     Not while the team's row is below `serving`. At `processing` its users must not see realtime
@@ -118,19 +130,6 @@ def readiness_stamps_count(team_id: int) -> bool:
         return True
     row = _access_rows().get(team_id)
     return row is None or row.level == RealtimeCohortLevel.SERVING
-
-
-def is_processing_team_uncached(team_id: int) -> bool:
-    """``is_processing_team`` from the row as it is now, for the run creators and the cohort save path.
-
-    The cached snapshot can be up to 30 seconds old. A creator reading it could create a run after a
-    revoke, and an edit reading it right after a grant could skip the supersede of the team's runs, or
-    the trigger of a new one.
-    """
-    return (
-        realtime_allowlist_matches(team_id)
-        or RealtimeCohortTeamAccess.objects.filter(team_id=team_id).exclude(level=RealtimeCohortLevel.OFF).exists()
-    )
 
 
 def is_cohort_backfill_trigger_team(team_id: int) -> bool:
@@ -213,7 +212,10 @@ def grant_realtime_cohort_access(
             row.level = level
             row.purpose = purpose
             row.save_triggers_backfill = save_triggers_backfill
-            row.save()
+            # `select_for_update` cannot lock a row that does not exist yet. A plain insert makes a
+            # concurrent first grant of the team fail on the primary key, instead of overwriting the
+            # purpose the other grant wrote.
+            row.save(force_insert=team_id not in rows)
     return requested
 
 

@@ -28,7 +28,9 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
     def _access(self, team_id: int) -> RealtimeCohortTeamAccess:
         return RealtimeCohortTeamAccess.objects.get(team_id=team_id)
 
-    def _grant(self, *team_ids: int, purpose: str = "load_test", level: str = "processing") -> None:
+    def _grant(
+        self, *team_ids: int, purpose: str = "load_test", level: str = "processing", triggers: bool = False
+    ) -> None:
         teams = [str(team_id) for team_id in team_ids]
         call_command(
             "realtime_cohort_team_access",
@@ -39,18 +41,19 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
             purpose,
             "--level",
             level,
-            "--no-save-triggers-backfill",
+            "--save-triggers-backfill" if triggers else "--no-save-triggers-backfill",
         )
 
     def test_grant_promote_revoke_then_refuse_a_regrant(self) -> None:
         with time_machine.travel(GRANTED_AT, tick=False):
             self._grant(self.team.pk)
         with time_machine.travel(PROMOTED_AT, tick=False):
-            self._grant(self.team.pk, level="serving")
+            self._grant(self.team.pk, level="serving", triggers=True)
 
         promoted = self._access(self.team.pk)
-        assert (promoted.level, promoted.processing_since, promoted.off_since) == (
+        assert (promoted.level, promoted.save_triggers_backfill, promoted.processing_since, promoted.off_since) == (
             RealtimeCohortLevel.SERVING,
+            True,
             GRANTED_AT,
             None,
         )
@@ -73,7 +76,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
 
         out = StringIO()
         call_command("realtime_cohort_team_access", "list", stdout=out)
-        assert f"{self.team.pk}\toff\tload_test\tFalse" in out.getvalue()
+        assert f"{self.team.pk}\toff\tload_test\tTrue" in out.getvalue()
 
     @parameterized.expand(
         [

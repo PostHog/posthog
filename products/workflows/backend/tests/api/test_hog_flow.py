@@ -50,6 +50,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
@@ -4548,6 +4553,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("realtime_reference_only", "batch", "reference_only", None, True, 400, "can't evaluate"),
             # The realtime pipeline doesn't run for the team, so the cohort never becomes ready.
             ("team_off_realtime_pipeline", "batch", "off_pipeline", None, True, 400, "would never start"),
+            # A load-test team runs the pipeline, but its users must not see a realtime audience start.
+            ("team_granted_processing_only", "batch", "processing_only", None, True, 400, "would never start"),
         ]
     )
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
@@ -4594,7 +4601,12 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
+        if cohort_kind == "processing_only":
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+        off_env_list = cohort_kind in ("off_pipeline", "processing_only")
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if off_env_list else "all"):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == expected_status, response.json()

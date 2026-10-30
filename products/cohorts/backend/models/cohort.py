@@ -44,7 +44,7 @@ from products.cohorts.backend.models.leaf_shape import (
     extract_person_leaf_shape_hash,
 )
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel
-from products.cohorts.backend.realtime_teams import is_processing_team_uncached, readiness_stamps_count, realtime_level
+from products.cohorts.backend.realtime_teams import is_processing_team, realtime_level, team_honors_readiness_stamps
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -377,7 +377,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return maintained_update_fields
             # Read the row, not the cached snapshot: right after a grant, a stale snapshot would skip
             # the supersede for an edit while the uncached run creators already accept the team.
-            if not self.team_id or not is_processing_team_uncached(self.team_id):
+            if not self.team_id or not is_processing_team(self.team_id, fresh=True):
                 return maintained_update_fields
 
             new_shape_hash = extract_leaf_shape_hash(self.filters)
@@ -612,9 +612,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_metadata filters need `last_backfill_person_properties_at`, behavioral event filters
         need `last_backfill_events_at`, and a cohort with both needs both.
 
-        Stamps do not count on a team whose access row is below `serving` (`readiness_stamps_count`).
-        The pipeline stamps a `processing` team's cohorts, but the flags service reads no membership
-        for it, and its users must not see realtime cohorts.
+        Stamps do not count on a team whose access row is below `serving`
+        (`team_honors_readiness_stamps`). The pipeline stamps a `processing` team's cohorts, but the
+        flags service reads no membership for it, and its users must not see realtime cohorts.
         """
         if self.cohort_type != CohortType.REALTIME:
             return False
@@ -622,7 +622,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         stamps = self._required_backfill_stamps()
         if not stamps or any(stamp is None for stamp in stamps.values()):
             return False
-        return readiness_stamps_count(self.team_id)
+        return team_honors_readiness_stamps(self.team_id)
 
     @property
     def realtime_ready_at(self) -> Optional[datetime]:
