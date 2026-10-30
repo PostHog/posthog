@@ -375,24 +375,53 @@ describe('buildToolResultPayload — non-query use cases', () => {
 
     it.each([
         {
-            next: 'https://example.com/api/items/?cursor=cD0yMDI2&limit=1',
-            count: undefined,
+            handlerResult: {
+                results: [{ id: 1 }],
+                next: 'https://example.com/api/items/?cursor=cD0yMDI2&search=foo',
+                previous: null,
+            },
             expected:
-                'Showing 1 results. More results exist: call the tool again with cursor=cD0yMDI2 and limit=1 to get the next page.',
+                'Showing 1 result. More results exist: call mock-tool again with the same arguments and set cursor=cD0yMDI2 to get the next page.',
         },
         {
-            next: 'https://example.com/api/items/?limit=1&offset=1',
-            count: 3,
+            handlerResult: {
+                results: [{ id: 1 }, { id: 2 }],
+                next: 'https://example.com/api/items/?limit=2&offset=2',
+                count: 5,
+                previous: null,
+                _posthogUrl: 'https://example.com/items',
+            },
             expected:
-                'Showing 1 of 3 results. More results exist: call the tool again with offset=1 and limit=1 to get the next page.',
+                'Showing 2 of 5 results. More results exist: call mock-tool again with the same arguments and set offset=2 and limit=2 to get the next page.',
         },
-    ])('tells the agent how to read the next page: $next', ({ next, count, expected }) => {
-        const handlerResult = { results: [{ id: 1 }], next, previous: null, ...(count === undefined ? {} : { count }) }
-
+    ])('tells the agent how to read the next page: $handlerResult.next', ({ handlerResult, expected }) => {
         const payload = buildToolResultPayload({ handlerResult, toolName: 'mock-tool', params: {} })
 
-        expect(payload.content[0]!.text).toBe(`${formatResponse(handlerResult.results)}\n\n${expected}`)
+        expect(payload.content[0]!.text).toBe(`${formatResponse(handlerResult)}\n\n${expected}`)
     })
+
+    it.each(['optimized', 'json'] as const)(
+        'keeps widget data and JSON text whole when another page exists: %s',
+        (outputFormat) => {
+            const handlerResult = {
+                results: [{ id: 1 }],
+                next: 'https://example.com/api/items/?cursor=next',
+                previous: null,
+            }
+
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+
+            if (outputFormat === 'json') {
+                expect(payload.content[0]!.text).toBe(JSON.stringify(handlerResult))
+            }
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
+        }
+    )
 
     it.each([
         { results: [{ id: 1 }], query: { kind: 'HogQLQuery' } },
