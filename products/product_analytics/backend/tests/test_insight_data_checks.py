@@ -150,6 +150,8 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
             ("local_under_50_events", checked(100, local=49), {}),
             ("local_fifth_is_still_a_warning", checked(1000, local=200), {LOCAL: WARNING}),
+            ("local_under_nine_tenths_is_still_a_warning", checked(1000, local=899), {LOCAL: WARNING}),
+            ("local_nearly_every_event_is_the_app_itself", checked(1000, local=900), {}),
             ("too_many_events_to_count_skips_only_internal_users", checked(1000, counted=False), {INTERNAL: SKIPPED}),
             ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
             (
@@ -562,7 +564,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, days_with_events: range, status: str, events_checked: int
     ) -> None:
         for days_ago in days_with_events:
-            self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(8, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(2, event=WIDELY_SENT_EVENT, days_ago=days_ago)
         flush_persons_and_events()
         query = self._query(
             [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],
