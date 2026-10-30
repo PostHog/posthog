@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { modelSheet, parseSlash, piControl } from "./models";
+import { modelSheet, parseSlash, piControl, shortModelName } from "./models";
 
 const opus = { provider: "posthog", id: "claude-opus-5-5", name: "Opus 5.5" };
 const terra = {
@@ -19,6 +19,22 @@ describe("parseSlash", () => {
   });
 });
 
+describe("shortModelName", () => {
+  it.each([
+    ["claude-opus-5-5", "Opus 5.5"],
+    ["claude-opus-4-5-20251101", "Opus 4.5"],
+    ["gpt-6.1-sol", "Sol 6.1"],
+    ["gpt-5.5", "GPT 5.5"],
+    ["gpt-5-mini", "GPT 5 Mini"],
+    ["google/gemini-3.1-pro-preview-06-05", "Gemini 3.1 Pro Preview"],
+    ["moonshotai/kimi-k3", "Kimi 3"],
+    ["@cf/zai-org/glm-5.2", "GLM 5.2"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek 4 Flash"],
+  ])("names %s as %s", (id, name) => {
+    expect(shortModelName(id)).toBe(name);
+  });
+});
+
 describe("modelSheet", () => {
   it("lists the models and ticks the one in use", () => {
     const sheet = modelSheet([terra, opus], opus, "Applies to this chat.");
@@ -33,7 +49,17 @@ describe("modelSheet", () => {
 });
 
 describe("piControl", () => {
-  it("reads the run's models and current model, and switches it, over pi/rpc", async () => {
+  it("reads the run's harness models and current model, and switches it, over pi/rpc", async () => {
+    const personalLogin = {
+      provider: "anthropic",
+      id: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+    };
+    const notInCatalog = {
+      provider: "posthog",
+      id: "gpt-5.2",
+      name: "gpt-5.2",
+    };
     const sendCommand = vi.fn(
       async ({
         params,
@@ -43,7 +69,7 @@ describe("piControl", () => {
         const { id, type } = params.command;
         const data =
           type === "get_available_models"
-            ? { models: [terra, opus] }
+            ? { models: [terra, personalLogin, notInCatalog, opus] }
             : type === "get_state"
               ? { model: terra }
               : undefined;
@@ -56,8 +82,11 @@ describe("piControl", () => {
     const control = piControl(sendCommand as never, "t1", "r1");
 
     expect(await control.models()).toEqual({
-      available: [terra, opus],
-      current: terra,
+      available: [
+        { ...terra, name: "Terra 5.6" },
+        { ...opus, name: "Opus 5.5" },
+      ],
+      current: { ...terra, name: "Terra 5.6" },
     });
     await control.setModel(opus);
 
