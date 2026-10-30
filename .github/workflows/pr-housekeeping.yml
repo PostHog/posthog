@@ -59,9 +59,8 @@ jobs:
         uses: ./.github/workflows/trunk-impacted-targets.yml
         permissions:
             contents: read
+            id-token: write
             pull-requests: write
-        secrets:
-            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     rate-limit-monitor:
         if: contains(fromJSON('["opened", "synchronize"]'), github.event.action)

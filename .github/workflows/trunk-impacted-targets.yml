@@ -12,12 +12,12 @@ name: Trunk impacted targets
 # the degraded cases where the target list cannot be computed at all, which
 # means "unknown" rather than "everything".
 #
-# The upload authenticates with the org API token (x-api-token) on internal PRs.
-# Fork PR workflow runs do NOT receive repo secrets — GitHub withholds them from
-# `pull_request` runs originating in a fork — so for forks we authenticate with
-# the workflow run id instead (x-forked-workflow-run-id). Trunk verifies the run
-# id belongs to a live fork-PR workflow whose head SHA matches the payload.
-# Ref: https://docs.trunk.io/merge-queue/optimizations/parallel-queues/api#handling-forked-pull-requests
+# The upload logs in to Trunk with trunk-io/login, which trades the run's own
+# GitHub credential for a Trunk login that can only upload impacted targets for
+# this repository. Same-repo PRs use the run's OIDC token. Fork PRs have no OIDC
+# token, so they use the job's GITHUB_TOKEN, which Trunk binds to that PR and its
+# head commit. No Trunk secret is involved on either path.
+# Ref: https://github.com/trunk-io/login
 #
 # SECURITY: the caller (pr-housekeeping.yml) MUST stay on the `pull_request`
 # trigger, never `pull_request_target`. `pull_request_target` would hand repo
@@ -26,21 +26,18 @@ name: Trunk impacted targets
 #
 # SECURITY: `compute` and `upload` MUST stay separate. `upload` MUST NOT check
 # out or run anything from the PR. `compute` executes PR-controlled code (the
-# target script, and whatever the PR did to it), so it is kept free of secrets.
-# Splitting on a step boundary instead of a job boundary would not be enough:
-# steps in one job share a runner, and a script can prepend a directory to
-# GITHUB_PATH (or export through GITHUB_ENV) so that a later step's `jq` and
-# `curl` resolve to attacker-supplied executables, which would then run with
-# TRUNK_API_TOKEN in their environment. Separate jobs get separate runners, so
-# the only thing crossing the boundary is the JSON string in the job output.
-# That string is consumed through `env:` and `jq --argjson`, never interpolated
+# target script, and whatever the PR did to it), so it is kept free of
+# credentials. Splitting on a step boundary instead of a job boundary would not
+# be enough: steps in one job share a runner, and a script can prepend a
+# directory to GITHUB_PATH (or export through GITHUB_ENV) so that a later step's
+# `jq` and `trunk` resolve to attacker-supplied executables, which would then
+# run with the Trunk login and the OIDC token. Separate jobs get separate
+# runners, so the only thing crossing the boundary is the JSON string in the job
+# output. That string is consumed through `env:` and `jq`, never interpolated
 # into a shell command.
 
 on:
     workflow_call:
-        secrets:
-            TRUNK_API_TOKEN:
-                required: false
 
 permissions:
     contents: read
@@ -259,9 +256,12 @@ jobs:
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # Talks only to Trunk. It never checks out the repo, so it needs no
-        # GitHub permissions whatsoever.
-        permissions: {}
+        # Talks only to Trunk and never checks out the repo. id-token: write
+        # lets trunk-io/login read the run's OIDC token; contents: read is
+        # what a fork PR's GITHUB_TOKEN carries to Trunk.
+        permissions:
+            contents: read
+            id-token: write
         outputs:
             uploaded: ${{ steps.upload.outputs.uploaded }}
         env:
@@ -270,18 +270,20 @@ jobs:
             REPO_OWNER: ${{ github.repository_owner }}
             REPO_NAME: ${{ github.event.repository.name }}
             PR_NUMBER: ${{ github.event.pull_request.number }}
-            # Head SHA (not the synthetic merge commit): it matches the workflow
-            # run's head_sha, which is what Trunk checks on a fork upload.
             PR_SHA: ${{ github.event.pull_request.head.sha }}
             TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
         steps:
+            - uses: trunk-io/login@dd43b5c040326ee204a3d1f18f5522a717466ce2 # v1
+
+            # Not continue-on-error: a silent failure here is exactly what keeps
+            # fork PRs out of the queue, so surface upload problems loudly.
+            # The CLI reads the repository, PR, head SHA and target branch from
+            # the run itself.
             - name: Upload impacted targets to Trunk
               id: upload
-              # Not continue-on-error: a silent failure here is exactly what keeps
-              # fork PRs out of the queue, so surface upload problems loudly.
-              # --retry rides out transient Trunk/network blips.
               env:
-                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  # Lets the CLI renew a fork PR's login if it expires.
+                  GITHUB_TOKEN: ${{ github.token }}
                   IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
               run: |
                   set -euo pipefail
@@ -294,35 +296,26 @@ jobs:
                       IMPACTED_TARGETS='{"impactedTargets":"ALL"}'
                   fi
 
-                  if [ "$IS_FORK" != "true" ] && [ -z "$TRUNK_API_TOKEN" ]; then
-                      echo "::warning::TRUNK_API_TOKEN is not set — skipping the impacted-targets upload."
-                      exit 0
-                  fi
+                  # The CLI refuses an empty targets file, so an empty list is
+                  # sent as --none rather than as a file.
+                  targets_file="$RUNNER_TEMP/impacted-targets.txt"
+                  scope="$(printf '%s' "$IMPACTED_TARGETS" | jq -r '
+                      .impactedTargets
+                      | if . == "ALL" then "all"
+                        elif type == "array" and length == 0 then "none"
+                        elif type == "array" then "list"
+                        else error("unexpected impactedTargets: \(.)") end')"
+                  case "$scope" in
+                      all) scope_args=(--all) ;;
+                      none) scope_args=(--none) ;;
+                      list)
+                          printf '%s' "$IMPACTED_TARGETS" | jq -r '.impactedTargets[]' > "$targets_file"
+                          scope_args=(--targets-file "$targets_file")
+                          ;;
+                  esac
 
-                  payload="$(jq -n \
-                      --arg host "github.com" \
-                      --arg owner "$REPO_OWNER" \
-                      --arg name "$REPO_NAME" \
-                      --argjson number "$PR_NUMBER" \
-                      --arg sha "$PR_SHA" \
-                      --arg targetBranch "$TARGET_BRANCH" \
-                      --argjson impacted "$IMPACTED_TARGETS" \
-                      '{repo: {host: $host, owner: $owner, name: $name}, pr: {number: $number, sha: $sha}, targetBranch: $targetBranch} + $impacted')"
-
-                  if [ "$IS_FORK" = "true" ]; then
-                      echo "Fork PR — authenticating with x-forked-workflow-run-id ($RUN_ID)"
-                      auth_header="x-forked-workflow-run-id: $RUN_ID"
-                  else
-                      echo "Internal PR — authenticating with x-api-token"
-                      auth_header="x-api-token: $TRUNK_API_TOKEN"
-                  fi
-
-                  curl --fail --silent --show-error --retry 3 --retry-all-errors \
-                      -X POST "https://api.trunk.io/v1/setImpactedTargets" \
-                      -H "Content-Type: application/json" \
-                      -H "$auth_header" \
-                      --data "$payload" \
-                      --output "$RUNNER_TEMP/trunk-response.json"
+                  trunk mergequeue upload-impacted-targets --json "${scope_args[@]}" \
+                      > "$RUNNER_TEMP/trunk-response.json"
                   echo 'uploaded=true' >> "$GITHUB_OUTPUT"
 
             # Lane-cost telemetry. Runs here rather than in `compute` because
