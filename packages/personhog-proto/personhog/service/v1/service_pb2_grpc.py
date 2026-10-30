@@ -282,6 +282,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentResponse.FromString,
             _registered_method=True,
         )
+        self.RaisePersonVersion = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/RaisePersonVersion",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.FromString,
+            _registered_method=True,
+        )
         self.DeletePersons = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/DeletePersons",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsRequest.SerializeToString,
@@ -622,6 +628,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def RaisePersonVersion(self, request, context):
+        """Consistency repair version raise (routed to leader)"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def DeletePersons(self, request, context):
         """Person deletes
         DeletePersons tombstones the persons and reports the versions written. A caller that
@@ -934,6 +946,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.FoldPersonDocument,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentResponse.SerializeToString,
+        ),
+        "RaisePersonVersion": grpc.unary_unary_rpc_method_handler(
+            servicer.RaisePersonVersion,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.SerializeToString,
         ),
         "DeletePersons": grpc.unary_unary_rpc_method_handler(
             servicer.DeletePersons,
@@ -2211,6 +2228,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/FoldPersonDocument",
             personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def RaisePersonVersion(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/RaisePersonVersion",
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.RaisePersonVersionResponse.FromString,
             options,
             channel_credentials,
             insecure,

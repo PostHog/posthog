@@ -4983,7 +4983,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_batch_audience_person_ids.assert_not_called()
 
-    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):
         with patch(
             "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids",
@@ -5005,6 +5005,8 @@ class TestHogFlowAPI(APIBaseTest):
         # the end of the audience, so the batch send skips every recipient after it.
         passed_settings = mock_workflows_query.call_args.kwargs["settings"]
         assert getattr(passed_settings, "timeout_overflow_mode", None) == "throw"
+        # The page query runs under the resolver's own ClickHouse cap, not the interactive 60s default.
+        assert passed_settings.max_execution_time == 123
 
     @parameterized.expand(
         [

@@ -35,6 +35,12 @@ const hogFunctionMonitoringPendingMessages = new Gauge({
     help: 'Number of log entries queued and waiting to be flushed to Kafka. App-metric backlog is tracked separately by app_metrics_aggregator_queued_total / app_metrics_aggregator_flushed_total. High values indicate accumulation and potential memory leak.',
 })
 
+const hogFunctionMonitoringFlushDuration = new Histogram({
+    name: 'cdp_hog_function_monitoring_flush_duration_seconds',
+    help: 'Wall time of one flush of queued app metrics and log entries',
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
 export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
 
 // `app_metrics2` has no version column, and it can't gain one: it's an AggregatingMergeTree whose sort
@@ -79,6 +85,7 @@ export class HogFunctionMonitoringService {
     }
 
     async flush() {
+        const end = hogFunctionMonitoringFlushDuration.startTimer()
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
@@ -107,7 +114,7 @@ export class HogFunctionMonitoringService {
                         captureException(error)
                     })
             }),
-        ])
+        ]).finally(end)
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {

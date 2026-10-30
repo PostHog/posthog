@@ -41,6 +41,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -64,7 +65,6 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,

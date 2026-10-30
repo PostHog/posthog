@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.team.team import Team
 
 from products.alerts.backend.facade.destinations import (
@@ -183,11 +183,7 @@ def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str
 
 
 def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> bool:
-    return Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).exists()
+    return bool(IntegrationManager.slack.oauth.get_many(team_id, [integration_id]))
 
 
 def _raise_if_billing_alert_already_has_this_destination_type(

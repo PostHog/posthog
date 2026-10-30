@@ -22,10 +22,12 @@ export function SummarizeButton({
     sessionId,
     scanBlock,
     inWatchLayout = false,
+    fullWidth = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
     inWatchLayout?: boolean
+    fullWidth?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
@@ -36,14 +38,13 @@ export function SummarizeButton({
     const [consentRequested, setConsentRequested] = useState(false)
     const { tooltip: quotaTooltip } = quotaUx(quota)
     const blockedReason = useSummarizeBlockedReason(scanBlock)
-    // `loading` only disables the button itself. The caret and the menu rows are their own buttons, so
-    // without this a second summarizer is one click away mid-run, and it spends the quota again.
+    // `loading` only disables this button. The caret and the menu rows are their own buttons, so without this a
+    // second summarizer can start mid-run and spend the quota again.
     const inFlightDisabledReason = summarizePending ? 'A summary is already running' : null
     const builtInDisabledReason = inFlightDisabledReason ?? blockedReason()
     const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
         inFlightDisabledReason ?? blockedReason(scanner)
-    // Nobody could tell which summarizer the button used, so it says so. While a scan is running the
-    // label is the only thing that says the click landed: the summary takes minutes to arrive.
+    // While a scan runs the label is the only sign the click landed, because the summary takes minutes.
     const idleLabel = hasSummary
         ? 'Summarize again'
         : defaultSummarizer
@@ -51,7 +52,7 @@ export function SummarizeButton({
           : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     const summarizerTooltip = summarizePending
-        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Scans segment' : 'Observations tab'} when it is ready.`
+        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Observations section' : 'Observations tab'} when it is ready.`
         : defaultSummarizer
           ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
           : 'Writes a summary using a built-in prompt.'
@@ -67,8 +68,7 @@ export function SummarizeButton({
         })),
         {
             key: 'built-in',
-            // Every other row is a scanner the team owns and can open. This one is PostHog's, so it
-            // carries the logomark and says so, rather than reading as a scanner they cannot find.
+            // This row is PostHog's built-in prompt, not a team scanner they could open, so it says so.
             label: (
                 <span className="flex items-center justify-between gap-2 w-full">
                     <span className="truncate">{BUILT_IN_SUMMARY_LABEL}</span>
@@ -89,14 +89,15 @@ export function SummarizeButton({
     const button = (
         <LemonButton
             size="small"
-            type={hasSummary ? 'tertiary' : 'secondary'}
+            type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
+            fullWidth={fullWidth}
+            center={fullWidth}
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => {
                 posthog.capture('replay_vision_summarize_clicked', {
-                    // Repeat clicks are the point of this event, and `$session_id` cannot tell them
-                    // apart from one click each on two recordings.
+                    // Repeat clicks on one recording are the point, and `$session_id` cannot tell them from one click each on two.
                     recording_id: sessionId,
                     summarizer: defaultSummarizer ? 'configured' : 'built-in',
                     consent_needed: !dataProcessingAccepted,

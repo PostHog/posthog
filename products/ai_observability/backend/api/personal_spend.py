@@ -50,6 +50,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
+from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +59,7 @@ MAX_PRODUCT_KEY_LENGTH = 64
 MAX_DATE_STRING_LENGTH = 32
 
 SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
+BILLABLE_AI_PRODUCTS = frozenset(POSTHOG_AI_PRODUCTS + POSTHOG_CODE_AI_PRODUCTS)
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
@@ -77,7 +79,7 @@ MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
 
 CACHE_TIMEOUT_SECONDS = 300
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 UTC = ZoneInfo("UTC")
 
@@ -238,6 +240,9 @@ class _ProductBreakdownRowSerializer(serializers.Serializer):
         help_text="Number of $ai_generation + $ai_embedding events for this product."
     )
     cost_usd = serializers.FloatField(help_text="Total cost in USD for this product over the lookback window.")
+    billable = serializers.BooleanField(
+        help_text="Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules."
+    )
 
 
 class _ToolBreakdownRowSerializer(serializers.Serializer):
@@ -380,6 +385,12 @@ class _SummarySerializer(serializers.Serializer):
     )
     total_cost_usd = serializers.FloatField(
         help_text="Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter."
+    )
+    billable_cost_usd = serializers.FloatField(
+        help_text=(
+            "Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the "
+            "product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount."
+        )
     )
     event_count = serializers.IntegerField(
         help_text="Total $ai_generation + $ai_embedding events captured across every product."
@@ -566,7 +577,8 @@ def _fetch_summary(
             countIf({product_filter}) AS scoped_event_count,
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd,
+            round(sumIf(toFloat(properties.$ai_total_cost_usd), properties.ai_product IN {billable_products}), 6) AS billable_cost_usd
         FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
@@ -575,6 +587,7 @@ def _fetch_summary(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
+            "billable_products": ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(BILLABLE_AI_PRODUCTS)]),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
@@ -582,7 +595,7 @@ def _fetch_summary(
         team=team,
         query_type="PersonalSpendSummary",
     )
-    row = (result.results or [(0, 0.0, 0, 0.0)])[0]
+    row = (result.results or [(0, 0.0, 0, 0.0, 0.0)])[0]
     return {
         "date_from": from_dt,
         "date_to": to_dt,
@@ -591,6 +604,7 @@ def _fetch_summary(
         "scoped_cost_usd": float(row[1] or 0.0),
         "event_count": int(row[2] or 0),
         "total_cost_usd": float(row[3] or 0.0),
+        "billable_cost_usd": float(row[4] or 0.0),
     }
 
 
@@ -624,6 +638,7 @@ def _fetch_by_product(
     rows = [
         {
             "product": row[0] if row[0] is not None else None,
+            "billable": row[0] in BILLABLE_AI_PRODUCTS,
             "event_count": int(row[1] or 0),
             "cost_usd": float(row[2] or 0.0),
         }

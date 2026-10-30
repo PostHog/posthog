@@ -169,6 +169,26 @@ class TraceEvaluationResults(Contract):
     summary: TraceEvaluationSummary
 
 
+class TraceCluster(Contract):
+    run_id: str = Field(
+        description="The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id."
+    )
+    run_at: datetime = Field(description="When the run finished.")
+    job_id: str | None = Field(description="The clustering job the run belongs to, null for a run without a job.")
+    job_name: str | None
+    cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
+    title: str | None
+    description: str | None
+    is_outlier: bool = Field(description="The trace fit no cluster in this run.")
+
+
+class TraceClusters(Contract):
+    clusters: list[TraceCluster] = Field(
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
+    )
+
+
 class TraceFeedbackScore(Contract):
     id: str
     name: str | None
@@ -191,13 +211,84 @@ class TraceFeedbackText(Contract):
     timestamp: datetime
 
 
+class TraceSurvey(Contract):
+    id: str
+    name: str | None = Field(description="Null when the survey no longer exists.")
+
+
+class TraceThumbsAnswer(Contract):
+    kind: Literal["thumbs"]
+    question: str
+    up: bool
+
+
+class TraceRatingAnswer(Contract):
+    kind: Literal["rating"]
+    question: str
+    value: str
+    scale: int | None
+    lower_label: str | None
+    upper_label: str | None
+
+
+class TraceChoiceAnswer(Contract):
+    kind: Literal["choice"]
+    question: str
+    choices: list[str]
+
+
+class TraceTextAnswer(Contract):
+    kind: Literal["text"]
+    question: str
+    text: str
+
+
+TraceSurveyAnswer = Annotated[
+    TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer, Field(discriminator="kind")
+]
+
+
+class TraceSurveyResponse(Contract):
+    kind: Literal["survey"]
+    id: str
+    node_id: str = Field(
+        description="The tree node the response targets: the trace id, as a survey response covers the whole trace."
+    )
+    timestamp: datetime
+    survey: TraceSurvey
+    answers: list[TraceSurveyAnswer]
+    complete: bool = Field(description="False when the user left the survey before its end.")
+    unavailable: Literal["survey_not_found", "no_questions"] | None = Field(
+        description="Why the answers cannot be shown: the survey was deleted, or it has no questions."
+    )
+
+
+class TraceUnansweredSurvey(Contract):
+    survey: TraceSurvey
+    timestamp: datetime = Field(description="When the survey was first shown.")
+
+
+TraceSurveyResponsesStatus = Literal["ok", "failed", "not_permitted"]
+
+
+TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
+
+
 class TraceFeedbackSummary(Contract):
     total: int = Field(description="Scores plus responses.")
+    thumbs_up: int = Field(description="Thumbs up answers to 2-point survey rating questions.")
+    thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
-    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
+    unanswered: list[TraceUnansweredSurvey] = Field(
+        description="Surveys shown with the trace and not answered, oldest first."
+    )
+    survey_responses_status: TraceSurveyResponsesStatus = Field(
+        description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
+    )
     summary: TraceFeedbackSummary
 
 
@@ -271,6 +362,45 @@ class TraceSummaryRun:
     was_sampled: bool
     distinct_id: str
     groups: dict[str, str]
+
+
+class TracePullRequest(Contract):
+    repo_owner: str = Field(description="The owner of the pull request's repository.")
+    repo_name: str = Field(description="The name of the pull request's repository.")
+    number: int = Field(description="The pull request number.")
+    title: str | None = Field(description="The pull request title, or null when the synced data has none.")
+
+
+class TracePullRequestLookup(Contract):
+    pull_request: TracePullRequest | None = Field(
+        description="The pull request the trace's git branch belongs to, ranked by engineering analytics, or null "
+        "when the trace has no branch, the project has no GitHub source, or no pull request matches."
+    )
+
+
+TraceExportStatus = Literal["pending", "complete", "failed"]
+TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
+
+
+class TraceExport(Contract):
+    id: int = Field(description="The export id, used to read its status and download the file.")
+    status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
+    filename: str = Field(description="The name the downloaded JSON file gets.")
+    created_at: datetime = Field(description="When the export was requested.")
+    expires_after: datetime | None = Field(description="When the file is deleted.")
+    exception: str | None = Field(description="Why the export failed, null unless status is failed.")
+
+
+class TraceExportFile(Contract):
+    trace: Trace = Field(description="The trace as the trace endpoint returns it.")
+    truncated: bool = Field(
+        description="True when the trace has more events than an export reads. The file then holds the earliest "
+        "events only, and leaves out the later steps."
+    )
+    nodes: list[TraceNodeDetail] = Field(
+        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
+        "then the tree in pre-order."
+    )
 
 
 AttentionReason = Literal["errored", "silent", "worse"]
@@ -395,7 +525,9 @@ class PassRateOverviewEntry(Contract):
 
 
 class PassRateOverview(Contract):
-    entries: list[PassRateOverviewEntry] = Field(description="Enabled pass rate evaluations, lowest rate first.")
+    entries: list[PassRateOverviewEntry] = Field(
+        description="Pass rate evaluations with results in the period, paused ones included, lowest rate first."
+    )
     median: float | None = Field(description="Median of the per-evaluation pass rates without low evidence.")
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
@@ -435,7 +567,9 @@ class EvaluationsOverview(OverviewPeriodFields):
         "bucket can start before `start`."
     )
     evaluations: list[EvaluationResult]
-    totals: OverviewTotals = Field(description="Totals over the enabled evaluations.")
+    totals: OverviewTotals = Field(
+        description="Totals over every evaluation's results in the period, paused ones included."
+    )
     pass_rate_overview: PassRateOverview
 
 

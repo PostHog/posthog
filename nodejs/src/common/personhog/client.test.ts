@@ -160,6 +160,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {

@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -10,6 +11,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
@@ -20,12 +22,15 @@ import {
     makeFeedbackScore,
     makeFeedbackText,
     makeNodeDetail,
+    makeSurveyResponse,
     makeTrace,
+    makeTraceCluster,
     makeTraceResource,
 } from './testFixtures'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
+const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -36,8 +41,11 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
+const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
@@ -63,6 +71,8 @@ const nodeMock = {
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
+let clusters: TraceClusterApi[] = []
+const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
@@ -93,6 +103,10 @@ function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof r
 }
 
 describe('TraceScene', () => {
+    beforeEach(() => {
+        clusters = []
+    })
+
     afterEach(cleanup)
 
     describe('the new view', () => {
@@ -104,6 +118,7 @@ describe('TraceScene', () => {
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })
@@ -128,6 +143,19 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('links the clusters chip to the cluster page', async () => {
+            clusters = [
+                makeTraceCluster({ runId: '1_trace_20260902_030000', clusterId: 3, title: 'Billing questions' }),
+            ]
+            const { findByText } = renderNewView()
+
+            const chip = (await findByText('Billing questions')).closest('a')
+
+            expect(
+                chip?.getAttribute('href')?.endsWith(urls.aiObservabilityCluster('1_trace_20260902_030000', 3))
+            ).toBe(true)
         })
 
         it('searches from the header, fades the steps without a match and steps to the match in view', async () => {
@@ -233,18 +261,77 @@ describe('TraceScene', () => {
             expect(await findByText('Cites a source')).toBeTruthy()
         })
 
-        it('shows the trace git branch in the summary bar', async () => {
+        it.each([
+            [true, urls.engineeringAnalyticsPullRequest('acme', 'app', 42)],
+            [false, null],
+        ])(
+            'shows the trace git branch, linked to its pull request when engineering analytics is on (%s)',
+            async (enabled, expectedHref) => {
+                useMocks({
+                    get: {
+                        [TRACE_URL]: () => [
+                            200,
+                            makeTraceResource({
+                                defaultNodeId: 'gen-2',
+                                git: { branch: 'feat/rag', repo: 'acme/app' },
+                            }),
+                        ],
+                        [PULL_REQUEST_URL]: () => [
+                            200,
+                            { pullRequest: { repoOwner: 'acme', repoName: 'app', number: 42, title: null } },
+                        ],
+                    },
+                })
+                const { findByText, container } = renderNewView({ [ENGINEERING_ANALYTICS_FLAG]: enabled })
+
+                expect(await findByText('feat/rag')).toBeTruthy()
+                await waitFor(() =>
+                    expect(
+                        container
+                            .querySelector('[data-attr="trace-view-git-pull-request-link"]')
+                            ?.getAttribute('href') ?? null
+                    ).toBe(expectedHref && addProjectIdIfMissing(expectedHref))
+                )
+            }
+        )
+
+        it('exports the trace with its time and shows the button as busy until the export starts', async () => {
+            let releaseExport = (): void => {}
+            const exportStarted = new Promise<void>((resolve) => {
+                releaseExport = resolve
+            })
+            const exportBodies: unknown[] = []
             useMocks({
-                get: {
-                    [TRACE_URL]: () => [
-                        200,
-                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
-                    ],
+                post: {
+                    [EXPORT_URL]: async ({ request }) => {
+                        exportBodies.push(await request.json())
+                        await exportStarted
+                        return [
+                            201,
+                            {
+                                id: 7,
+                                status: 'pending',
+                                filename: 'trace-1.json',
+                                createdAt: '2026-09-01T10:20:00Z',
+                                expiresAfter: null,
+                                exception: null,
+                            },
+                        ]
+                    },
                 },
             })
             const { findByText } = renderNewView()
+            const button = (await findByText('Export')).closest('button')
+            if (!button) {
+                throw new Error('expected the export action to render as a button')
+            }
 
-            expect(await findByText('feat/rag')).toBeTruthy()
+            fireEvent.click(button)
+
+            await waitFor(() => expect(exportBodies).toEqual([{ timestamp_hint: '2026-09-01T10:15:00Z' }]))
+            expect(button.classList.contains('LemonButton--loading')).toBe(true)
+            releaseExport()
+            await waitFor(() => expect(button.classList.contains('LemonButton--loading')).toBe(false))
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
@@ -281,6 +368,27 @@ describe('TraceScene', () => {
             fireEvent.click(await findByText('helpfulness 0'))
             expect(await findByText('What users said')).toBeTruthy()
         })
+
+        it('shows thumbs in the header chip and the survey answers in the feedback', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [],
+                            responses: [makeSurveyResponse()],
+                            summary: { total: 1, thumbsUp: 1, thumbsDown: 0 },
+                        }),
+                    ],
+                },
+            })
+            const { findByLabelText, findByText } = renderNewView()
+
+            fireEvent.click(await findByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total'))
+
+            expect(await findByText('Answer quality')).toBeTruthy()
+            expect(await findByText('Thumbs up')).toBeTruthy()
+        })
     })
 
     describe('behind the flag gate', () => {
@@ -290,6 +398,7 @@ describe('TraceScene', () => {
                     [TRACE_URL]: () => [200, makeTraceResource()],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })

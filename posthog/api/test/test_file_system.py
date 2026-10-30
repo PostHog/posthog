@@ -29,7 +29,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction, 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -52,23 +52,25 @@ def _create_feature_flag_case(testcase: "TestFileSystemViewSetLogging"):
     return flag, url
 
 
-def _create_enterprise_experiment_case(testcase: "TestFileSystemViewSetLogging"):
-    if not settings.EE_AVAILABLE:
-        raise unittest.SkipTest("Enterprise features unavailable")
+def _feature_flag_view_target(testcase: APIBaseTest) -> tuple[str, str]:
+    flag = FeatureFlag.objects.create(team=testcase.team, key=f"test-flag-{uuid4().hex}", created_by=testcase.user)
+    representation = flag.get_file_system_representation()
+    return representation.type, str(representation.ref)
+
+
+def _experiment_view_target(testcase: APIBaseTest) -> tuple[str, str]:
     flag = FeatureFlag.objects.create(
         team=testcase.team,
         key=f"exp-{uuid4().hex}",
         created_by=testcase.user,
     )
-    experiment = Experiment.objects.create(
-        team=testcase.team,
+    experiment_id = create_experiment(
+        team_id=testcase.team.id,
         name="File system experiment",
-        feature_flag=flag,
-        created_by=testcase.user,
-        type=Experiment.ExperimentType.PRODUCT,
+        feature_flag_id=flag.id,
+        created_by_id=testcase.user.id,
     )
-    url = f"/api/projects/{testcase.project.id}/experiments/{experiment.id}/"
-    return experiment, url
+    return "experiment", str(experiment_id)
 
 
 @dataclass(frozen=True)
@@ -130,19 +132,18 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
         FileSystemActivityCase(
             type_string="experiment",
             scope="Experiment",
-            create_instance=lambda test: Experiment.objects.create(
-                team=test.team,
+            create_instance=lambda test: create_experiment(
+                team_id=test.team.id,
                 name="File system experiment",
-                feature_flag=FeatureFlag.objects.create(
+                feature_flag_id=FeatureFlag.objects.create(
                     team=test.team,
                     key=f"exp-ff-{uuid4().hex}",
                     created_by=test.user,
-                ),
-                created_by=test.user,
-                type=Experiment.ExperimentType.PRODUCT,
+                ).id,
+                created_by_id=test.user.id,
             ),
-            ref_getter=lambda instance: str(instance.id),
-            item_id_getter=lambda instance: str(instance.id),
+            ref_getter=str,
+            item_id_getter=str,
         ),
     ),
     (
@@ -531,29 +532,28 @@ class TestFileSystemLogViewEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("feature_flag", _create_feature_flag_case, False),
-            ("experiment", _create_enterprise_experiment_case, True),
+            ("feature_flag", _feature_flag_view_target, False),
+            ("experiment", _experiment_view_target, True),
         ]
     )
-    def test_log_view_endpoint_creates_entry(self, _name: str, setup_case, requires_ee: bool) -> None:
+    def test_log_view_endpoint_creates_entry(self, _name: str, view_target, requires_ee: bool) -> None:
         if requires_ee and not settings.EE_AVAILABLE:
             raise unittest.SkipTest("Enterprise features unavailable")
 
         FileSystemViewLog.objects.all().delete()
 
-        obj, _ = setup_case(self)
-        representation = obj.get_file_system_representation()
+        file_type, ref = view_target(self)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/file_system/log_view/",
-            {"type": representation.type, "ref": str(representation.ref)},
+            {"type": file_type, "ref": ref},
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         log_entry = FileSystemViewLog.objects.get()
-        assert log_entry.type == representation.type
-        assert log_entry.ref == str(representation.ref)
+        assert log_entry.type == file_type
+        assert log_entry.ref == ref
 
     def test_log_view_endpoint_rejects_impersonated_session(self) -> None:
         FileSystemViewLog.objects.all().delete()

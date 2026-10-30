@@ -26,6 +26,7 @@ class ModelInfo(TypedDict):
     is_recommended: bool
     supports_decisions: NotRequired[bool]
     supports_chat: NotRequired[bool]
+    supports_reasoning: NotRequired[bool]
 
 
 # Single registry of providers. Add new providers here and everything else
@@ -35,6 +36,18 @@ PROVIDERS: list[tuple[str, Any]] = [
     ("Anthropic", AnthropicConfig),
     ("Gemini", GeminiConfig),
 ]
+
+
+# Providers whose `complete()` honors CompletionRequest.reasoning_level.
+REASONING_LEVEL_CONFIGS: dict[str, type[AnthropicConfig] | type[OpenAIConfig]] = {
+    "anthropic": AnthropicConfig,
+    "openai": OpenAIConfig,
+}
+
+
+def supports_reasoning_level(provider: str | None, model: str | None) -> bool:
+    config = REASONING_LEVEL_CONFIGS.get(provider or "")
+    return bool(config and model and config.supports_reasoning_level(model))
 
 
 def _build_model_infos(provider: str, models: list[str]) -> list[ModelInfo]:
@@ -93,6 +106,7 @@ __all__ = [
     "DEFAULT_MODEL_BY_PROVIDER",
     "get_default_models",
     "get_playground_models",
+    "supports_reasoning_level",
     "OpenAIConfig",
     "AnthropicConfig",
     "GeminiConfig",

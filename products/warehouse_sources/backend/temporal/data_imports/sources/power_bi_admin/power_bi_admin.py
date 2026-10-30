@@ -17,9 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_a
     LOGIN_BASE_URL,
     MAX_CONTINUATION_PAGES,
     MAX_ODATA_PAGES,
-    ODATA_PAGE_SIZE,
     POWER_BI_ADMIN_ENDPOINTS,
     TOKEN_SCOPE,
+    PowerBiAdminEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 120
@@ -230,13 +230,16 @@ def _odata_pages(
     skip = start_skip
 
     for page in range(MAX_ODATA_PAGES):
-        params = {"$top": str(ODATA_PAGE_SIZE), "$skip": str(skip)}
+        params = {"$top": str(config.page_size), "$skip": str(skip), **config.params}
         body = client.get(config.path, params=params)
         rows = body.get(config.data_key) or []
-        if rows:
-            yield rows
+        output = _flatten_children(rows, config) if config.child_key else rows
+        if output:
+            yield output
+        else:
+            resumable_source_manager.safe_point()
 
-        if len(rows) < ODATA_PAGE_SIZE:
+        if len(rows) < config.page_size:
             return
 
         skip += len(rows)
@@ -244,6 +247,15 @@ def _odata_pages(
 
         if page == MAX_ODATA_PAGES - 1:
             logger.warning(f"Power BI admin: hit the {MAX_ODATA_PAGES}-page cap for {endpoint}, later rows are skipped")
+
+
+def _flatten_children(parents: list[dict[str, Any]], config: PowerBiAdminEndpointConfig) -> list[dict[str, Any]]:
+    assert config.child_key is not None and config.parent_id_column is not None
+    return [
+        {**child, config.parent_id_column: parent.get("id")}
+        for parent in parents
+        for child in parent.get(config.child_key) or []
+    ]
 
 
 def _single_page(client: PowerBiAdminClient, endpoint: str) -> Iterator[list[dict[str, Any]]]:
