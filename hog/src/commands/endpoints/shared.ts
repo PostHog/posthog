@@ -2,7 +2,7 @@ import { diffLines } from 'diff'
 
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import type { Style } from '@/core/output'
+import { escapeControls, type Style } from '@/core/output'
 import { absolutePath } from '@/core/paths'
 import type { Change } from '@/endpoints/changes'
 import type { FileProblem } from '@/endpoints/files'
@@ -92,18 +92,19 @@ const LABELS: Record<Change['field'], string> = {
     defaults: 'Defaults',
 }
 
-// `from` is the side that changes: PostHog for a push, the file for a pull.
+// `from` is the side that changes: PostHog for a push, the file for a pull. Anyone in the project
+// can edit the PostHog side, so escape sequences in it must not reach the terminal.
 export function changeLines(change: Change, direction: 'push' | 'pull', style: Styler): string[] {
     const [from, to] = direction === 'push' ? [change.remote, change.local] : [change.local, change.remote]
     if (change.field !== 'query') {
-        return [`${LABELS[change.field]}: ${from || '(none)'} → ${to || '(none)'}`]
+        return [`${LABELS[change.field]}: ${escapeControls(from) || '(none)'} → ${escapeControls(to) || '(none)'}`]
     }
     const lines = [`${LABELS.query}:`]
     for (const part of diffLines(from.endsWith('\n') ? from : `${from}\n`, to.endsWith('\n') ? to : `${to}\n`)) {
         const sign = part.added ? '+' : part.removed ? '-' : ' '
         const color: Style = part.added ? 'green' : part.removed ? 'red' : 'dim'
         for (const line of part.value.replace(/\n$/, '').split('\n')) {
-            lines.push(style(`  ${sign} ${line}`, color))
+            lines.push(style(`  ${sign} ${escapeControls(line)}`, color))
         }
     }
     return lines
