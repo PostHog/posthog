@@ -2,6 +2,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Composer, isAppKey, isTyping } from "./composer";
+import { rememberTheme } from "./theme";
 
 describe("isAppKey", () => {
   it.each([
@@ -130,17 +131,24 @@ describe("Composer", () => {
     expect(popup).toContain("model");
   });
 
-  it("draws the heaviest cursor in the focused pane and a grey one elsewhere", () => {
-    const composer = new Composer(
-      () => {},
-      () => {},
-    );
-    composer.handleInput("x");
-    const focused = composer.render(30, true).editor.join("");
-    const unfocused = composer.render(30, false).editor.join("");
+  it.each([
+    ["light", "\x1b[48;5;252m"],
+    ["dark", "\x1b[48;5;238m"],
+  ] as const)(
+    "on a %s terminal, keeps the solid cursor for the focused pane and a faint one elsewhere",
+    (theme, faintCursor) => {
+      rememberTheme(theme);
+      const composer = new Composer(
+        () => {},
+        () => {},
+      );
+      composer.handleInput("x");
+      const focused = composer.render(30, true).editor.join("");
+      const unfocused = composer.render(30, false).editor.join("");
 
-    expect(focused).toContain("\x1b[7m");
-    expect(unfocused).not.toContain("\x1b[7m");
-    expect(unfocused).toContain("\x1b[100m");
-  });
+      expect(focused).toContain("\x1b[7m");
+      expect(unfocused).not.toContain("\x1b[7m");
+      expect(unfocused).toContain(faintCursor);
+    },
+  );
 });
