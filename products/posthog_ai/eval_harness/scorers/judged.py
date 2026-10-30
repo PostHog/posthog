@@ -8,10 +8,13 @@ instead of a silently divergent code path.
 
 from __future__ import annotations
 
+from copy import copy
 from typing import Any
 
 from autoevals.llm import LLMClassifier
+from autoevals.oai import LLMClient
 from braintrust import Score as BraintrustScore
+from openai import AsyncOpenAI, RateLimitError
 
 from ..engines.types import ScorerResult
 from .contract import AsyncOnlyScorerMixin, Score
@@ -39,7 +42,26 @@ GRADED_ALIGNMENT_CHOICE_SCORES = {
 JUDGE_MODEL = "gpt-5.4"
 
 
-class JudgedScorer(AsyncOnlyScorerMixin, LLMClassifier):
+class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
+    """Use the configured OpenAI provider without Autoevals' Braintrust proxy fallback."""
+
+    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> BraintrustScore:
+        if self.client is not None:
+            return await super()._run_eval_async(output, expected, **kwargs)
+        async with AsyncOpenAI() as client:
+            scorer = copy(self)
+            scorer.client = LLMClient(
+                openai=client,
+                complete=client.chat.completions.create,
+                embed=client.embeddings.create,
+                moderation=client.moderations.create,
+                is_async=True,
+                RateLimitError=RateLimitError,
+            )
+            return await LLMClassifier._run_eval_async(scorer, output, expected, **kwargs)
+
+
+class JudgedScorer(LocalLLMClassifier):
     """Base class for sandboxed LLM judges.
 
     Subclasses implement ``_prepare(output, expected)`` returning either a

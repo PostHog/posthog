@@ -72,7 +72,7 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             ),
             iconPath="/static/services/motherduck.png",
             docsUrl="https://posthog.com/docs/cdp/sources/motherduck",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -94,6 +94,7 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

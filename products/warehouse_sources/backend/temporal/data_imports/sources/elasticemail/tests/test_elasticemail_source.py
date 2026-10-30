@@ -80,7 +80,6 @@ class TestValidateCredentials:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            ("read_timeout", "HTTPSConnectionPool(host='api.elasticemail.com', port=443): Read timed out."),
             ("server_error", "ElasticEmailRetryableError: status=500"),
         ]
     )

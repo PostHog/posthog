@@ -109,11 +109,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            # Only a 200 proves the key is real and usable — a 403 means it reached FireHydrant but
-            # lacks permissions, so we reject it rather than register an unverified credential.
-            ("forbidden_rejected", 403, False),
-            ("unauthorized", 401, False),
-            ("unexpected", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:

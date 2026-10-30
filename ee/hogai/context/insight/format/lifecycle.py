@@ -1,7 +1,10 @@
 from collections import defaultdict
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Optional
 
 from posthog.schema import AssistantLifecycleQuery, LifecycleQuery
+
+from posthog.hogql_queries.utils.result_series import get_result_order, get_result_series, get_series_key
 
 from .utils import format_matrix, format_number, strip_datetime_seconds
 
@@ -36,20 +39,22 @@ class LifecycleResultsFormatter:
         self,
         query: AssistantLifecycleQuery | LifecycleQuery,
         results: list[dict[str, Any]],
+        action_names: Optional[Mapping[int, str | None]] = None,
     ):
         self._query = query
+        self._query_dict = query.model_dump(mode="json")
         self._results = results
+        self._action_names = action_names
 
     def format(self) -> str:
         if not self._results:
             return "No data recorded for this time period."
 
-        # Group results by event series (using action order as key)
+        # Group results by event series
         series_groups: dict[int, dict[str, dict[str, Any]]] = defaultdict(dict)
         for result in self._results:
-            order = result.get("action", {}).get("order", 0)
             status = result.get("status", "")
-            series_groups[order][status] = result
+            series_groups[get_result_order(result)][status] = result
 
         sections: list[str] = []
         multi_series = len(series_groups) > 1
@@ -90,14 +95,10 @@ class LifecycleResultsFormatter:
             return f"Event: {series_name}\n{formatted}"
         return formatted
 
-    @staticmethod
-    def _extract_series_name(result: dict[str, Any]) -> str:
-        action = result.get("action")
-        if isinstance(action, dict):
-            custom_name = action.get("custom_name")
-            if custom_name:
-                return custom_name
-            name = action.get("name")
+    def _extract_series_name(self, result: dict[str, Any]) -> str:
+        node = get_result_series(self._query_dict, result)
+        if node is not None:
+            name = node.get("custom_name") or node.get("name") or get_series_key(node, self._action_names)
             if name:
                 return name
         # Fallback: strip status suffix from label

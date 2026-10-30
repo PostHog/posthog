@@ -37,27 +37,35 @@ To run:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import cast
 
-from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities import classifiers
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
-def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
-    """An unsaved `Integration` row, which is all the classifier reads."""
-    return Integration(
-        id=integration_id,
-        kind="slack",
-        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+def _project(*, team_id: int, integration_id: int, name: str) -> WorkspaceIntegration:
+    """A stand-in row with only what the classifier reads."""
+    return cast(
+        WorkspaceIntegration,
+        SimpleNamespace(
+            id=integration_id,
+            team_id=team_id,
+            kind="slack",
+            integration_id="T_EVAL",
+            team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+        ),
     )
 
 
@@ -112,18 +120,18 @@ NORTHWIND = _project(team_id=53, integration_id=530, name="Northwind")
 SITE_DEV = _project(team_id=54, integration_id=540, name="northwind.io development")
 SITES = [NORTHWIND, SITE_DEV, STAGING, AGENT_PLATFORM, MOBILE]
 
-WORKSPACES: dict[str, tuple[list[Integration], Integration]] = {
+WORKSPACES: dict[str, tuple[list[WorkspaceIntegration], WorkspaceIntegration]] = {
     "simple": (PROJECTS, MAIN),
     "crowded": (CROWD, MAIN),
     "sites": (SITES, NORTHWIND),
 }
 
 
-def _routes_to(project: Integration | None = None) -> dict:
+def _routes_to(project: WorkspaceIntegration | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
 
 
-def _stays_on(default: Integration) -> dict:
+def _stays_on(default: WorkspaceIntegration) -> dict:
     """The message names the project the run is already on, so its id and null both pass."""
     return {PROJECT_ROUTE_KEY: {"integration_id": default.id, "is_default": True}}
 
@@ -529,8 +537,13 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: {chosen.team.name if chosen else None}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-project-classifier",
+        offline_suite=offline_suite(
+            "slack_app/eval_project_classifier::eval_project_classifier",
+            metrics=["project_route_match", "no_unasked_project_switch"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[
             *ROUTING_CASES,
             *CROWDED_ROUTING_CASES,

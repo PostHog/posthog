@@ -11,9 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    ApplyUtmDefaultsRequestApi,
+    ApplyUtmDefaultsResponseApi,
+    AudienceSuggestionsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     BroadcastConversionCandidatesApi,
+    BulkUpdateTagsUUIDRequestApi,
+    BulkUpdateTagsUUIDResponseApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
     DataSuggestionGenerateRequestApi,
@@ -21,6 +26,8 @@ import type {
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
+    EventWorkflowsBuildRequestApi,
+    EventWorkflowsBuildResponseApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
@@ -70,16 +77,22 @@ import type {
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    PatchedWorkflowSendingRulesApi,
     PeopleImportApi,
     PeopleImportCreateApi,
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowImportRecordApi,
+    WorkflowImportRequestApi,
+    WorkflowImportResponseApi,
+    WorkflowImportsForWorkflowRetrieveParams,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSendingRulesApi,
     WorkflowSetupStatusApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
@@ -113,6 +126,43 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/current/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/generate/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 
@@ -1245,6 +1295,23 @@ export const hogFlowsSchedulesDestroy = async (
     })
 }
 
+export const getHogFlowsApplyUtmDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/apply_utm_defaults/`
+}
+
+export const hogFlowsApplyUtmDefaultsCreate = async (
+    projectId: string,
+    applyUtmDefaultsRequestApi?: ApplyUtmDefaultsRequestApi,
+    options?: RequestInit
+): Promise<ApplyUtmDefaultsResponseApi> => {
+    return apiMutator<ApplyUtmDefaultsResponseApi>(getHogFlowsApplyUtmDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyUtmDefaultsRequestApi),
+    })
+}
+
 export const getHogFlowsBroadcastConversionCandidatesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/broadcast_conversion_candidates/`
 }
@@ -1280,6 +1347,42 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const hogFlowsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsUUIDRequestApi: BulkUpdateTagsUUIDRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsUUIDResponseApi> => {
+    return apiMutator<BulkUpdateTagsUUIDResponseApi>(getHogFlowsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
     })
 }
 
@@ -1433,6 +1536,27 @@ export const workflowDataSuggestionsBuild = async (
     })
 }
 
+export const getWorkflowDataSuggestionsBuildForEventsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build_for_events/`
+}
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
+ */
+export const workflowDataSuggestionsBuildForEvents = async (
+    projectId: string,
+    eventWorkflowsBuildRequestApi: EventWorkflowsBuildRequestApi,
+    options?: RequestInit
+): Promise<EventWorkflowsBuildResponseApi> => {
+    return apiMutator<EventWorkflowsBuildResponseApi>(getWorkflowDataSuggestionsBuildForEventsUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventWorkflowsBuildRequestApi),
+    })
+}
+
 export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/current/`
 }
@@ -1491,6 +1615,60 @@ export const workflowEmailDraftsCreate = async (
     })
 }
 
+export const getWorkflowImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_imports/`
+}
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const workflowImportsCreate = async (
+    projectId: string,
+    workflowImportRequestApi: WorkflowImportRequestApi,
+    options?: RequestInit
+): Promise<WorkflowImportResponseApi> => {
+    return apiMutator<WorkflowImportResponseApi>(getWorkflowImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowImportRequestApi),
+    })
+}
+
+export const getWorkflowImportsForWorkflowRetrieveUrl = (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_imports/for_workflow/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_imports/for_workflow/`
+}
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const workflowImportsForWorkflowRetrieve = async (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowImportRecordApi | void> => {
+    return apiMutator<WorkflowImportRecordApi | void>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowPeopleImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_people_imports/`
 }
@@ -1508,6 +1686,43 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowSendingRulesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowSendingRulesPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_sending_rules/current/`
+}
+
+/**
+ * The project-wide rules every workflow and broadcast follows when it sends a message.
+ */
+export const workflowSendingRulesPartialUpdate = async (
+    projectId: string,
+    patchedWorkflowSendingRulesApi?: NonReadonly<PatchedWorkflowSendingRulesApi>,
+    options?: RequestInit
+): Promise<WorkflowSendingRulesApi> => {
+    return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWorkflowSendingRulesApi),
     })
 }
 

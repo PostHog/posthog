@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 PAGE_SIZE = 100  # Ashby's documented max (and default).
 
@@ -34,6 +34,9 @@ class AshbyEndpointConfig:
     """Rows come from this array on each item of ``path``, instead of from the items themselves."""
     fanout: Optional[AshbyFanoutConfig] = None
     """Set when ``path`` must be called once per parent row rather than listed directly."""
+    variant_param: Optional[str] = None
+    """Required request-body key that ``path`` is listed once per value of ``variant_values`` for."""
+    variant_values: tuple[str, ...] = ()
 
     @property
     def probe_path(self) -> str:
@@ -43,6 +46,16 @@ class AshbyEndpointConfig:
         sync starts from; both sit behind the same Ashby permission.
         """
         return self.fanout.parent_path if self.fanout else self.path
+
+    @property
+    def probe_body(self) -> dict[str, Any]:
+        """Smallest valid request body for ``probe_path``."""
+        if self.fanout:
+            return {"limit": 1}
+        body: dict[str, Any] = {} if self.page_size is None else {"limit": 1}
+        if self.variant_param and self.variant_values:
+            body[self.variant_param] = self.variant_values[0]
+        return body
 
 
 # Every Ashby object exposes a top-level ``id``, so the primary key is ``["id"]`` throughout.
@@ -111,6 +124,33 @@ ASHBY_ENDPOINTS: dict[str, AshbyEndpointConfig] = {
         # interviewSchedule.list already returns every event in full, so read them from there
         # instead of calling interviewEvent.list once per schedule.
         nested_field="interviewEvents",
+    ),
+    "interview_stage_groups": AshbyEndpointConfig(
+        name="interview_stage_groups", path="interviewStageGroup.list", primary_key=["id"], page_size=None
+    ),
+    "application_hiring_team_roles": AshbyEndpointConfig(
+        name="application_hiring_team_roles",
+        path="applicationHiringTeamRole.list",
+        primary_key=["id"],
+        page_size=None,
+    ),
+    "survey_submissions": AshbyEndpointConfig(
+        name="survey_submissions",
+        path="surveySubmission.list",
+        primary_key=["id"],
+        partition_key="submittedAt",
+        # surveyType is required, and these are the only types the method lists.
+        variant_param="surveyType",
+        variant_values=("CandidateExperience", "Questionnaire", "HiringManagerExperience"),
+    ),
+    "candidate_notes": AshbyEndpointConfig(
+        name="candidate_notes",
+        path="candidate.listNotes",
+        primary_key=["candidateId", "id"],
+        partition_key="createdAt",
+        fanout=AshbyFanoutConfig(
+            parent_path="candidate.list", resolve_param="candidateId", parent_id_field="candidateId"
+        ),
     ),
 }
 

@@ -239,6 +239,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     unit?: string | null
+    /**
+     * Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.
+     * @nullable
+     */
+    histogram_bounds?: number[] | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -1328,6 +1333,11 @@ export type MetricsAttributeValuesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
     /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024

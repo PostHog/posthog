@@ -37,7 +37,13 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+from posthog.sync import database_sync_to_async
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
@@ -176,13 +182,33 @@ class TestAssistantContextManager(BaseTest):
         self.assertEqual(result, None)
         mock_capture_exception.assert_called_once()
 
+    @parameterized.expand([("viewer", True), ("no_access", False)])
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
-    async def test_format_ui_context_with_dashboard(self, mock_execute):
+    async def test_format_ui_context_with_dashboard(self, _name, can_view, mock_execute):
         mock_execute.return_value = "Dashboard insight results"
+        creator = await database_sync_to_async(User.objects.create_and_join)(
+            self.organization, "owner@posthog.com", None
+        )
+        saved = await Insight.objects.acreate(
+            team=self.team,
+            created_by=creator,
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], "interval": "day"}},
+        )
+        if not can_view:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await self.organization.asave()
+            await OrganizationMembership.objects.filter(user=self.user, organization=self.organization).aupdate(
+                level=OrganizationMembership.Level.MEMBER
+            )
+            await AccessControl.objects.acreate(
+                team=self.team, resource="insight", resource_id=str(saved.id), access_level="none"
+            )
 
         # Create mock insight
         insight = MaxInsightContext(
-            id="123",
+            id=saved.short_id,
             name="Dashboard Insight",
             description="Test insight",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -207,6 +233,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("## Dashboard name: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
         self.assertIn("Dashboard insights:", result)
+        # query_patch targets the stored query, so the attached context must show its wrapper.
+        self.assertEqual('{"kind":"InsightVizNode","source":{' in result, can_view)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
 
@@ -596,29 +624,6 @@ class TestAssistantContextManager(BaseTest):
         # Should return None since the insight failed to run
         self.assertIsNone(result)
         mock_capture_exception.assert_called()
-
-    def test_voice_mode_prompt_on_emits_speech_formatting_rules(self):
-        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=True))
-        assert prompt is not None
-        assert "<voice_mode>" in prompt
-        assert "spelled out" in prompt.lower() or "spell out" in prompt.lower()
-
-    def test_voice_mode_prompt_off_emits_explicit_override(self):
-        # Explicit False must emit a counter-instruction so a typed turn after a spoken
-        # turn isn't still steered by the earlier <voice_mode> prompt sitting in history.
-        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=False))
-        assert prompt is not None
-        assert "<voice_mode>" in prompt
-        assert "no longer" in prompt.lower() or "ignore" in prompt.lower()
-
-    @parameterized.expand(
-        [
-            ("voice_mode field absent", MaxUIContext(insights=None)),
-            ("ui_context absent", None),
-        ]
-    )
-    def test_voice_mode_prompt_absent_when_field_not_set(self, _name: str, ui_context: MaxUIContext | None):
-        assert self.context_manager._get_voice_mode_prompt(ui_context) is None
 
     def test_deduplicate_context_messages(self):
         """Test that context messages are deduplicated based on existing context message content"""

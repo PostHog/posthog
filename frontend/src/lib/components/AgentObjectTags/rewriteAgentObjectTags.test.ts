@@ -24,7 +24,7 @@ describe('rewriteAgentObjectTags', () => {
         [
             'flag cited by numeric id links, by key stays a label',
             '<flag id="42">new-flow</flag> vs <flag id="my-key">old-flow</flag>',
-            '[new-flow](/project/2/feature_flags/42) vs old-flow',
+            '[new-flow](/project/2/feature-flags/42) vs old-flow',
         ],
         [
             'inline hogql links into the SQL editor',

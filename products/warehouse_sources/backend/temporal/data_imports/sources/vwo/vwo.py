@@ -41,11 +41,26 @@ class VWOResumeConfig:
     paginator_state: dict[str, Any]
 
 
+def vwo_error_detail(body: Any) -> str:
+    # VWO can report a failure as a 200 with an `_errors` list, so its message must reach the error classifier.
+    errors = body.get("_errors") if isinstance(body, dict) else None
+    if not isinstance(errors, list):
+        return ""
+    messages = [
+        f"{error['code']}: {error['message']}" if error.get("code") is not None else str(error["message"])
+        for error in errors
+        if isinstance(error, dict) and error.get("message")
+    ]
+    return f" ({'; '.join(messages)[:200]})" if messages else ""
+
+
 class VWOCollectionSelector(JSONPath):
     # The campaign example is malformed. Accept flat and partialCollection envelopes without selecting nested goals.
     def find(self, data: Any) -> list[DatumInContext]:
         if not isinstance(data, dict) or "_data" not in data:
-            raise ValueError("VWO returned no data envelope. Check the token permissions and API response.")
+            raise ValueError(
+                f"VWO returned no data envelope{vwo_error_detail(data)}. Check the token permissions and API response."
+            )
         rows = data["_data"]
         if isinstance(rows, dict) and "partialCollection" in rows:
             rows = rows["partialCollection"]

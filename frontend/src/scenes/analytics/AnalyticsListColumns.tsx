@@ -1,7 +1,16 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconEllipsis, IconFolder, IconFolderMove, IconFolderOpen, IconShare, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconEllipsis,
+    IconFolder,
+    IconFolderMove,
+    IconFolderOpen,
+    IconShare,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
 import {
     Button,
     Chip,
@@ -17,7 +26,7 @@ import {
 } from '@posthog/quill'
 import type { DataTableProps } from '@posthog/quill-components'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -25,13 +34,21 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
+import type { AnalyticsFeedQuery } from './analyticsFeed'
 import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
-import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
+import {
+    ANALYTICS_DRAG_SCOPE,
+    ANALYTICS_TYPE_INFO,
+    AnalyticsItem,
+    analyticsOpenHref,
+    isSpacePath,
+} from './analyticsUtils'
 
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
@@ -45,24 +62,11 @@ function EmptyCell(): JSX.Element {
     )
 }
 
-function TimeCell({ time, label }: { time: string | null; label?: string }): JSX.Element {
+function TimeCell({ time }: { time: string | null }): JSX.Element {
     if (!time) {
-        return (
-            <Text size="xs" variant="muted">
-                –
-            </Text>
-        )
+        return <EmptyCell />
     }
-    return (
-        <Tooltip>
-            <TooltipTrigger
-                render={<span className="text-xs whitespace-nowrap text-muted-foreground" translate="no" />}
-            >
-                {label ? `${label} ${dayjs(time).fromNow()}` : dayjs(time).fromNow()}
-            </TooltipTrigger>
-            <TooltipContent>{dayjs(time).format('LLL')}</TooltipContent>
-        </Tooltip>
-    )
+    return <TZLabel time={time} className="text-xs whitespace-nowrap text-muted-foreground" />
 }
 
 // Two chips fit the fixed tags column; the rest fold into a count.
@@ -78,18 +82,20 @@ function TagsCell({ tags }: { tags: string[] }): JSX.Element {
     }
     const hidden = tags.length - VISIBLE_TAGS
     return (
-        <ChipGroup className="flex-nowrap overflow-hidden">
-            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                <Chip key={tag} size="xs" className="max-w-24 truncate">
-                    {tag}
-                </Chip>
-            ))}
+        <div className="flex min-w-0 items-center gap-1">
+            <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
+                {tags.slice(0, VISIBLE_TAGS).map((tag) => (
+                    <Chip key={tag} size="xs" className="min-w-0 max-w-24 flex-1" title={tag}>
+                        <span className="min-w-0 truncate">{tag}</span>
+                    </Chip>
+                ))}
+            </ChipGroup>
             {hidden > 0 && (
-                <Text size="xs" variant="muted">
+                <Text size="xs" variant="muted" className="shrink-0">
                     {`+${hidden}`}
                 </Text>
             )}
-        </ChipGroup>
+        </div>
     )
 }
 
@@ -159,25 +165,36 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
     )
 }
 
-function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
+function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
     return (
-        <Tooltip>
-            <TooltipTrigger
+        <DropdownMenu>
+            <DropdownMenuTrigger
                 render={
                     <Button
                         variant="default"
                         size="icon-sm"
-                        aria-label="Move to another collection"
-                        onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
-                        data-attr="analytics-list-row-move"
+                        aria-label={`Actions for ${item.name}`}
+                        data-attr="analytics-list-row-menu"
                     />
                 }
             >
-                <IconFolderMove />
-            </TooltipTrigger>
-            <TooltipContent>Move to another collection</TooltipContent>
-        </Tooltip>
+                <IconEllipsis />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+                <AnalyticsPinMenuItem
+                    target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
+                    dataAttr="analytics-list-row-pin"
+                />
+                <DropdownMenuItem
+                    onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
+                    data-attr="analytics-list-row-move"
+                >
+                    <IconFolderMove />
+                    Move to another collection
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
@@ -209,6 +226,12 @@ function FolderMenuCell({ folder }: { folder: FolderRow }): JSX.Element | null {
                     <IconFolderOpen />
                     Open folder
                 </DropdownMenuItem>
+                {isSpacePath(folder.path) && (
+                    <AnalyticsPinMenuItem
+                        target={{ type: 'folder', ref: folder.path, name: folder.name }}
+                        dataAttr="analytics-list-folder-pin"
+                    />
+                )}
                 <DropdownMenuItem
                     variant="destructive"
                     onClick={() => deleteItem(entry, ANALYTICS_DRAG_SCOPE)}
@@ -298,9 +321,15 @@ function ItemTitle({
 export function analyticsListColumns({
     backUrl,
     showSpace,
+    showOwner,
+    orderBy,
+    onOrderByChange,
 }: {
     backUrl: string
     showSpace: boolean
+    showOwner: boolean
+    orderBy: AnalyticsFeedQuery['orderBy']
+    onOrderByChange: (orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => void
 }): AnalyticsListColumns {
     const draggable = !showSpace
     return [
@@ -335,29 +364,81 @@ export function analyticsListColumns({
             header: 'Tags',
             enableSorting: false,
             cell: ({ row }) => (
-                <div className="w-36 overflow-hidden">
+                <div className="w-36">
                     {row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />}
                 </div>
             ),
         },
-        {
-            id: 'owner',
-            header: 'Owner',
-            enableSorting: false,
-            cell: ({ row }) => (
-                <AnalyticsOwner
-                    owner={
-                        row.original.kind === 'item'
-                            ? row.original.item.createdBy
-                            : (row.original.folder.createdBy ?? null)
-                    }
-                    className="w-36"
-                />
-            ),
-        },
+        ...(showOwner
+            ? ([
+                  {
+                      id: 'owner',
+                      header: 'Owner',
+                      enableSorting: false,
+                      cell: ({ row }) => (
+                          <AnalyticsOwner
+                              owner={
+                                  row.original.kind === 'item'
+                                      ? row.original.item.createdBy
+                                      : (row.original.folder.createdBy ?? null)
+                              }
+                              className="w-36"
+                          />
+                      ),
+                  },
+              ] satisfies AnalyticsListColumns)
+            : []),
+        ...(showSpace
+            ? ([
+                  {
+                      id: 'last_viewed',
+                      header: () => (
+                          <Button
+                              variant="default"
+                              size="xs"
+                              className="px-0"
+                              data-attr="analytics-list-sort-last-viewed"
+                              onClick={() =>
+                                  onOrderByChange(orderBy === '-last_viewed_at' ? 'last_viewed_at' : '-last_viewed_at')
+                              }
+                          >
+                              Last viewed
+                              {orderBy === '-last_viewed_at' && <IconChevronDown />}
+                              {orderBy === 'last_viewed_at' && <IconChevronDown className="rotate-180" />}
+                          </Button>
+                      ),
+                      enableSorting: false,
+                      cell: ({ row }) => (
+                          <div className="w-24">
+                              <TimeCell
+                                  time={
+                                      row.original.kind === 'item'
+                                          ? (row.original.item.entry?.last_viewed_at ?? null)
+                                          : null
+                                  }
+                              />
+                          </div>
+                      ),
+                  },
+              ] satisfies AnalyticsListColumns)
+            : []),
         {
             id: 'created',
-            header: 'Created',
+            header: () =>
+                showSpace ? (
+                    <Button
+                        variant="default"
+                        size="xs"
+                        className="px-0"
+                        data-attr="analytics-list-sort-created"
+                        onClick={() => onOrderByChange('-created_at')}
+                    >
+                        Created
+                        {orderBy === '-created_at' && <IconChevronDown />}
+                    </Button>
+                ) : (
+                    'Created'
+                ),
             enableSorting: false,
             cell: ({ row }) => (
                 <div className="w-24">
@@ -371,24 +452,19 @@ export function analyticsListColumns({
                 </div>
             ),
         },
-        // Inside a collection the Collection column is gone, so the row carries the way out instead.
-        ...(showSpace
-            ? []
-            : ([
-                  {
-                      id: 'move',
-                      header: '',
-                      enableSorting: false,
-                      cell: ({ row }) => (
-                          <div className="flex w-8 justify-end">
-                              {row.original.kind === 'item' ? (
-                                  <MoveCell item={row.original.item} />
-                              ) : (
-                                  <FolderMenuCell folder={row.original.folder} />
-                              )}
-                          </div>
-                      ),
-                  },
-              ] satisfies AnalyticsListColumns)),
+        {
+            id: 'actions',
+            header: '',
+            enableSorting: false,
+            cell: ({ row }) => (
+                <div className="flex w-8 justify-end">
+                    {row.original.kind === 'item' ? (
+                        <ItemMenuCell item={row.original.item} />
+                    ) : (
+                        <FolderMenuCell folder={row.original.folder} />
+                    )}
+                </div>
+            ),
+        },
     ]
 }

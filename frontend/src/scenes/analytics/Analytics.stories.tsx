@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -178,7 +180,9 @@ const fileSystemHandler = ({ request }: { request: Request }): [number, unknown]
     const depth = params.get('depth')
     const type = params.get('type')
     const typePrefix = params.get('type__startswith')
-    const search = params.get('search')?.toLowerCase()
+    const rawSearch = params.get('search')?.toLowerCase() ?? ''
+    const createdByMe = rawSearch.includes('user:me')
+    const search = rawSearch.replace('user:me', '').trim()
     const ref = params.get('ref')
     const results = FILE_SYSTEM.filter(
         (entry) =>
@@ -188,8 +192,23 @@ const fileSystemHandler = ({ request }: { request: Request }): [number, unknown]
             (typePrefix === null || entry.type.startsWith(typePrefix)) &&
             (ref === null || entry.ref === ref) &&
             (!search || entry.path.toLowerCase().includes(search)) &&
+            (!createdByMe || entry.meta?.created_by === ADA.id) &&
             (parent !== null || depth !== null || type !== null || typePrefix !== null || entry.type !== 'folder')
     )
+    const orderBy = params.get('order_by')
+    results.sort((first, second) => {
+        if (orderBy === '-last_viewed_at' || orderBy === 'last_viewed_at') {
+            if (!first.last_viewed_at) {
+                return second.last_viewed_at ? 1 : 0
+            }
+            if (!second.last_viewed_at) {
+                return -1
+            }
+            const difference = first.last_viewed_at.localeCompare(second.last_viewed_at)
+            return orderBy === '-last_viewed_at' ? -difference : difference
+        }
+        return (second.created_at ?? '').localeCompare(first.created_at ?? '')
+    })
     return [200, { results, count: results.length, next: null, users: [ADA, GRACE] }]
 }
 
@@ -199,6 +218,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, ...ADA },
                 '/api/projects/:team_id/task_channels/': [
                     { id: 'space-growth', name: 'growth', channel_type: 'public' },
                 ],

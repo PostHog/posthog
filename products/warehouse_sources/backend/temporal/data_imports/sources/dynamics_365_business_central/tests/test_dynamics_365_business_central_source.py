@@ -56,7 +56,6 @@ class TestDynamics365BusinessCentralSource:
         "other_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.businesscentral.dynamics.com/v2.0/t/production/api/v2.0/items",
             # A throttled token exchange is transient and carries no permanent marker.
             "HTTP 429 from the OAuth2 token endpoint",
         ],

@@ -39,7 +39,10 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -441,7 +444,7 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
             aws_security_credentials_supplier=Boto3CredentialsSupplier(),
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         ),
-        target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+        target_principal=get_or_settings("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", CredentialsCaller.BATCH_EXPORTS),
         target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
         lifetime=3600,
     )
@@ -458,7 +461,7 @@ class GoogleCloudCredentialsError(Exception):
 async def ensure_our_google_cloud_credentials_are_valid():
     """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
 
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     session = _make_requests_session()
     try:
         await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
@@ -496,7 +499,7 @@ async def get_service_account_description(
 
     Uses our credentials to authenticate.
     """
-    our_credentials = get_our_google_cloud_credentials()
+    our_credentials = await asyncio.to_thread(get_our_google_cloud_credentials)
     client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
 
     retryable_get_service_account = make_retryable_with_exponential_backoff(
@@ -1484,8 +1487,10 @@ async def _get_google_cloud_service_account_integration(
         return None
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )

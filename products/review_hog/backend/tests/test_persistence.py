@@ -16,6 +16,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
     DEFAULT_REVIEW_ARM,
     DEFAULT_VALIDATION_ARM,
     FLASH_ARM,
@@ -23,9 +24,11 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_ARMS_BY_TIER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
     SINGLE_AGENT_FLASH_ARM,
     SINGLE_AGENT_PASS_NUMBER,
     ReviewTier,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -47,6 +50,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_review_arm,
     load_run_issues,
     load_run_validations,
+    load_single_agent_results,
     load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
@@ -62,7 +66,7 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_STAMPHOG, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
@@ -210,7 +214,7 @@ class TestUpsertReviewReport(BaseTest):
             repository="o/r",
             pr_url="u",
             pr_metadata=_pr_metadata(),
-            trigger_source=TRIGGER_LABEL,
+            trigger_source=TRIGGER_STAMPHOG,
             lift_tier_on_human_trigger=True,
         )
         assert self._routing(report_id) == ("human", "P2", "xhigh")
@@ -247,7 +251,7 @@ class TestUpsertReviewReport(BaseTest):
             repository="o/r",
             pr_url="u",
             pr_metadata=_pr_metadata(),
-            trigger_source=TRIGGER_LABEL,
+            trigger_source=TRIGGER_STAMPHOG,
             lift_tier_on_human_trigger=True,
         )
         # The unparseable value is left as-is: the lift is skipped rather than raising or relabeling.
@@ -343,7 +347,7 @@ class TestUpsertReviewReport(BaseTest):
             trigger_source="inbox",
         )
         upsert_review_report(
-            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="stamphog"
         )
 
         row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
@@ -351,10 +355,10 @@ class TestUpsertReviewReport(BaseTest):
         assert row.trigger_source == "inbox"
 
     def test_provenance_backfills_only_when_missing(self) -> None:
-        # The reverse overlap: a label-created report later re-triggered by the inbox flow gains the
+        # The reverse overlap: a Stamphog-created report later re-triggered by the inbox flow gains the
         # missing signal link but keeps its creating trigger.
         report_id = upsert_review_report(
-            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="label"
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(), trigger_source="stamphog"
         )
         signal_report_id = str(uuid.uuid4())
         upsert_review_report(
@@ -368,7 +372,7 @@ class TestUpsertReviewReport(BaseTest):
 
         row = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert str(row.signal_report_id) == signal_report_id
-        assert row.trigger_source == "label"
+        assert row.trigger_source == "stamphog"
 
 
 class TestPersistResults(BaseTest):
@@ -1059,6 +1063,55 @@ class TestWorkingState(BaseTest):
             REVIEW_DESIGN_SINGLE_AGENT: {(SINGLE_AGENT_PASS_NUMBER, 1), (lens_pass, 2)},
         }
 
+    def test_single_agent_results_read_each_session_under_its_own_arm(self) -> None:
+        # A set whose main and lens sessions run on different arms loses its lens findings if dedup reads one arm.
+        # A fallback must count for its own set only: an earlier control turn's result at this head is not one.
+        trial = SingleAgentArms(
+            main=replace(SINGLE_AGENT_FLASH_ARM, reasoning_effort=ReasoningEffort.HIGH),
+            lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"),
+        )
+        perf_pass = FLASH_LENSES["performance-reliability"].pass_number
+        contracts_pass = FLASH_LENSES["contracts-security"].pass_number
+        stored = [
+            ((SINGLE_AGENT_PASS_NUMBER, 1), trial.main, None, "main-trial"),
+            ((perf_pass, 1), SINGLE_AGENT_FLASH_ARM, None, "perf-control-turn"),
+            ((perf_pass, 1), trial.lens, None, "perf-trial"),
+            ((contracts_pass, 1), SINGLE_AGENT_FLASH_ARM, trial.lens, "contracts-fallback"),
+            ((contracts_pass, 2), SINGLE_AGENT_FLASH_ARM, None, "contracts-control-turn"),
+            ((1, 1), SINGLE_AGENT_FLASH_ARM, None, "pipeline"),
+        ]
+        for key, arm, fallback_for, issue_id in stored:
+            persist_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                results={key: IssuesReview(issues=[_issue(issue_id)])},
+                review_arm=arm,
+                fallback_for=fallback_for,
+            )
+
+        loaded = {
+            name: load_single_agent_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", arms=arms
+            )
+            for name, arms in (("control", SINGLE_AGENT_ARM_SETS[CONTROL_ARM_SET]), ("trial", trial))
+        }
+
+        assert {
+            name: {key: r.issues[0].id for key, r in results.reviews.items()} for name, results in loaded.items()
+        } == {
+            "control": {(perf_pass, 1): "perf-control-turn", (contracts_pass, 2): "contracts-control-turn"},
+            "trial": {
+                (SINGLE_AGENT_PASS_NUMBER, 1): "main-trial",
+                (perf_pass, 1): "perf-trial",
+                (contracts_pass, 1): "contracts-fallback",
+            },
+        }
+        assert (loaded["control"].fallbacks, loaded["trial"].fallbacks) == (
+            frozenset(),
+            frozenset({(contracts_pass, 1)}),
+        )
+
 
 class TestPersistCommitSnapshot(BaseTest):
     def _commits(self, report_id: str):
@@ -1252,6 +1305,40 @@ class TestPRSnapshot(BaseTest):
         )
         assert pipeline is not None
         assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
+
+    def test_a_delta_lens_session_without_its_baseline_reviews_the_whole_pr(self) -> None:
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(head_sha="sha1"),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="src/a.py", status="modified", additions=500, deletions=0),
+                PRFile(filename="src/tests/test_a.py", status="modified", additions=500, deletions=0),
+            ],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        delta_input = SandboxStageInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            report_id=report_id,
+            head_sha="sha1",
+            repository="o/r",
+            branch="feat",
+            run_index=3,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            delta_since_head_sha="0" * 40,
+        )
+
+        prompt = _prepare_single_agent_prompt(delta_input, chunk_id=1, for_lens=True, guidelines="lens")
+
+        assert "## Scope" not in prompt
+        assert "## Changes since the last review" not in prompt
 
 
 class TestPersistVerdict(BaseTest):

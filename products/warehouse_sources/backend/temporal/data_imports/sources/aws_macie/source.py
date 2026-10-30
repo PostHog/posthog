@@ -127,7 +127,7 @@ class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]
                 "Use credentials from the Macie administrator account to sync members."
             ),
             iconPath="/static/services/aws_macie.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "macie", "security", "s3"],
             fields=cast(
                 list[FieldType],

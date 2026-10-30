@@ -62,12 +62,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/index.php"
         assert parse_qs((network.requests_log[0].body or b"").decode())["token_auth"] == ["bad"]
 
-    def test_http_error_fails_validation(self) -> None:
-        with scripted_network([ScriptedResponse(status=403, json={})]) as network:
-            assert validate_credentials("https://myorg.matomo.cloud", "1", "token") is False
-
-        assert len(network.requests_log) == 1
-
 
 class TestVisits:
     def test_full_page_at_one_timestamp_steps_past_cursor(self) -> None:

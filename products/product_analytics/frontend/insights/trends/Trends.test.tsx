@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, configure, screen } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { InsightVizNode, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -34,5 +34,22 @@ describe('TrendInsight', () => {
         })
 
         expect(await screen.findByText(expectedText)).toBeInTheDocument()
+    })
+
+    it('a region map with no series renders', async () => {
+        const { container } = renderInsight({
+            query: buildTrendsQuery({
+                series: [],
+                breakdownFilter: {
+                    breakdowns: [
+                        { property: '$geoip_country_code', type: 'event' },
+                        { property: '$geoip_subdivision_1_code', type: 'event' },
+                    ],
+                },
+                trendsFilter: { display: ChartDisplayType.WorldMap },
+            }),
+        })
+
+        await waitFor(() => expect(container.querySelector('.RegionMap')).toBeInTheDocument())
     })
 })

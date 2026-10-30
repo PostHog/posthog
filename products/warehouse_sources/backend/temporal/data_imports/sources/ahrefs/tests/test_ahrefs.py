@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable, Iterator
+from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -19,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     REFDOMAIN_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -272,6 +275,112 @@ def test_rank_tracker_reads_each_device() -> None:
         }
 
 
+SITE_METRICS_PATHS = [
+    "/v3/site-explorer/domain-rating",
+    "/v3/site-explorer/backlinks-stats",
+    "/v3/site-explorer/metrics",
+]
+
+
+def site_metrics_answer(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/v3/site-audit/projects":
+        return ScriptedResponse(json={"healthscores": [TARGET]})
+    day = int((request.param("date") or "")[-2:])
+    if request.path == "/v3/site-explorer/domain-rating":
+        return ScriptedResponse(json={"domain_rating": {"domain_rating": 50.0 + day, "ahrefs_rank": None}})
+    if request.path == "/v3/site-explorer/backlinks-stats":
+        return ScriptedResponse(
+            json={"metrics": {"all_time": 900, "all_time_refdomains": 90, "live": 500 + day, "live_refdomains": 40}}
+        )
+    return ScriptedResponse(
+        json={
+            "metrics": {
+                "org_keywords": 300 + day,
+                "org_keywords_1_3": 20,
+                "org_traffic": 1000,
+                "org_cost": None,
+                "paid_traffic": 7,
+            }
+        }
+    )
+
+
+def iso_days(start: str, end: str) -> list[str]:
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    return [(first + timedelta(days=offset)).isoformat() for offset in range((last - first).days + 1)]
+
+
+@pytest.mark.parametrize(
+    ("last_value", "incremental", "expected_days"),
+    [
+        (None, True, iso_days("2026-10-07", "2026-10-13")),
+        ("2026-10-11", False, iso_days("2026-10-07", "2026-10-13")),
+        ("2026-10-11", True, ["2026-10-12", "2026-10-13"]),
+        (date(2026, 10, 12), True, ["2026-10-13"]),
+        ("2026-10-13", True, []),
+        ("2026-05-01", True, iso_days("2026-09-13", "2026-10-13")),
+    ],
+)
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_site_metrics_daily_reads_each_day_once(
+    last_value: object, incremental: bool, expected_days: list[str]
+) -> None:
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "site_metrics_daily",
+        site_metrics_answer,
+        incremental_field="date",
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=last_value,
+    )
+
+    assert result.raised is None
+    assert result.response is not None and result.response.sort_mode == "asc"
+    assert [row["date"] for row in result.rows] == expected_days
+    expected_requests: list[tuple[str, str | None]] = [("/v3/site-audit/projects", None)] if expected_days else []
+    expected_requests += [(path, day) for day in expected_days for path in SITE_METRICS_PATHS]
+    assert [(request.path, request.param("date")) for request in result.requests] == expected_requests
+
+
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_site_metrics_daily_merges_reports_into_one_row_per_day() -> None:
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "site_metrics_daily",
+        site_metrics_answer,
+        incremental_field="date",
+        db_incremental_field_last_value="2026-10-11",
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "project_id": "123",
+            "target": "https://example.com/",
+            "date": day,
+            "domain_rating": 50.0 + int(day[-2:]),
+            "ahrefs_rank": None,
+            "live_backlinks": 500 + int(day[-2:]),
+            "live_refdomains": 40,
+            "org_keywords": 300 + int(day[-2:]),
+            "org_keywords_1_3": 20,
+            "org_traffic": 1000,
+            "org_cost": None,
+        }
+        for day in ["2026-10-12", "2026-10-13"]
+    ]
+    target_query = {"target": ["https://example.com/"], "mode": ["domain"], "protocol": ["https"]}
+    expected_queries = {
+        "/v3/site-explorer/domain-rating": {"target": ["https://example.com/"]},
+        "/v3/site-explorer/backlinks-stats": target_query,
+        "/v3/site-explorer/metrics": target_query,
+    }
+    for request in result.requests[1:]:
+        assert {name: list(values) for name, values in request.query.items()} == {
+            "output": ["json"],
+            "date": [request.param("date")],
+            **expected_queries[request.path],
+        }
+
+
 @pytest.mark.parametrize("healthscores", [[], [{"project_id": "123", "target_url": None}]])
 def test_target_report_without_site_audit_target_fails_permanently(healthscores: list[dict[str, object]]) -> None:
     source = AhrefsSource()
@@ -298,22 +407,18 @@ def test_page_sample_cap(count: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "body", "message"),
+    ("status", "body"),
     [
-        (401, {"error": "Invalid API key"}, "Check your API key"),
-        (403, ["Error", "Forbidden"], "Check your plan"),
-        (403, {"error": "Insufficient API units"}, "API units are exhausted"),
-        (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (403, {"error": "Quota exceeded"}, "API units are exhausted"),
-        (402, {"error": "Payment required"}, "API units are exhausted"),
+        (400, {"error": "API units limit exceeded"}),
+        (402, {"error": "Payment required"}),
     ],
 )
-def test_credential_and_sync_error_mapping(status: int, body: object, message: str) -> None:
+def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
         valid, error = validate_credentials("test-key")
     assert valid is False
-    assert error is not None and message in error
+    assert error is not None and "API units are exhausted" in error
     assert len(network.requests_log) == 1
 
     source = AhrefsSource()
@@ -321,8 +426,11 @@ def test_credential_and_sync_error_mapping(status: int, body: object, message: s
         "site_audit_issues", [answer]
     )
     assert isinstance(result.raised, ValueError)
-    mapped = source.get_non_retryable_errors()[str(result.raised)]
-    assert mapped is not None and message in mapped
+    raised = str(result.raised)
+    assert error_message_matches(raised, source.get_retryable_errors())
+    assert not error_message_matches(raised, source.get_non_retryable_errors())
+    exhausted = [m for key, m in source.get_retry_exhausted_errors().items() if error_message_matches(raised, [key])]
+    assert exhausted and "tries again on its own" in exhausted[0]
     assert len(result.requests) == 1
 
 

@@ -26,9 +26,13 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
+    short_name = models.CharField(max_length=40, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)
     archived = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     current_version = models.ForeignKey(
         "ScoreDefinitionVersion",
         null=True,
@@ -68,9 +72,11 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
         )
 
         definition.current_version = version
-        definition.save(update_fields=["current_version", "updated_at"])
+        definition.updated_by = created_by
+        definition.save(update_fields=["current_version", "updated_at", "updated_by"])
 
         self.current_version = version
+        self.updated_by = created_by
         return version
 
 

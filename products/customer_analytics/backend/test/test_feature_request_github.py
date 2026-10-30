@@ -179,7 +179,7 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
     @patch("products.workflows.backend.facade.api.accept_github_event")
     @patch("products.conversations.backend.facade.api.accept_github_event")
     @patch("products.customer_analytics.backend.facade.api.process_feature_request_github_delivery")
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
     def test_signed_issue_delivery_enqueues_only_feature_request_work(
         self,
         _get_secret: Mock,

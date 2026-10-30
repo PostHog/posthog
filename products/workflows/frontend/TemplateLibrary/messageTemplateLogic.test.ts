@@ -340,6 +340,7 @@ describe('messageTemplateLogic', () => {
             content: live,
             draft_content: draft,
             transactional_hog_flow_id: 'flow-id',
+            sensitive: false,
             updated_at: '2026-01-01T00:00:00Z',
         }
         let bodies: Record<string, unknown>[]
@@ -403,6 +404,17 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toEqual([{ draft_content: edited }])
         })
 
+        it('protecting sensitive data saves only the flag, so the draft stays unpublished', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSensitive(true)
+            }).toDispatchActions(['setSensitiveDone'])
+
+            expect(bodies).toEqual([{ sensitive: true }])
+            expect(logic.values.originalTemplate.sensitive).toBe(true)
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.hasDraft).toBe(true)
+        })
+
         it('publishing sends the content and leaves no draft behind', async () => {
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
@@ -413,16 +425,21 @@ describe('messageTemplateLogic', () => {
             expect(bodies).toHaveLength(1)
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
+            expect(bodies[0]).not.toHaveProperty('sensitive')
         })
     })
 
     describe('make transactional', () => {
-        it('keeps edits made while the conversion runs', async () => {
+        test.each([
+            ['an edit made while it runs', true],
+            ['no edits', false],
+        ])('shows the stored sender and keeps the form, with %s', async (_name, editWhileConverting) => {
             useMocks({
                 post: {
                     '/api/projects/:team_id/messaging_templates/:id/make_transactional/': {
                         id: 'existing-id',
                         name: 'Existing',
+                        content: { templating: 'liquid', email: { subject: 'Hi', from: { integrationId: 9 } } },
                         transactional_hog_flow_id: 'flow-id',
                         updated_at: '2026-01-02T00:00:00Z',
                     },
@@ -434,12 +451,17 @@ describe('messageTemplateLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.makeTransactional()
-                logic.actions.setTemplateValue('name', 'Renamed while converting')
+                if (editWhileConverting) {
+                    logic.actions.setTemplateValue('name', 'Renamed while converting')
+                }
             })
                 .toDispatchActions(['makeTransactionalDone'])
-                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: true })
+                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: editWhileConverting })
 
-            expect(logic.values.template.name).toEqual('Renamed while converting')
+            expect(logic.values.template.content.email.from).toEqual({ integrationId: 9 })
+            if (editWhileConverting) {
+                expect(logic.values.template.name).toEqual('Renamed while converting')
+            }
         })
     })
 })

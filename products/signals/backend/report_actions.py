@@ -59,7 +59,7 @@ def suppress_report_from_slack(
         SignalReportArtefact.append_dismissal(
             team_id=team_id,
             report_id=str(report.id),
-            content=Dismissal(reason="slack_dismiss", slack_user_id=slack_user_id),
+            content=Dismissal(state="suppressed", reason="slack_dismiss", slack_user_id=slack_user_id),
             attribution=attribution,
         )
     # The linked implementation PR is closed by the post_save receiver on suppression or snooze

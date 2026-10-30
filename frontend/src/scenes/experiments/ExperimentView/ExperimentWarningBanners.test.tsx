@@ -68,6 +68,7 @@ describe('ExperimentWarningBanner', () => {
                     diagnostic_ref: null,
                 },
             ],
+            checks: [],
         })
 
         const { container } = render(

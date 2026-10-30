@@ -166,7 +166,6 @@ const Component = ({
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
-            modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
         }
 

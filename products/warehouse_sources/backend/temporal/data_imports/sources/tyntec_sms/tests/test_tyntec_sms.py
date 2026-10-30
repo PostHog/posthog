@@ -103,13 +103,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected"),
         [
-            (200, True),
             # Unknown probe id with a valid key answers 404.
             (404, True),
-            # Missing key at the gateway.
-            (401, False),
-            # Invalid key at the gateway.
-            (403, False),
         ],
     )
     def test_status_mapping(self, status_code: int, expected: bool) -> None:

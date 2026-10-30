@@ -4,8 +4,12 @@ import Redis from 'ioredis'
 import { getCustomApiBaseUrl, isLocalApi } from '@/lib/constants'
 
 import { createApp } from './app'
+import { installHttpDispatcher } from './http-dispatcher'
 import { redisOperationsTotal } from './metrics'
+import { connectRedis } from './redis-connection'
 import { registerShutdownHandlers } from './shutdown'
+
+installHttpDispatcher()
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const HOST = process.env.HOST || '0.0.0.0'
@@ -46,7 +50,7 @@ redis.on('connect', () => {
 
 async function main(): Promise<void> {
     try {
-        await redis.connect()
+        await connectRedis(redis)
     } catch (err) {
         console.error('[MCP] Failed to connect to Redis:', err)
         process.exit(1)

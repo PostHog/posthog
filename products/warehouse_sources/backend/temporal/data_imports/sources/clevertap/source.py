@@ -100,7 +100,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
                 "Profiles include only users who performed this event. "
                 "CleverTap excludes some notification events from event exports."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -136,6 +136,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="event_name",
+                        sync_setting=True,
                         label="Event name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -144,6 +145,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (YYYY-MM-DD)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

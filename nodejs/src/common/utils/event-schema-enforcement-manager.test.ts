@@ -1,4 +1,5 @@
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
@@ -232,6 +233,18 @@ describe('EventSchemaEnforcementManager', () => {
             expect(result[String(teamId)].size).toBe(0)
             expect(result['99999'].size).toBe(0)
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns an empty Map for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                await createEnforcedSchema(teamId, 'event_1', [{ name: 'prop1', type: 'String', required: true }])
+
+                const result = await schemaManager.getSchemasForTeams([teamId, key as unknown as number])
+
+                expect(result[String(teamId)].size).toBe(1)
+                expect(result[key].size).toBe(0)
+            }
+        )
 
         it('efficiently loads multiple teams in single query', async () => {
             await createEnforcedSchema(teamId, 'test_event', [{ name: 'prop', type: 'String', required: true }])

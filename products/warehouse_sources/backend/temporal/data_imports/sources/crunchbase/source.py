@@ -72,7 +72,7 @@ class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeC
 You can find your user key in [Crunchbase account settings](https://www.crunchbase.com/account/integrations/crunchbase-api). Note that the Search API used for syncing requires a Crunchbase Enterprise or Applications license.""",
             iconPath="/static/services/crunchbase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/crunchbase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

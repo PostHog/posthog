@@ -10,14 +10,17 @@ import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
+import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
-import { ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/logics/runnerPanelLogic'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/types/contextTypes'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
+import { todayContextPanelLogic } from './todayContextPanelLogic'
+import { TodayPanelChatTask, runnerCreationFor } from './todayPanelChat'
 import { todayShellLogic } from './todayShellLogic'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkGroup, TodayWorkItem, groupByDay, sessionReadRequest } from './todayWorkItems'
@@ -36,6 +39,7 @@ export interface todayAiChatLogicValues {
     legacyChatTitle: string | null // maxLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     selectedTabOptions: string | null // sidePanelStateLogic
+    lastSceneUrl: string | null // todayShellLogic
     onAiPage: boolean // todayShellLogic
     allRecentItems: TodayWorkItem[] // todaySpacesLogic
     pinnedItems: TodayWorkItem[] // todaySpacesLogic
@@ -61,6 +65,9 @@ export interface todayAiChatLogicActions {
         items: AttachedContextItem[]
         providerId: string
     } // attachedContextLogic
+    setPhaiViewMode: (mode: PhaiViewMode) => {
+        mode: PhaiViewMode
+    } // maxGlobalLogic
     openConversation: (conversationId: string) => {
         conversationId: string
     } // maxLogic
@@ -76,9 +83,22 @@ export interface todayAiChatLogicActions {
     setHistoryExpanded: (expanded: boolean) => {
         expanded: boolean
     } // runnerPanelLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
     setSidePanelOptions: (options: string | null) => {
         options: string | null
     } // sidePanelStateLogic
+    setFloatingOpen: (open: boolean) => {
+        open: boolean
+    } // todayContextPanelLogic
+    setFloatingTab: (tab: SidePanelTab) => {
+        tab: SidePanelTab
+    } // todayContextPanelLogic
     markSessionRead: (
         marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
         activityIds: string[]
@@ -88,6 +108,13 @@ export interface todayAiChatLogicActions {
     } // todaySpacesLogic
     carryContextToFullScreen: () => {
         value: true
+    }
+    moveChatToPanel: (
+        mode: 'docked' | 'floating',
+        chat: TodayPanelChatTask | null
+    ) => {
+        chat: TodayPanelChatTask | null
+        mode: 'docked' | 'floating'
     }
     openRecentItem: (item: TodayWorkItem) => {
         item: TodayWorkItem
@@ -171,13 +198,17 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             attachedContextLogic,
             ['contextItems'],
             todayShellLogic,
-            ['onAiPage'],
+            ['onAiPage', 'lastSceneUrl'],
             sidePanelStateLogic,
             ['selectedTabOptions'],
         ],
         actions: [
+            maxGlobalLogic,
+            ['setPhaiViewMode'],
             sidePanelStateLogic,
-            ['setSidePanelOptions'],
+            ['setSidePanelOptions', 'openSidePanel'],
+            todayContextPanelLogic,
+            ['setFloatingOpen', 'setFloatingTab'],
             todaySpacesLogic,
             ['markSessionRead'],
             maxLogic({ panelId: SIDE_PANEL_PANEL_ID }),
@@ -192,6 +223,7 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
         openRecentItem: (item: TodayWorkItem) => ({ item }),
         startNewChat: true,
         carryContextToFullScreen: true,
+        moveChatToPanel: (mode: 'floating' | 'docked', chat: TodayPanelChatTask | null) => ({ mode, chat }),
     }),
     selectors({
         recentGroups: [
@@ -263,7 +295,7 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             const newView = values.effectivePhaiView === 'new'
             if (item.kind === 'session') {
                 if (newView && item.latestRunId) {
-                    actions.setActiveCreation({ streamKey: item.latestRunId, taskId: item.id, runId: item.latestRunId })
+                    actions.setActiveCreation(runnerCreationFor({ taskId: item.id, runId: item.latestRunId }))
                     // Read tracking follows the /ai URL, which an inline open never changes, so mark it here.
                     const request = sessionReadRequest(values.taskActivity, item.id)
                     if (request) {
@@ -278,6 +310,28 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
                 router.actions.push(urls.ai(item.id))
             } else {
                 actions.openConversation(item.id)
+            }
+        },
+        moveChatToPanel: ({ mode, chat }) => {
+            // pinned: analytics event name
+            posthog.capture('today ai task moved to panel', { mode, has_task: !!chat })
+            // A report or scout panel attaches its own entity's context, so it must not stay on another chat.
+            actions.setSidePanelOptions(null)
+            if (chat) {
+                // A task only renders in the new view's runner, so a saved legacy view would show another chat.
+                if (values.effectivePhaiView !== 'new') {
+                    actions.setPhaiViewMode('new')
+                }
+                actions.setActiveCreation(runnerCreationFor(chat))
+            } else {
+                actions.clearActiveCreation()
+            }
+            router.actions.push(values.lastSceneUrl ?? urls.projectHomepage())
+            if (mode === 'docked') {
+                actions.openSidePanel(SidePanelTab.Max)
+            } else {
+                actions.setFloatingTab(SidePanelTab.Max)
+                actions.setFloatingOpen(true)
             }
         },
         // The chat's context comes from the scene behind it, and that scene unmounts on the way to /ai. A copy of

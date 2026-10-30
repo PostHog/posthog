@@ -51,7 +51,7 @@ class BloggerSource(ResumableSource[BloggerSourceConfig, BloggerResumeConfig]):
             name=ExternalDataSourceType.BLOGGER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Blogger",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: shipping in alpha behind the unreleased flag until it has had
             # an end-to-end sync verified against the live API with real credentials.
             caption="""Enter a Google API key and a Blogger blog ID to pull your Blogger content into the PostHog Data warehouse.

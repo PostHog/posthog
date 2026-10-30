@@ -8,9 +8,12 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
+    is_missing_scan_file_race,
     is_offset_overflow_compaction_error,
+    is_transient_delta_log_listing_race,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
@@ -41,6 +44,22 @@ class TestIsTransientObjectStoreError:
                 # are exhausted - S3's fixed InternalError message, not a bug in our code.
                 "s3_internal_error_os_error",
                 OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
+                # delta-rs's own object_store crate (reqwest/hyper) reports a connection the remote
+                # end dropped mid-response this way, already marked "(temporary)" before this
+                # classifier runs - a retry against a fresh connection self-heals it.
+                "connection_closed_before_message_completed",
+                OSError(
+                    "Generic IoError error: Unexpected (temporary) at read, context: { url: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000002.json, "
+                    "called: http_util::Client::send, service: oss, path: "
+                    "_delta_log/00000000000000000002.json, range: 0-3460 } => send http request, source: "
+                    "error sending request for url (https://example-bucket.oss-us-west-1.aliyuncs.com/"
+                    "_delta_log/00000000000000000002.json) => client error (SendRequest) => connection "
+                    "closed before message completed"
+                ),
                 True,
             ),
             (
@@ -88,6 +107,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
+                True,
+            ),
+            (
                 # A different errno must not be swept up by the fd-exhaustion check.
                 "unrelated_os_error_with_errno",
                 OSError(errno.ENOENT, "No such file or directory"),
@@ -124,6 +151,57 @@ class TestIsTransientObjectStoreError:
                     "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
                 ),
                 False,
+            ),
+            (
+                # A warehouse bucket backed by Aliyun OSS reports its own 500 as this OSS-specific
+                # error shape instead of one of the S3 messages above - matched on the fixed `code`
+                # field since OSS's own InternalError `message` text isn't fixed the way S3's is.
+                "oss_internal_error",
+                OSError(
+                    "Generic Unexpected error: Unexpected (temporary) at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/, "
+                    "response: Parts { status: 500, service: oss } } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E506" }'
+                ),
+                True,
+            ),
+            (
+                # A different OSS error code sharing the same wrapper shape must not be swept up by
+                # the code-field match - only "InternalError" is a transient 5xx.
+                "oss_access_denied_not_transient",
+                OSError(
+                    "Generic Unexpected error: Unexpected at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/ } => "
+                    'OssError { code: "AccessDenied", message: "Access denied by bucket policy" }'
+                ),
+                False,
+            ),
+            (
+                # Table-level operations (vacuum, optimize, commit) wrap the identical underlying
+                # object-store error in `DeltaError` instead of a bare `OSError` - the same OSS 500
+                # must still classify as transient through that wrapper.
+                "oss_internal_error_wrapped_in_delta_error",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Unexpected (temporary) at commit, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000001.json } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E507" }'
+                ),
+                True,
+            ),
+            (
+                # delta-rs's generic S3 client reaching a non-AWS S3-compatible bucket (e.g. Alibaba
+                # OSS, addressed virtual-hosted per s3_proxy.py) never goes through s3fs/botocore, so a
+                # dropped connection surfaces as a bare OSError with this fixed OS-level message instead
+                # of one of the typed botocore exceptions above.
+                "non_aws_endpoint_connection_timed_out",
+                OSError(
+                    "Generic error: Unexpected (temporary) at stat, context: ... => send http request, "
+                    "source: error sending request: client error (SendRequest): connection error: "
+                    "Connection timed out (os error 110)"
+                ),
+                True,
             ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
@@ -215,6 +293,28 @@ class TestIsTransientDeltaMaintenanceError:
             # "not found" outside the log directory must not match, because a data file missing for some
             # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
+            # A log-segment contiguity gap or a dangling checkpoint hint must NOT be folded into this
+            # classifier even though they are also a purge-vs-concurrent-read race (see
+            # TestIsTransientDeltaLogListingRace): this function also backs `is_table_corrupted`, and
+            # unlike the single-file "not found" case above, these two shapes are also the signature of a
+            # log genuinely left broken by an interrupted repartition swap — which must still be read as
+            # corrupt here so it gets revived instead of retried forever.
+            (
+                "delta_log_gap_not_matched_here",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                False,
+            ),
+            (
+                "delta_log_dangling_checkpoint_hint_not_matched_here",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                False,
+            ),
             # A reset or repartition swap replaced `_delta_log` under a handle that a prior write (or
             # note_deltalite_commit) had already advanced further: `update_incremental` refuses to apply
             # the now-lower-numbered log as an increment. Same reset-vs-stale-handle race as the missing
@@ -235,6 +335,38 @@ class TestIsTransientDeltaMaintenanceError:
     )
     def test_classifies_transient_delta_maintenance_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientDeltaLogListingRace:
+    @parameterized.expand(
+        [
+            # `_purge_s3_prefix_once`'s bulk delete removes a batch of `_delta_log` commit files in no
+            # guaranteed order, so a concurrent listing can see a run of them already gone from the
+            # middle of the sequence.
+            (
+                "delta_log_gap_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                True,
+            ),
+            # Same race, but the batch happened to take the checkpoint file a `_last_checkpoint` hint
+            # still points to.
+            (
+                "delta_log_dangling_checkpoint_hint_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                True,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            ("wrong_exception_type", RuntimeError("Expected contiguous commit files, but found gap"), False),
+        ]
+    )
+    def test_classifies_delta_log_listing_race(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_log_listing_race(error) is expected
 
 
 class TestIsTransientMaintenanceError:
@@ -361,6 +493,51 @@ class TestIsInvalidVersionRace:
     )
     def test_classifies_invalid_version_race(self, _name: str, error: Exception, expected: bool):
         assert is_invalid_version_race(error) is expected
+
+
+class TestIsMissingScanFileRace:
+    @parameterized.expand(
+        [
+            (
+                "data_file_404_during_scan",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Parquet error: Failed to fetch metadata "
+                    "for file dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store "
+                    "error: Object at location dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet "
+                    "not found: Error performing GET in 20ms - Server returned non-2xx status code: "
+                    "404 Not Found"
+                ),
+                True,
+            ),
+            # Same needle, but the object store refused the read rather than reporting it missing —
+            # a real, non-racy refusal that must stay out of this classifier.
+            (
+                "metadata_fetch_permission_denied_not_matched",
+                deltalake.exceptions.DeltaError(
+                    "Generic DeltaTable error: Parquet error: Failed to fetch metadata for file "
+                    "dlt/team_1_source_1/orders/part-00000-abc.snappy.parquet: Object Store error: "
+                    "The operation lacked the necessary privileges to complete"
+                ),
+                False,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # `CommitFailedError` is a `DeltaError` subclass, but this classifier is deliberately exact-type
+            # only, mirroring `is_invalid_version_race` — a missing-file 404 during a commit itself isn't
+            # this scan-planning race.
+            (
+                "commit_failed_error_not_matched",
+                deltalake.exceptions.CommitFailedError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+            (
+                "wrong_exception_type",
+                RuntimeError("Failed to fetch metadata for file ... not found"),
+                False,
+            ),
+        ]
+    )
+    def test_classifies_missing_scan_file_race(self, _name: str, error: Exception, expected: bool):
+        assert is_missing_scan_file_race(error) is expected
 
 
 class TestIsOffsetOverflowCompactionError:

@@ -203,6 +203,8 @@ def METRICS4_SAMPLES_TABLE_SQL() -> str:
     # The granule can contain multiple metric names and time buckets.
     # The time_bucket minmax index lets an hour filter skip the complete granule.
     # The metrics2 table uses idx_timestamp_minmax for the same purpose.
+    # The service_freshness_by_hour projection keeps the newest point of each service and hour, also from series
+    # without labels. A read of it does not read the timestamp arrays.
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
 (
@@ -228,7 +230,16 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_SAMPLES_TABLE_NAME}
     INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
     INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+    INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+    PROJECTION service_freshness_by_hour
+    (
+        SELECT
+            team_id,
+            time_bucket,
+            service_name,
+            max(arrayMax(timestamp_arr))
+        GROUP BY team_id, time_bucket, service_name
+    )
 )
 ENGINE = {AggregatingMergeTree(METRICS4_SAMPLES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY original_expiry_date
@@ -236,7 +247,8 @@ ORDER BY (team_id, metric_name, time_bucket, series_fingerprint)
 TTL original_expiry_date
 SETTINGS
     index_granularity = 128,
-    ttl_only_drop_parts = 1
+    ttl_only_drop_parts = 1,
+    deduplicate_merge_projection_mode = 'rebuild'
 """
 
 

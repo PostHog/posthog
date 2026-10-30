@@ -111,6 +111,7 @@ from .aws_connect.source import AwsConnectSource
 from .aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
 from .aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
 from .aws_cost_explorer.source import AwsCostExplorerSource
+from .aws_documentdb.source import AwsDocumentDBSource
 from .aws_glue_data_catalog.source import AwsGlueDataCatalogSource
 from .aws_guardduty.source import AwsGuarddutySource
 from .aws_health.source import AwsHealthSource
@@ -119,6 +120,7 @@ from .aws_inspector.source import AwsInspectorSource
 from .aws_macie.source import AwsMacieSource
 from .aws_organizations.source import AwsOrganizationsSource
 from .aws_rds_performance_insights.source import AwsRdsPerformanceInsightsSource
+from .aws_s3_tables.source import AwsS3TablesSource
 from .aws_sagemaker.source import AwsSagemakerSource
 from .aws_savings_plans.source import AwsSavingsPlansSource
 from .aws_security_hub.source import AwsSecurityHubSource
@@ -158,6 +160,7 @@ from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
 from .bcms.source import BCMSSource
+from .beacons.source import BeaconsSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -280,6 +283,8 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudflare_d1.source import CloudflareD1Source
+from .cloudflare_r2.source import CloudflareR2Source
 from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
@@ -303,6 +308,7 @@ from .commission_junction.source import CommissionJunctionSource
 from .commslayer.source import CommslayerSource
 from .companycam.source import CompanycamSource
 from .concord.source import ConcordSource
+from .conecto_crm.source import ConectoCRMSource
 from .conekta.source import ConektaSource
 from .configcat.source import ConfigCatSource
 from .confluence.source import ConfluenceSource
@@ -388,6 +394,7 @@ from .drchrono.source import DrchronoSource
 from .dreamdata.source import DreamdataSource
 from .dremio.source import DremioSource
 from .drip.source import DripSource
+from .dripify.source import DripifySource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
@@ -441,6 +448,7 @@ from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
 from .fieldpulse.source import FieldpulseSource
 from .fieldwire.source import FieldwireSource
+from .file_upload.source import FileUploadSource
 from .filevine.source import FilevineSource
 from .fillout.source import FilloutSource
 from .finage.source import FinageSource
@@ -679,6 +687,7 @@ from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
 from .kissmetrics.source import KissmetricsSource
+from .klar.source import KlarSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
@@ -725,7 +734,10 @@ from .linkedin_pages.source import LinkedinPagesSource
 from .linkrunner.source import LinkrunnerSource
 from .linnworks.source import LinnworksSource
 from .linode.source import LinodeSource
+from .listmonk.source import ListmonkSource
+from .litellm.source import LiteLLMSource
 from .liveblocks.source import LiveblocksSource
+from .livestorm.source import LivestormSource
 from .llama_cloud.source import LlamaCloudSource
 from .lob.source import LobSource
 from .lodgify.source import LodgifySource
@@ -756,6 +768,7 @@ from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
 from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
+from .megaphone.source import MegaphoneSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
@@ -825,6 +838,7 @@ from .mycase.source import MycaseSource
 from .mysql.source import MySQLSource
 from .n8n.source import N8nSource
 from .nager_date.source import NagerDateSource
+from .nango.source import NangoSource
 from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
@@ -916,6 +930,7 @@ from .pandadoc.source import PandaDocSource
 from .paperform.source import PaperformSource
 from .papersign.source import PapersignSource
 from .pardot.source import PardotSource
+from .particle.source import ParticleSource
 from .partnerize.source import PartnerizeSource
 from .partnerstack.source import PartnerStackSource
 from .patreon.source import PatreonSource
@@ -1036,6 +1051,7 @@ from .resend.source import ResendSource
 from .retail_express.source import RetailExpressSource
 from .retell_ai.source import RetellAISource
 from .retently.source import RetentlySource
+from .retreaver.source import RetreaverSource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource
@@ -1157,6 +1173,7 @@ from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
 from .sonarqube.source import SonarqubeSource
 from .sonatype_nexus.source import SonatypeNexusSource
+from .soniox.source import SonioxSource
 from .sourcegraph.source import SourcegraphSource
 from .spacelift.source import SpaceliftSource
 from .sparkpost.source import SparkPostSource
@@ -1260,6 +1277,7 @@ from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
 from .tracklution.source import TracklutionSource
 from .tradable_bits.source import TradableBitsSource
+from .trafficstars.source import TrafficStarsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
@@ -1345,6 +1363,7 @@ from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
+from .woopayments.source import WooPaymentsSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
 from .workato.source import WorkatoSource

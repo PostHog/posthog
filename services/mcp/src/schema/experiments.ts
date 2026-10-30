@@ -119,6 +119,8 @@ export const ExperimentSchema = z.object({
             minimum_detectable_effect: z.number().nullish(),
             recommended_running_time: z.number().nullish(),
             recommended_sample_size: z.number().nullish(),
+            variant_notes: z.record(z.string(), z.string()).nullish(),
+            variant_screenshot_media_ids: z.record(z.string(), z.union([z.string(), z.array(z.string())])).nullish(),
         })
         .nullish(),
     start_date: z.string().nullish(),
@@ -332,10 +334,9 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
  * Strip UI-only bulk fields from a query response. The compiled SQL bodies and the
  * per-step session samples can together account for ~90% of the payload. None of it
  * is usable by an MCP caller — `step_sessions` powers the frontend's funnel step-bar
- * "view sessions" linkbacks, `insight` is the rendered visualization payload for
- * the legacy trends/funnels charts, and anyone debugging a compiled query should
+ * "view sessions" linkbacks, and anyone debugging a compiled query should
  * hit the dedicated query API directly. Statistical fields (sum, sum_squares,
- * step_counts, number_of_samples, credible_intervals, etc.) are left untouched,
+ * step_counts, number_of_samples, credible_interval, etc.) are left untouched,
  * including per-breakdown statistics in `breakdown_results` — the sessions inside
  * each breakdown entry are stripped, but the breakdown stats themselves are kept
  * because they are real per-segment analysis data.
@@ -347,7 +348,6 @@ function stripBulkFields(data: unknown): unknown {
     const {
         clickhouse_sql: _omitSql,
         hogql: _omitHogql,
-        insight: _omitInsight,
         baseline: rawBaseline,
         variant_results: rawVariantResults,
         breakdown_results: rawBreakdownResults,

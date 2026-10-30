@@ -353,6 +353,10 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
         return false
     }
 
+    if ('person_uuid' in filters && filters.person_uuid !== undefined && typeof filters.person_uuid !== 'string') {
+        return false
+    }
+
     if ('duration' in filters) {
         if (!Array.isArray(filters.duration)) {
             return false
@@ -586,6 +590,9 @@ const applyFilterUpdate = (
         date_to: update.date_from && isRelativeDate(update.date_from) ? null : state.date_to,
         ...update,
     }
+    if ('person_uuid' in update && !update.person_uuid) {
+        delete newState.person_uuid
+    }
     if (pinnedFilters) {
         newState.filter_group = mergePinnedFilters(newState.filter_group, pinnedFilters)
     }
@@ -649,6 +656,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     pinnedRecordingsLoading: boolean
     recordings: SessionRecordingType[]
     recordingsCount: number
+    selectMode: boolean
     selectedRecordingId: SessionRecordingType['id'] | null
     selectedRecordingOutsideFilters: boolean
     selectedRecordingsIds: string[]
@@ -719,6 +727,12 @@ export interface sessionRecordingsPlaylistLogicActions {
     ) => {
         propertyKey: string
         propertyValue: string | undefined
+    }
+    applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => {
+        filters: Partial<RecordingUniversalFilters>
+    }
+    filterByPerson: (personUUID: string | null) => {
+        personUUID: string | null
     }
     handleBulkAddToPlaylist: (short_id: string) => {
         short_id: string
@@ -908,6 +922,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
     }
+    setSelectMode: (selectMode: boolean) => {
+        selectMode: boolean
+    }
     setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => {
         id: string | null
     }
@@ -1053,6 +1070,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
+        applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        filterByPerson: (personUUID: string | null) => ({ personUUID }),
         applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
             propertyKey,
             propertyValue,
@@ -1081,6 +1100,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
+        setSelectMode: (selectMode: boolean) => ({ selectMode }),
         handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
         handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
         handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
@@ -1170,7 +1190,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
-                        person_uuid: props.personUUID ?? '',
+                        person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
                         // so we limit to 100 distinct_ids for now
@@ -1391,6 +1411,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
                 },
                 resetFilters: () => getResetFilters(props),
+                applySavedFilter: (_, { filters }) =>
+                    applyFilterUpdate(getResetFilters(props), filters, props.pinnedFilters),
+                // A second person replaces the first. Null drops the key, so the filters match a link without one.
+                filterByPerson: (state, { personUUID }) => {
+                    const { person_uuid: _person, ...rest } = state
+                    return personUUID ? { ...rest, person_uuid: personUUID } : rest
+                },
             },
         ],
         /**
@@ -1416,6 +1443,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return added.length ? [...state, ...added] : state
                 },
                 resetFilters: () => [],
+                applySavedFilter: () => [],
+                filterByPerson: (state, { personUUID }) =>
+                    personUUID
+                        ? state.includes('person_uuid')
+                            ? state
+                            : [...state, 'person_uuid']
+                        : state.filter((viewerKey) => viewerKey !== 'person_uuid'),
             },
         ],
         showFilters: [
@@ -1496,20 +1530,31 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
+                applySavedFilter: () => false,
+                filterByPerson: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        selectMode: [
+            false,
+            {
+                setSelectMode: (_, { selectMode }) => selectMode,
             },
         ],
         selectedRecordingsIds: [
             [] as string[],
             {
                 setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+                setSelectMode: (state, { selectMode }) => (selectMode ? state : []),
                 // The filtered/pinned lists reload from scratch on a filter change, so a prior selection
                 // can no longer be matched against what's on screen - drop it rather than risk deleting
                 // recordings the user can't see.
                 setFilters: () => [],
                 resetFilters: () => [],
+                applySavedFilter: () => [],
+                filterByPerson: () => [],
             },
         ],
         isDeleteSelectedRecordingsDialogOpen: [
@@ -1638,6 +1683,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 props.onFiltersChange?.(values.filters)
             },
 
+            applySavedFilter: () => {
+                actions.loadSessionRecordings()
+                props.onFiltersChange?.(values.filters)
+                actions.loadEventsHaveSessionId()
+            },
+
             applyPropertyFilter: ({ propertyKey, propertyValue }) => {
                 // Validate property value
                 if (propertyValue === undefined || propertyValue === null) {
@@ -1683,6 +1734,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         },
                     },
                 })
+            },
+
+            filterByPerson: () => {
+                actions.loadSessionRecordings()
+                props.onFiltersChange?.(values.filters)
+                actions.loadEventsHaveSessionId()
             },
 
             togglePropertyFilter: ({ propertyKey, propertyValue }) => {
@@ -2264,6 +2321,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return (
                     changedGroupCount +
                     (durationChanged ? 1 : 0) +
+                    (filters.person_uuid ? 1 : 0) +
                     (filters.date_from === baselineFilters.date_from && filters.date_to === baselineFilters.date_to
                         ? 0
                         : 1) +
@@ -2469,6 +2527,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             setSelectedRecordingId: () => buildURL(false),
             setFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
+            applySavedFilter: () => buildURL(true),
+            filterByPerson: () => buildURL(true),
         }
     }),
 
@@ -2536,6 +2596,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     ...(params.filters && !equal(params.filters, values.filters)
                         ? {
                               ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
+                              // A link without a person drops the one picked from the player.
+                              person_uuid: undefined,
                               ...params.filters,
                           }
                         : {}),

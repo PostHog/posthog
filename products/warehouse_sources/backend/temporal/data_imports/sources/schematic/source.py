@@ -69,7 +69,7 @@ class SchematicSource(ResumableSource[SchematicSourceConfig, SchematicResumeConf
 Use a secret API key for the environment you want to sync, created under **Settings > API keys** in Schematic. Publishable keys can't list data.""",
             iconPath="/static/services/schematic.png",
             docsUrl="https://posthog.com/docs/cdp/sources/schematic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

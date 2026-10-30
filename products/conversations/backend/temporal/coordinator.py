@@ -60,6 +60,9 @@ MASTER_FLAG = "product-support-ai-suggestion"
 # Set to 0 locally to skip the BK readiness check entirely.
 MIN_READY_BK_SOURCES = 0
 
+SKIPPED_TEAM_REPLIED = "skipped_team_replied"
+SKIPPED_CHANNEL_EXCLUDED = "skipped_channel_excluded"
+
 
 @dataclass
 class CoordinatorInput:
@@ -148,6 +151,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # created_at around so a ticket with no customer comments yet still settles from its own
     # creation time (the initial message), not just from follow-up comments.
     candidates: list[tuple[int, str, datetime, bool, int]] = []
+    untriaged_ticket_ids: set[str] = set()
+    skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     for ticket in recent_tickets:
         team = ticket.team
 
@@ -158,15 +163,21 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if not settings_dict.get("ai_suggestions_enabled", False):
             continue
 
-        allowed_channels = settings_dict.get("ai_resolution_channels")
-        if allowed_channels is not None and ticket.channel_source not in allowed_channels:
-            continue
-
         if not team.organization.is_ai_data_processing_approved:
             continue
 
         if MIN_READY_BK_SOURCES > 0 and not has_ready_sources(team.id):
             continue
+
+        is_untriaged = not ticket.ai_triage
+        allowed_channels = settings_dict.get("ai_resolution_channels")
+        if allowed_channels is not None and ticket.channel_source not in allowed_channels:
+            if is_untriaged:
+                skipped_ticket_ids_by_result[SKIPPED_CHANNEL_EXCLUDED].append(str(ticket.id))
+            continue
+
+        if is_untriaged:
+            untriaged_ticket_ids.add(str(ticket.id))
 
         awaiting, clarification_round = _awaiting_clarification_round(ticket)
         if awaiting and clarification_round > MAX_CLARIFICATION_ROUNDS:
@@ -175,6 +186,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         candidates.append((team.id, str(ticket.id), ticket.created_at, awaiting, clarification_round))
 
     if not candidates:
+        _record_skipped_tickets(skipped_ticket_ids_by_result, now=now)
         return []
 
     # One comment query per team instead of round-trips per ticket. Two things come out of it:
@@ -182,13 +194,18 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     #      note ("AI") or a human/team reply ("support"/"team"/"human"). Those are excluded below
     #      for first-draft tickets. Awaiting tickets already have an AI question, so they skip
     #      that gate and re-engage only on a newer settled customer reply with no human after it.
+    #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
+    #      before the first customer comment. That opener is not engagement, so such a ticket is
+    #      engaged only by a non-customer comment newer than the first customer comment.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
+    first_customer_msg: dict[str, datetime] = {}
     latest_customer_msg: dict[str, datetime] = {}
+    earliest_non_customer_msg: dict[str, datetime] = {}
     latest_ai_msg: dict[str, datetime] = {}
     latest_human_msg: dict[str, datetime] = {}
     for team_id, ticket_ids in by_team.items():
@@ -196,13 +213,20 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             team_id=team_id,
             scope="conversations_ticket",
             item_id__in=ticket_ids,
+            item_context__automated_update_key__isnull=True,
         ).values_list("item_id", "item_context__author_type", "created_at"):
             if author_type == "customer":
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
                     latest_customer_msg[item_id] = comment_created_at
+                first = first_customer_msg.get(item_id)
+                if first is None or comment_created_at < first:
+                    first_customer_msg[item_id] = comment_created_at
                 continue
             engaged.add(item_id)
+            earliest = earliest_non_customer_msg.get(item_id)
+            if earliest is None or comment_created_at < earliest:
+                earliest_non_customer_msg[item_id] = comment_created_at
             if author_type == "AI":
                 prev_ai = latest_ai_msg.get(item_id)
                 if prev_ai is None or comment_created_at > prev_ai:
@@ -219,8 +243,6 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
     for team_id, ticket_id_str, created_at, awaiting, clarification_round in candidates:
-        if len(eligible) >= MAX_TICKETS_PER_RUN:
-            break
         if awaiting:
             last_customer = latest_customer_msg.get(ticket_id_str)
             last_ai = latest_ai_msg.get(ticket_id_str)
@@ -232,7 +254,24 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             if last_customer > settle_cutoff:
                 continue
         else:
-            if ticket_id_str in engaged:
+            first_customer = first_customer_msg.get(ticket_id_str)
+            earliest_team = earliest_non_customer_msg.get(ticket_id_str)
+            team_opened = earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            if team_opened:
+                # Wait for the customer without recording a skip, because no team reply exists yet.
+                if first_customer is None:
+                    continue
+                last_human = latest_human_msg.get(ticket_id_str)
+                if last_human is not None and last_human > first_customer:
+                    if ticket_id_str in untriaged_ticket_ids:
+                        skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
+                    continue
+                last_ai = latest_ai_msg.get(ticket_id_str)
+                if last_ai is not None and last_ai > first_customer:
+                    continue
+            elif ticket_id_str in engaged:
+                if ticket_id_str in untriaged_ticket_ids and ticket_id_str in latest_human_msg:
+                    skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
                 continue
             # Settle: wait until the customer has gone quiet. Reference is the most recent customer
             # activity — max(ticket creation, latest customer comment). If that's newer than the
@@ -240,6 +279,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             last_activity = max(created_at, latest_customer_msg.get(ticket_id_str, created_at))
             if last_activity > settle_cutoff:
                 continue
+        if len(eligible) >= MAX_TICKETS_PER_RUN:
+            continue
         if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
             continue
         per_team_counts[team_id] = per_team_counts.get(team_id, 0) + 1
@@ -251,7 +292,17 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             )
         )
 
+    _record_skipped_tickets(skipped_ticket_ids_by_result, now=now)
     return eligible
+
+
+def _record_skipped_tickets(skipped_ticket_ids_by_result: dict[str, list[str]], *, now: datetime) -> None:
+    for result, ticket_ids in skipped_ticket_ids_by_result.items():
+        if not ticket_ids:
+            continue
+        Ticket.objects.filter(id__in=ticket_ids, ai_triage={}).update(
+            ai_triage={"schema_version": 1, "status": "done", "result": result, "finished_at": now.isoformat()}
+        )
 
 
 @activity.defn

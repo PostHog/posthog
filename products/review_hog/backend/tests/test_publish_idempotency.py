@@ -259,6 +259,32 @@ class TestPublishIdempotency(BaseTest):
             "2 lower-priority findings. Must-fix findings still post."
         )
 
+    @parameterized.expand(
+        [
+            ("second_round_stays_quiet", {"1": "sha0"}, ""),
+            (
+                "third_round_asks_for_a_rethink",
+                {"1": "sha0", "2": "sha0"},
+                "This is review round 3 on this pull request.",
+            ),
+        ]
+    )
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_a_review_says_which_round_it_is_from_the_round_cap_on(
+        self, _name, published_head_shas, expected_prefix, _auth, _snapshot, mock_publish
+    ) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(published_head_shas=published_head_shas)
+
+        _publish(replace(_publish_input(self.team.id, report_id, "sha1"), run_index=3))
+
+        note = mock_publish.call_args.kwargs["round_note"]
+        assert note[: len(expected_prefix)] == expected_prefix
+        assert bool(note) is bool(expected_prefix)
+
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", None))
@@ -283,10 +309,17 @@ class TestPublishIdempotency(BaseTest):
     @parameterized.expand(
         [
             ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
-            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to", False),
+            (
+                "automatic_draft_without_commands",
+                "automatic",
+                True,
+                False,
+                "Start a review in PostHog Review to",
+                False,
+            ),
             ("automatic_ready", "automatic", False, True, None, False),
-            # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
-            ("label_draft", "label", True, True, None, True),
+            # A Stamphog handoff also runs for authors without automatic reviews, so it cannot promise one on ready.
+            ("stamphog_draft", "stamphog", True, True, None, True),
             ("comment_ready", "comment", False, True, None, True),
             ("ui_ready", "ui", False, True, None, True),
             ("inbox_ready", "inbox", False, True, None, False),

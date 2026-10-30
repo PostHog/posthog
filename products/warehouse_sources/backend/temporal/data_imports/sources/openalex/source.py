@@ -129,10 +129,10 @@ class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]
 
 Keys are free and take about a minute to create at [openalex.org/settings/api](https://openalex.org/settings/api).
 
-OpenAlex indexes over 300 million works and 120 million authors, which is more than a free key's daily allowance covers. Use the filter fields to narrow the works, authors and awards tables to the records you care about, for example `authorships.institutions.lineage:i27837315` for one institution's papers. The [filtering guide](https://developers.openalex.org/guides/filtering) lists the available filter fields. Leave a filter blank to sync the whole entity.""",
+OpenAlex indexes over 300 million works and 120 million authors, which is more than a free key's daily allowance covers. Use the filter fields to narrow the works, authors, awards and locations tables to the records you care about, for example `authorships.institutions.lineage:i27837315` for one institution's papers. The [filtering guide](https://developers.openalex.org/guides/filtering) lists the available filter fields. Leave a filter blank to sync the whole entity.""",
             iconPath="/static/services/openalex.png",
             docsUrl="https://posthog.com/docs/cdp/sources/openalex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["research", "scholarly", "citations", "publications"],
             fields=cast(
                 list[FieldType],
@@ -147,6 +147,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="works_filter",
+                        sync_setting=True,
                         label="Works filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -155,6 +156,7 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="authors_filter",
+                        sync_setting=True,
                         label="Authors filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -163,10 +165,20 @@ OpenAlex indexes over 300 million works and 120 million authors, which is more t
                     ),
                     SourceFieldInputConfig(
                         name="awards_filter",
+                        sync_setting=True,
                         label="Awards filter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="funder.id:f4320306076",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="locations_filter",
+                        sync_setting=True,
+                        label="Locations filter (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="source_id:S4306400194",
                         secret=False,
                     ),
                 ],
