@@ -9,7 +9,7 @@ import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
-import { useSend } from "../hooks/useSend";
+import { type Send, useSend } from "../hooks/useSend";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
@@ -96,7 +96,7 @@ export function App({
   const chatArea = useRef<DOMElement | null>(null);
   const area = useBoxMetrics(chatArea);
   // Composers outlive renders, so they submit through the latest onSubmit.
-  const latestSubmit = useRef<(paneId: string, text: string) => void>(() => {});
+  const latestSubmit = useRef<Send["onSubmit"]>(() => {});
   const {
     chatFor,
     chatIn,
@@ -108,7 +108,8 @@ export function App({
     repaint,
   } = usePaneViews({
     layout,
-    onSubmit: (paneId, text) => latestSubmit.current(paneId, text),
+    onSubmit: (paneId, text, images) =>
+      latestSubmit.current(paneId, text, images),
   });
 
   useEffect(() => saveLayout(layout), [layout]);
@@ -193,7 +194,12 @@ export function App({
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
 
+  // A pane with no chat yet runs where its place says.
+  const runsLocally = (paneId: string, taskId: string | null): boolean =>
+    isLocal(taskId) || (!taskId && placeFor(paneId) === "local");
+
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
+    runsLocally,
     layout,
     setLayout,
     sidebar,
@@ -231,9 +237,7 @@ export function App({
       task={taskOf(node.taskId)}
       runs={runs ?? null}
       local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
-      isLocalPane={
-        isLocal(node.taskId) || (!node.taskId && placeFor(node.id) === "local")
-      }
+      isLocalPane={runsLocally(node.id, node.taskId)}
       newChatPlace={placeFor(node.id)}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}

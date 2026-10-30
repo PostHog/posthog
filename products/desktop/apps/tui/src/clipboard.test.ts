@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clipboardCommand, osc52 } from "./clipboard";
+import { clipboardCommand, imageFromAppleScript, osc52 } from "./clipboard";
 
 describe("osc52", () => {
   it("encodes text as UTF-8 base64 so any character survives", () => {
@@ -10,6 +10,15 @@ describe("osc52", () => {
     expect(Buffer.from(payload ?? "", "base64").toString("utf8")).toBe(
       "héllo 🦔\nworld",
     );
+  });
+});
+
+describe("imageFromAppleScript", () => {
+  it.each([
+    ["a PNG on the clipboard", "«data PNGf6869»\n", "aGk="],
+    ["no image on the clipboard", "", undefined],
+  ])("reads %s", (_, output, data) => {
+    expect(imageFromAppleScript(output)?.data).toBe(data);
   });
 });
 
