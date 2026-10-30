@@ -1471,17 +1471,11 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
         first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
         self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
-        second_page = self.author_client.get(
-            self._activity_url(),
-            {
-                "limit": 1,
-                "before": first_page["next_before"],
-                "before_id": first_page["next_before_id"],
-            },
-        ).json()
+        second_page = self.author_client.get(first_page["next"]).json()
         self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
         self.assertIsNone(second_page["next_before"])
         self.assertIsNone(second_page["next_before_id"])
+        self.assertIsNone(second_page["next"])
 
     def test_mark_read_rejects_an_empty_task_list(self):
         response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")
