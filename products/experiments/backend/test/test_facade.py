@@ -495,10 +495,10 @@ class TestTeamHasLaunchedExperiments(BaseTest):
 
 
 class TestExperimentAssistantContext(BaseTest):
-    def _create_experiment(self, team: Team, *, flag_key: str, deleted: bool = False) -> Experiment:
+    def _create_experiment(self, team: Team, *, deleted: bool = False) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=team,
-            key=flag_key,
+            key="checkout",
             created_by=self.user,
             filters={
                 "multivariate": {
@@ -524,7 +524,7 @@ class TestExperimentAssistantContext(BaseTest):
 
     @parameterized.expand([("by_id", True), ("by_flag_key", False)])
     def test_reads_the_experiment_with_its_flag(self, _name: str, by_id: bool) -> None:
-        experiment = self._create_experiment(self.team, flag_key="checkout")
+        experiment = self._create_experiment(self.team)
 
         context = async_to_sync(api.aget_experiment_assistant_context)(
             self.team.id,
@@ -568,7 +568,7 @@ class TestExperimentAssistantContext(BaseTest):
             "other": Team.objects.create(organization=self.organization, name="Other"),
             "environment": Team.objects.create(organization=self.organization, name="Env", parent_team=self.team),
         }
-        experiment = self._create_experiment(teams[experiment_team], flag_key="checkout", deleted=deleted)
+        experiment = self._create_experiment(teams[experiment_team], deleted=deleted)
         aget_context = async_to_sync(api.aget_experiment_assistant_context)
 
         assert aget_context(teams[lookup_team].id, experiment_id=experiment.id) is None

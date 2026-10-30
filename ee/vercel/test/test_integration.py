@@ -1001,34 +1001,15 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "flag",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "test_flag",
-                "Test Feature Flag",
-                False,
-                "test-flag",
-            ),
-            (
-                "flag_deleted",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "deleted_flag",
-                "Deleted Flag",
-                True,
-                "deleted-flag",
-            ),
+            ("flag", "test_flag", "Test Feature Flag", False, "test-flag"),
+            ("flag_deleted", "deleted_flag", "Deleted Flag", True, "deleted-flag"),
         ]
     )
-    def test_convert_to_vercel_item(self, _, factory_name, converter, category, name, desc, archived, expected_slug):
+    def test_convert_feature_flag_to_vercel_item(self, _, name, desc, archived, expected_slug):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
-        factory = getattr(self, factory_name)
-        item = factory(team, name, desc, archived)
-        result = converter(item, created=True)
-        self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
+        item = self.make_feature_flag(team, name, desc, archived)
+        result = VercelIntegration._convert_feature_flag_to_vercel_item(item, created=True)
+        self.assert_vercel_item(item, result, "flag", archived, expected_slug, name, desc)
 
     @parameterized.expand(
         [
