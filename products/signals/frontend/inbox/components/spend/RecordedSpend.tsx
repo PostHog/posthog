@@ -2,8 +2,6 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import type { SpendAmountApi } from 'products/signals/frontend/generated/api.schemas'
-
 const currency = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -12,10 +10,10 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 export function RecordedSpend({
-    spend,
+    amount,
     description,
 }: {
-    spend: SpendAmountApi | undefined
+    amount: number | null | undefined
     description?: string
 }): JSX.Element | null {
     const enabled = useFeatureFlag('SELF_DRIVING_USAGE')
@@ -26,7 +24,7 @@ export function RecordedSpend({
         <Tooltip
             title={[
                 description,
-                spend?.total_spend == null
+                amount == null
                     ? 'Usage was not recorded for this activity.'
                     : 'Recorded usage in USD, before credits and billing exemptions.',
             ]
@@ -34,7 +32,7 @@ export function RecordedSpend({
                 .join(' ')}
         >
             <span className="tabular-nums" translate="no">
-                {spend?.total_spend == null ? 'Not tracked' : currency.format(spend.total_spend / 100)}
+                {amount == null ? 'Not tracked' : currency.format(amount / 100)}
             </span>
         </Tooltip>
     )

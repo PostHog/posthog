@@ -122,10 +122,6 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
                 task_id: run.task_id,
                 kind: 'scout',
                 total_spend: run.total_spend,
-                spend_incomplete:
-                    ['in_progress', 'queued', 'not_started'].includes(run.status) ||
-                    (Array.isArray(run.metadata?.spend_accounting_failed_stages) &&
-                        run.metadata.spend_accounting_failed_stages.length > 0),
                 title: run.skill_name,
                 status: run.status,
                 report_id: null,

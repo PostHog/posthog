@@ -34,19 +34,19 @@ export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Elem
                 <div className="flex flex-col gap-2 text-xs" data-attr="report-spend">
                     <div className="flex flex-wrap justify-between gap-2">
                         <span>Report generation</span>
-                        <RecordedSpend spend={spend.generation} />
+                        <RecordedSpend amount={spend.generation.total_spend} />
                     </div>
                     {spend.implementation.total_spend !== null && (
                         <div className="flex flex-wrap justify-between gap-2">
                             <span>Implementation</span>
-                            <RecordedSpend spend={spend.implementation} />
+                            <RecordedSpend amount={spend.implementation.total_spend} />
                         </div>
                     )}
                     {spend.shared_scout_runs.total_spend !== null && (
                         <div className="flex flex-col gap-1">
                             <div className="flex flex-wrap justify-between gap-2">
                                 <span>Authoring scout runs</span>
-                                <RecordedSpend spend={spend.shared_scout_runs} />
+                                <RecordedSpend amount={spend.shared_scout_runs.total_spend} />
                             </div>
                             <span className="text-muted">Shared across all output of these runs.</span>
                         </div>

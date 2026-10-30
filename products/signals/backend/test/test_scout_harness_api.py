@@ -6105,6 +6105,7 @@ class TestScoutSpendOverview(APIBaseTest):
     def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
         run = _make_run(self.team)
         _make_run(self.team)
+        another_scout = _make_run(self.team, skill_name="signals-scout-errors")
         private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
         old = _make_run(self.team)
         SignalScoutRun.objects.for_team(self.team.id).filter(id=old.id).update(
@@ -6112,7 +6113,7 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         other_team = Team.objects.create(organization=self.organization)
         other = _make_run(other_team)
-        for row, amount in [(run, 125.25), (private, 999), (old, 999), (other, 999)]:
+        for row, amount in [(run, 125.25), (another_scout, 0.375), (private, 999), (old, 999), (other, 999)]:
             SignalSpend.objects.for_team(row.team_id).create(
                 team_id=row.team_id,
                 scout_run=row,
@@ -6128,7 +6129,16 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{url_team.id}/signals/spend/")
         assert response.status_code == 200, response.content
-        assert response.json()["scout_spend"] == {"total_spend": 125.25, "incomplete": True}
+        assert response.json()["scout_spend"] == {"total_spend": 125.625, "incomplete": True}
         assert response.json()["scouts"] == [
-            {"skill_name": "signals-scout-general", "spend": {"total_spend": 125.25, "incomplete": True}}
+            {"skill_name": "signals-scout-errors", "spend": {"total_spend": 0.375, "incomplete": False}},
+            {"skill_name": "signals-scout-general", "spend": {"total_spend": 125.25, "incomplete": True}},
         ]
+
+    @parameterized.expand([("empty", False, 0), ("untracked", True, None)])
+    def test_total_without_receipts(self, _name: str, has_run: bool, expected: float | None) -> None:
+        if has_run:
+            _make_run(self.team)
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json()["scout_spend"] == {"total_spend": expected, "incomplete": has_run}

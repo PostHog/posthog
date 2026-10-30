@@ -78,8 +78,8 @@ export const Overview: Story = {
                 <SourceSpendLabel sourceProduct="linear" />
             </div>
             <div className="flex flex-wrap gap-4">
-                <RecordedSpend spend={{ total_spend: 0, incomplete: false }} />
-                <RecordedSpend spend={{ total_spend: 0.0001, incomplete: false }} />
+                <RecordedSpend amount={0} />
+                <RecordedSpend amount={0.0001} />
             </div>
         </div>
     ),

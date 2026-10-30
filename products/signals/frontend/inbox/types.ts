@@ -443,7 +443,6 @@ export type SignalRunKind = 'scout' | 'signal'
  */
 export interface SignalRun {
     total_spend?: number | null
-    spend_incomplete?: boolean
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

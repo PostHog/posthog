@@ -117,7 +117,6 @@ describe('mergeSignalRuns', () => {
             title: 'signals-scout-surveys',
             report_id: null,
             total_spend: 125.25,
-            spend_incomplete: true,
         })
         expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })

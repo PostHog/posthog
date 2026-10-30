@@ -80,30 +80,32 @@ class SpendReporting:
         receipts = SignalSpend.objects.for_team(team.id).filter(
             kind=SignalSpend.Kind.SCOUT_RUN, scout_run_id__in=runs.values("id")
         )
+        totals = list(
+            receipts.values("scout_run__skill_name").annotate(
+                total=Sum("spend"),
+                tracked=Count("scout_run_id", distinct=True),
+                incomplete=Count("id", filter=Q(accounting_failed=True) | Q(finalized_at__isnull=True)),
+            )
+        )
         by_skill = {
             row["scout_run__skill_name"]: SpendAmount(
                 total_spend=float(row["total"]),
                 incomplete=bool(row["incomplete"]) or row["tracked"] < run_counts[row["scout_run__skill_name"]],
             )
-            for row in receipts.values("scout_run__skill_name").annotate(
-                total=Sum("spend"),
-                tracked=Count("scout_run_id", distinct=True),
-                incomplete=Count("id", filter=Q(accounting_failed=True) | Q(finalized_at__isnull=True)),
-            )
+            for row in totals
         }
         scouts = [
             ScoutSpend(skill_name=name, spend=by_skill.get(name, SpendAmount(total_spend=None, incomplete=False)))
             for name in sorted(run_counts)
         ]
-        total = self._amount(receipts)
+        total_spend = float(sum(row["total"] for row in totals)) if totals else None
         return SpendOverview(
             period_start=start,
             period_end=end,
             scouts=scouts,
             scout_spend=SpendAmount(
-                total_spend=total.total_spend if run_counts else 0,
-                incomplete=total.incomplete
-                or any(scout.spend.incomplete or scout.spend.total_spend is None for scout in scouts),
+                total_spend=total_spend if run_counts else 0,
+                incomplete=any(scout.spend.incomplete or scout.spend.total_spend is None for scout in scouts),
             ),
         )
 

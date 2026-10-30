@@ -21,10 +21,11 @@ export function SourceSpendLabel({ sourceProduct }: { sourceProduct: string }): 
     if (sources === null) {
         return <LemonSkeleton className="h-3 w-10" />
     }
+    const amount = spendByProduct.get(sourceProduct)
     return (
         <span className="shrink-0 whitespace-nowrap text-xs text-muted" data-attr="source-spend">
             <RecordedSpend
-                spend={spendByProduct.get(sourceProduct) ?? { total_spend: 0, incomplete: false }}
+                amount={amount === undefined ? 0 : amount}
                 description="Accumulated processing usage for signals received in the last 30 days, including later research."
             />
         </span>

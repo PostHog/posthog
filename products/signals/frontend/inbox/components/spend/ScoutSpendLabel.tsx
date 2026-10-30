@@ -22,15 +22,10 @@ export function ScoutSpendLabel({ skillName }: { skillName?: string }): JSX.Elem
             </Tooltip>
         )
     }
+    const amount = skillName ? spendByScout.get(skillName) : overview?.scout_spend.total_spend
     return (
         <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-secondary" data-attr="scout-spend">
-            <RecordedSpend
-                spend={
-                    skillName
-                        ? (spendByScout.get(skillName) ?? { total_spend: 0, incomplete: false })
-                        : overview?.scout_spend
-                }
-            />
+            <RecordedSpend amount={amount === undefined ? 0 : amount} />
             <span>usage · last 30 days</span>
         </span>
     )
