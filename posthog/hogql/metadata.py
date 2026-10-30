@@ -62,6 +62,8 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import PersonsOnEventsMode
 
@@ -97,7 +99,7 @@ def _get_output_columns(node: ast.SelectQuery | ast.SelectSetQuery, context: Hog
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
-    user: Optional[User] = None,
+    user: Optional[User | SyntheticUser | SharedLinkUser] = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     prepared_ast: Optional[ast.AST] = None,  # precached
     printed_sql: Optional[str] = None,  # precached

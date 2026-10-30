@@ -2318,6 +2318,55 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_denied_direct_connection_table_cannot_enable_sharing(self, _flag):
+        from products.warehouse_sources.backend.facade.models import (
+            DataWarehouseTable,
+            ExternalDataSource,
+            ExternalDataSourceType,
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="secret_table",
+            team=self.team,
+            external_data_source=source,
+            columns={"id": "integer"},
+        )
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT id FROM secret_table",
+                    "connectionId": str(source.id),
+                },
+            },
+            created_by=self.user,
+        )
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/sharing"
+        response = self.client.patch(url, {"enabled": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "secret_table" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
     @parameterized.expand(
         [
             (

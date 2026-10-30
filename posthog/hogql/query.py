@@ -97,6 +97,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -158,7 +160,7 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     expected_direct_engine: str | None = None
     send_raw_query: bool = False
-    user: Optional[User] = None
+    user: Optional[User | SyntheticUser | SharedLinkUser] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
@@ -304,6 +306,7 @@ class HogQLQueryExecutor:
             self.connection_id,
             user=self.user,
             error_factory=ExposedHogQLError,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
         )
         self.connection_id = str(source.id) if source else None
         self._direct_source = source
@@ -674,7 +677,12 @@ class HogQLQueryExecutor:
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
-        source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
+        source = get_direct_connection_source(
+            self.team,
+            self.direct_source_id,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
@@ -929,6 +937,7 @@ class HogQLQueryExecutor:
             self.connection_id,
             user=self.user,
             error_factory=ExposedHogQLError,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             require_pure_direct=True,
         )
         if source is None:

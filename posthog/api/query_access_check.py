@@ -28,6 +28,7 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
     # query's own modifiers must shape it, because a warehouse events mapping can put an expression
     # into the schema, and the run would compile that expression against the same modifiers.
     contexts: dict[str, HogQLContext] = {}
+    connection_contexts: dict[tuple[str, str], HogQLContext] = {}
     denied_resources: set[str] = set()
     for query in queries:
         try:
@@ -38,12 +39,36 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
             # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
             runner.validate_query_runner_access(user)
             modifiers = create_default_modifiers_for_user(user, team, runner.modifiers)
-            context_key = modifiers.model_dump_json()
-            context = contexts.get(context_key)
-            if context is None:
-                context = contexts[context_key] = HogQLContext(
-                    team_id=team.pk, team=team, user=user, enable_select_queries=True, modifiers=modifiers
-                )
+            connection_id = getattr(getattr(runner, "query", None), "connectionId", None)
+            if connection_id:
+                from posthog.hogql.direct_connection import resolve_database_for_connection
+                from posthog.hogql.errors import ExposedHogQLError
+
+                conn_key = (modifiers.model_dump_json(), str(connection_id))
+                context = connection_contexts.get(conn_key)
+                if context is None:
+                    _, database = resolve_database_for_connection(
+                        team,
+                        connection_id,
+                        user=user,
+                        modifiers=modifiers,
+                        error_factory=ExposedHogQLError,
+                    )
+                    context = connection_contexts[conn_key] = HogQLContext(
+                        team_id=team.pk,
+                        team=team,
+                        database=database,
+                        user=user,
+                        enable_select_queries=True,
+                        modifiers=modifiers,
+                    )
+            else:
+                context_key = modifiers.model_dump_json()
+                context = contexts.get(context_key)
+                if context is None:
+                    context = contexts[context_key] = HogQLContext(
+                        team_id=team.pk, team=team, user=user, enable_select_queries=True, modifiers=modifiers
+                    )
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
             denied_resources.add(e.resource)

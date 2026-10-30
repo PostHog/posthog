@@ -55,6 +55,9 @@ from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.uuidt import UUIDT, uuid7
@@ -422,6 +425,65 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             checked_source,
             required_level="viewer",
         )
+
+    @patch("posthog.hogql.direct_connection.UserAccessControl")
+    def test_get_direct_connection_source_skips_source_access_for_shared_link_user(self, mock_user_access_control):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="postgres",
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        shared_user = SharedLinkUser(sharing_config)
+
+        source = get_direct_connection_source(self.team, str(selected_source.id), user=shared_user)
+
+        self.assertEqual(source, selected_source)
+        mock_user_access_control.assert_not_called()
+
+    @patch("posthog.hogql.direct_connection.UserAccessControl")
+    def test_get_direct_connection_source_skips_source_access_for_synthetic_user(self, mock_user_access_control):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="postgres",
+        )
+        synthetic_user = SyntheticUser(team=self.team, distinct_id="test-key")
+
+        source = get_direct_connection_source(self.team, str(selected_source.id), user=synthetic_user)
+
+        self.assertEqual(source, selected_source)
+        mock_user_access_control.assert_not_called()
+
+    @patch("posthog.hogql.direct_connection.UserAccessControl")
+    def test_get_direct_connection_source_skips_source_access_when_bypassed(self, mock_user_access_control):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="postgres",
+        )
+
+        source = get_direct_connection_source(
+            self.team, str(selected_source.id), user=self.user, bypass_warehouse_access_control=True
+        )
+
+        self.assertEqual(source, selected_source)
+        mock_user_access_control.assert_not_called()
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):

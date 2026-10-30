@@ -31,12 +31,15 @@ from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
+from posthog.constants import AvailableFeature
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
@@ -79,7 +82,23 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
-    def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
+    def validate_query_runner_access(self, user: User) -> bool:
+        if self.query.connectionId and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            source = get_direct_connection_source(self.team, self.query.connectionId, user=None)
+            if source is not None and get_direct_connection_source(self.team, self.query.connectionId, user=user) is None:
+                from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
+                raise UserAccessControlError("external_data_source", "viewer", resource_id=self.query.connectionId)
+            if source is not None and getattr(self.query, "sendRawQuery", False):
+                from posthog.hogql.direct_connection import raw_query_denied_by_table_access
+
+                if raw_query_denied_by_table_access(self.team, source, user=user):
+                    from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
+                    raise UserAccessControlError("external_data_source", "viewer", resource_id=self.query.connectionId)
+        return super().validate_query_runner_access(user)
+
+    def _validate_direct_connection(self, *, user: Optional[User | SyntheticUser | SharedLinkUser] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:
             return
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:

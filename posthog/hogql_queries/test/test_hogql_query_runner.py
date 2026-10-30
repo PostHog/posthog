@@ -28,7 +28,12 @@ from posthog.hogql.visitor import clear_locations
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, SharingConfiguration
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from posthog.models.utils import UUIDT
+from posthog.shared_link_user import SharedLinkUser
 
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -283,6 +288,92 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    def test_validate_direct_connection_allows_shared_link_user(self):
+        source = ExternalDataSource.objects.create(
+            source_id="shared-source",
+            connection_id="shared-connection",
+            destination_id="shared-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={
+                "host": "shared.example.com",
+                "port": 5432,
+                "database": "db",
+                "user": "u",
+                "password": "p",
+                "schema": "public",
+            },
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        shared_user = SharedLinkUser(sharing_config)
+
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select 1", connectionId=str(source.id)),
+            user=shared_user,
+        )
+        runner._validate_direct_connection()
+        self.assertTrue(runner._direct_connection_validated)
+
+    def test_validate_query_runner_access_blocks_unauthorized_member(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            access_level="none",
+        )
+
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select 1", connectionId=str(source.id)),
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
+
+    @patch("posthog.hogql.direct_connection.raw_query_denied_by_table_access", return_value=True)
+    def test_validate_query_runner_access_blocks_send_raw_query_when_table_access_denied(self, mock_raw_denied):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select 1", connectionId=str(source.id), sendRawQuery=True),
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
     @parameterized.expand(
         [(False, "project_reader"), (False, "duckgres_service"), (True, "duckgres_service"), (True, "project_reader")]
