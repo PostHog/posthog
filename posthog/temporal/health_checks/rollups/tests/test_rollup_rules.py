@@ -7,10 +7,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import health_check_class_for_kind
+from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
-from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
+from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck, compare_issues
 from posthog.temporal.health_checks.rollups.fill import DayFill, _copy_text, team_id_ranges
 from posthog.temporal.health_checks.rollups.freshness import window_from_published_days
 from posthog.temporal.health_checks.rollups.runner import plan_requested_days, plan_scheduled_days
@@ -28,6 +30,12 @@ def _fill(row_count: int, event_count: int = 1000) -> DayFill:
 
 def _history(*row_counts: int) -> list[DayStats]:
     return [DayStats(row_count=rows, event_count=rows * 10) for rows in row_counts]
+
+
+def _proxy_issue(*unproxied_hosts: str) -> HealthCheckResult:
+    return HealthCheckResult(
+        severity=HealthIssue.Severity.WARNING, payload={"unproxied_hosts": list(unproxied_hosts)}, hash_keys=[]
+    )
 
 
 def _days_back(*offsets: int) -> list[dt.date]:
@@ -169,3 +177,34 @@ class TestRollupRules(SimpleTestCase):
         assert shadow_kinds
         for kind in shadow_kinds:
             assert HEALTH_CHECKS[kind].batch_size == CLICKHOUSE_BATCH_EXECUTION_POLICY.batch_size, kind
+
+    @parameterized.expand(
+        [
+            ("same_issue", [_proxy_issue("a.example.com")], [_proxy_issue("a.example.com")], ["both_flagged"]),
+            ("only_rollup", [_proxy_issue("a.example.com")], [], ["only_rollup"]),
+            ("only_events", [], [_proxy_issue("a.example.com")], ["only_events"]),
+            (
+                "other_hosts",
+                [_proxy_issue("a.example.com")],
+                [_proxy_issue("b.example.com")],
+                ["both_flagged", "different_payloads"],
+            ),
+        ]
+    )
+    def test_compare_issues_reports_each_kind_of_disagreement(
+        self,
+        _name: str,
+        from_rollup: list[HealthCheckResult],
+        from_events: list[HealthCheckResult],
+        expected: list[str],
+    ) -> None:
+        comparison = compare_issues("partial_proxy", [1, 2], {1: from_rollup}, {1: from_events})
+
+        found = {
+            "both_flagged": comparison.both_flagged == 1,
+            "only_rollup": comparison.only_rollup == [1],
+            "only_events": comparison.only_events == [1],
+            "different_payloads": comparison.different_payloads == [1],
+        }
+        assert [name for name, present in found.items() if present] == expected
+        assert comparison.different_issues == []

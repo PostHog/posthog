@@ -266,6 +266,8 @@ Events after L are not in the rollup, so a check that must see them adds a small
 A check moving onto a rollup starts in shadow mode with `reads_rollup = False`, and keeps its raw-event query as `detect_from_events`.
 Its issues still come from raw events, and each batch also runs `detect_from_rollup` on a sample of teams and logs `health check rollup comparison` with the agreement rate and the disagreeing team ids.
 Expect some disagreement for teams whose state changed today, because the raw query sees today and the rollup does not.
+`different_payloads` counts teams flagged by both with other hostnames or counts in the payload, which the agreement rate leaves out.
+Counts in a reason, such as the share of pageviews without a session id, differ a little by design, because the two windows end at different times.
 While in shadow mode the check runs in `CLICKHOUSE_BATCH_EXECUTION_POLICY` batches, because the raw-event query still runs.
 Remove `reads_rollup = False` and delete `detect_from_events` when the comparison looks right.
 

@@ -11,25 +11,38 @@ MAX_HOST_LENGTH = 253
 HOST_PATTERN = r"^[A-Za-z0-9._\-]+(?::\d{1,5})?$"
 _HOST_RE = re.compile(HOST_PATTERN)
 
-MAX_HOSTS_PER_TEAM_PROXY_STATE_DAY = 50
+MAX_HOSTS_PER_TEAM_DAY = 50
 
+# The busiest hosts of each team keep both of their rows. A host is proxied when any of its events was,
+# so a cap per proxy state could drop the one proxied row of a host and keep its unproxied row.
 HOST_PROXY_FILL_SQL = """
-SELECT
-    team_id,
-    {host} AS host,
-    {has_custom_api_host} AS has_custom_api_host,
-    count() AS event_count
-FROM events
-WHERE team_id >= %(team_id_start)s
-  AND team_id < %(team_id_end)s
-  AND timestamp >= %(day_start)s
-  AND timestamp < %(day_end)s
-  AND event IN ('$pageview', '$screen')
-  AND length(host) BETWEEN 1 AND %(max_host_length)s
-  AND match(host, %(host_pattern)s)
-GROUP BY team_id, host, has_custom_api_host
-ORDER BY team_id, has_custom_api_host, event_count DESC
-LIMIT %(max_hosts)s BY team_id, has_custom_api_host
+SELECT team_id, host, has_custom_api_host, event_count
+FROM (
+    SELECT
+        team_id,
+        host,
+        has_custom_api_host,
+        event_count,
+        dense_rank() OVER (PARTITION BY team_id ORDER BY host_event_count DESC, host) AS host_rank
+    FROM (
+        SELECT
+            team_id,
+            {host} AS host,
+            {has_custom_api_host} AS has_custom_api_host,
+            count() AS event_count,
+            sum(count()) OVER (PARTITION BY team_id, host) AS host_event_count
+        FROM events
+        WHERE team_id >= %(team_id_start)s
+          AND team_id < %(team_id_end)s
+          AND timestamp >= %(day_start)s
+          AND timestamp < %(day_end)s
+          AND event IN ('$pageview', '$screen')
+          AND length(host) BETWEEN 1 AND %(max_host_length)s
+          AND match(host, %(host_pattern)s)
+        GROUP BY team_id, host, has_custom_api_host
+    )
+)
+WHERE host_rank <= %(max_hosts)s
 """
 
 
@@ -56,5 +69,5 @@ class HostProxyDailyRollup(DailyRollup):
         return {
             "max_host_length": MAX_HOST_LENGTH,
             "host_pattern": HOST_PATTERN,
-            "max_hosts": MAX_HOSTS_PER_TEAM_PROXY_STATE_DAY,
+            "max_hosts": MAX_HOSTS_PER_TEAM_DAY,
         }

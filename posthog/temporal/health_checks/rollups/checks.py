@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import hashlib
 from typing import TYPE_CHECKING, ClassVar
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import HealthCheck
@@ -22,6 +24,65 @@ ROLLUP_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=1000, max_concurrent=
 
 COMPARISON_SAMPLE_RATE = 0.1
 _COMPARISON_LOG_TEAMS = 20
+
+
+@frozen
+class RollupComparison:
+    """How the rollup's issues for a sample of teams differ from the raw-event issues.
+
+    `different_issues` counts teams whose issue identities differ. `different_payloads` counts teams with
+    the same identities but a different severity or payload, such as other hostnames or counts.
+    """
+
+    sampled_teams: int
+    both_flagged: int
+    only_rollup: list[int]
+    only_events: list[int]
+    different_issues: list[int]
+    different_payloads: list[int]
+
+
+def compare_issues(
+    kind: str,
+    sample: list[int],
+    rollup_issues: dict[int, list[HealthCheckResult]],
+    event_issues: dict[int, list[HealthCheckResult]],
+) -> RollupComparison:
+    def identities(results: list[HealthCheckResult]) -> set[str]:
+        return {HealthIssue.compute_unique_hash(kind, result.payload, result.hash_keys) for result in results}
+
+    def contents(results: list[HealthCheckResult]) -> set[str]:
+        return {
+            json.dumps({"severity": result.severity, "payload": result.payload}, sort_keys=True, default=str)
+            for result in results
+        }
+
+    only_rollup: list[int] = []
+    only_events: list[int] = []
+    different_issues: list[int] = []
+    different_payloads: list[int] = []
+    both_flagged = 0
+    for team_id in sample:
+        from_rollup = rollup_issues.get(team_id, [])
+        from_events = event_issues.get(team_id, [])
+        if from_rollup and not from_events:
+            only_rollup.append(team_id)
+        elif from_events and not from_rollup:
+            only_events.append(team_id)
+        elif identities(from_rollup) != identities(from_events):
+            different_issues.append(team_id)
+        elif from_rollup:
+            both_flagged += 1
+            if contents(from_rollup) != contents(from_events):
+                different_payloads.append(team_id)
+    return RollupComparison(
+        sampled_teams=len(sample),
+        both_flagged=both_flagged,
+        only_rollup=only_rollup,
+        only_events=only_events,
+        different_issues=different_issues,
+        different_payloads=different_payloads,
+    )
 
 
 class RollupHealthCheck(HealthCheck):
@@ -49,12 +110,11 @@ class RollupHealthCheck(HealthCheck):
         super().__init_subclass__(**kwargs)
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        window = rollup_window(self.rollup_model, self.window_days)
         if not self.reads_rollup:
             issues = self.detect_from_events(team_ids)
-            if window is not None:
-                self._compare_with_rollup(team_ids, issues, window)
+            self._compare_with_rollup(team_ids, issues)
             return issues
+        window = rollup_window(self.rollup_model, self.window_days)
         if window is None:
             raise HealthCheckBatchSkipped(
                 f"{self.rollup_model._meta.db_table} has no fresh {self.window_days}-day window"
@@ -76,50 +136,35 @@ class RollupHealthCheck(HealthCheck):
             if int.from_bytes(hashlib.sha256(f"{window.end}:{team_id}".encode()).digest()[:4], "big") < threshold
         ]
 
-    def _compare_with_rollup(
-        self, team_ids: list[int], event_issues: dict[int, list[HealthCheckResult]], window: RollupWindow
-    ) -> None:
-        sample = self._comparison_sample(team_ids, window)
-        if not sample:
-            return
+    def _compare_with_rollup(self, team_ids: list[int], event_issues: dict[int, list[HealthCheckResult]]) -> None:
+        # The comparison only logs, so no failure in it may stop the raw-event issues.
         try:
-            rollup_issues = self.detect_from_rollup(sample, window)
+            window = rollup_window(self.rollup_model, self.window_days)
+            if window is None:
+                return
+            sample = self._comparison_sample(team_ids, window)
+            if not sample:
+                return
+            comparison = compare_issues(self.kind, sample, self.detect_from_rollup(sample, window), event_issues)
         except Exception:
             logger.exception("health check rollup comparison failed", kind=self.kind)
             return
 
-        def hashes(results: list[HealthCheckResult]) -> set[str]:
-            return {HealthIssue.compute_unique_hash(self.kind, r.payload, r.hash_keys) for r in results}
-
-        only_rollup: list[int] = []
-        only_events: list[int] = []
-        different_issues: list[int] = []
-        both_flagged = 0
-        for team_id in sample:
-            rollup_hashes = hashes(rollup_issues.get(team_id, []))
-            event_hashes = hashes(event_issues.get(team_id, []))
-            if rollup_hashes and not event_hashes:
-                only_rollup.append(team_id)
-            elif event_hashes and not rollup_hashes:
-                only_events.append(team_id)
-            elif rollup_hashes != event_hashes:
-                different_issues.append(team_id)
-            elif rollup_hashes:
-                both_flagged += 1
-
-        disagreements = len(only_rollup) + len(only_events) + len(different_issues)
+        disagreements = len(comparison.only_rollup) + len(comparison.only_events) + len(comparison.different_issues)
         logger.info(
             "health check rollup comparison",
             kind=self.kind,
             window_start=window.start.isoformat(),
             window_end=window.end.isoformat(),
-            sampled_teams=len(sample),
-            agreement_rate=round(1 - disagreements / len(sample), 4),
-            both_flagged=both_flagged,
-            only_rollup=len(only_rollup),
-            only_events=len(only_events),
-            different_issues=len(different_issues),
-            only_rollup_team_ids=only_rollup[:_COMPARISON_LOG_TEAMS],
-            only_events_team_ids=only_events[:_COMPARISON_LOG_TEAMS],
-            different_issues_team_ids=different_issues[:_COMPARISON_LOG_TEAMS],
+            sampled_teams=comparison.sampled_teams,
+            agreement_rate=round(1 - disagreements / comparison.sampled_teams, 4),
+            both_flagged=comparison.both_flagged,
+            only_rollup=len(comparison.only_rollup),
+            only_events=len(comparison.only_events),
+            different_issues=len(comparison.different_issues),
+            different_payloads=len(comparison.different_payloads),
+            only_rollup_team_ids=comparison.only_rollup[:_COMPARISON_LOG_TEAMS],
+            only_events_team_ids=comparison.only_events[:_COMPARISON_LOG_TEAMS],
+            different_issues_team_ids=comparison.different_issues[:_COMPARISON_LOG_TEAMS],
+            different_payloads_team_ids=comparison.different_payloads[:_COMPARISON_LOG_TEAMS],
         )

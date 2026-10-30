@@ -25,7 +25,9 @@ from products.growth.backend.models import SdkVersionsDaily
 from products.growth.backend.sdk_version_rollup import SdkVersionsDailyRollup
 from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
 from products.growth.dags.sdk_versions_rollup import sdk_versions_daily_rollup
-from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, SessionIdState
+from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, HostProxyDaily, SessionIdState
+from products.web_analytics.backend.rollups import host_proxy
+from products.web_analytics.backend.rollups.host_proxy import HostProxyDailyRollup
 
 YESTERDAY = dt.date(2026, 10, 28)
 NOON_YESTERDAY = dt.datetime.combine(YESTERDAY, dt.time(12), tzinfo=dt.UTC)
@@ -129,6 +131,28 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
         rows = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("lib", "lib_version", "event_count"))
         assert rows == {("web", "1.200.0", 2), ("posthog-java", "", 1), ("posthog-node", "4.0.0-beta.1", 1)}
 
+    @patch.object(host_proxy, "MAX_HOSTS_PER_TEAM_DAY", 1)
+    def test_host_fill_keeps_the_proxied_row_of_a_busy_unproxied_host(self) -> None:
+        traffic = [("www.example.com", False)] * 3 + [("www.example.com", True)] + [("app.example.com", True)] * 2
+        with materialized("events", "$host"), materialized("events", "$lib_custom_api_host"):
+            for host, proxied in traffic:
+                properties = {"$host": host, **({"$lib_custom_api_host": "https://e.example.com"} if proxied else {})}
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="user",
+                    timestamp=NOON_YESTERDAY,
+                    properties=properties,
+                )
+            flush_persons_and_events()
+
+            run_rollup_day(HostProxyDailyRollup, RollupDay(day=YESTERDAY, mode="publish"))
+
+        rows = set(
+            HostProxyDaily.objects.for_team(self.team.id).values_list("host", "has_custom_api_host", "event_count")
+        )
+        assert rows == {("www.example.com", False, 3), ("www.example.com", True, 1)}
+
     @patch.object(store, "DELETE_BATCH_SIZE", 2)
     def test_batched_deletes_remove_every_matching_row(self) -> None:
         other_team_id = self.team.id + 1
@@ -226,4 +250,10 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
             ]
         )
 
+        assert _ShadowRollupCheck().detect([self.team.id]) == {self.team.id: [EVENT_ISSUE]}
+
+    @patch.object(checks, "rollup_window", side_effect=RuntimeError("cache unavailable"))
+    def test_check_not_reading_the_rollup_serves_event_issues_when_the_freshness_lookup_fails(
+        self, _rollup_window: object
+    ) -> None:
         assert _ShadowRollupCheck().detect([self.team.id]) == {self.team.id: [EVENT_ISSUE]}
