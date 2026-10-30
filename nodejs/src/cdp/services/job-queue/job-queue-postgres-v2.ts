@@ -18,6 +18,57 @@ const pendingJobsGauge = new Gauge({
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
 })
 
+const consumingQueues = new Set<CyclotronJobQueuePostgresV2>()
+
+// The pending count is high both for a leak and for a large batch. The age of the oldest held job
+// tells them apart: it stays near the batch duration under load and grows without limit on a leak.
+const oldestPendingJobAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_oldest_pending_job_age_seconds',
+    help: 'Seconds since the oldest postgres-v2 job still held in memory was dequeued',
+    labelNames: ['queue'],
+    collect() {
+        const ages = new Map<string, number>()
+        for (const queue of consumingQueues) {
+            const { queueKind, ageSeconds } = queue.oldestPendingJobAge()
+            ages.set(queueKind, Math.max(ages.get(queueKind) ?? 0, ageSeconds))
+        }
+        for (const [queue, ageSeconds] of ages) {
+            this.set({ queue }, ageSeconds)
+        }
+    },
+})
+
+// Insertion order is dequeue order, so the first entry is always the oldest.
+class PendingJobs {
+    private jobs = new Map<string, { job: CyclotronV2DequeuedJob; dequeuedAt: number }>()
+
+    get size(): number {
+        return this.jobs.size
+    }
+
+    has(id: string): boolean {
+        return this.jobs.has(id)
+    }
+
+    get(id: string): CyclotronV2DequeuedJob | undefined {
+        return this.jobs.get(id)?.job
+    }
+
+    set(id: string, job: CyclotronV2DequeuedJob): void {
+        this.jobs.delete(id)
+        this.jobs.set(id, { job, dequeuedAt: Date.now() })
+    }
+
+    delete(id: string): boolean {
+        return this.jobs.delete(id)
+    }
+
+    oldestAgeSeconds(): number {
+        const oldest = this.jobs.values().next().value
+        return oldest ? (Date.now() - oldest.dequeuedAt) / 1000 : 0
+    }
+}
+
 /**
  * State blob stored in the single `state` BYTEA column.
  * Mirrors the Kafka serialization: everything in one JSON object.
@@ -31,7 +82,8 @@ type SerializedJobState = {
 export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
-    private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private pendingJobs = new PendingJobs()
+    private queueKind?: CyclotronJobQueueKind
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
@@ -93,6 +145,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
         })
+        this.queueKind = queue
+        consumingQueues.add(this)
 
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
@@ -118,8 +172,16 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stopConsumer(): Promise<void> {
+        consumingQueues.delete(this)
+        if (this.queueKind) {
+            oldestPendingJobAgeGauge.remove({ queue: this.queueKind })
+        }
         await this.worker?.disconnect()
         this.worker = undefined
+    }
+
+    public oldestPendingJobAge(): { queueKind: string; ageSeconds: number } {
+        return { queueKind: this.queueKind ?? 'unknown', ageSeconds: this.pendingJobs.oldestAgeSeconds() }
     }
 
     public async stopProducer(): Promise<void> {
