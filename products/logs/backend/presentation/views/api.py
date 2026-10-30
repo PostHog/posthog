@@ -347,6 +347,11 @@ def _session_scope_field(noun: str) -> serializers.CharField:
     )
 
 
+# The query action uses _LOGS_QUERY_SERVER_DEFAULT_LIMIT when the body omits limit, and caps larger values.
+_LOGS_QUERY_MAX_LIMIT = 2000
+_LOGS_QUERY_SERVER_DEFAULT_LIMIT = 1000
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -377,7 +382,12 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "or a filter group object with nested AND/OR groups."
         ),
     )
-    limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        help_text=f"Max results. Values above {_LOGS_QUERY_MAX_LIMIT} are capped at {_LOGS_QUERY_MAX_LIMIT}.",
+    )
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -399,8 +409,8 @@ class _LogsQueryBodySerializer(serializers.Serializer):
     sessionId = _session_scope_field("results")
 
 
-class _LogsQueryPagingSerializer(serializers.Serializer):
-    # Validates only the paging keys of a raw query body; the other keys pass through untouched.
+class _LogsBodyLimitSerializer(serializers.Serializer):
+    # Validates only the limit key of a raw query body; the other keys pass through untouched.
     limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
 
 
@@ -1608,10 +1618,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        paging = _LogsQueryPagingSerializer(data=query_data)
+        paging = _LogsBodyLimitSerializer(data=query_data)
         paging.is_valid(raise_exception=True)
         limit = paging.validated_data.get("limit")
-        requested_limit = min(1000 if limit is None else limit, 2000)
+        requested_limit = min(_LOGS_QUERY_SERVER_DEFAULT_LIMIT if limit is None else limit, _LOGS_QUERY_MAX_LIMIT)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
@@ -2060,13 +2070,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         else:
             group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
 
+        paging = _LogsBodyLimitSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
+
         try:
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
                 group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
-                group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
+                group_limit=DEFAULT_GROUP_LIMIT if limit is None else limit,
             )
         except (ValueError, TypeError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
