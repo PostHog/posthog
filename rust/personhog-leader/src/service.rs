@@ -1400,11 +1400,15 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "outcome" => "rejected_unremediable"
                     )
                     .increment(1);
-                    return Err(Status::invalid_argument(format!(
-                        "person properties exceed the size limit: stored state is {stored_size} \
-                         bytes (jsonb) and protected properties alone exceed the {} trim target",
-                        self.size_limits.trim_target,
-                    )));
+                    return Err(semantic_refusal(
+                        format!(
+                            "person properties exceed the size limit: stored state is \
+                             {stored_size} bytes (jsonb) and protected properties alone exceed \
+                             the {} trim target",
+                            self.size_limits.trim_target,
+                        ),
+                        "person-too-large",
+                    ));
                 }
             }
         }

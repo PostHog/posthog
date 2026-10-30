@@ -3741,3 +3741,36 @@ async fn a_raise_trims_a_stored_person_over_the_size_limit() {
     assert!(jsonb_column_size(&properties) <= 524_288);
     assert_eq!(properties["email"], "test@example.com");
 }
+
+#[tokio::test]
+async fn a_raise_refuses_a_person_whose_protected_properties_exceed_the_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({"email": big, "name": big}))
+                .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    let status = harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect_err("an untrimmable person is refused");
+
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        status
+            .metadata()
+            .get(personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY)
+            .unwrap(),
+        "person-too-large"
+    );
+    assert!(changelog_records(&harness).is_empty());
+}
