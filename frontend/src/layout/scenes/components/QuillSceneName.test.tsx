@@ -14,6 +14,6 @@ describe('QuillSceneName', () => {
     test('shows the edit pencil beside an editable name', () => {
         render(<QuillSceneName name="Meta CAPI" onChange={jest.fn()} canEdit />)
 
-        expect(screen.getByRole('button', { name: 'Meta CAPI' }).querySelector('svg')).toBeInTheDocument()
+        expect(screen.getByText('Meta CAPI').closest('button')?.querySelector('svg')).toBeInTheDocument()
     })
 })
