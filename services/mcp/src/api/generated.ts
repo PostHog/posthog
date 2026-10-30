@@ -46686,6 +46686,7 @@ export namespace Schemas {
      * * `Numeric` - Numeric
      * * `Boolean` - Boolean
      * * `Object` - Object
+     * * `Array` - Array
      */
     export type SchemaPropertyTypeEnum = typeof SchemaPropertyTypeEnum[keyof typeof SchemaPropertyTypeEnum];
 
@@ -46696,6 +46697,7 @@ export namespace Schemas {
       Numeric: 'Numeric',
       Boolean: 'Boolean',
       Object: 'Object',
+      Array: 'Array',
     } as const;
 
     export interface SchemaPropertyGroupProperty {
