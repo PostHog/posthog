@@ -61,6 +61,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -92,6 +93,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportSuppressionSource,
@@ -2692,24 +2694,37 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
         return enabled_by_team[instance.team_id]
 
+    def _agent_timing(self, instance: SignalReportCheck, *, now: datetime) -> MonitoringCheckTiming | None:
+        attempts = cast(
+            dict[uuid.UUID, SignalReportMonitoringAttempt | None],
+            self.context.setdefault("report_check_monitoring_attempts", {}),
+        )
+        if instance.report_id not in attempts:
+            attempts[instance.report_id] = current_monitoring_attempt(instance.report)
+        attempt = attempts[instance.report_id]
+        timing = MonitoringCheckTiming.for_check(instance, now=now, attempt=attempt)
+        if timing is None or timing.state != MonitoringCheckTimingState.WINDOW_ENDED or attempt is None:
+            return timing
+        running_by_report = cast(
+            dict[uuid.UUID, dict[uuid.UUID, MonitoringScoutCheck]],
+            self.context.setdefault("report_check_running_verifications", {}),
+        )
+        if instance.report_id not in running_by_report:
+            running_by_report[instance.report_id] = MonitoringCheckTiming.running_verifications(
+                instance.report, now=now, attempt=attempt
+            )
+        return MonitoringCheckTiming.for_check(
+            instance, now=now, attempt=attempt, verification=running_by_report[instance.report_id].get(instance.id)
+        )
+
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
     def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
         now = cast(datetime, self.context.setdefault("report_check_timing_now", timezone.now()))
         timing = MonitoringCheckTiming.for_check(instance, now=now)
         if timing is None or not self._monitoring_enabled(instance):
             return None
-        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingState.WINDOW_ENDED:
-            running_by_report = cast(
-                dict[uuid.UUID, dict[uuid.UUID, MonitoringScoutCheck]],
-                self.context.setdefault("report_check_running_verifications", {}),
-            )
-            if instance.report_id not in running_by_report:
-                running_by_report[instance.report_id] = MonitoringCheckTiming.running_verifications(
-                    instance.report, now=now
-                )
-            timing = MonitoringCheckTiming.for_check(
-                instance, now=now, verification=running_by_report[instance.report_id].get(instance.id)
-            )
+        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingState.PAUSED:
+            timing = self._agent_timing(instance, now=now)
         return dict(MonitoringCheckTimingSerializer(timing).data)
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
