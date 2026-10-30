@@ -4299,7 +4299,7 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Covers the candidates with their status, PR state and score, the summary version, the prompt version and the focus.
+    # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
     input_hash = models.CharField(max_length=64)
     # Report ids in candidate order.
     candidate_ids = models.JSONField(default=list)

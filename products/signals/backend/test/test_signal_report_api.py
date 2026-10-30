@@ -73,6 +73,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_ranking.candidates import recommended_order
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
@@ -252,6 +253,12 @@ class TestSignalReportDeleteAPI(APIBaseTest):
 
 class TestSignalReportListAPI(APIBaseTest):
     """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
+
+    def _assert_personal_ranking_sorts_like_the_list(self, body: dict[str, Any]) -> None:
+        # The personal ranking reorders `for_you` reports in Python, and its fallback must match this list.
+        ids = [r["id"] for r in body["results"]]
+        reports = list(SignalReport.objects.filter(team=self.team, id__in=ids))
+        assert recommended_order(self.team.id, body["ranker"], reports) == ids
 
     def _list_url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signals/reports/"
@@ -1801,6 +1808,7 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(p2.id), 62),
             (str(no_priority.id), 65),
         ]
+        self._assert_personal_ranking_sorts_like_the_list(body)
 
     @parameterized.expand([("open", "open"), ("action", "action"), ("fix", "fixed")])
     def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, outcome, head):
@@ -1866,6 +1874,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert all(r["ranking"]["status"] == "not_available" for r in body["results"])
         for raw_score in ("0.1234", "0.8123", "0.8765", "0.9876"):
             assert raw_score not in response.content.decode()
+        self._assert_personal_ranking_sorts_like_the_list(body)
 
     @parameterized.expand(
         [

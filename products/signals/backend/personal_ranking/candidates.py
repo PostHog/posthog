@@ -30,7 +30,7 @@ from products.signals.backend.implementation_pr import (
 from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 from products.signals.backend.ranking.access import can_view_inbox_ranking
-from products.signals.backend.ranking.inbox_sort import latest_ranking_value, resolve_recommended_ranker
+from products.signals.backend.ranking.inbox_sort import InboxRanker, latest_ranking_value, resolve_recommended_ranker
 from products.signals.backend.ranking.report_predictions import ReportPredictions, read_report_predictions
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_claims import reports_claimed_for_user
@@ -140,9 +140,14 @@ def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size:
     if not reports:
         return []
     ranker = resolve_recommended_ranker(team, user, send_feature_flag_events=False)
+    return recommended_order(team.id, ranker, reports)[:size]
+
+
+def recommended_order(team_id: int, ranker: InboxRanker, reports: Sequence[SignalReport]) -> list[str]:
+    """Report ids in the order the list view gives `sort=recommended` for `ranker`."""
     ids = [str(report.id) for report in reports]
-    priorities = latest_report_priorities(team.id, ids)
-    predictions = load_predictions(team.id, ids) if ranker != "priority" else {}
+    priorities = latest_report_priorities(team_id, ids)
+    predictions = load_predictions(team_id, ids) if ranker != "priority" else {}
 
     def sort_key(report: SignalReport) -> _RecommendedSortKey:
         report_id = str(report.id)
@@ -156,7 +161,7 @@ def _recommended_for_you(team: Team, user: User, since: datetime.datetime, size:
             report_id=report_id,
         )
 
-    return [str(report.id) for report in sorted(reports, key=sort_key)[:size]]
+    return [str(report.id) for report in sorted(reports, key=sort_key)]
 
 
 def _ids(queryset: QuerySet[SignalReport], size: int) -> list[str]:

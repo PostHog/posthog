@@ -138,12 +138,14 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
 
 
 def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its status, PR state or score, the summary, the prompt or the focus changes."""
+    """Changes when a candidate, its status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
     rows = sorted(
         [
             candidate.report_id,
             candidate.status,
+            candidate.priority,
             candidate.pull_request_state,
+            list(candidate.needs_you),
             candidate.predictions.status if candidate.predictions else None,
             [[entry.outcome, round(entry.probability, 2)] for entry in candidate.predictions.predictions]
             if candidate.predictions
