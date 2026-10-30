@@ -2,7 +2,36 @@ from unittest.mock import MagicMock, call, patch
 
 from django.template.loader import render_to_string
 
+from posthog.tasks.alerts.utils import InvestigationSummaryLine, send_notifications_for_breaches
+
 from products.alerts.backend.facade.email import send_alert_email
+from products.alerts.backend.models import AlertConfiguration
+
+
+def test_investigation_summary_renders_markdown_in_email_and_plain_text_in_destinations() -> None:
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.get_subscribed_users_emails.return_value = ["reader@example.com"]
+    markdown = "- `signup_count` reached **40** at _09:00 UTC_\n- Label <b>untrusted</b>"
+    breaches = ["Anomaly detected.", "signup_count reached 40 at 09:00 UTC. Label untrusted.", "See the notebook."]
+
+    with (
+        patch("posthog.tasks.alerts.utils.send_alert_email") as email,
+        patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[]) as destinations,
+    ):
+        send_notifications_for_breaches(
+            alert,
+            breaches,
+            "example-check",
+            investigation_summary=InvestigationSummaryLine(index=1, markdown=markdown),
+        )
+
+    html = render_to_string("email/alert_check_firing.html", email.call_args.kwargs["template_context"])
+    assert "<code>signup_count</code>" in html
+    assert "<strong>40</strong>" in html
+    assert "<em>09:00 UTC</em>" in html
+    assert "<b>untrusted</b>" not in html
+    assert "<p>Anomaly detected.</p>" in html
+    assert destinations.call_args.kwargs["properties"]["breaches"] == "\n".join(breaches)
 
 
 @patch("products.alerts.backend.facade.email.is_email_available", return_value=True)

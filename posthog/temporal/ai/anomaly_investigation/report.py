@@ -159,7 +159,9 @@ class InvestigationReport(BaseModel):
             "reasoning about causes, and never infer it from the insight's name."
         ),
     )
-    summary: str = Field(description="1-3 sentence plain-English summary of what happened.")
+    summary: str = Field(
+        description="2-4 short Markdown bullets. Use inline code for metric names and values; italicize times. Preserve evidence and uncertainty."
+    )
     hypotheses: list[InvestigationHypothesis] = Field(
         default_factory=list,
         description="Ordered by likelihood; top 2-3 hypotheses.",

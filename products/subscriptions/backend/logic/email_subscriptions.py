@@ -4,10 +4,10 @@ from typing import Optional
 import structlog
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.subscription_utils import (
     MAX_INSIGHTS,
     UTM_TAGS_BASE,

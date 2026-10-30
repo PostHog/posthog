@@ -15,6 +15,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -25,7 +26,6 @@ from posthog.utils import absolute_uri
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
-from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
