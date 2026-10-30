@@ -1112,21 +1112,28 @@ def _fetch_slow_events(
     window: TimeWindow,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    events = (
-        _fetch_v2(
-            session,
-            api_token,
-            "/tracing/slow_events",
-            logger,
-            body={
-                "site_id": app_id,
-                "from": _to_iso(window.since),
-                "to": _to_iso(window.before),
-                "limit": SLOW_EVENTS_LIMIT,
-            },
+    try:
+        events = (
+            _fetch_v2(
+                session,
+                api_token,
+                "/tracing/slow_events",
+                logger,
+                body={
+                    "site_id": app_id,
+                    "from": _to_iso(window.since),
+                    "to": _to_iso(window.before),
+                    "limit": SLOW_EVENTS_LIMIT,
+                },
+            )
+            or []
         )
-        or []
-    )
+    except requests.HTTPError as error:
+        # A bucket older than the account's tracing retention has no slow events to report,
+        # same aged-out-range response as /deploys/stats (see _fetch_deploy_stats).
+        if error.response is None or error.response.status_code not in (404, 422):
+            raise
+        events = []
     return [event for event in events if isinstance(event, dict) and event.get("digest")]
 
 

@@ -568,6 +568,17 @@ class TestServiceEdgeRows:
 
 
 class TestSlowEventRows:
+    @pytest.mark.parametrize("status_code", [404, 422])
+    @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
+    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 3600)
+    def test_a_bucket_older_than_retention_is_skipped_not_fatal(self, status_code: int) -> None:
+        # A bucket outside the account's tracing retention gets the same aged-out-range response
+        # as /deploys/stats (see TestDeployStatsRows), not a hard failure for the whole sync.
+        result = _driver().run("slow_events", _v2_script(post={"/tracing/slow_events": status_code}))
+
+        assert result.raised is None
+        assert result.rows == []
+
     @mock.patch(f"{MODULE}.MAX_SLOW_EVENT_DIGESTS_PER_SYNC", 1)
     @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
     @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
