@@ -6,7 +6,9 @@ from enum import Enum, auto
 from functools import lru_cache
 from typing import Optional, cast
 
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import F
+from django.db.models.lookups import Contains
 
 from posthog.schema import (
     AutocompleteCompletionItem,
@@ -76,6 +78,13 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+
+
+class _PostgresILikeContains(Contains):
+    def get_rhs_op(self, connection: BaseDatabaseWrapper, rhs: str) -> str:
+        return f"ILIKE {rhs}"
+
+
 # The one path through a Hog function's globals that holds an event's own property bag. Other
 # `properties` bags (person, groups, a user-defined input) never carry person property setters.
 EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
@@ -788,8 +797,8 @@ def _suggest_property_names(
             effective_project_id=effective_project_id_expr(),
             group_type_index_key=group_type_index_key_expr(),
         ).filter(
+            _PostgresILikeContains(F("name"), match_term),
             effective_project_id=context.team.project_id,  # type: ignore
-            name__icontains=match_term,
             type=property_type,
         )
         group_type_index_key = _group_type_index_key(table, property_type, joined_group_index)
