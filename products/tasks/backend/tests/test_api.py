@@ -4616,48 +4616,68 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("unset_default_publishes", Task.OriginProduct.USER_CREATED, None, None, {}, True),
-            ("stored_default_off", Task.OriginProduct.USER_CREATED, False, None, {}, False),
-            ("stored_default_on", Task.OriginProduct.USER_CREATED, True, None, {}, True),
-            ("request_overrides_default", Task.OriginProduct.USER_CREATED, True, None, {"auto_publish": False}, False),
+            ("unset_default_publishes", TaskClientProvenance.POSTHOG_DESKTOP, None, None, {}, True),
+            ("stored_default_off", TaskClientProvenance.POSTHOG_DESKTOP, False, None, {}, False),
+            ("stored_default_on", TaskClientProvenance.POSTHOG_DESKTOP, True, None, {}, True),
+            ("mobile_client", TaskClientProvenance.POSTHOG_MOBILE, False, None, {}, False),
+            ("api_caller", None, True, None, {}, None),
+            (
+                "request_overrides_default",
+                TaskClientProvenance.POSTHOG_DESKTOP,
+                True,
+                None,
+                {"auto_publish": False},
+                False,
+            ),
             (
                 "signal_report_run_source",
-                Task.OriginProduct.USER_CREATED,
+                TaskClientProvenance.POSTHOG_DESKTOP,
                 True,
                 None,
                 {"run_source": "signal_report"},
                 None,
             ),
-            ("other_origin", Task.OriginProduct.SLACK, True, None, {}, None),
-            ("resume_keeps_previous_choice", Task.OriginProduct.USER_CREATED, None, {"auto_publish": False}, {}, False),
-            ("resume_without_previous_choice", Task.OriginProduct.USER_CREATED, False, {}, {}, False),
+            ("agent_run_source", TaskClientProvenance.POSTHOG_DESKTOP, True, {"run_source": "agent"}, {}, None),
+            (
+                "resume_keeps_previous_choice",
+                TaskClientProvenance.POSTHOG_DESKTOP,
+                None,
+                {"auto_publish": False},
+                {},
+                False,
+            ),
+            ("resume_without_previous_choice", TaskClientProvenance.POSTHOG_DESKTOP, False, {}, {}, False),
         ]
     )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._agent_run_enabled", return_value=True)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_falls_back_to_user_auto_publish_default(
         self,
         _name: str,
-        origin_product: Task.OriginProduct,
+        client_provenance: TaskClientProvenance | None,
         stored_default: bool | None,
         previous_state: dict | None,
         payload: dict,
         expected: bool | None,
         mock_workflow,
+        _mock_agent_run_enabled,
     ):
         if stored_default is not None:
             UserTasksConfig.objects.for_team(self.team.id).create(
                 team=self.team, user=self.user, task_defaults={"auto_publish_cloud_runs": stored_default}
             )
         task = self.create_task()
-        task.origin_product = origin_product
-        task.save(update_fields=["origin_product"])
         if previous_state is not None:
             previous_run = TaskRun.objects.create(
                 task=task, team=self.team, status=TaskRun.Status.COMPLETED, state=previous_state
             )
             payload = {**payload, "resume_from_run_id": str(previous_run.id)}
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+        with patch(
+            "products.tasks.backend.presentation.views.api.get_task_client_provenance",
+            return_value=client_provenance,
+        ):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(task.runs.latest("created_at").state.get("auto_publish"), expected)

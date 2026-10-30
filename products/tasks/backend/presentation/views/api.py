@@ -1577,6 +1577,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"
                     else None,
                 },
+                client_provenance=get_task_client_provenance(request),
                 **(
                     {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
                     if "X-PostHog-Warm-Retry" in request.headers
