@@ -1469,6 +1469,7 @@ class SignalReportArtefact(UUIDModel):
         CHECK_RESULT = "check_result"
         CHECK_OBSERVATION = "check_observation"
         CHECK_SCHEDULED = "check_scheduled"
+        CHECK_AUTHORING = "check_authoring"
         CHECK_EXPIRED = "check_expired"
         CHECK_CANCELLED = "check_cancelled"
         IMPLEMENTATION_DECISION = "implementation_decision"
@@ -1504,6 +1505,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DISPATCH,
             ArtefactType.RANKING_SCORE,
             ArtefactType.SOURCE_SUGGESTION,
+            ArtefactType.CHECK_AUTHORING,
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
@@ -1511,7 +1513,7 @@ class SignalReportArtefact(UUIDModel):
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT}
+        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT, ArtefactType.CHECK_AUTHORING}
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path

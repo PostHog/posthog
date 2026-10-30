@@ -82,7 +82,11 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 ### Claiming and fencing
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
-It picks behavioral chunks before person chunks, then the newest day first across every run.
+It picks behavioral chunks before person chunks.
+Within a kind, it serves the team that holds the fewest of this replica's claim slots, then the run that holds the fewest, and only then the newest day.
+A heavy run's chunk can hold its slot for hours, so under day order alone that run ends up with every slot.
+With this order, each slot that frees goes to the team and run that hold the fewest, so the split moves toward an even share.
+A claim never takes a slot back, and a team that is alone gets every slot.
 It admits:
 
 - pending chunks and failed chunks past their backoff, both under the attempt cap,
@@ -453,8 +457,11 @@ Set them only to go below the profile.
 ## Things that surprise people
 
 - `B` is the moment the seeder first saw the run, not when the run was created, except for disaster-recovery runs, whose `B` Django pins.
-- Behavioral claims take the newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
+- Claims share slots between teams first, then between a team's runs, and only then take the newest day.
+  A run that holds no slot can still wait, because a team that holds fewer slots goes first.
+  With one slot per kind, or when more teams wait than slots free, the newest day decides, so the older days of a long-window run wait behind the newer days of other runs.
   If none of its chunks moves for `--stalled-for-hours`, `manage_cohort_backfill_runs inventory` lists it as a `seeding-stalled` cancel candidate, even though it is only queued.
+  Each replica counts only the slots it holds, so with more than one replica the split is fair on each replica, not exactly across them.
 - A chunk in `produced` has enqueued its tiles but may not have all acknowledgments yet.
 - The seeder writes the claim epoch into every tile, but the processor ignores it.
   Fencing is purely a Postgres concern, and duplicates are absorbed by max-merge.

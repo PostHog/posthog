@@ -409,6 +409,26 @@ tools:
             note:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
                 input_schema: SignalReportFeedbackNoteSchema
+    inbox-reports-for-me:
+        operation: signals_reports_for_me_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get your personal ranked inbox
+        description: >
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
+            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
+            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
+            of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
+            and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
+            personal: only the user it describes can read it. A current stored list returns at once; otherwise the call
+            builds one, which can take 30 seconds or more. `refresh` and `focus` always build a new list, and builds are
+            rate limited. `personalized: false` means the user has no activity summary yet or the build fell back to the
+            inbox order (see `fallback_reason`). `stale: true` means the build limit was reached and the list may miss
+            recent changes. `status: unavailable` means personal ranking is off for now.
+        feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_create
         enabled: true

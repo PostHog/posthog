@@ -80515,6 +80515,7 @@ export namespace Schemas {
      * * `check_result` - Check Result
      * * `check_observation` - Check Observation
      * * `check_scheduled` - Check Scheduled
+     * * `check_authoring` - Check Authoring
      * * `check_expired` - Check Expired
      * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
@@ -80556,6 +80557,7 @@ export namespace Schemas {
       CheckResult: 'check_result',
       CheckObservation: 'check_observation',
       CheckScheduled: 'check_scheduled',
+      CheckAuthoring: 'check_authoring',
       CheckExpired: 'check_expired',
       CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
@@ -95913,6 +95915,185 @@ export namespace Schemas {
       value?: unknown;
       /** Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event. */
       properties?: PersonUpdatePropertyRequestProperties;
+    }
+
+    /**
+     * * `ready` - ready
+     * * `unavailable` - unavailable
+     */
+    export type PersonalRankingStatusEnum = typeof PersonalRankingStatusEnum[keyof typeof PersonalRankingStatusEnum];
+
+
+    export const PersonalRankingStatusEnum = {
+      Ready: 'ready',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later
+     */
+    export type PersonalRankingTierEnum = typeof PersonalRankingTierEnum[keyof typeof PersonalRankingTierEnum];
+
+
+    export const PersonalRankingTierEnum = {
+      Top: 'top',
+      WorthALook: 'worth_a_look',
+      Later: 'later',
+    } as const;
+
+    /**
+     * * `suggested_reviewer` - suggested_reviewer
+     * * `claimed` - claimed
+     * * `waiting_on_input` - waiting_on_input
+     */
+    export type PersonalRankingNeedsYouEnum = typeof PersonalRankingNeedsYouEnum[keyof typeof PersonalRankingNeedsYouEnum];
+
+
+    export const PersonalRankingNeedsYouEnum = {
+      SuggestedReviewer: 'suggested_reviewer',
+      Claimed: 'claimed',
+      WaitingOnInput: 'waiting_on_input',
+    } as const;
+
+    export interface PersonalRankingMatched {
+      /**
+         * The theme of your activity summary that the report matches, or null.
+         * @nullable
+         */
+      theme: string | null;
+      /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+      needs_you: PersonalRankingNeedsYouEnum[];
+    }
+
+    /**
+     * * `llm` - llm
+     * * `model` - model
+     */
+    export type PersonalRankingRankedByEnum = typeof PersonalRankingRankedByEnum[keyof typeof PersonalRankingRankedByEnum];
+
+
+    export const PersonalRankingRankedByEnum = {
+      Llm: 'llm',
+      Model: 'model',
+    } as const;
+
+    export interface PersonalRankingReport {
+      /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+      id: string;
+      /** The report title. */
+      title: string;
+      /** The report status.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** The report priority, P0 to P4, or null.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum | null;
+      /** The state of the report's implementation pull request, or null when it has none.
+       *
+       * * `unknown` - Unknown
+       * * `draft` - Draft
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** The ranking model's predictions for the report. */
+      ranking: ReportRanking;
+    }
+
+    export interface PersonalRankingEntry {
+      /** The position in your list. 1 is the first. */
+      rank: number;
+      /** top, worth_a_look or later.
+       *
+       * * `top` - top
+       * * `worth_a_look` - worth_a_look
+       * * `later` - later */
+      tier: PersonalRankingTierEnum;
+      /** Why the report has this place in your list. */
+      reason: string;
+      /**
+         * A suggested next step for the top entries. Null for the others.
+         * @nullable
+         */
+      next_step: string | null;
+      /** What in your work the report matches. */
+      matched: PersonalRankingMatched;
+      /** llm: the language model placed the report. model: it kept its place in the inbox order.
+       *
+       * * `llm` - llm
+       * * `model` - model */
+      ranked_by: PersonalRankingRankedByEnum;
+      /** A compact view of the report. */
+      report: PersonalRankingReport;
+    }
+
+    export interface PersonalRankingFold {
+      /** The report that the list leaves out. */
+      report_id: string;
+      /** The report in the list that covers the same work. */
+      into_report_id: string;
+      /** Why the two reports are about the same work. */
+      reason: string;
+    }
+
+    export interface PersonalRanking {
+      /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+       *
+       * * `ready` - ready
+       * * `unavailable` - unavailable */
+      status: PersonalRankingStatusEnum;
+      /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+      personalized: boolean;
+      /** True when the list comes from storage, false when this request built it. */
+      cached: boolean;
+      /** True when the list does not match your current inbox, because you reached the build limit. Try `refresh` again later. */
+      stale: boolean;
+      /**
+         * Why the list is in inbox order and not ranked by the language model: llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved. Null when the model ranked it.
+         * @nullable
+         */
+      fallback_reason: string | null;
+      /**
+         * When the list was built.
+         * @nullable
+         */
+      generated_at: string | null;
+      /**
+         * How long the model call of the build took, in ms. Null when there was no model call.
+         * @nullable
+         */
+      latency_ms: number | null;
+      /**
+         * The version of your activity summary that the build read, or null.
+         * @nullable
+         */
+      activity_summary_version: number | null;
+      /** How many reports the build considered. */
+      candidates_considered: number;
+      /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+      ranked_count: number;
+      /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+      results: PersonalRankingEntry[];
+      /** Reports the list leaves out because another report in it covers the same work. */
+      folded: PersonalRankingFold[];
     }
 
     export interface _Summary {
@@ -123975,6 +124156,8 @@ export namespace Schemas {
       readonly projected_monthly_credits: number;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
       readonly scanners_monthly_credits: number;
+      /** The part of `scanners_monthly_credits` that lands between now and `period_end`. Use it for rest-of-period forecasts; billing forecasts from the same figure. */
+      readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
@@ -140883,18 +141066,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsResetPersonDistinctIdCreateParams = {
-    format?: PersonsResetPersonDistinctIdCreateFormat;
-    };
-
-    export type PersonsResetPersonDistinctIdCreateFormat = typeof PersonsResetPersonDistinctIdCreateFormat[keyof typeof PersonsResetPersonDistinctIdCreateFormat];
-
-
-    export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsValuesRetrieveParams = {
     format?: PersonsValuesRetrieveFormat;
     /**
@@ -142011,6 +142182,24 @@ export namespace Schemas {
       /** Member's email address. */
       email: string;
     }};
+
+    export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.
+     * @maxLength 2000
+     */
+    focus?: string;
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.
+     */
+    refresh?: boolean;
+    };
 
     export type SignalsReportsPrCiStatusesParams = {
     /**

@@ -37,7 +37,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.artefact_schemas import CheckAuthoringStatus, NoteArtefact
 from products.signals.backend.auto_start import (
     RequestedImplementation,
     maybe_autostart_from_report_artefacts,
@@ -231,6 +231,7 @@ class ReportDecision:
     checks: list[dict[str, Any]] | None = None
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     checks_snapshot: dict[str, str] | None = None
     checks_monitoring_enabled: bool = False
     layers: list[dict[str, Any]] = field(default_factory=list)
@@ -699,6 +700,7 @@ class SignalReportSummaryWorkflow:
                     checks=agentic_result.checks,
                     reconcile_checks=agentic_result.reconcile_checks,
                     checks_summary=agentic_result.checks_summary,
+                    checks_error=agentic_result.checks_error,
                     checks_snapshot=agentic_result.checks_snapshot,
                     checks_monitoring_enabled=agentic_result.checks_monitoring_enabled,
                     layers=agentic_result.layers or [],
@@ -748,6 +750,7 @@ class SignalReportSummaryWorkflow:
                         checks_monitoring_enabled=decision.checks_monitoring_enabled,
                         reconcile_checks=decision.reconcile_checks,
                         checks_summary=decision.checks_summary,
+                        checks_error=decision.checks_error,
                         checks_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
@@ -780,6 +783,7 @@ class SignalReportSummaryWorkflow:
                     checks_monitoring_enabled=decision.checks_monitoring_enabled,
                     reconcile_checks=decision.reconcile_checks,
                     checks_summary=decision.checks_summary,
+                    checks_error=decision.checks_error,
                     checks_task_id=decision.research_task_id,
                     layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
@@ -1136,6 +1140,7 @@ class MarkReportReadyInput:
 
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     # Task the check rows are attributed to: the research sandbox that authored the specs.
     checks_task_id: str | None = None
     # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
@@ -1168,13 +1173,35 @@ def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict
     return observations
 
 
-def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
-    """Persist the research run's check specs when its report settles.
+def _write_check_authoring_status(
+    report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput", error: str | None
+) -> None:
+    attribution = (
+        ArtefactAttribution.from_task(input.checks_task_id) if input.checks_task_id else ArtefactAttribution.system()
+    )
+    SignalReportArtefact.append_status(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=CheckAuthoringStatus(status="failed" if error else "succeeded", reason=error or "checks_saved"),
+        attribution=attribution,
+    )
+    if error:
+        SignalReportArtefact.add_log(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            content=NoteArtefact(
+                note="Could not configure follow-up checks. Existing checks and completed research were preserved. "
+                "Research the report again to configure verification, or verify and resolve it manually. "
+                "Automatic resolution without checks is blocked while Monitoring is enabled."
+            ),
+            attribution=attribution,
+        )
 
-    Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
-    the pipeline cannot store is dropped with a log rather than failing the transition and leaving
-    the report stuck in progress.
-    """
+
+def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | MarkReportPendingInput") -> None:
+    if input.checks_error is not None:
+        _write_check_authoring_status(report, input, input.checks_error)
+        return
     if input.checks is None or (not input.reconcile_checks and not input.checks):
         return
     # Function-local: the authoring module reaches the alerts facade through the check executor,
@@ -1188,6 +1215,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
             specs.append(CheckSpec.model_validate(raw))
         except Exception:
             logger.warning("signals report check spec did not validate", report_id=str(report.id))
+            _write_check_authoring_status(report, input, "invalid_check_spec")
             return
     result = create_checks_from_specs(
         report=report,
@@ -1201,6 +1229,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
             else ArtefactAttribution.system()
         ),
     )
+    _write_check_authoring_status(report, input, None if result.applied else "check_reconciliation_failed")
     if input.reconcile_checks and result.applied and input.checks_summary is not None:
         report.summary = input.checks_summary
         report.save(update_fields=["summary"])
@@ -1555,6 +1584,7 @@ class MarkReportPendingInput:
     checks_monitoring_enabled: bool = False
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     checks_task_id: str | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None

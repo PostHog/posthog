@@ -90,6 +90,11 @@ The first signed release must be **native**, with a version above the unsigned `
 
 Version `1.5.0` establishes that signed native baseline through the `native-150` release request.
 It targets TestFlight and Google Play internal testing. Compatible OTA requests can follow only after its hosted release receipt is complete.
+
+Version `1.6.0` follows `native-150` through the `native-160` native release request.
+It includes full-screen chats with Back, New chat, Copy link to chat and Archive chat controls, readable insight-table numbers with horizontal scrolling, and safer release retries.
+It targets TestFlight and Google Play internal testing and establishes a new runtime for compatible OTA updates.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
