@@ -471,7 +471,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender,
         crontab(minute="*"),
         sweep_monitoring_research_requests.s(),
-        name="recover signals monitoring research requests",
+        name="emit signals monitoring research requests",
         expires_seconds=60,
     )
 

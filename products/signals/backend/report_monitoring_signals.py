@@ -181,17 +181,6 @@ def emit_due_monitoring_research(*, deadline: float, limit: int) -> None:
             logger.exception("signals.monitoring.signal_emission_failed", attempt_id=str(attempt.id))
 
 
-def schedule_monitoring_research(*, team_id: int, report_id: UUID, attempt_id: UUID) -> None:
-    from products.signals.backend.tasks import (
-        emit_monitoring_research_request,  # noqa: PLC0415 -- breaks the task import cycle
-    )
-
-    def emit() -> None:
-        emit_monitoring_research_request.delay(team_id=team_id, report_id=str(report_id), attempt_id=str(attempt_id))
-
-    transaction.on_commit(emit, robust=True)
-
-
 def monitoring_research_evidence(
     *, team_id: int, payload: MonitoringUnresolvedSignalExtra, max_chars: int = MONITORING_EVIDENCE_MAX_CHARS
 ) -> str:
