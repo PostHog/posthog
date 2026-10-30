@@ -34,7 +34,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.join_sources import JoinSources
-from posthog.hogql.property_metadata import load_property_metadata
+from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -292,13 +292,34 @@ def _flag_key_compares_as_string(context: HogQLContext) -> bool:
     property definitions type as Boolean, Numeric or DateTime before it compares the value."""
     if context.team_id is None:
         return True
-    if context.flag_key_compares_as_string is None:
-        metadata = load_property_metadata(
-            context, event_property_names={_FLAG_KEY_PROPERTY}, person_property_names=set(), group_property_names={}
+    metadata = _event_property_metadata(context, {_FLAG_KEY_PROPERTY})
+    return metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type") in (None, "String")
+
+
+@frozen
+class FlagCallPropertyMetadata:
+    names: frozenset[str]
+    metadata: PropertyMetadata
+
+
+def _event_property_metadata(context: HogQLContext, names: set[str]) -> PropertyMetadata:
+    """The definitions of event properties `names`, and of every event property this query loaded before them."""
+    cached = context.flag_call_property_metadata
+    loaded_names = cached.names if cached is not None else frozenset()
+    missing = names - loaded_names
+    if cached is not None and not missing:
+        return cached.metadata
+    loaded = load_property_metadata(
+        context, event_property_names=missing, person_property_names=set(), group_property_names={}
+    )
+    if cached is not None:
+        loaded = PropertyMetadata(
+            event_properties={**cached.metadata.event_properties, **loaded.event_properties},
+            # The registry loader caches its fetch, so keeping the first one fetches the registry once per query.
+            materialized_columns=cached.metadata.materialized_columns,
         )
-        flag_key_type = metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type")
-        context.flag_key_compares_as_string = flag_key_type in (None, "String")
-    return context.flag_key_compares_as_string
+    context.flag_call_property_metadata = FlagCallPropertyMetadata(names=loaded_names | missing, metadata=loaded)
+    return loaded
 
 
 def _flag_calls_only_in_flag_evaluations_error(reason: str, view_name: str | None) -> QueryError:
@@ -1205,11 +1226,8 @@ def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: H
         return False
     previous_metadata = context.property_metadata
     # The dmat slots come from the team's property definitions, which the printer loads only after this transform.
-    context.property_metadata = load_property_metadata(
-        context,
-        event_property_names={name for column, name, _ in original_reads if column == "properties"},
-        person_property_names=set(),
-        group_property_names={},
+    context.property_metadata = _event_property_metadata(
+        context, {name for column, name, _ in original_reads if column == "properties"}
     )
     try:
         return Counter(_property_sources(original_reads, context)) == Counter(_property_sources(swapped_reads, context))

@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
@@ -1339,19 +1340,31 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "clickhouse",
             )
 
-    def test_views_that_pin_the_flag_key_look_up_its_type_once_per_query(self):
+    @parameterized.expand(
+        [
+            ("mode_1", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_flag_call_views_load_each_property_definition_once_per_query(self, _name: str, mode: FlagEvaluationsMode):
         for name in ("calls_a", "calls_b"):
-            self._create_view(name, f"SELECT distinct_id FROM events WHERE {FLAG_CALL_CONJUNCTS}")
+            self._create_view(
+                name,
+                f"SELECT distinct_id, properties.$browser AS browser FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                ("distinct_id", "browser"),
+            )
 
-        # In mode 2 the flag key's type lookup is the transform's only property metadata read.
         with patch(
             "posthog.hogql.transforms.flag_calls_from_flag_evaluations.load_property_metadata",
             wraps=load_property_metadata,
         ) as lookup:
-            results = self._query_events("SELECT distinct_id FROM calls_a UNION ALL SELECT distinct_id FROM calls_b")
+            results = self._query_events(
+                "SELECT distinct_id FROM calls_a UNION ALL SELECT distinct_id FROM calls_b", mode=mode
+            )
 
         assert [row[0] for row in results.results] == ["probe-distinct-id", "probe-distinct-id"]
-        assert lookup.call_count == 1
+        loaded = Counter(name for call in lookup.call_args_list for name in call.kwargs["event_property_names"])
+        assert loaded and max(loaded.values()) == 1
 
     @parameterized.expand(
         [
