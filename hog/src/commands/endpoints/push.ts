@@ -50,7 +50,7 @@ export default defineCommand({
     },
     options: CONFIRM_OPTIONS,
     scopes: SCOPES_WRITE,
-    notes: 'hog shows the changes and asks before it makes them. Agents and scripts pass --yes. hog creates the insight variables a file uses that the project lacks. Exits with code 1 when a file is invalid or an endpoint fails to save.',
+    notes: 'hog shows the changes and asks before it makes them. Agents and scripts pass --yes. hog creates the insight variables a file uses that the project lacks. Exits with code 1 when a file is invalid, PostHog would reject it, or an endpoint fails to save.',
     examples: [
         'hog endpoints push endpoints/',
         'hog endpoints push daily-signups.yaml --dry-run',
@@ -118,5 +118,9 @@ export default defineCommand({
     },
 
     exitCode: (result) =>
-        result.problems.length > 0 || result.outcomes.some((outcome) => outcome.status === 'failed') ? 1 : 0,
+        result.problems.length > 0 ||
+        result.plan.some((item) => item.invalid) ||
+        result.outcomes.some((outcome) => outcome.status === 'failed')
+            ? 1
+            : 0,
 })
