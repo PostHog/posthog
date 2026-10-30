@@ -2,6 +2,7 @@ import { trace } from '@opentelemetry/api'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 
 import { type SamplingRuleRow, compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'
@@ -45,7 +46,24 @@ export class SamplingRulesCache {
                     })
                     return existing.compiled
                 }
-                const rows = await this.fetchRules(teamId, source)
+                let rows: SamplingRuleRow[]
+                try {
+                    rows = await this.fetchRules(teamId, source)
+                } catch (error) {
+                    // Fail open: a rules-fetch failure in the hot path must not DLQ valid records.
+                    // Serve the last-known rules, or no rules, so nothing is dropped by mistake.
+                    // The stale `fetchedAtMs` means the next message retries the fetch.
+                    logger.warn('[logs-sampling] rules fetch failed — falling back', {
+                        teamId,
+                        source,
+                        error: String(error),
+                    })
+                    trace.getActiveSpan()?.setAttributes({
+                        'logs.sampling.fetch_failed': true,
+                        'logs.sampling.served_stale': Boolean(existing),
+                    })
+                    return existing?.compiled ?? compileRuleSet([])
+                }
                 // The API rejects severity rules for spans. A span has no severity, so a row written
                 // past the API would rank every span as info and apply one action to all of them.
                 const applicable = source === 'spans' ? rows.filter((r) => r.rule_type !== 'severity_sampling') : rows
