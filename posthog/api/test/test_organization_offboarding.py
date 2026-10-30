@@ -130,19 +130,20 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert self.client.get(self.url + "offboarding/").status_code == 403
         assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 403
 
-    def test_self_removal_cannot_keep_public_links(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+    @parameterized.expand([("delete",), ("post",)])
+    def test_self_removal_preserves_public_links(self, method: str) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, is_shared=True)
         share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        url = f"/api/organizations/@current/members/{self.user.uuid}/offboard/"
-        assert (
-            self.client.post(
-                url, {"keep": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}"]}, format="json"
-            ).status_code
-            == 403
+        url = f"/api/organizations/@current/members/{self.user.uuid}/"
+        response = (
+            self.client.delete(url) if method == "delete" else self.client.post(url + "offboard/", {}, format="json")
         )
-        assert self.client.post(url, {}, format="json").status_code == 204
+        assert response.status_code == 204
         share.refresh_from_db()
-        assert not share.enabled
+        dashboard.refresh_from_db()
+        assert share.enabled
+        assert dashboard.is_shared
+        assert not OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists()
 
     @parameterized.expand([("dashboard",), ("insight",), ("notebook",)])
     @patch("posthog.api.sharing.export_asset_for_opengraph")
@@ -256,7 +257,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert log.detail is not None
         assert log.detail["changes"][0]["after"] is False
 
-    def test_self_review_hides_inaccessible_projects_but_removal_cleans_them_up(self) -> None:
+    def test_self_leave_skips_resource_review_and_preserves_links_in_all_projects(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -273,6 +274,6 @@ class TestOrganizationOffboarding(APIBaseTest):
         self.client.force_login(self.departing)
         response = self.client.get(self.url + "offboarding/")
         assert response.status_code == 200
-        assert [item["team_id"] for item in response.json()] == [self.team.pk]
+        assert response.json() == []
         assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
-        assert not SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).exists()
+        assert SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).count() == 2

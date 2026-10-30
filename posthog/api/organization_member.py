@@ -343,19 +343,20 @@ class OrganizationMemberViewSet(
 
         is_self_removal = requesting_user.id == removed_user.id
 
-        keep: set[str] = set()
-        if self.action == "offboard":
-            serializer = MemberOffboardingRequestSerializer(data=self.request.data)
-            serializer.is_valid(raise_exception=True)
-            keep = set(serializer.validated_data["keep"])
-            if keep and is_self_removal:
-                raise exceptions.PermissionDenied(
-                    "Only an organization admin can keep resources when removing a member."
+        if is_self_removal:
+            instance.user.leave(organization=instance.organization)
+        else:
+            keep: set[str] = set()
+            if self.action == "offboard":
+                serializer = MemberOffboardingRequestSerializer(data=self.request.data)
+                serializer.is_valid(raise_exception=True)
+                keep = set(serializer.validated_data["keep"])
+            offboarding = OrganizationOffboarding(instance)
+            if keep and keep - {resource.id for resource in offboarding.resources()}:
+                raise serializers.ValidationError(
+                    {"keep": "Some resources have changed. Reload the review and try again."}
                 )
-        offboarding = OrganizationOffboarding(instance)
-        if keep and keep - {resource.id for resource in offboarding.resources()}:
-            raise serializers.ValidationError({"keep": "Some resources have changed. Reload the review and try again."})
-        offboarding.remove(keep, actor=requesting_user, was_impersonated=is_impersonated(self.request))
+            offboarding.remove(keep, actor=requesting_user, was_impersonated=is_impersonated(self.request))
 
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
@@ -383,14 +384,9 @@ class OrganizationMemberViewSet(
             organization=instance.organization,
         )
         requesting_membership.validate_update(instance)
+        if instance.user_id == request.user.id:
+            return Response([])
         resources = OrganizationOffboarding(instance).resources()
-        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
-            visible_team_ids = set(
-                cast(User, request.user)
-                .teams.filter(organization_id=instance.organization_id)
-                .values_list("id", flat=True)
-            )
-            resources = [resource for resource in resources if resource.team_id in visible_team_ids]
         return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
 
     @extend_schema(request=MemberOffboardingRequestSerializer, responses={204: None})

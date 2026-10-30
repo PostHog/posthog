@@ -196,7 +196,6 @@ export function MemberOffboardingModal(): JSX.Element {
                                 : []),
                         ]}
                     />
-                    {isSelf && <p>Public sharing will be disabled for these resources when you leave.</p>}
                 </section>
             ) : null}
             {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
