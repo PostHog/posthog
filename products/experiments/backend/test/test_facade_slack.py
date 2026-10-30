@@ -64,7 +64,6 @@ class TestGetExperimentUnfurl(BaseTest):
 
         assert unfurl == ExperimentUnfurl(
             id=experiment_id,
-            team_id=self.team.id,
             created_by_id=self.user.id,
             name="Checkout copy",
             description="Shorter copy converts better.",

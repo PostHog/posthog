@@ -56,8 +56,7 @@ class ExperimentUnfurl:
     """What a link preview shows for an experiment."""
 
     id: int
-    # With `id`, the fields that an object access check reads.
-    team_id: int
+    # An object access check reads the creator. The preview does not show it.
     created_by_id: int | None
     name: str
     description: str | None

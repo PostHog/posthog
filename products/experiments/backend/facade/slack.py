@@ -20,7 +20,6 @@ def get_experiment_unfurl(*, team_id: int, experiment_id: int) -> ExperimentUnfu
         variants = []
     return ExperimentUnfurl(
         id=experiment.id,
-        team_id=experiment.team_id,
         created_by_id=experiment.created_by_id,
         name=experiment.name,
         description=experiment.description,

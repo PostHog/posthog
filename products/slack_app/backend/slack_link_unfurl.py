@@ -50,7 +50,7 @@ from products.experiments.backend.facade import (
     api as experiments_facade,
     slack as experiments_slack,
 )
-from products.experiments.backend.facade.contracts import ExperimentUnfurl, StoredArmResult, StoredPrimaryResult
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
@@ -733,10 +733,6 @@ def _variant_row(key: object, rollout_percentage: float) -> _ChartRow:
     return _ChartRow(label=_chart_label(key), bar=_bar(rollout_percentage / 100), value=f"{rollout_percentage}%")
 
 
-def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
-    return [_variant_row(variant["key"], variant["rollout_percentage"]) for variant in variants]
-
-
 def _flag_variants(flag: FeatureFlag) -> list[dict]:
     try:
         return flag.variants
@@ -960,7 +956,7 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
 
 
 def _flag_chart(conditions: list[dict], variants: list[dict]) -> str | None:
-    rows = _variant_rows(variants)
+    rows = [_variant_row(variant["key"], variant["rollout_percentage"]) for variant in variants]
     if len(conditions) == 1 and not conditions[0].get("properties"):
         rollout = condition_rollout_percentage(conditions[0])
         rows.insert(0, _ChartRow(label="Rollout", bar=_bar(rollout / 100), value=f"{rollout}% of users"))
@@ -1006,7 +1002,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    stats = _stored_primary_result(experiment)
+    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id)
     metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
@@ -1026,11 +1022,11 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     )
 
 
-def _stored_primary_result(experiment: ExperimentUnfurl) -> StoredPrimaryResult | None:
+def _stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.id)
+        stats = experiments_facade.get_stored_primary_result(team_id=team_id, experiment_id=experiment_id)
     except Exception:
-        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.id)
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment_id)
         return None
     if (
         stats is None
