@@ -86,32 +86,6 @@ const posthogSupportTicketGet = (): ToolBase<
     },
 })
 
-const PosthogSupportTicketsListSchema = () => {
-    const PosthogSupportTicketsListQueryParams = orvalSchemas.PosthogSupportTicketsListQueryParams()
-    return PosthogSupportTicketsListQueryParams
-}
-
-const posthogSupportTicketsList = (): ToolBase<
-    ReturnType<typeof PosthogSupportTicketsListSchema>,
-    Schemas.PostHogSupportTicketList
-> => ({
-    name: 'posthog-support-tickets-list',
-    schema: PosthogSupportTicketsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportTicketsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PostHogSupportTicketList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/tickets/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                status: params.status,
-            },
-        })
-        return result
-    },
-})
-
 const PosthogSupportTicketReplySchema = () => {
     const PosthogSupportTicketsReplyCreateBody = orvalSchemas.PosthogSupportTicketsReplyCreateBody()
     const PosthogSupportTicketsReplyCreateParams = orvalSchemas.PosthogSupportTicketsReplyCreateParams()
@@ -145,9 +119,35 @@ const posthogSupportTicketReply = (): ToolBase<
     },
 })
 
+const PosthogSupportTicketsListSchema = () => {
+    const PosthogSupportTicketsListQueryParams = orvalSchemas.PosthogSupportTicketsListQueryParams()
+    return PosthogSupportTicketsListQueryParams
+}
+
+const posthogSupportTicketsList = (): ToolBase<
+    ReturnType<typeof PosthogSupportTicketsListSchema>,
+    Schemas.PostHogSupportTicketList
+> => ({
+    name: 'posthog-support-tickets-list',
+    schema: PosthogSupportTicketsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportTicketsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PostHogSupportTicketList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/tickets/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                status: params.status,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'posthog-support-ticket-create': posthogSupportTicketCreate,
     'posthog-support-ticket-get': posthogSupportTicketGet,
-    'posthog-support-tickets-list': posthogSupportTicketsList,
     'posthog-support-ticket-reply': posthogSupportTicketReply,
+    'posthog-support-tickets-list': posthogSupportTicketsList,
 }
