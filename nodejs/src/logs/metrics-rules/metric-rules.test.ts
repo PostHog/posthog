@@ -1,6 +1,13 @@
 import type { LogRecord } from '../log-record-avro'
 import { type MetricRuleRow, compileMetricRules } from './compile-metric-rules'
-import { MAX_LABEL_SETS_PER_RULE, MAX_LABEL_VALUE_LENGTH, createBatchTallies, tallyRecords } from './tally'
+import {
+    DEFAULT_HISTOGRAM_BOUNDS,
+    MAX_LABEL_SETS_PER_RULE,
+    MAX_LABEL_VALUE_LENGTH,
+    OVERFLOW_LABEL_KEY,
+    createBatchTallies,
+    tallyRecords,
+} from './tally'
 
 const NOW_MS = 1_700_000_000_000
 
@@ -167,15 +174,48 @@ describe('metric rules compile + tally', () => {
             expect(entries[0]!.count).toBe(2)
         })
 
-        it('caps distinct label sets per rule and counts the overflow', () => {
+        it('folds label sets past the cap into one overflow series instead of dropping them', () => {
             const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
             const tallies = createBatchTallies()
             const records = Array.from({ length: MAX_LABEL_SETS_PER_RULE + 3 }, (_, i) =>
                 record({ attributes: { request_id: `req-${i}` } })
             )
             tallyRecords(rules, records, tallies, NOW_MS)
-            expect(tallies.byRule.get('rule-1')!.size).toBe(MAX_LABEL_SETS_PER_RULE)
+            const ruleTallies = tallies.byRule.get('rule-1')!
+            expect(ruleTallies.size).toBe(MAX_LABEL_SETS_PER_RULE + 1)
+            const overflow = ruleTallies.get(OVERFLOW_LABEL_KEY)!
+            expect(overflow.overflow).toBe(true)
+            expect(overflow.count).toBe(3)
             expect(tallies.seriesOverflow.get('rule-1')).toBe(3)
+        })
+
+        it('keeps known label sets on their own series after the cap is reached', () => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
+            const tallies = createBatchTallies()
+            const records = Array.from({ length: MAX_LABEL_SETS_PER_RULE + 1 }, (_, i) =>
+                record({ attributes: { request_id: `req-${i}` } })
+            )
+            records.push(record({ attributes: { request_id: 'req-0' } }))
+            tallyRecords(rules, records, tallies, NOW_MS)
+            const ruleTallies = tallies.byRule.get('rule-1')!
+            expect(ruleTallies.get(JSON.stringify(['req-0']))!.count).toBe(2)
+            expect(ruleTallies.get(OVERFLOW_LABEL_KEY)!.count).toBe(1)
+        })
+
+        it.each([
+            [0, 0],
+            [5, 1],
+            [5.01, 2],
+            [10_000, DEFAULT_HISTOGRAM_BOUNDS.length - 1],
+            [10_001, DEFAULT_HISTOGRAM_BOUNDS.length],
+        ])('puts value %p in histogram bucket %p (upper bound inclusive)', (value, bucket) => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, value_attribute: 'attributes.v' })])
+            const tallies = createBatchTallies()
+            tallyRecords(rules, [record({ attributes: { v: String(value) } })], tallies, NOW_MS)
+            const entry = [...tallies.byRule.get('rule-1')!.values()][0]!
+            const expected = new Array(DEFAULT_HISTOGRAM_BOUNDS.length + 1).fill(0)
+            expected[bucket] = 1
+            expect(entry.bucketCounts).toEqual(expected)
         })
 
         it('captures an exemplar trace id from a matching record and ignores zeroed trace ids', () => {

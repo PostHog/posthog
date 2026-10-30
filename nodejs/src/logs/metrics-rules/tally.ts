@@ -6,6 +6,21 @@ import type { CompiledMetricRule } from './compile-metric-rules'
 /** Cap on distinct group-by label sets per rule per batch — bounds emitted series cardinality. */
 export const MAX_LABEL_SETS_PER_RULE = 1000
 
+/**
+ * Tally key of the series that collects records past MAX_LABEL_SETS_PER_RULE. It is not
+ * valid JSON, so no real label set (always a JSON array) can collide with it.
+ */
+export const OVERFLOW_LABEL_KEY = '__overflow__'
+
+/**
+ * Upper bounds of the value-attribute histogram buckets. These are the OTel SDK default
+ * explicit bucket bounds, so a generated latency histogram (in ms) resolves percentiles
+ * the same way as one an SDK sends.
+ */
+export const DEFAULT_HISTOGRAM_BOUNDS: readonly number[] = [
+    0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000,
+]
+
 export const MAX_LABEL_VALUE_LENGTH = 256
 
 /**
@@ -34,13 +49,17 @@ export type MetricTallyEntry = {
     labelValues: string[]
     count: number
     sum: number
+    /** Per-bucket counts against DEFAULT_HISTOGRAM_BOUNDS; null for count rules. */
+    bucketCounts: number[] | null
+    /** True for the one series per rule that collects label sets past the cap. */
+    overflow: boolean
     exemplarTraceId: string | null
     exemplarSpanId: string | null
 }
 
 export type BatchTallies = {
     byRule: Map<string, Map<string, MetricTallyEntry>>
-    /** Records that matched but were dropped because the rule hit MAX_LABEL_SETS_PER_RULE. */
+    /** Records that matched after the rule hit MAX_LABEL_SETS_PER_RULE, tallied into the overflow series. */
     seriesOverflow: Map<string, number>
     /** Records that matched a value-attribute rule but carried a missing/non-numeric value. */
     valueSkipped: number
@@ -112,6 +131,28 @@ function decodedAttr(map: Record<string, string> | null | undefined, key: string
 function resolveLabelValue(key: string, record: LogRecord): string {
     const value = lookupKey(key, record) ?? ''
     return value.length > MAX_LABEL_VALUE_LENGTH ? value.slice(0, MAX_LABEL_VALUE_LENGTH) : value
+}
+
+/** Index of the first bucket whose upper bound is >= value; the last bucket is unbounded. */
+function histogramBucketIndex(value: number): number {
+    for (let i = 0; i < DEFAULT_HISTOGRAM_BOUNDS.length; i++) {
+        if (value <= DEFAULT_HISTOGRAM_BOUNDS[i]!) {
+            return i
+        }
+    }
+    return DEFAULT_HISTOGRAM_BOUNDS.length
+}
+
+function newTallyEntry(labelValues: string[], withBuckets: boolean, overflow: boolean): MetricTallyEntry {
+    return {
+        labelValues,
+        count: 0,
+        sum: 0,
+        bucketCounts: withBuckets ? new Array<number>(DEFAULT_HISTOGRAM_BOUNDS.length + 1).fill(0) : null,
+        overflow,
+        exemplarTraceId: null,
+        exemplarSpanId: null,
+    }
 }
 
 function resolveNumericValue(key: string, record: LogRecord): number | null {
@@ -207,7 +248,7 @@ export function tallyRecords(
             }
 
             const labelValues = rule.groupBy.map((key) => resolveLabelValue(key, record))
-            const labelKey = JSON.stringify(labelValues)
+            let labelKey = JSON.stringify(labelValues)
 
             let ruleTallies = tallies.byRule.get(rule.id)
             if (!ruleTallies) {
@@ -216,15 +257,32 @@ export function tallyRecords(
             }
             let entry = ruleTallies.get(labelKey)
             if (!entry) {
-                if (ruleTallies.size >= MAX_LABEL_SETS_PER_RULE) {
+                const overflowEntry = ruleTallies.get(OVERFLOW_LABEL_KEY)
+                const realLabelSets = ruleTallies.size - (overflowEntry ? 1 : 0)
+                if (realLabelSets >= MAX_LABEL_SETS_PER_RULE) {
+                    // Keep the record in the totals: past the cap it lands on one shared series
+                    // instead of being dropped, so rule-wide counts and rates stay correct.
                     tallies.seriesOverflow.set(rule.id, (tallies.seriesOverflow.get(rule.id) ?? 0) + 1)
-                    continue
+                    labelKey = OVERFLOW_LABEL_KEY
+                    entry = overflowEntry
+                    if (!entry) {
+                        entry = newTallyEntry(
+                            rule.groupBy.map(() => ''),
+                            rule.valueAttribute !== null,
+                            true
+                        )
+                        ruleTallies.set(labelKey, entry)
+                    }
+                } else {
+                    entry = newTallyEntry(labelValues, rule.valueAttribute !== null, false)
+                    ruleTallies.set(labelKey, entry)
                 }
-                entry = { labelValues, count: 0, sum: 0, exemplarTraceId: null, exemplarSpanId: null }
-                ruleTallies.set(labelKey, entry)
             }
             entry.count += 1
             entry.sum += value
+            if (entry.bucketCounts) {
+                entry.bucketCounts[histogramBucketIndex(value)]! += 1
+            }
             if (!entry.exemplarTraceId) {
                 const traceIdHex = idToHex(record.trace_id, 16)
                 if (traceIdHex) {
