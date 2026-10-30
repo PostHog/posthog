@@ -26,6 +26,7 @@ from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA, USER_INTERACTIONS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    CONTEXT_KINDS,
     HISTORY_LIMIT,
     LABEL_COLUMNS,
     MIN_HISTORY_REPORTS,
@@ -95,6 +96,7 @@ def _rows_by_key(table: pa.Table) -> dict[tuple[int, str], dict[str, Any]]:
         ("action", "first_implement_clicked_at"),
         ("action", "first_reviewer_removed_at"),
         ("dismiss", "first_ui_dismissed_at"),
+        ("fixed", "first_fixed_at"),
     ]
 )
 def test_only_engagement_and_vectors_before_as_of_enter_a_vector(kind: str, column: str) -> None:
@@ -104,7 +106,7 @@ def test_only_engagement_and_vectors_before_as_of_enter_a_vector(kind: str, colu
     # Engaged after as_of, and engaged in time with a vector re-embedded after as_of.
     engagements += [(2, 100, column, AFTER), (2, 101, column, BEFORE)]
 
-    rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF))
+    rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF, CONTEXT_KINDS))
 
     assert rows[(2, kind)]["n_reports"] == MIN_HISTORY_REPORTS
     assert rows[(2, kind)]["vector"] == pytest.approx([1.0] * EMBEDDING_DIMENSIONS)
@@ -136,6 +138,7 @@ def test_a_team_below_the_history_threshold_keeps_a_zero_vector_row() -> None:
     thin = MIN_HISTORY_REPORTS - 1
     reports = [(2, index, 1.0, BEFORE) for index in range(thin)]
     engagements = [(2, index, "first_create_pr_clicked_at", BEFORE) for index in range(thin)]
+    engagements += [(2, index, "first_fixed_at", BEFORE) for index in range(thin)]
 
     rows = _rows_by_key(project_vectors(_labels(engagements), _embeddings(reports), AS_OF))
 
