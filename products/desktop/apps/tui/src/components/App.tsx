@@ -1,6 +1,13 @@
 import { StdinBuffer } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
-import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
+import {
+  Box,
+  type DOMElement,
+  measureElement,
+  useApp,
+  useBoxMetrics,
+  useInput,
+} from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, canRun, pickerKey } from "../actions";
 import type { PiChats } from "../chats";
@@ -22,6 +29,7 @@ import {
   panes,
   saveLayout,
   splitFocused,
+  splitSizes,
 } from "../layout";
 import {
   type Click,
@@ -109,6 +117,8 @@ export function App({
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
+  const chatArea = useRef<DOMElement | null>(null);
+  const area = useBoxMetrics(chatArea);
   const chatViews = useRef(new Map<string, ChatView>());
   // Scrolling happens inside ChatView, so a tick tells React to repaint.
   const [, repaint] = useState(0);
@@ -425,53 +435,65 @@ export function App({
     return taskOf(pane.taskId)?.title || pane.title || "Untitled";
   };
 
+  // Splits get whole-cell sizes worked out here; flex layout rounds half cells and leaves gaps.
   const renderNode = (
     node: LayoutNode,
     divider: "left" | "top" | null,
-  ): ReactElement =>
-    node.kind === "pane" ? (
-      <Box
-        key={node.id}
-        ref={(element) => {
-          if (element) paneBoxes.current.set(node.id, element);
-          else paneBoxes.current.delete(node.id);
-        }}
-        flexGrow={1}
-        flexBasis={0}
-        {...dividerProps(divider)}
-      >
-        <Pane
-          title={titleOf(node)}
-          paneTaskId={node.taskId}
-          task={taskOf(node.taskId)}
-          runs={runs}
-          chat={chatFor(`${node.id}:${node.taskId}`)}
-          composer={composerFor(node.id)}
-          pending={pending.get(node.id) ?? null}
-          onOffer={(offer) => offers.current.set(node.id, offer)}
-          picker={{
-            index: pickerIndex.get(node.id) ?? 0,
-            dismissed,
+    width: number,
+    height: number,
+  ): ReactElement => {
+    if (node.kind === "pane") {
+      return (
+        <Box
+          key={node.id}
+          ref={(element) => {
+            if (element) paneBoxes.current.set(node.id, element);
+            else paneBoxes.current.delete(node.id);
           }}
-          focused={!sidebarFocused && node.id === workspace.focusedPaneId}
-        />
-      </Box>
-    ) : (
+          width={width}
+          height={height}
+          flexDirection="column"
+          {...dividerProps(divider)}
+        >
+          <Pane
+            title={titleOf(node)}
+            paneTaskId={node.taskId}
+            task={taskOf(node.taskId)}
+            runs={runs}
+            chat={chatFor(`${node.id}:${node.taskId}`)}
+            composer={composerFor(node.id)}
+            pending={pending.get(node.id) ?? null}
+            onOffer={(offer) => offers.current.set(node.id, offer)}
+            picker={{
+              index: pickerIndex.get(node.id) ?? 0,
+              dismissed,
+            }}
+            focused={!sidebarFocused && node.id === workspace.focusedPaneId}
+          />
+        </Box>
+      );
+    }
+    const across = node.direction === "row";
+    const sizes = splitSizes(across ? width : height, node.children.length);
+    return (
       <Box
         key={paneIds(node).join()}
         flexDirection={node.direction}
-        flexGrow={1}
-        flexBasis={0}
+        width={width}
+        height={height}
         {...dividerProps(divider)}
       >
         {node.children.map((child, index) =>
           renderNode(
             child,
-            index === 0 ? null : node.direction === "row" ? "left" : "top",
+            index === 0 ? null : across ? "left" : "top",
+            across ? sizes[index] : width,
+            across ? height : sizes[index],
           ),
         )}
       </Box>
     );
+  };
 
   return (
     <Box flexGrow={1}>
@@ -483,7 +505,10 @@ export function App({
         selectedIndex={selectedIndex}
         activePaneId={workspace.focusedPaneId}
       />
-      {renderNode(workspace.root, null)}
+      <Box ref={chatArea} flexGrow={1}>
+        {area.hasMeasured &&
+          renderNode(workspace.root, null, area.width, area.height)}
+      </Box>
     </Box>
   );
 }
