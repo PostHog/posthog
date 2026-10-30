@@ -202,12 +202,14 @@ export function Pane({
   const { view, loadOlder } = useRunView(runs, task, local);
   const transcript = useMemo(
     () =>
-      // A local chat has no server task; its log is pi events.
+      // A local agent's log holds its first message; a cloud run's omits it, so the task's description stands in.
       task || local
         ? transcriptFrom(
             local?.runtime ?? task?.runtime ?? "pi",
             view.entries,
-            task ? task.description || task.description_preview : undefined,
+            task && !local
+              ? task.description || task.description_preview
+              : undefined,
           )
         : { lines: [], turnOpen: false, lastTurn: null, turnStartedAt: null },
     [task, local, view.entries],
