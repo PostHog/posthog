@@ -41,3 +41,10 @@ class TestPlivoSource:
 
         # A stale cursor must not narrow a full refresh to a partial window.
         assert mock_plivo_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    def test_usage_summary_is_merge_only(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas["usage_summary"].supports_incremental
+        assert not schemas["usage_summary"].supports_append
+        assert schemas["messages"].supports_append

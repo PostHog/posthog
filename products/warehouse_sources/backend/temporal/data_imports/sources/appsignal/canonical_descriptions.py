@@ -87,7 +87,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastOccurredAt": "Time the incident last occurred.",
             "createdAt": "Time the incident was first created.",
             "updatedAt": "Time the incident was last updated.",
-            "trigger": "Log line trigger that opened the incident, with its name, query, severities and log source IDs.",
+            "trigger": "Log line trigger that opened the incident, with its name, query and log source IDs.",
             "logLine": "Most recent log line that matched the trigger.",
         },
     },

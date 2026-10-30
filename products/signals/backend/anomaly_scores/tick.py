@@ -122,6 +122,8 @@ class AnomalyScoringTickPlan:
     train_backlog_hard: int = 0
     active: int = 0
     active_reasons: dict[str, int] | None = None
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
 
 
 @frozen
@@ -170,6 +172,8 @@ class AnomalyScoringTickResult:
     # Active insights of the eligible teams, and how many of them have each activity reason.
     active: int = 0
     active_reasons: dict[str, int] | None = None
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -195,6 +199,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         train_backlog_hard=selection.train_backlog_hard,
         active=selection.active,
         active_reasons=selection.active_reasons,
+        enrolled_teams=selection.enrolled_teams,
+        enrolled_organizations=selection.enrolled_organizations,
     )
 
 
@@ -423,6 +429,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         train_backlog_hard=result.train_backlog_hard,
         active=result.active,
         active_reasons=result.active_reasons,
+        enrolled_teams=result.enrolled_teams,
+        enrolled_organizations=result.enrolled_organizations,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -448,6 +456,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "train_backlog_hard": result.train_backlog_hard,
             "active_insights": result.active,
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
+            "enrolled_teams": result.enrolled_teams,
+            "enrolled_organizations": result.enrolled_organizations,
         },
     )
 
@@ -545,6 +555,8 @@ class AnomalyScoringTickWorkflow:
             train_backlog_hard=plan.train_backlog_hard,
             active=plan.active,
             active_reasons=plan.active_reasons,
+            enrolled_teams=plan.enrolled_teams,
+            enrolled_organizations=plan.enrolled_organizations,
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
