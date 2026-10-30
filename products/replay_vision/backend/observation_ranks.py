@@ -6,12 +6,10 @@ them the same way.
 
 import uuid
 from collections.abc import Mapping
-from datetime import datetime, timedelta
 from itertools import batched
 from typing import Any
 
-from django.db import connection, transaction
-from django.utils import timezone
+from django.db import connection
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -19,7 +17,6 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory
 
 _WRITE_CHUNK = 500
-_COPY_SLICE = timedelta(days=1)
 
 CATEGORY_CODES: dict[str, int] = {category.name.lower(): category.value for category in RankCategory}
 CATEGORY_NAMES: dict[int, str] = {code: name for name, code in CATEGORY_CODES.items()}
@@ -111,87 +108,6 @@ def set_rank_clusters(team_id: int, clusters: Mapping[str, tuple[uuid.UUID, uuid
             updated += cursor.rowcount
     if updated:
         mark_changed(team_id)
-
-
-def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_run: bool = False) -> int:
-    """Copy the team's current ranks since `since` from the observations' rank JSON into rank rows, filling in a
-    feed group or search theme an existing row lacks. Returns how many rows it wrote, or how many ranks a write would
-    read."""
-    source = """
-        FROM replay_vision_replayobservation o
-        WHERE o.team_id = %(observation_team_id)s
-            AND o.created_at >= %(since)s
-            AND o.created_at < %(until)s
-            AND o.status = 'succeeded'
-            AND o.watch_rank IS NOT NULL
-            AND o.watch_rank -> 'anchor_version' = to_jsonb(%(anchor_version)s::int)
-            AND jsonb_typeof(o.watch_rank -> 'contrast') = 'number'
-            AND o.watch_rank ->> 'category' = ANY(%(categories)s)
-    """
-    params: dict[str, Any] = {
-        "team_id": resolve_effective_team_id(team_id),
-        "observation_team_id": team_id,
-        "since": since,
-        "until": timezone.now(),
-        "anchor_version": anchor_version,
-        "categories": list(CATEGORY_CODES),
-    }
-    if dry_run:
-        with connection.cursor() as cursor:
-            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
-            cursor.execute(f"SELECT count(*) {source}", params)
-            return cursor.fetchone()[0]
-    written = 0
-    end = params["until"]
-    # One day per statement, so the rank rows an upsert locks are released before the next day's rows.
-    while since < end:
-        params |= {"since": since, "until": min(since + _COPY_SLICE, end)}
-        written += _copy_slice(team_id, source, params)
-        since += _COPY_SLICE
-    _delete_orphaned_ranks(team_id)
-    return written
-
-
-def _delete_orphaned_ranks(team_id: int) -> None:
-    # A recording deletion removes observations in raw SQL, so rank rows it missed are removed here.
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            DELETE FROM replay_vision_replayobservationrank rank
-            WHERE rank.team_id = %s
-                AND NOT EXISTS (SELECT 1 FROM replay_vision_replayobservation o WHERE o.id = rank.observation_id)
-            """,
-            [resolve_effective_team_id(team_id)],
-        )
-
-
-def _copy_slice(team_id: int, source: str, params: dict[str, Any]) -> int:
-    category = "CASE o.watch_rank ->> 'category' " + " ".join(
-        f"WHEN '{name}' THEN {code}" for name, code in CATEGORY_CODES.items()
-    )
-    with transaction.atomic(), connection.cursor() as cursor:
-        cursor.execute(
-            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
-            f"""
-            INSERT INTO replay_vision_replayobservationrank ({_RANK_COLUMNS})
-            SELECT o.id, %(team_id)s, o.scanner_id, o.created_at, %(anchor_version)s,
-                (o.watch_rank ->> 'contrast')::double precision, {category} END,
-                (o.watch_rank ->> 'group')::uuid, (o.watch_rank ->> 'theme')::uuid,
-                {_PERSON_SQL}, {_EXPERIMENT_SQL}
-            {source}
-            ON CONFLICT (observation_id) DO UPDATE SET
-                feed_group_id = COALESCE(replay_vision_replayobservationrank.feed_group_id, EXCLUDED.feed_group_id),
-                search_theme_id = COALESCE(replay_vision_replayobservationrank.search_theme_id, EXCLUDED.search_theme_id)
-            WHERE (replay_vision_replayobservationrank.feed_group_id IS NULL AND EXCLUDED.feed_group_id IS NOT NULL)
-                OR (replay_vision_replayobservationrank.search_theme_id IS NULL AND EXCLUDED.search_theme_id IS NOT NULL)
-            """,
-            params,
-        )
-        written = cursor.rowcount
-        # Each committed day asks for a rebuild, so a copy stopped partway still reaches the feed.
-        if written:
-            mark_changed(team_id)
-        return written
 
 
 def mark_changed(team_id: int) -> None:
