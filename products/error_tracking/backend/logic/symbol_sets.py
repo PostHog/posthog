@@ -362,7 +362,12 @@ def _create_or_reuse_symbol_sets(
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
     def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
-        storage_ptr = generate_symbol_set_file_key()
+        # Pending uploads share an object key so a retry cannot invalidate an in-flight upload URL.
+        storage_ptr = (
+            existing.storage_ptr
+            if existing.content_hash is None and existing.storage_ptr
+            else generate_symbol_set_file_key()
+        )
         id_url_map[existing.ref] = {
             **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
             "symbol_set_id": str(existing.id),
