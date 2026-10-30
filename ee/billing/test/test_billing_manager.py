@@ -32,12 +32,15 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    BillingServiceRateLimited,
+    BillingServiceResponseError,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
     PrepaidCreditState,
     _get_user_organization_role,
     _parse_funding_status,
     build_billing_token,
+    handle_billing_service_error,
     http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
@@ -978,6 +981,58 @@ class TestBillingSession(SimpleTestCase):
         )
 
         self.assertEqual(len(http_session.cookies), 0)
+
+
+def _response(status_code: int, headers: dict[str, str] | None = None, body: Any = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response.headers.update(headers or {})
+    response._content = b"" if body is None else json.dumps(body).encode()
+    response.raw = MagicMock()
+    return response
+
+
+class TestHandleBillingServiceError(SimpleTestCase):
+    def test_handle_billing_service_error_raises_rate_limited_on_429(self):
+        res = _response(429, headers={"Retry-After": "30"}, body={"detail": "x"})
+
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 429
+        assert context.exception.wait == 30
+        assert context.exception.args == ()
+
+    def test_rate_limited_response_is_closed(self):
+        res = _response(429, headers={"Retry-After": "30"})
+
+        with patch.object(res, "close", wraps=res.close) as close, self.assertRaises(BillingServiceRateLimited):
+            handle_billing_service_error(res)
+
+        close.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("not_a_number", {"Retry-After": "soon"}),
+            ("nan", {"Retry-After": "nan"}),
+            ("negative", {"Retry-After": "-5"}),
+        ]
+    )
+    def test_rate_limited_without_retry_after_has_no_wait(self, _name, headers):
+        with self.assertRaises(BillingServiceRateLimited) as context:
+            handle_billing_service_error(_response(429, headers=headers))
+
+        assert context.exception.wait is None
+
+    def test_other_bad_statuses_still_raise_response_error(self):
+        res = _response(500, body={"detail": "boom"})
+
+        with self.assertRaises(BillingServiceResponseError) as context:
+            handle_billing_service_error(res)
+
+        assert context.exception.status_code == 500
+        assert context.exception.body == {"detail": "boom"}
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):

@@ -287,7 +287,8 @@ def _rows_synced_in_billing_period(
 # Billing answers a request it could not finish in time with a 408, and a request it could not
 # serve with a 5xx. Both clear on a retry, and the check runs once per sync, so a few seconds of
 # retry is cheaper than a sync that skips the limit.
-_TRANSIENT_BILLING_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+# A 429 is not retried: a retry within seconds lands in the same rate-limit window and only adds counted requests.
+_TRANSIENT_BILLING_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
 
 
 def _is_transient_billing_error(error: BaseException) -> bool:
@@ -435,6 +436,11 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         return False
     except Exception as e:
+        if getattr(e, "status_code", None) == 429:
+            await logger.awarning(f"BillingLimits: billing service rate limited the check, failing open: {e}")
+
+            return False
+
         if _is_transient_billing_error(e):
             # Billing refused with a status that clears on its own, and the retries above are
             # spent. The check already fails open, so this is infrastructure noise rather than a
