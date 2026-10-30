@@ -8,11 +8,7 @@ import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    eventsWithMoveNotice,
-    moveAnnouncementUrl,
-    readsFlagCallsFromFlagEvaluations,
-} from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -51,29 +47,19 @@ const MOVE_NOTICE_EFFECTS: Record<FlagCallCriterionProblem, string> = {
         'When the move finishes, PostHog may not be able to calculate this cohort. To keep it working, filter this criterion on event properties only.',
 }
 
-function moveNoticeText(problem: FlagCallCriterionProblem | null): string {
-    if (problem === null) {
-        return "Feature flag called is moving out of the events table. Once your organization starts the move, you can't add new criteria on it. When the move finishes, this criterion stops matching new flag calls. To see how a flag is used, open the flag and check its Usage tab."
-    }
+function moveNoticeText(problem: FlagCallCriterionProblem): string {
     return `Feature flag called is moving out of the events table. ${MOVE_NOTICE_EFFECTS[problem]}`
 }
 
-function moveNoticeState(
+function moveNoticeProblem(
     criteria: AnyCohortCriteriaType,
-    moveNoticeEvents: string[],
-    flagCallsReadFromFlagEvaluations: boolean
-): { flagCallProblem: ReturnType<typeof flagCallCriterionProblem>; showsMoveNotice: boolean } {
+    moveNoticeEvents: string[]
+): FlagCallCriterionProblem | null {
     const namesMovingEvent =
         (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
         (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
             moveNoticeEvents.includes(String(criteria.seq_event)))
-    // Without the rewrite, the batch calculation reads every flag-call criterion from events.
-    const flagCallProblem =
-        namesMovingEvent && flagCallsReadFromFlagEvaluations ? flagCallCriterionProblem(criteria) : null
-    return {
-        flagCallProblem,
-        showsMoveNotice: namesMovingEvent && (!flagCallsReadFromFlagEvaluations || flagCallProblem !== null),
-    }
+    return namesMovingEvent ? flagCallCriterionProblem(criteria) : null
 }
 
 export function CohortCriteriaRowBuilder({
@@ -92,11 +78,7 @@ export function CohortCriteriaRowBuilder({
         useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     )
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const { flagCallProblem, showsMoveNotice } = moveNoticeState(
-        criteria,
-        moveNoticeEvents,
-        readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
-    )
+    const flagCallProblem = moveNoticeProblem(criteria, moveNoticeEvents)
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.
@@ -227,7 +209,7 @@ export function CohortCriteriaRowBuilder({
                             </div>
                         </div>
                     )}
-                    {showsMoveNotice && (
+                    {flagCallProblem !== null && (
                         <LemonBanner
                             className="my-2"
                             type="warning"
