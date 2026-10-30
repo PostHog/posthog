@@ -419,6 +419,7 @@ export function App({
     activate: sidebar.activate,
     navigate: sidebar.navigate,
     setNavigating: sidebar.setNavigating,
+    setCollapsed: sidebar.setCollapsed,
     setLayout,
     chatIn,
     chats: allChats,

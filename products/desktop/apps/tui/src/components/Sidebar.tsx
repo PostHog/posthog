@@ -262,12 +262,15 @@ export function Sidebar({
   narrow?: boolean;
 }): ReactElement {
   // With focus the bar follows the cursor; without it, it marks the focused pane's task.
+  // Unfocused, the open chat's row is marked; a folded workspace's title stands in for the chat it hides.
   const highlighted = (row: SidebarRow, index: number): boolean =>
     focused
       ? index === selectedIndex
-      : (row.kind === "task" || row.kind === "today") &&
-        row.paneId !== null &&
-        row.paneId === activePaneId;
+      : row.kind === "workspace"
+        ? !row.expanded && index === selectedIndex
+        : (row.kind === "task" || row.kind === "today") &&
+          row.paneId !== null &&
+          row.paneId === activePaneId;
 
   return (
     <Box
