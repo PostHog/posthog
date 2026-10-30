@@ -41,6 +41,16 @@ export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /**
+     * Model name, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
+    /**
+     * Whether the model is soft-deleted, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_deleted: boolean | null
     readonly status: DataModelingJobStatusEnumApi
     /** The engine that ran this materialization job. */
     readonly engine: string
@@ -71,7 +81,7 @@ export interface DataModelingJobApi {
      */
     readonly rows_expected: number | null
     /**
-     * Bytes read by this run, including probes and retries.
+     * Bytes read by this run, or null if it has not been measured yet.
      * @nullable
      */
     readonly read_bytes: number | null
@@ -2179,6 +2189,18 @@ export const MaterializationRunDirectionEnumApi = {
 } as const
 
 /**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
  * Body of the `run` action.
  */
 export interface SavedQueryRunApi {
@@ -2189,6 +2211,11 @@ export interface SavedQueryRunApi {
      * * `upstream` - Upstream
      * * `downstream` - Downstream */
     direction?: MaterializationRunDirectionEnumApi
+    /** Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
 }
 
 export interface SavedQueryRunResponseApi {
@@ -3809,6 +3836,12 @@ export interface CredentialApi {
  * * `CloudflareR2` - CloudflareR2
  * * `Particle` - Particle
  * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
+ * * `Soniox` - Soniox
+ * * `Nango` - Nango
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5221,6 +5254,12 @@ export const ExternalDataSourceTypeEnumApi = {
     CloudflareR2: 'CloudflareR2',
     Particle: 'Particle',
     FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
+    Soniox: 'Soniox',
+    Nango: 'Nango',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5596,9 +5635,23 @@ export interface ViewLinkValidationErrorApi {
 
 export type DataModelingJobsListParams = {
     /**
+     * Include jobs finished at or after this time.
+     */
+    after?: string
+    /**
      * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
      */
     all_engines?: boolean
+    /**
+     * Include jobs finished before this time.
+     */
+    before?: string
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `duckgres` - Duckgres
+     * * `managed_warehouse` - Managed warehouse
+     */
+    engine?: DataModelingJobsListEngine
     /**
      * Number of results to return per page.
      */
@@ -5609,6 +5662,10 @@ export type DataModelingJobsListParams = {
     offset?: number
     saved_query_id?: string
     /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[]
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed
@@ -5617,6 +5674,14 @@ export type DataModelingJobsListParams = {
      */
     status?: DataModelingJobsListStatus
 }
+
+export type DataModelingJobsListEngine = (typeof DataModelingJobsListEngine)[keyof typeof DataModelingJobsListEngine]
+
+export const DataModelingJobsListEngine = {
+    Clickhouse: 'clickhouse',
+    Duckgres: 'duckgres',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
 
 export type DataModelingJobsListStatus = (typeof DataModelingJobsListStatus)[keyof typeof DataModelingJobsListStatus]
 
@@ -5973,6 +6038,10 @@ export type WarehouseSavedQueryDraftsListParams = {
 }
 
 export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean
     /**
      * Number of results to return per page.
      */

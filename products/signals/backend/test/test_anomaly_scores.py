@@ -1,7 +1,9 @@
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -11,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ChartDisplayType,
+    CompareFilter,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -24,18 +27,27 @@ from posthog.hogql.constants import INSIGHT_QUERY_FANOUT_CONCURRENCY
 
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
+from posthog.tasks.alerts.detectors.registry import get_detector
 
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
+from products.signals.backend.anomaly_scores.artifacts import deserialize, serialize
+from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring, ScoringRun
 from products.signals.backend.anomaly_scores.scoring import (
+    InsightScores,
+    SplitRun,
+    StateIdentity,
+    TrainedState,
     UnsupportedInsightError,
+    bucket_end,
     buckets_to_score,
     fetch_buckets,
+    history_buckets,
     query_cost,
     score_insight,
     score_series,
     trends_query_for,
 )
+from products.signals.backend.anomaly_scores.state import TrainDue, train_due
 from products.signals.backend.anomaly_scores.tick import _INSIGHT_TIMEOUT
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -177,13 +189,33 @@ class TestScoreSeries(SimpleTestCase):
         assert all(point.score is None and point.flag is None for point in points)
 
 
+class TestArtifactRoundTrip(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("json_params", DAY_SCORING.detector),
+            ("pyod_model_bytes", {"type": "knn", "threshold": 0.95, "preprocessing": {"diffs_n": 1, "lags_n": 5}}),
+        ]
+    )
+    def test_a_stored_artifact_scores_like_the_fitted_one(self, _name: str, config: dict[str, Any]) -> None:
+        detector = get_detector(config)
+        data = np.random.default_rng(2).normal(100, 10, size=100)
+        data[-1] = 400.0
+        artifact = detector.fit(data[:90])
+        scored = data[90 - detector.context_buckets() :]
+
+        loaded = deserialize(serialize({"series": artifact}))["series"]
+
+        assert loaded == artifact
+        assert detector.score(loaded, scored).all_scores == detector.score(artifact, scored).all_scores
+
+
 def _insight(series: list[EventsNode], **query: Any) -> Insight:
     return Insight(id=7, query=TrendsQuery(series=series, **query).model_dump(exclude_none=True))
 
 
 def _result(order: int, label: str) -> dict[str, Any]:
     days = [f"2026-01-{day:02d}" for day in range(1, 6)]
-    return {"action": {"order": order}, "label": label, "days": days, "data": [1.0] * 5, "breakdown_value": None}
+    return {"order": order, "label": label, "days": days, "data": [1.0] * 5, "breakdown_value": None}
 
 
 class TestScoreInsight(SimpleTestCase):
@@ -221,6 +253,19 @@ class TestScoreInsight(SimpleTestCase):
         assert named["web"] == single["web"]
         assert named["app"] != named["web"]
 
+    def test_previous_period_lines_are_not_scored_and_the_current_line_keeps_its_key(self) -> None:
+        pageview = EventsNode(event="$pageview")
+        line = self._keys(_insight([pageview]), [_result(0, "pageview")])
+        metric = self._keys(
+            _insight([pageview], trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC)),
+            [
+                {**_result(0, "pageview"), "compare_label": "current"},
+                {**_result(0, "pageview"), "compare_label": "previous"},
+            ],
+        )
+
+        assert metric == line
+
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
         limits: list[int] = []
@@ -240,6 +285,241 @@ class TestScoreInsight(SimpleTestCase):
         assert timedelta(seconds=waves * limits[0]) <= _INSIGHT_TIMEOUT - timedelta(minutes=1)
         if waves == 1:
             assert limits[0] == 150
+
+    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets.
+    @parameterized.expand([("no_smoothing", None, "-6d"), ("smoothing", 7, "-12d")])
+    def test_a_score_step_fetches_only_the_context_and_new_buckets(
+        self, _name: str, smoothing: int | None, date_from: str
+    ) -> None:
+        insight = _insight([EventsNode(event="$pageview")], trendsFilter=TrendsFilter(smoothingIntervals=smoothing))
+        team = Team(timezone="UTC")
+        rng = np.random.default_rng(3)
+
+        def result(breakdown: str, first_day: datetime, days: int) -> dict[str, Any]:
+            return {
+                "order": 0,
+                "label": "pageview",
+                "breakdown_value": breakdown,
+                "days": [(first_day + timedelta(days=day)).strftime("%Y-%m-%d") for day in range(days)],
+                "data": list(rng.normal(100, 10, size=days)),
+            }
+
+        def run(now: datetime, results: list[dict[str, Any]], split: SplitRun) -> tuple[InsightScores, TrendsQuery]:
+            with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+                runner.return_value.run.return_value = MagicMock(results=results)
+                scores = score_insight(insight, team, now=now, split=split)
+            return scores, runner.call_args.kwargs["query"]
+
+        trained, _query = run(
+            datetime(2026, 1, 10, 0, 30, tzinfo=UTC),
+            [
+                result("kept", datetime(2025, 10, 1, tzinfo=UTC), 102),
+                result("gone", datetime(2025, 10, 1, tzinfo=UTC), 102),
+            ],
+            SplitRun(),
+        )
+        assert trained.run == ScoringRun.TRAIN and trained.state is not None and trained.artifacts is not None
+        assert set(trained.state.series_keys) == {series.series_key for series in trained.series}
+        state = dataclasses.replace(trained.state, artifact_key="anomaly_models/1/7/default-v1/model")
+
+        scores, query = run(
+            datetime(2026, 1, 12, 0, 30, tzinfo=UTC),
+            [result("kept", datetime(2026, 1, 6, tzinfo=UTC), 7), result("new", datetime(2026, 1, 6, tzinfo=UTC), 7)],
+            SplitRun(state=state, artifacts=trained.artifacts),
+        )
+
+        assert query.dateRange is not None and query.dateRange.date_from == date_from
+        assert scores.run == ScoringRun.SCORE
+        assert [
+            (series.breakdown_value, [point.bucket_start.day for point in series.points]) for series in scores.series
+        ] == [("kept", [10, 11])]
+        assert all(point.score is not None for point in scores.series[0].points)
+        assert scores.unmatched_series == 1
+        assert scores.state is not None
+        assert scores.state.missing_series == 1
+        assert scores.state.series_keys == trained.state.series_keys
+        assert scores.state.scored_through == datetime(2026, 1, 11, tzinfo=UTC)
+        assert scores.model_id == "model"
+
+        # "gone" comes back. Its own newest scored bucket is still the one from the train step.
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(
+                results=[result("gone", datetime(2026, 1, 6, tzinfo=UTC), 7)]
+            )
+            returned = score_insight(
+                insight,
+                team,
+                now=datetime(2026, 1, 13, 0, 30, tzinfo=UTC),
+                after=trained.state.scored_through,
+                split=SplitRun(state=scores.state, artifacts=trained.artifacts),
+            )
+
+        assert [point.bucket_start.day for point in returned.series[0].points] == [10, 11, 12]
+
+    def test_a_score_pick_whose_state_no_longer_matches_the_insight_trains(self) -> None:
+        stale = TrainedState(
+            identity=StateIdentity(interval=IntervalType.DAY, detector_version="old", query_hash="old"),
+            trained_at=datetime(2026, 1, 9, tzinfo=UTC),
+            scored_through=datetime(2026, 1, 9, tzinfo=UTC),
+            series_keys=("a",),
+            artifact_key="anomaly_models/1/7/default-v1/old",
+        )
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            scores = score_insight(
+                _insight([EventsNode(event="$pageview")]),
+                Team(timezone="UTC"),
+                now=datetime(2026, 1, 10, tzinfo=UTC),
+                split=SplitRun(state=stale, artifacts={}),
+            )
+
+        assert scores.run == ScoringRun.TRAIN
+        # The detector history and the backfill cap of a first visit, the same fetch as without the split.
+        assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
+
+    @parameterized.expand([(interval.value, interval) for interval in DEFAULT_PROFILE.intervals])
+    def test_a_train_step_scores_a_backfill_like_score_series_and_stores_the_newest_fit(
+        self, _name: str, interval: IntervalType
+    ) -> None:
+        buckets = [datetime(2024, 1, 1, tzinfo=UTC)]
+        while len(buckets) < 400:
+            buckets.append(bucket_end(buckets[-1], interval))
+        rng = np.random.default_rng(5)
+        # The step size grows with the level, so one fit before the backfill goes stale over its buckets.
+        steps = np.linspace(1, 40, len(buckets)) * (1 + rng.normal(0, 0.3, size=len(buckets)))
+        values = list(1000 + np.cumsum(steps))
+        result = {
+            "order": 0,
+            "label": "pageview",
+            "breakdown_value": None,
+            "days": [bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets],
+            "data": values,
+        }
+        now = bucket_end(buckets[-1], interval)
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[result])
+            scores = score_insight(
+                _insight([EventsNode(event="$pageview")], interval=interval),
+                Team(timezone="UTC"),
+                now=now,
+                split=SplitRun(),
+            )
+
+        assert scores.run == ScoringRun.TRAIN and scores.artifacts is not None
+        assert set(scores.artifacts) == {series.series_key for series in scores.series} != set()
+        scoring = DEFAULT_PROFILE.intervals[interval]
+        expected = score_series(values, buckets, scoring=scoring, interval=interval, now=now)
+        points = scores.series[0].points
+        assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
+        assert all(point.score is not None for point in points)
+        assert [(point.bucket_start, point.flag) for point in points] == [
+            (point.bucket_start, point.flag) for point in expected
+        ]
+        assert [point.score for point in points] == pytest.approx([point.score for point in expected])
+        newest_window = np.array(values[len(values) - (history_buckets(scoring) - 1) :], dtype=float)
+        assert scores.artifacts[scores.series[0].series_key] == get_detector(scoring.detector).fit(newest_window)
+
+
+_IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")
+_SCORED_THROUGH = datetime(2026, 1, 9, tzinfo=UTC)
+
+
+def _state(**changes: Any) -> TrainedState:
+    fields: dict[str, Any] = {
+        "identity": _IDENTITY,
+        "trained_at": datetime(2026, 1, 5, tzinfo=UTC),
+        "scored_through": _SCORED_THROUGH,
+        "series_keys": ("a", "b"),
+        "artifact_key": "anomaly_models/1/7/default-v1/model",
+        **changes,
+    }
+    return TrainedState(**fields)
+
+
+class TestTrainDue(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fresh_state", _state(), TrainDue.NO),
+            ("one_of_two_series_missing", _state(missing_series=1), TrainDue.NO),
+            ("no_state", None, TrainDue.HARD),
+            ("no_artifact", _state(artifact_key=""), TrainDue.HARD),
+            (
+                "query_changed",
+                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
+                TrainDue.HARD,
+            ),
+            (
+                "detector_changed",
+                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
+                TrainDue.HARD,
+            ),
+            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), TrainDue.SOFT),
+            ("past_the_model_age_ceiling", _state(trained_at=datetime(2025, 12, 13, tzinfo=UTC)), TrainDue.HARD),
+            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), TrainDue.SOFT),
+            ("most_series_missing", _state(missing_series=2), TrainDue.HARD),
+        ]
+    )
+    def test_only_a_missing_or_untrusted_model_stops_score_steps(
+        self, _name: str, state: TrainedState | None, expected: TrainDue
+    ) -> None:
+        assert (
+            train_due(
+                state,
+                identity=_IDENTITY,
+                now=datetime(2026, 1, 10, 1, tzinfo=UTC),
+                timezone=ZoneInfo("UTC"),
+                train_every=7,
+                max_model_age=28,
+                max_backfill=30,
+            )
+            == expected
+        )
+
+    @parameterized.expand([("kept_current", 23, TrainDue.NO), ("retrain_due", 24, TrainDue.SOFT)])
+    def test_an_hourly_insight_kept_current_is_due_only_after_train_every(
+        self, _name: str, hours_since_trained: int, expected: TrainDue
+    ) -> None:
+        identity = StateIdentity(interval=IntervalType.HOUR, detector_version="v1", query_hash="q1")
+        now = datetime(2026, 1, 10, 12, 5, tzinfo=UTC)
+        state = _state(
+            identity=identity,
+            trained_at=now - timedelta(hours=hours_since_trained),
+            scored_through=datetime(2026, 1, 10, 10, tzinfo=UTC),
+        )
+
+        assert (
+            train_due(
+                state,
+                identity=identity,
+                now=now,
+                timezone=ZoneInfo("UTC"),
+                train_every=24,
+                max_model_age=96,
+                max_backfill=30,
+            )
+            == expected
+        )
+
+
+class TestMetricScoringQuery(SimpleTestCase):
+    @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
+    def test_metric_display_is_scored_as_a_line_without_the_previous_period(
+        self, _name: str, compare_filter: CompareFilter | None
+    ) -> None:
+        insight = _insight(
+            [EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            compareFilter=compare_filter,
+        )
+
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
+
+        query = runner.call_args.kwargs["query"]
+        assert query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH
+        assert query.compareFilter is None
+        assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
 class TestFetchBuckets(SimpleTestCase):

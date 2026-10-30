@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -29,6 +30,9 @@ import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
 import { LLMPrompt } from './types'
 import { openArchivePromptDialog, openDuplicatePromptDialog, stripPromptSceneSearchParams } from './utils'
+
+// "Prompts open feedback" survey, opened only via the feedback button (its URL targeting never matches).
+const PROMPTS_FEEDBACK_SURVEY_ID = '01a0f8a7-bea2-0000-5f58-c8c69e4b7a3b'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -205,30 +209,36 @@ export function LLMPromptsScene(): JSX.Element {
                 description="Track and manage your LLM prompts."
                 resourceType={{ type: 'llm_prompts' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {todayRailNav ? (
-                            <Button
-                                variant="primary"
-                                render={<LinkPrimitive to={promptUrl('new')} />}
-                                data-attr="new-prompt-button"
-                            >
-                                <IconPlus />
-                                New prompt
-                            </Button>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                to={promptUrl('new')}
-                                icon={<IconPlusSmall />}
-                                data-attr="new-prompt-button"
-                            >
-                                New prompt
-                            </LemonButton>
-                        )}
-                    </AccessControlAction>
+                    <>
+                        <FeedbackSurveyButton
+                            surveyId={PROMPTS_FEEDBACK_SURVEY_ID}
+                            data-attr="prompts-feedback-button"
+                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            {todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    render={<LinkPrimitive to={promptUrl('new')} />}
+                                    data-attr="new-prompt-button"
+                                >
+                                    <IconPlus />
+                                    New prompt
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    to={promptUrl('new')}
+                                    icon={<IconPlusSmall />}
+                                    data-attr="new-prompt-button"
+                                >
+                                    New prompt
+                                </LemonButton>
+                            )}
+                        </AccessControlAction>
+                    </>
                 }
             />
 

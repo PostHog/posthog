@@ -10,10 +10,19 @@ from django.db import OperationalError, connection
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.alerts_platform.backend.logic.inventory import AlertCount, SourceInventory, count_inventory
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.logic.inventory import (
+    AlertCount,
+    ConfigurationCount,
+    SourceInventory,
+    count_inventory,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
+from products.alerts_platform.backend.temporal.inventory_metrics import (
+    TickScheduleRuns,
+    push_inventory,
+    push_tick_schedule_runs,
+)
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=UTC)
 LATER = NOW + timedelta(hours=1)
@@ -27,6 +36,7 @@ class TestSourceInventory(BaseTest):
         *,
         source: SourceKind = SourceKind.LOGS,
         enabled: bool = True,
+        owner: PlatformAlertOwner = PlatformAlertOwner.SOURCE,
         snooze_until: datetime | None = None,
         alerts: list[tuple[str, datetime | None]] | None = None,
     ) -> None:
@@ -34,6 +44,7 @@ class TestSourceInventory(BaseTest):
             team=team,
             name="alert",
             enabled=enabled,
+            owner=owner,
             source_kind=source.value,
             source_config={},
             check_interval_minutes=5,
@@ -55,7 +66,7 @@ class TestSourceInventory(BaseTest):
             alerts=[("firing", None), ("firing", LATER), ("not_firing", EARLIER)],
         )
         self._configuration(other_team, snooze_until=LATER, alerts=[("firing", None)])
-        self._configuration(other_team, alerts=[("broken", None)])
+        self._configuration(other_team, owner=PlatformAlertOwner.PLATFORM, alerts=[("broken", None)])
         self._configuration(other_team, enabled=False, alerts=[("firing", None)])
         self._configuration(self.team, source=SourceKind.INSIGHT, alerts=[("firing", None)])
 
@@ -63,7 +74,12 @@ class TestSourceInventory(BaseTest):
 
         assert set(by_source) == set(SourceKind)
         logs = by_source[SourceKind.LOGS]
-        assert (logs.enabled_configurations, logs.disabled_configurations) == (3, 1)
+        assert {(c.enabled, c.owner.value): c.count for c in logs.configurations} == {
+            (True, "source"): 2,
+            (True, "platform"): 1,
+            (False, "source"): 1,
+            (False, "platform"): 0,
+        }
         assert {(a.state.value, a.muted): a.count for a in logs.alerts if a.count} == {
             ("firing", False): 1,
             ("firing", True): 2,
@@ -72,7 +88,7 @@ class TestSourceInventory(BaseTest):
         }
         assert len(logs.alerts) == len(PlatformAlertState) * 2
         insight = by_source[SourceKind.INSIGHT]
-        assert (insight.enabled_configurations, insight.disabled_configurations) == (1, 0)
+        assert {(c.enabled, c.owner.value): c.count for c in insight.configurations if c.count} == {(True, "source"): 1}
         assert {(a.state.value, a.muted): a.count for a in insight.alerts if a.count} == {("firing", False): 1}
 
     def test_a_slow_count_is_canceled_by_the_statement_timeout(self) -> None:
@@ -100,8 +116,11 @@ class TestSourceInventory(BaseTest):
 def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
     inventory = SourceInventory(
         source=SourceKind.LOGS,
-        enabled_configurations=3,
-        disabled_configurations=1,
+        configurations=(
+            ConfigurationCount(enabled=True, owner=PlatformAlertOwner.SOURCE, count=3),
+            ConfigurationCount(enabled=True, owner=PlatformAlertOwner.PLATFORM, count=2),
+            ConfigurationCount(enabled=False, owner=PlatformAlertOwner.SOURCE, count=1),
+        ),
         alerts=(AlertCount(state=PlatformAlertState.FIRING, muted=True, count=2),),
     )
 
@@ -111,8 +130,28 @@ def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
     assert push.call_args.args[0] == "alerts_platform_inventory"
     assert push.call_args.kwargs == {"replace_group": True, "timeout": 5}
     registry = push.call_args.args[1]
-    assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "true"}) == 3
-    assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "false"}) == 1
+    configurations = {
+        (labels["enabled"], labels["owner"]): value
+        for labels, value in (
+            (sample.labels, sample.value)
+            for metric in registry.collect()
+            if metric.name == "alerts_platform_configurations"
+            for sample in metric.samples
+        )
+    }
+    assert configurations == {("true", "source"): 3, ("true", "platform"): 2, ("false", "source"): 1}
     assert (
         registry.get_sample_value("alerts_platform_alerts", {"source": "logs", "state": "firing", "muted": "true"}) == 2
     )
+
+
+def test_schedule_runs_push_to_a_group_of_their_own() -> None:
+    with patch("posthog.metrics.push_registry") as push:
+        push_tick_schedule_runs(TickScheduleRuns(started=120, skipped_overlap=1, missed_catchup=3))
+
+    assert push.call_args.args[0] == "alerts_platform_tick_schedule"
+    registry = push.call_args.args[1]
+    assert {
+        outcome: registry.get_sample_value("alerts_platform_tick_schedule_actions", {"outcome": outcome})
+        for outcome in ("started", "skipped_overlap", "missed_catchup")
+    } == {"started": 120, "skipped_overlap": 1, "missed_catchup": 3}

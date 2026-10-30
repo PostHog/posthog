@@ -49,6 +49,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
+from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
@@ -96,6 +97,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -120,7 +122,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.organization_provisioning import OrganizationProvisioning
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import (
     ROLE_CHOICES,
@@ -251,7 +253,7 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
-def _person_properties_refresh_due(user: User) -> bool:
+def _reserve_person_properties_refresh_if_due(user: User) -> bool:
     # Store the last refreshed project, not one key per project. A project switch through
     # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
     # must refresh too.
@@ -261,6 +263,15 @@ def _person_properties_refresh_due(user: User) -> bool:
         return False
     safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
     return True
+
+
+@tracer.start_as_current_span("user_serializer.identify")
+def _refresh_person_properties(user: User) -> None:
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="update user properties",
+        properties={"$set": user.get_analytics_metadata()},
+    )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -353,6 +364,14 @@ class UserSerializer(serializers.ModelSerializer):
             "choice underneath. Read-only."
         ),
     )
+    personal_api_keys_limit = serializers.SerializerMethodField(
+        help_text=(
+            "How many personal API keys the user may hold, from the `personal_api_keys` billing "
+            "entitlement of the user's organizations. The highest limit across their organizations "
+            "applies, and 10 when no organization grants a limit. Creating a key beyond it is "
+            "rejected with a validation error. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -411,6 +430,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_invites",
             "requires_credential_review",
             "notification_locks",
+            "personal_api_keys_limit",
         ]
 
         read_only_fields = [
@@ -462,6 +482,7 @@ class UserSerializer(serializers.ModelSerializer):
             # verification and so cannot rewrite the address a person signs in with.
             return self.instance.email
         reject_plus_addressed_email(value)
+        reject_lookalike_email_characters(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
@@ -542,6 +563,10 @@ class UserSerializer(serializers.ModelSerializer):
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_personal_api_keys_limit(self, instance: User) -> int:
+        return max_personal_api_keys_for_user(instance)
 
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
@@ -883,13 +908,8 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        if _person_properties_refresh_due(instance):
-            with tracer.start_as_current_span("user_serializer.identify"):
-                posthoganalytics.capture(
-                    distinct_id=instance.distinct_id,
-                    event="update user properties",
-                    properties={"$set": instance.get_analytics_metadata()},
-                )
+        if _reserve_person_properties_refresh_if_due(instance):
+            run_after_response(self.context.get("request"), lambda: _refresh_person_properties(instance))
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
@@ -1278,7 +1298,7 @@ class UserViewSet(
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
 
         # A replay of a spent code (double submit) is not a failure: the address is verified.
@@ -1366,7 +1386,7 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
@@ -1374,7 +1394,7 @@ class UserViewSet(
             )
         try:
             user = User.objects.filter(is_active=True).get(uuid=uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
         if user:
             # Allow re-requests when there's a pending email change that still

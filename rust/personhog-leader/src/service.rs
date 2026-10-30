@@ -1590,11 +1590,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: at or above every source's death
-        // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // sealed version, plus one. A source's death document starts
+        // from the same sealed + 1, so the fold sits at or above it and
+        // equals it when the highest sealed version dominates. A source
+        // row that moved after its seal raises its death document above
+        // the fold. The streams are per-person, so the relation is a
+        // convention, not a collision guard. Re-applying the fold only
+        // bumps the version again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
@@ -1683,9 +1686,7 @@ mod tests {
 
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
-    use health::HealthRegistry;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
-    use rdkafka::ClientConfig;
     use tonic::Code;
 
     use super::*;
@@ -1807,19 +1808,10 @@ mod tests {
         assert_eq!(stats.clamped_numbers, 1);
     }
 
-    /// A service with no PG pool and a producer that never connects —
-    /// enough to exercise the miss path, where no test reaches Kafka or PG.
+    /// A service with no PG pool and no reachable Kafka — enough to
+    /// exercise the miss path, where no test reaches Kafka or PG.
     async fn make_test_service() -> PersonHogLeaderService {
         let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
-        let liveness = HealthRegistry::new("test")
-            .register("kafka".to_string(), Duration::from_secs(60))
-            .await;
-        let producer: rdkafka::producer::FutureProducer<
-            common_kafka::kafka_producer::KafkaContext,
-        > = ClientConfig::new()
-            .set("bootstrap.servers", "127.0.0.1:1")
-            .create_with_context(common_kafka::kafka_producer::KafkaContext::from(liveness))
-            .unwrap();
         PersonHogLeaderService::new(
             Arc::new(PartitionedCache::new(16)),
             None,
@@ -1847,7 +1839,7 @@ mod tests {
                 .expect("build recovery pool"),
             ),
             PropertySizeLimits::new(655360, 524288),
-            WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            WarningsProducer::disabled(),
             Arc::new(DashMap::new()),
             // Lazily built: nothing here connects until a write acquires
             // a partition, which these tests never do.

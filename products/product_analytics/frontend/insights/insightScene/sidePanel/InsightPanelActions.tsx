@@ -13,11 +13,11 @@ import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFavorite } from 'lib/components/Scenes/SceneFavorite'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +35,10 @@ import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightL
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import {
+    INSIGHT_GRAPH_SELECTOR,
+    INSIGHT_SCREENSHOT_KEY,
+} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 
 import { insightModalsLogic } from '../insightModalsLogic'
 import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
@@ -54,6 +58,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { createStaticCohort } = useActions(exportsLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -114,14 +119,17 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     disabledReasons={captureDisabledReasons}
                 />
             )}
-            <SceneFavorite
-                dataAttrKey={RESOURCE_TYPE}
-                onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
-                isFavorited={insight.favorited ?? false}
-                disabledReasons={
-                    !isSavedInsight ? { 'You must save the insight first before favoriting it': true } : undefined
-                }
-            />
+            {/* The Today layout pins insights per person instead, so the project-wide favorite would read as a duplicate. */}
+            {!todayRailNav && (
+                <SceneFavorite
+                    dataAttrKey={RESOURCE_TYPE}
+                    onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
+                    isFavorited={insight.favorited ?? false}
+                    disabledReasons={
+                        !isSavedInsight ? { 'You must save the insight first before favoriting it': true } : undefined
+                    }
+                />
+            )}
 
             <SceneAddToNotebookDropdownMenu
                 shortId={insight.short_id}

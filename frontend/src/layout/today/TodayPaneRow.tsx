@@ -42,7 +42,7 @@ export function TodayPaneRow({
             >
                 {icon && (
                     <span
-                        className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+                        className="TodayIconBadge flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
                         data-keep-color
                         aria-hidden
                     >

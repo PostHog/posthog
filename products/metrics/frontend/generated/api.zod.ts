@@ -851,3 +851,69 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('End of the window that options come from, in the same format as dateFrom. Defaults to now.'),
 })
+
+/**
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
+ */
+export const metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
+export const MetricsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .describe(
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+        )
+        .describe(
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
+    event_kinds: zod
+        .array(
+            zod
+                .enum(['firing', 'resolved', 'errored', 'broken'])
+                .describe(
+                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
+                )
+        )
+        .min(1)
+        .optional()
+        .describe(
+            "The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve."
+        ),
+})
+
+/**
+ * Delete notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
+
+export const MetricsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .describe('IDs of the destinations to delete, as the list endpoint returns them.'),
+})

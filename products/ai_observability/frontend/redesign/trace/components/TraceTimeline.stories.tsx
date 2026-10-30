@@ -22,6 +22,7 @@ export default meta
 type Story = StoryObj<typeof TraceTimeline>
 
 export const Default: Story = {}
+export const WithSearchMatches: Story = { args: { matchingNodeIds: new Set(['span-search', 'gen-answer']) } }
 export const AgentRun: Story = {
     args: { ...openaiAgentsWithEvals.timeline, selectedNodeId: openaiAgentsWithEvals.initialNodeId },
 }

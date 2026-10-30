@@ -145,6 +145,21 @@ class TestFiltersValidation(SimpleTestCase):
                 [],
             ),
             (
+                "not_in_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 5}]}]},
+                [],
+            ),
+            (
+                "exact_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "exact", "value": 5}]}]},
+                ["cross_field.cohort_requires_in_or_not_in"],
+            ),
+            (
+                "cohort_property_without_operator",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": 5}]}]},
+                [],
+            ),
+            (
                 "date_operator_unparseable_value",
                 {"groups": [{"properties": [_person_prop(operator="is_date_after", value="not a date")]}]},
                 ["cross_field.date_value_not_parseable"],
@@ -388,7 +403,7 @@ class TestFiltersValidation(SimpleTestCase):
             assert not serializer.is_valid()
         assert str(serializer.errors["filters"][0]).startswith("groups[1].properties[0].type: "), (
             "services/mcp/src/tools/featureFlags/updateFeatureFlagHooks.ts matches this prefix "
-            "(PROPERTY_TYPE_REJECTION) to add a recovery step to the update-feature-flag error. "
+            "(PROPERTY_REJECTION) to add a recovery step to the update-feature-flag error. "
             "If the prefix changes, update that regex and "
             "services/mcp/tests/unit/update-feature-flag-preserving-groups.test.ts, then this assertion."
         )

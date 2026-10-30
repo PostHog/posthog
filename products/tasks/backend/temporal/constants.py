@@ -49,7 +49,11 @@ POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai"
 
 
 def resolve_inactivity_timeout(
-    *, is_user_origin: bool = False, origin_product: str | None = None, state: dict | None = None
+    *,
+    is_user_origin: bool = False,
+    origin_product: str | None = None,
+    state: dict | None = None,
+    profile_idle_minutes: int | None = None,
 ) -> timedelta:
     """Effective inactivity timeout for a task run, in priority order.
 
@@ -59,10 +63,11 @@ def resolve_inactivity_timeout(
     2. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global fallback, e.g.
        `=30` to force a fast shutdown for local resume-flow testing).
     3. The test default (short, so orphaned runs don't pin a worker).
-    4. The origin-aware production default (longer for user-driven runs, shorter for
+    4. The task profile's `idle_minutes`, when the task has a profile.
+    5. The origin-aware production default (longer for user-driven runs, shorter for
        PostHog AI's chat-shaped ones).
 
-    `origin_product` narrows step 4 only. It stays a plain string so callers can pass
+    `origin_product` narrows step 5 only. It stays a plain string so callers can pass
     `task.origin_product` straight through without this module importing Django models.
     """
     per_task = (state or {}).get("inactivity_timeout_seconds")
@@ -72,6 +77,8 @@ def resolve_inactivity_timeout(
         return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
     if settings.TEST:
         return timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS)
+    if profile_idle_minutes is not None:
+        return timedelta(minutes=profile_idle_minutes)
     if origin_product == POSTHOG_AI_ORIGIN_PRODUCT:
         return timedelta(seconds=POSTHOG_AI_IDLE_TIMEOUT_SECONDS)
     return timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS if is_user_origin else INACTIVITY_TIMEOUT_DEFAULT_SECONDS)

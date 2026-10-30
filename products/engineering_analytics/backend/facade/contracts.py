@@ -677,6 +677,34 @@ class PRLLMSpend:
     input_tokens: int
     output_tokens: int
     generations: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    peak_context_tokens: int
+
+
+@dataclass(frozen=True)
+class AuthorPRLLMSpend:
+    number: int
+    title: str
+    state: PRState
+    head_branch: str
+    created_at: datetime
+    llm_spend: PRLLMSpend | None
+
+
+@dataclass(frozen=True)
+class AuthorLLMSpendList:
+    items: list[AuthorPRLLMSpend]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class LLMSpendCoverage:
+    cost_usd: float
+    attributed_cost_usd: float
+    generations: int
+    attributed_generations: int
 
 
 @dataclass(frozen=True)
@@ -882,14 +910,12 @@ class TrunkQuarantinedTest:
     # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
-    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    # Trunk's health verdict on the test, e.g. 'flaky' or 'broken'.
     status: str
-    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
-    quarantine_setting: str
     quarantined_at: datetime
     age_days: int
     overdue: bool
-    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    # The Trunk app's page for this test; None when the row has no URL and no org slug or test id.
     trunk_url: str | None
 
 

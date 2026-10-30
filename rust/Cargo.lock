@@ -552,12 +552,14 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "h2 0.4.13",
  "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic 0.14.6",
  "tracing",
 ]
 
@@ -2813,6 +2815,7 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "common-types",
+ "dashmap 6.1.0",
  "envconfig",
  "futures",
  "governor",
@@ -2991,7 +2994,10 @@ dependencies = [
  "aws-smithy-runtime-api",
  "futures",
  "reqwest 0.12.28",
+ "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3048,11 +3054,13 @@ dependencies = [
  "common-liveness",
  "common-types",
  "governor",
+ "lifecycle",
  "metrics",
  "metrics-util",
  "rdkafka",
  "rstest",
  "serde_json",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -4045,7 +4053,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -4783,6 +4791,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "subtle",
+ "tempfile",
  "test-case",
  "thiserror 2.0.18",
  "tokio",
@@ -5750,7 +5759,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.109"
+version = "1.3.110"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -6510,6 +6519,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assignment-coordination",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
@@ -7490,6 +7502,7 @@ dependencies = [
  "axum 0.7.9",
  "common-liveness",
  "metrics",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -9106,7 +9119,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
- "metrics-util",
  "personhog-common",
  "personhog-coordination",
  "personhog-proto",
@@ -9789,9 +9801,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.27.1"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48feacce1343c625054b88191f5c6ea28042643e44a27dd5bfd95d17914d06ff"
+checksum = "7b1f11e52e4f7f78fff94c1f68d1cec3d762911dc3ed27d7862e242435a792cf"
 dependencies = [
  "backtrace",
  "brotli 9.0.0",
@@ -10064,10 +10076,12 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics",
  "proptest",
  "quick_cache",
+ "rayon",
  "rdkafka",
  "serde",
  "serde_json",
@@ -11067,6 +11081,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "aws-sdk-s3",
+ "aws-smithy-http-client",
  "axum 0.7.9",
  "base64 0.22.1",
  "brotlic",

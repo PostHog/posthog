@@ -149,6 +149,10 @@ class V2UpdateTestCase(APIBaseTest):
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json"
         )
 
+    def post_action(self, flag: FeatureFlag, action: str, data: dict | None = None):
+        url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/"
+        return self.client.post(url, data or {}, format="json")
+
     def post_flag(self, data: dict):
         return self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
 
@@ -268,6 +272,15 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert not flag.active
         assert flag.filters == {"groups": [{"properties": [], "rollout_percentage": 25}]}
         assert flag.version == 4
+
+    def test_rollback_reason_fields_do_not_block_a_v2_update(self) -> None:
+        flag = self.flag(active=True)
+        response = self.patch_flag(
+            flag, {"version": 3, "active": False, "ask_rollback_reason": True, "rollback_reason": "errors"}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert not flag.active
 
     def test_v2_create_stays_reserved_while_creation_is_closed(self) -> None:
         response = self.post_flag({"key": "new-v2", "filters": config()})
@@ -681,7 +694,22 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert flag.version == 3
 
-    def test_an_enabled_approval_policy_denies_the_update(self) -> None:
+    @parameterized.expand(
+        [
+            ("flag_policy", "feature_flag.update", False, True),
+            # An organization that scopes policies by flag owner governs an experiment's flags
+            # through its experiment policy. A config version 2 write has nowhere to send an
+            # approval, so that policy has to deny it too, or the one family this organization
+            # relies on would be the one a v2 write could walk past.
+            ("experiment_policy", "experiment.update", True, True),
+            # Before rollout an experiment policy is an unenforced copy of a flag policy, and it
+            # outlives a deleted flag policy until the next sync.
+            ("experiment_copy_before_rollout", "experiment.update", False, False),
+        ]
+    )
+    def test_an_enabled_approval_policy_denies_the_update(
+        self, _name: str, action_key: str, rolled_out: bool, denied: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
         ]
@@ -689,12 +717,16 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
-            action_key="feature_flag.update",
+            action_key=action_key,
             approver_config={"quorum": 1, "users": [self.user.id]},
             enabled=True,
         )
         flag = self.flag()
-        response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=rolled_out):
+            response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
+        if not denied:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unsupported_config_version"
         flag.refresh_from_db()

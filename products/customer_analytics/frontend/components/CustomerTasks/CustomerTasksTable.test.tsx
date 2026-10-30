@@ -74,6 +74,53 @@ describe('CustomerTasksTable', () => {
         logic.unmount()
     })
 
+    test.each([false, true])('offers bulk actions for archived=%s tasks in display order', async (archived) => {
+        mockList.mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    ...accountlessTask,
+                    can_edit: !archived,
+                    can_restore: archived,
+                    archived_at: archived ? '2026-09-03T12:00:00Z' : null,
+                },
+            ],
+        })
+        logic.actions.loadTaskPage()
+        await expectLogic(logic).toFinishAllListeners()
+        const { container } = render(
+            <Provider>
+                <CustomerTasksTable logic={logic} context="inbox" />
+            </Provider>
+        )
+        fireEvent.click(screen.getByLabelText('Select task Follow up'))
+
+        const bar = container.querySelector('.LemonTable__bulk-selection-bar') as HTMLElement
+        const controls = Array.from(bar.querySelectorAll('[data-attr^="customer-tasks-bulk-"]'))
+        expect(controls.map((control) => control.getAttribute('data-attr'))).toEqual([
+            'customer-tasks-bulk-status',
+            'customer-tasks-bulk-assignee',
+            'customer-tasks-bulk-due',
+            'customer-tasks-bulk-account',
+            'customer-tasks-bulk-archive',
+        ])
+        const statusButton = controls[0]
+        if (archived) {
+            expect(statusButton).toHaveAttribute('aria-disabled', 'true')
+        } else {
+            expect(statusButton).not.toHaveAttribute('aria-disabled', 'true')
+        }
+        expect(controls[4]).not.toHaveAttribute('aria-disabled', 'true')
+        const clear = within(bar).getByText('Clear')
+        const summary = within(bar).getByText('1 task selected')
+        expect(controls[4].compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(clear.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        fireEvent.click(clear)
+        expect(screen.getByLabelText('Select task Follow up')).not.toBeChecked()
+    })
+
     test('renders task details and opens the read-only modal', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
@@ -84,7 +131,7 @@ describe('CustomerTasksTable', () => {
         )
 
         const table = screen.getByRole('table')
-        expect(tableHeaders(table)[0]).toHaveTextContent('Task')
+        expect(tableHeaders(table)[1]).toHaveTextContent('Task')
         const taskName = within(table).getByText('Follow up')
         const taskRow = taskName.closest('tr')
         expect(taskRow).not.toBeNull()

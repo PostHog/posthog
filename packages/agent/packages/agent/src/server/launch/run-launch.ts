@@ -34,6 +34,7 @@ export interface RunLaunch {
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
   readonly endRunWhenDone: boolean;
+  readonly disableRepoHooks: boolean;
   readonly systemPrompt: ClaudeCodeConfig["systemPrompt"];
   readonly systemPromptValid: boolean;
   readonly tokenUsage: unknown;
@@ -67,6 +68,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
     endRunWhenDone: runState?.end_run_when_done === true,
+    disableRepoHooks: runState?.disable_repo_hooks === true,
     systemPrompt: systemPrompt.success ? systemPrompt.data : undefined,
     systemPromptValid: systemPrompt.success,
     tokenUsage: runState?.token_usage,
@@ -81,6 +83,7 @@ export function readProductLaunch(
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
     originProduct: readInteractionOrigin(sources.env),
+    clientProvenance: readClientProvenance(sources.task),
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
   };
@@ -96,6 +99,14 @@ function readInteractionOrigin(
   );
 }
 
+// Browser session auth records no provenance, so a posthog_ai task without one comes from the web.
+function readClientProvenance(task: Task | null): string | undefined {
+  if (task?.client_provenance) {
+    return task.client_provenance;
+  }
+  return task?.origin_product === "posthog_ai" ? "posthog_web" : undefined;
+}
+
 function readRepositories(task: Task | null): string[] {
   if (task?.repositories?.length) {
     return task.repositories;
@@ -103,17 +114,41 @@ function readRepositories(task: Task | null): string[] {
   return task?.repository ? [task.repository] : [];
 }
 
-// Web backlink to the inbox report that spawned this task, so the
-// auto-generated PR can point back at it. Built from the same pieces as the
-// report's `_posthogUrl`: <apiUrl>/project/<projectId>/inbox/<reportId>.
+// Automated origins get no thread link, so sibling tasks keep one shared prompt cache.
+const THREAD_ORIGINS = new Set(["user_created", "posthog_ai"]);
+
+// GitHub drops custom URL schemes from links, so Desktop threads use the /code/... web bridge.
 function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
-  const signalReportId = sources.task?.signal_report;
-  if (!signalReportId) {
+  const { task } = sources;
+  if (!task) {
     return undefined;
   }
   const { apiUrl, projectId } = sources.config;
-  return {
-    label: "inbox report",
-    url: `${getProjectWebUrl(apiUrl, projectId)}/inbox/${signalReportId}`,
-  };
+  const projectWebUrl = getProjectWebUrl(apiUrl, projectId);
+  if (task.signal_report) {
+    return {
+      label: "inbox report",
+      url: `${projectWebUrl}/inbox/${task.signal_report}`,
+    };
+  }
+  if (!THREAD_ORIGINS.has(task.origin_product)) {
+    return undefined;
+  }
+
+  const taskId = encodeURIComponent(sources.payload.task_id);
+  const clientProvenance = readClientProvenance(task);
+  if (
+    clientProvenance === "posthog_web" ||
+    clientProvenance === "posthog_mobile"
+  ) {
+    return {
+      label: "PostHog AI chat",
+      url: `${projectWebUrl}/ai?task=${taskId}`,
+    };
+  }
+  const appUrl = apiUrl.replace(/\/+$/, "");
+  const path = task.channel
+    ? `code/channel/${encodeURIComponent(task.channel)}/tasks/${taskId}`
+    : `code/task/${taskId}`;
+  return { label: "PostHog Desktop task", url: `${appUrl}/${path}` };
 }

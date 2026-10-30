@@ -1,6 +1,5 @@
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import type { WebVitalsRow } from '~/queries/nodes/WebVitals/definitions'
 import {
     DataTableNode,
     NodeKind,
@@ -8,6 +7,7 @@ import {
     WebStatsTableQueryResponse,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
+    WebVitalsItem,
     WebVitalsQuery,
     WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -37,7 +37,7 @@ const webVitalsQuery: WebVitalsQuery = {
     },
 }
 
-const webVitalsRows: WebVitalsRow[] = [
+const webVitalsRows: WebVitalsItem[] = [
     {
         action: { custom_name: 'LCP', math: PropertyMathType.P90 },
         order: 0,

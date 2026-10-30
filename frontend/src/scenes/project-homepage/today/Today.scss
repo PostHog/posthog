@@ -207,31 +207,6 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
-.TodayPulse__edit {
-    opacity: 0;
-    transition: opacity 150ms var(--today-ease);
-
-    &.TodayPulse__edit--shown,
-    .TodayHome:has(.TodayHome__intro:hover, .TodayPulse:hover) &,
-    &:focus-visible,
-    &[data-popup-open] {
-        opacity: 1;
-    }
-
-    @media (hover: none) {
-        opacity: 1;
-    }
-}
-
-.TodayPulse__unavailable {
-    overflow: hidden;
-    font-size: 13px;
-    line-height: calc(19px * 1.2);
-    color: var(--today-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .TodayPulse__metric {
     display: flex;
     flex-direction: column;

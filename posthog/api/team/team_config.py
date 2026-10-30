@@ -5,9 +5,9 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.integration.model import Integration
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
@@ -357,7 +357,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         help_text=(
             "Whether new email steps and broadcasts start with UTM tags on their links. "
-            "Each email can still change it. Existing emails keep their current values."
+            "Each email can still change it. Existing emails change only through apply_utm_defaults."
         ),
     )
     email_utm_params = EmailUtmParamsField(
@@ -420,11 +420,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
         if self.parent or value is None:
             return value
-        sender = (
-            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
-            if self.instance is not None
-            else None
-        )
+        sender = None
+        if self.instance is not None:
+            try:
+                sender = IntegrationManager.email.credentials.get(self.instance.team_id, value)
+            except IntegrationNotFound:
+                pass
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
         if not sender.config.get("verified"):
