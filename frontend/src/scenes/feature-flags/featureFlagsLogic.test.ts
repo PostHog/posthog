@@ -556,6 +556,7 @@ describe('restoreFeatureFlag', () => {
 
         expect(restoreBodies).toEqual([{ deleted: false }])
         expect(logic.values.displayedFlags).toEqual([])
+        expect(logic.values.count).toBe(0)
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
         expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')

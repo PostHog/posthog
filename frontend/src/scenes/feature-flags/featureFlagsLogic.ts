@@ -627,7 +627,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         const updatedFlags = values.featureFlags.results.map((flag) =>
                             flag.id === response.id ? response : flag
                         )
-                        return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                        // Restore is only offered in the deleted view, which the restored flag now leaves.
+                        return {
+                            ...values.featureFlags,
+                            results: updatedFlags,
+                            count: Math.max(0, values.featureFlags.count - 1),
+                            lastUpdatedFlagId: id,
+                        }
                     } catch (e: any) {
                         actions.setFeatureFlagUpdating(id, false)
                         // The global loader toast only covers errors with an HTTP status. A dropped connection has none.
