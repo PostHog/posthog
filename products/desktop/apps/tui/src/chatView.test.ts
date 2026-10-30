@@ -5,7 +5,7 @@ import {
   stripTerminalSequences,
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { ChatView, overlayBottom } from "./chatView";
+import { ChatView, overlayBottom, shimmer } from "./chatView";
 import type { TranscriptLine } from "./transcript";
 
 const plain = (lines: string[]): string[] =>
@@ -313,6 +313,19 @@ describe("ChatView", () => {
       "▾ Running pnpm test · 30s · 2 tools",
       "● bash cmd",
       "● bash pnpm test",
+    ]);
+  });
+});
+
+describe("shimmer", () => {
+  it("sweeps a highlight along the text without changing what it says", () => {
+    const frames = [0, 80, 160].map((now) => shimmer("Running", now));
+
+    expect(new Set(frames).size).toBe(3);
+    expect(frames.map((frame) => stripTerminalSequences(frame))).toEqual([
+      "Running",
+      "Running",
+      "Running",
     ]);
   });
 });

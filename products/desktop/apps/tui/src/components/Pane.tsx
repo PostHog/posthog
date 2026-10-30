@@ -208,7 +208,7 @@ export function Pane({
   const noticeKey = notice
     ? `${notice.tone}:${notice.text}:${notice.detail ?? ""}`
     : "";
-  // Keeps a working notice's spinner turning.
+  // Keeps a working notice's shimmer moving.
   useAnimation({ interval: 80, isActive: notice?.tone === "working" });
   const hasOlder = view.windowStart > 0;
   // Set before this render draws the chat, so a frame never shows the previous transcript.
