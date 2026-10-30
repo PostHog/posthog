@@ -2366,6 +2366,10 @@ class ClickHousePropertyResolver(CloningVisitor):
                 isinstance(operand, ast.Call) and operand.name in _NULL_PRESERVING_WRAPPERS and len(operand.args) == 1
             ):
                 operand = operand.args[0]
+            # `_property_group_property` also looks through `toBool(transform(...))`, whose default can make an
+            # absent key match; only a bare property read is NULL for an absent key.
+            if isinstance(operand, ast.Call):
+                continue
             prop = self._property_group_property(operand)
             if prop is not None:
                 return _call("indexHint", [prop.group_has()])

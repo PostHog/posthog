@@ -2018,6 +2018,14 @@ class TestPrinter(BaseTest):
                             self.assertIn("and(indexHint(has(events.properties_group_custom,", optimized_sql)
                             self.assertEqual({label for (label,) in optimized_results}, matching_labels)
 
+        # `transform`'s default makes an absent key match, so skipping granules without the key would drop rows.
+        expr = "toBool(transform(toString(properties.value), ['apple'], [0], 1)) > 0"
+        disabled_results, _ = query_results(shapes["where"], expr, PropertyGroupsMode.DISABLED)
+        optimized_results, optimized_sql = query_results(shapes["where"], expr, PropertyGroupsMode.OPTIMIZED)
+        self.assertEqual(optimized_results, disabled_results)
+        self.assertIn(("absent",), optimized_results)
+        self.assertNotIn("indexHint", optimized_sql)
+
     def test_property_groups_optimized_timestamp_comparison_query_results(self):
         # The printer leaves a comparison against an events timestamp without `ifNull`, so an absent key gives NULL
         # rather than 0. That only matters outside a WHERE and/or chain, where the key guard must not land.
