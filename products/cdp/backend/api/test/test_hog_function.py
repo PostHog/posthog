@@ -2686,36 +2686,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response3.status_code == status.HTTP_201_CREATED
         assert response3.json()["execution_order"] is None
 
-    def _create_functions_with_template_id_only(self, count: int) -> None:
-        for i in range(count):
-            HogFunction.objects.create(
-                team=self.team,
-                name=f"Template id only {i}",
-                hog="return event",
-                type="destination",
-                enabled=False,
-                template_id=template_slack.id,
-            )
-
-    def _list_query_count(self, expected_results: int) -> int:
-        url = f"/api/projects/{self.team.id}/hog_functions/"
-        self.client.get(url)
-        with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert len(results) == expected_results
-        assert {row["template"]["id"] for row in results} == {template_slack.id}
-        return len(ctx.captured_queries)
-
-    def test_list_query_count_does_not_grow_for_functions_without_a_template_fk(self):
-        self._create_functions_with_template_id_only(2)
-        few = self._list_query_count(2)
-        self._create_functions_with_template_id_only(4)
-        many = self._list_query_count(6)
-
-        assert few == many, f"listing 6 functions cost {many} queries vs {few} for 2, so the template lookup N+1s"
-
     def test_list_hog_functions_ordered_by_execution_order_and_updated_at(self):
         # Create functions with different execution orders and update times
         # First create all functions with the same timestamp
@@ -3824,8 +3794,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
 
-    def _create_functions_from_template(self, count: int) -> None:
-        template = HogFunctionTemplate.get_template(template_slack.id)
+    def _create_functions_from_template(self, count: int, with_template_fk: bool) -> None:
+        template = HogFunctionTemplate.get_template(template_slack.id) if with_template_fk else None
         for i in range(count):
             HogFunction.objects.create(
                 team=self.team,
@@ -3844,13 +3814,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with CaptureQueriesContext(connection) as ctx:
             response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == expected_results
+        results = response.json()["results"]
+        assert len(results) == expected_results
+        assert {row["template"]["id"] for row in results} == {template_slack.id}
         return len(ctx.captured_queries)
 
-    def test_list_query_count_does_not_grow_with_function_count(self):
-        self._create_functions_from_template(2)
+    @parameterized.expand([("with_template_fk", True), ("template_id_only", False)])
+    def test_list_query_count_does_not_grow_with_function_count(self, _name: str, with_template_fk: bool) -> None:
+        self._create_functions_from_template(2, with_template_fk)
         few = self._list_query_count(2)
-        self._create_functions_from_template(4)
+        self._create_functions_from_template(4, with_template_fk)
         many = self._list_query_count(6)
 
         assert few == many, f"listing 6 functions cost {many} queries vs {few} for 2, so something N+1s"
