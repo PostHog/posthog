@@ -306,6 +306,7 @@ export interface inboxSetupLogicMeta {
         ) => InboxSetupSource[]
         draft: (
             editedDraft: InboxOnboardingDraftApi | null,
+            savedState: InboxOnboardingStateApi | null,
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
             scannerInventoryKnown: boolean,
@@ -454,7 +455,6 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             null as InboxOnboardingDraftApi | null,
             {
                 setEditedDraft: (_, { draft }) => draft,
-                loadSetupSuccess: (_, { savedState }) => savedState.draft,
             },
         ],
         saving: [false, { setSaving: (_, { saving }) => saving }],
@@ -561,14 +561,16 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 setupSources(configs ?? [], statuses, scanners?.length ?? 0, !!team?.ingested_event),
         ],
         draft: [
-            (s) => [s.editedDraft, s.sources, s.visionScanners, s.scannerInventoryKnown, s.featureFlags],
+            (s) => [s.editedDraft, s.savedState, s.sources, s.visionScanners, s.scannerInventoryKnown, s.featureFlags],
             (
-                draft: InboxOnboardingDraftApi | null,
+                editedDraft: InboxOnboardingDraftApi | null,
+                savedState: InboxOnboardingStateApi | null,
                 sources: InboxSetupSource[],
                 scanners: ReplayScannerApi[] | null,
                 scannerInventoryKnown: boolean,
                 flags: FeatureFlagsSet
             ): InboxOnboardingDraftApi => {
+                const draft = editedDraft ?? savedState?.draft
                 const reconciled = draft
                     ? reconcileInboxSetupDraft(
                           draft,
