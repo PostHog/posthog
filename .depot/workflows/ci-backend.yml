@@ -145,6 +145,9 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # Test processes append each peer lazy load they see here; the peer-lazy-loads job checks them.
+    # See posthog/models/scoping/README.md. Set POSTHOG_PEER_LAZY_LOADS: record to collect a new baseline.
+    POSTHOG_PEER_LAZY_LOADS_DIR: ${{ github.workspace }}/peer-lazy-loads
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
@@ -654,6 +657,7 @@ jobs:
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
+            products_complete: ${{ steps.discover.outputs.products_complete }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -924,6 +928,7 @@ jobs:
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
+                  echo "products_complete=$(echo "$RESULT" | jq -r '.products_complete')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
                   echo "$RESULT" | jq -r '"mode=\(.selection.mode)", "selection=\(.selection | tojson)", "telemetry=\(.telemetry | tojson)"' >> "$GITHUB_OUTPUT"
 
@@ -1415,6 +1420,18 @@ jobs:
                   name: product-junit-results-${{ strategy.job-index }}
                   path: junit-staging/junit-product-*.xml
                   if-no-files-found: ignore
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
+
+            - name: Upload peer lazy loads
+              # Not continue-on-error: a lost upload makes its baseline lines look stale on a full run.
+              # Failing here lets a retry of this shard upload again.
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() }}
+              with:
+                  name: peer-lazy-loads-products-${{ strategy.job-index }}
+                  path: peer-lazy-loads/*.txt
+                  if-no-files-found: ignore
+                  retention-days: 14
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Upload timing data
@@ -3775,6 +3792,18 @@ jobs:
                   if-no-files-found: error
                   retention-days: 14
 
+            - name: Upload peer lazy loads
+              # Not continue-on-error: a lost upload makes its baseline lines look stale on a full run.
+              # Failing here lets a retry of this shard upload again.
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() }}
+              with:
+                  name: peer-lazy-loads-django-${{ matrix.artifact_key }}
+                  path: peer-lazy-loads/*.txt
+                  if-no-files-found: ignore
+                  retention-days: 14
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
+
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat }}
@@ -4076,9 +4105,56 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
+    peer-lazy-loads:
+        needs: [turbo-discover, django, turbo-tests]
+        name: Peer lazy load baseline
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        # Neither test matrix runs when turbo-discover is skipped: a fork, a master push, or a diff with no backend change.
+        if: ${{ !cancelled() && needs.turbo-discover.result != 'skipped' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      posthog/models/scoping/peer_lazy_loads.py
+                      posthog/models/scoping/peer_lazy_loads_baseline.txt
+                  sparse-checkout-cone-mode: false
+
+            - name: Download peer lazy loads
+              id: download
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: peer-lazy-loads-*
+                  path: /tmp/peer-lazy-loads/
+
+            - name: Check peer lazy loads against the baseline
+              env:
+                  # Only a run that skipped no tests can show that a baseline entry is gone. An empty
+                  # mode means Django did not select: the merge queue, the hourly run, or run-ci-backend.
+                  # The product matrix can still leave products out, for example on a contract cascade.
+                  # A failed download looks like every entry is gone, so it cannot prove anything stale.
+                  FULL_RUN: ${{ needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.mode == '' && needs.turbo-discover.outputs.products_complete == 'true' && needs.django.result == 'success' && needs.turbo-tests.result == 'success' && steps.download.outcome == 'success' }}
+              run: |
+                  mkdir -p /tmp/peer-lazy-loads
+                  if [[ ! -f posthog/models/scoping/peer_lazy_loads.py ]]; then
+                      echo "No peer lazy load baseline on this ref."
+                      exit 0
+                  fi
+                  args=(check /tmp/peer-lazy-loads)
+                  if [[ "$FULL_RUN" == "true" ]]; then
+                      if [[ -n "$(find /tmp/peer-lazy-loads -name 'peer-lazy-loads-*.txt' -print -quit)" ]]; then
+                          args+=(--full-run)
+                      else
+                          echo "::warning title=Peer lazy load baseline::No observation files arrived, so stale entries were not checked."
+                      fi
+                  fi
+                  python3 posthog/models/scoping/peer_lazy_loads.py "${args[@]}"
+
     django_tests:
         needs:
             [
+                peer-lazy-loads,
                 changes,
                 get_clickhouse_versions,
                 build_django_matrix,
@@ -4130,6 +4206,7 @@ jobs:
                     echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                    echo "| peer-lazy-loads | ${{ needs.peer-lazy-loads.result }} |"
                     if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                       echo ""
                       echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; downstream cancelled jobs are expected."
@@ -4264,6 +4341,7 @@ jobs:
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
                   check_required_result "Snapshot mode detection" "${{ needs.detect-snapshot-mode.result }}"
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
+                  check_required_result "Peer lazy load baseline" "${{ needs.peer-lazy-loads.result }}"
 
                   echo "All backend and product checks passed."
 
