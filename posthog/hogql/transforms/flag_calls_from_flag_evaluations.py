@@ -5,7 +5,7 @@ query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` hol
 saved queries keep returning flag calls without a change.
 
 The swap runs before type resolution, so every rule here is syntactic. A shape the rules cannot classify keeps
-reading `events`.
+reading `events`. On mode 2, a second pass finds the scans those rules miss in the resolved query.
 """
 
 import json
@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import cache, partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -25,10 +25,15 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    event_field_type,
+    top_level_conjuncts,
+    unwrap_table_alias_type,
+)
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.property_metadata import load_property_metadata
+from posthog.hogql.resolver import JoinSources
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -49,6 +54,11 @@ FLAG_EVALUATIONS_COMPLETE_DAYS = 89
 _FLAG_KEY_PROPERTY = "$feature_flag"
 
 _Predicate = Callable[[ast.Expr], bool]
+
+
+class _Resolve(Protocol):
+    def __call__(self, node: _T_AST, *, join_sources: JoinSources | None = None) -> _T_AST: ...
+
 
 _MAX_UTC_OFFSET = timedelta(hours=14)
 # How far before UTC midnight a date can start in some zone. A zone behind UTC can still be on the previous date, and
@@ -88,6 +98,8 @@ _START_OF_UNITS = {
 # Rounding to a week or longer returns a Date. A comparison with a DateTime reads a Date at midnight UTC. In a zone
 # behind UTC, that midnight comes before the local midnight that the rounding chose.
 _DATE_UNITS = frozenset({"Week", "Month", "Quarter", "Year"})
+
+_UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
 
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
@@ -135,9 +147,7 @@ def can_read_flag_evaluations(
     )
 
 
-def resolve_flag_calls_from_flag_evaluations(
-    node: _T_AST, context: HogQLContext, resolve: Callable[[_T_AST], _T_AST]
-) -> _T_AST:
+def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve) -> _T_AST:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead.
 
@@ -156,8 +166,12 @@ def resolve_flag_calls_from_flag_evaluations(
     - A query keeps reading `events` when it reads a property from a different kind of column there, such as a
       materialized column. See `_swap_reads_properties_alike`.
 
-    The resolver inlines a saved view's body, so the swap never sees a scan inside one. Once `events` gets no flag
-    calls, a query that reads a view whose body reads only flag calls from `events` raises.
+    For an organization whose flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
+    too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
+    query raises when such a scan cannot swap.
+
+    A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading `events`.
+    Once `events` gets no flag calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
     database = context.database
     if (
@@ -180,7 +194,7 @@ def resolve_flag_calls_from_flag_evaluations(
 def _resolve_with_swaps(
     node: _T_AST,
     context: HogQLContext,
-    resolve: Callable[[_T_AST], _T_AST],
+    resolve: _Resolve,
     database: "Database",
     only_in_flag_evaluations: bool,
 ) -> _T_AST:
@@ -190,6 +204,7 @@ def _resolve_with_swaps(
         return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
         rewritten = clone_expr(node)
+        clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
             now=datetime.now(UTC),
             timezone=ZoneInfo(database.get_timezone()),
@@ -202,7 +217,13 @@ def _resolve_with_swaps(
         if only_in_flag_evaluations:
             raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=swapper.refusals[0])
-    original = resolve(node)
+    sources = JoinSources() if only_in_flag_evaluations else None
+    original = resolve(node, join_sources=sources)
+    if sources is not None:
+        with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
+            refusal = swapper.swap_scans_found_by_type(original, sources, clones)
+        if refusal is not None:
+            raise _flag_calls_only_in_flag_evaluations_error(refusal)
     if not swapper.swapped:
         return original
     try:
@@ -323,17 +344,8 @@ class EventsScan:
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. With `needs_flag_key`, a pin of `event` counts only where
-        these conjuncts also pin `$feature_flag`. The recursion into `OR` branches passes False once an enclosing
-        conjunct pins `$feature_flag`."""
-        needs_flag_key = needs_flag_key and not self.flag_keys(conjuncts)
-        return any(self._pins_flag_calls_in(conjunct, needs_flag_key) for conjunct in conjuncts)
-
-    def _pins_flag_calls_in(self, expr: ast.Expr, needs_flag_key: bool) -> bool:
-        if _pinned_values(expr, self._reads_event, _is_flag_called) is not None:
-            return not needs_flag_key
-        if branches := boolean_operands(expr, ast.Or):
-            return all(self.pins_flag_calls(_conjuncts(branch), needs_flag_key) for branch in branches)
-        return False
+        these conjuncts also pin `$feature_flag`."""
+        return _pins_flag_calls(conjuncts, self._reads_event, self.flag_keys if needs_flag_key else None)
 
     def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
         """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
@@ -401,6 +413,28 @@ class EventsScan:
 
     def _reads_timestamp(self, expr: ast.Expr) -> bool:
         return self.column(expr) == ["timestamp"]
+
+
+def _pins_flag_calls(
+    conjuncts: list[ast.Expr], reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
+) -> bool:
+    """Whether `conjuncts` pin what `reads_event` matches to flag calls: by `=` or `IN` of only
+    `$feature_flag_called`, or by an `OR` whose every branch pins. With `flag_keys`, a pin counts only where these
+    conjuncts also pin `$feature_flag`. The recursion into `OR` branches drops `flag_keys` once an enclosing
+    conjunct pins `$feature_flag`."""
+    if flag_keys is not None and flag_keys(conjuncts):
+        flag_keys = None
+    return any(_pins_flag_calls_in(conjunct, reads_event, flag_keys) for conjunct in conjuncts)
+
+
+def _pins_flag_calls_in(
+    expr: ast.Expr, reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
+) -> bool:
+    if _pinned_values(expr, reads_event, _is_flag_called) is not None:
+        return flag_keys is None
+    if branches := boolean_operands(expr, ast.Or):
+        return all(_pins_flag_calls(_conjuncts(branch), reads_event, flag_keys) for branch in branches)
+    return False
 
 
 def comparison_of(expr: ast.Expr) -> ast.CompareOperation | None:
@@ -791,6 +825,106 @@ class _EventsScanSwapper(ScanVisitor):
         point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
 
+    def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
+        """Swap each events scan in the clone whose counterpart in `resolved`, the resolved original, has a WHERE or
+        PREWHERE that pins `event` to flag calls, such as a scan joined after another table. `sources` holds the
+        original join of each resolved join, and `clones` holds the clones of each original join. Returns why one of
+        them cannot swap, or None.
+
+        A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading events.
+        Any other scan without a clone cannot swap.
+        """
+        for select, join in _joins(resolved):
+            if not _reads_events_table(join) or sources.is_added(join):
+                continue
+            if not _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
+                continue
+            source = sources.source_of(join)
+            source_clones = clones.get(id(source), []) if source is not None else []
+            # The pin check above reads the filters of one SELECT. A join that several SELECTs share cannot swap.
+            if not source_clones or len({id(clone.original_select) for clone in source_clones}) > 1:
+                return _UNMOVABLE_SHAPE
+            # A query can hold one node in several places, such as one SELECT in two branches of a UNION. Cloning
+            # copies each place apart, so one original join can have several clones, and each one has to swap.
+            for clone in source_clones:
+                refusal = self._swap_clone(clone)
+                if refusal is not None:
+                    return refusal
+        return None
+
+    def _swap_clone(self, clone: "_JoinClone") -> str | None:
+        chain = _table_chain(clone.join)
+        if chain == ["posthog", "flag_evaluations"]:
+            # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
+            return None
+        if chain != ["events"]:
+            return _UNMOVABLE_SHAPE
+        events_scan = EventsScan(
+            join=clone.join,
+            alias=clone.join.alias or "events",
+            # The clone is unresolved, so only a name qualified with this scan's alias can count as a read of it.
+            has_other_sources=True,
+            flag_key_compares_as_string=self.flag_key_compares_as_string,
+        )
+        refusal = events_scan.shape_refusal(clone.select)
+        if refusal is not None:
+            return refusal
+        self._swap(clone.select, events_scan, filter_conjuncts(clone.select))
+        return None
+
+
+@frozen
+class _JoinClone:
+    # Keeps the original join alive, so no other node can take the id that keys it.
+    original: ast.JoinExpr
+    original_select: ast.SelectQuery
+    select: ast.SelectQuery
+    join: ast.JoinExpr
+
+
+_JoinClones = dict[int, list[_JoinClone]]
+
+
+def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
+    """Each join of `original`, with the `SelectQuery` and `JoinExpr` in each of its places in `clone`, a copy of it."""
+    clones: _JoinClones = {}
+    for (original_select, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True):
+        clones.setdefault(id(join), []).append(
+            _JoinClone(original=join, original_select=original_select, select=clone_select, join=clone_join)
+        )
+    return clones
+
+
+def _table_chain(join: ast.JoinExpr) -> list[str | int] | None:
+    return join.table.chain if isinstance(join.table, ast.Field) else None
+
+
+def _joins(node: ast.AST) -> list[tuple[ast.SelectQuery, ast.JoinExpr]]:
+    collector = _JoinCollector()
+    collector.visit(node)
+    return collector.joins
+
+
+class _JoinCollector(SyntaxVisitor):
+    """Each `JoinExpr` in a FROM chain, with the `SelectQuery` that owns it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.joins: list[tuple[ast.SelectQuery, ast.JoinExpr]] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        join = node.select_from
+        while join is not None:
+            self.joins.append((node, join))
+            join = join.next_join
+        super().visit_select_query(node)
+
+
+def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
+    """Whether resolved `expr` reads the `event` column of the scan whose type is `table_type`."""
+    field_type = event_field_type(expr)
+    return field_type is not None and field_type.table_type is table_type
+
 
 def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicates: int) -> bool:
     """Whether every field and table in the resolved swapped query binds as it does in the resolved original.
@@ -1015,7 +1149,5 @@ def _reads_only_flag_calls_from_events(node: ast.SelectQuery) -> bool:
 
 def _reads_events_table(join: ast.JoinExpr) -> bool:
     """Whether a resolved FROM reads the events table, rather than a CTE named `events`."""
-    table_type = join.type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
+    table_type = unwrap_table_alias_type(join.type)
     return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
