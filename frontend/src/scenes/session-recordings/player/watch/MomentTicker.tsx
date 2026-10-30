@@ -1,10 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconChevronRight, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { colonDelimitedDuration } from 'lib/utils/durations'
-import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { observationsDockLogic } from 'products/replay_vision/frontend/logics/observationsDockLogic'
 import {
@@ -20,6 +20,7 @@ const formatMs = (ms: number): string => colonDelimitedDuration(ms / 1000, ms >=
 export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { timeline } = useValues(observationsDockLogic({ sessionId }))
     const { logicProps, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
+    const { openWatchPanelSection } = useActions(playerSettingsLogic)
     const moments = timelineMoments(timeline)
     if (moments.length === 0) {
         return null
@@ -64,9 +65,7 @@ export function MomentTicker({ sessionId }: { sessionId: string }): JSX.Element 
                 type="tertiary"
                 icon={<IconSparkles />}
                 className="ml-auto"
-                onClick={() =>
-                    replayListColumnLogic.findMounted({ logicKey: logicProps.playerKey })?.actions.setSegment('moments')
-                }
+                onClick={() => openWatchPanelSection('observations')}
                 data-attr="moment-ticker-open-moments"
             >
                 <span>{momentCount(timeline)}</span> moments

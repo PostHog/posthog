@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconEye } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
 import { cn } from 'lib/utils/css-classes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
@@ -14,9 +13,8 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
-import { urls } from 'scenes/urls'
 
-import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../replay_scanners/types'
@@ -24,7 +22,7 @@ import { RECORDING_ORIGIN, currentReturnPath, observationFromOriginUrl } from '.
 import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
-import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
+import { recordingScanBlock } from '../utils/scanEligibility'
 import { CitedMarkdown } from './CitedMarkdown'
 import {
     FailureDetail,
@@ -36,100 +34,8 @@ import {
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { RecordingTimeline } from './RecordingTimeline'
-import { ScannerTypeBadge, scannerTypeIcon } from './ScannerTypeBadge'
-
-function ScannerPicker({
-    sessionId,
-    scanBlock,
-    type = 'primary',
-    placement = 'bottom-start',
-}: {
-    sessionId: string
-    scanBlock: ScanBlock | null
-    type?: 'primary' | 'secondary'
-    placement?: 'bottom-start' | 'top-start'
-}): JSX.Element {
-    const logic = observationsDockLogic({ sessionId })
-    const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
-        useValues(logic)
-    const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-
-    return (
-        <LemonDropdown
-            visible={scannerPickerOpen}
-            onVisibilityChange={setScannerPickerOpen}
-            closeOnClickInside={false}
-            placement={placement}
-            overlay={
-                <div className="w-80">
-                    <div className="p-1 border-b">
-                        <LemonInput
-                            data-attr="vision-observations-tab-search"
-                            type="search"
-                            size="small"
-                            placeholder="Search scanners…"
-                            value={scannerSearch}
-                            onChange={setScannerSearch}
-                            autoFocus
-                        />
-                    </div>
-                    <div className="max-h-80 overflow-y-auto p-1">
-                        {scanners.length === 0 && scannersLoading ? (
-                            <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted">
-                                <Spinner /> Loading scanners…
-                            </div>
-                        ) : scanners.length === 0 ? (
-                            <Link
-                                data-attr="vision-observations-open-scanners"
-                                to={urls.replayVision()}
-                                target="_blank"
-                                className="block px-2 py-3 text-sm"
-                            >
-                                No scanners yet. Create one
-                            </Link>
-                        ) : filteredScanners.length === 0 ? (
-                            <div className="px-2 py-3 text-sm text-muted">No scanners match your search.</div>
-                        ) : (
-                            filteredScanners.map((scanner: ReplayScannerApi) => (
-                                <LemonButton
-                                    key={scanner.id}
-                                    fullWidth
-                                    size="small"
-                                    onClick={() => observe(scanner.id)}
-                                    disabledReason={observing ? 'Starting an observation…' : undefined}
-                                    data-attr="vision-scan-pick-scanner"
-                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                >
-                                    <span className="flex items-center justify-between gap-2 w-full">
-                                        <span className="truncate">{scanner.name}</span>
-                                        <span className="shrink-0">
-                                            <ScannerTypeBadge scannerType={scanner.scanner_type} size="small" />
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            ))
-                        )}
-                    </div>
-                </div>
-            }
-        >
-            <LemonButton
-                size="small"
-                type={type}
-                icon={<IconEye />}
-                sideIcon={<IconChevronDown />}
-                loading={observing}
-                disabledReason={scanBlock?.reason ?? quotaDisabledReason}
-                tooltip={quotaTooltip}
-                data-attr="vision-scan-recording"
-            >
-                Scan this recording
-            </LemonButton>
-        </LemonDropdown>
-    )
-}
+import { ScannerPicker } from './ScannerPicker'
+import { scannerTypeIcon } from './ScannerTypeBadge'
 
 const CURRENT_MOMENT_SELECTOR = '[data-current-moment]'
 
@@ -315,7 +221,6 @@ export interface RecordingMomentsProps {
     playerLogicProps: SessionRecordingPlayerLogicProps
 }
 
-/** The chapter timeline and observation runs of one recording: the Observations tab, and the Moments list segment. */
 export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomentsProps): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, timeline, followMoments, summarizePending } = useValues(logic)
@@ -419,18 +324,25 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                             </div>
                         )}
                     </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
-                        <SectionHeader label="Timeline" />
-                        <RecordingTimeline
-                            timeline={timeline}
-                            rows={timelineRows}
-                            currentTimeMs={currentPlayerTime}
-                            onSeek={seekToTime}
-                            onSummarize={() => summarize(inWatchLayout)}
-                            summarizing={summarizePending}
-                            summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
-                        />
-                        <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
+                    <div
+                        className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 @[960px]:grid-cols-2 @[960px]:grid-rows-[minmax(0,1fr)] @[960px]:overflow-hidden"
+                        ref={timelineRef}
+                    >
+                        <div className="min-h-0 @[960px]:overflow-y-auto">
+                            <SectionHeader label="Timeline" />
+                            <RecordingTimeline
+                                timeline={timeline}
+                                rows={timelineRows}
+                                currentTimeMs={currentPlayerTime}
+                                onSeek={seekToTime}
+                                onSummarize={() => summarize(inWatchLayout)}
+                                summarizing={summarizePending}
+                                summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
+                            />
+                        </div>
+                        <div className="min-h-0 @[960px]:overflow-y-auto @[960px]:border-l">
+                            <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
+                        </div>
                     </div>
                 </>
             )}

@@ -50,7 +50,7 @@ export function SummarizeButton({
           : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     const summarizerTooltip = summarizePending
-        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Scans segment' : 'Observations tab'} when it is ready.`
+        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Observations section' : 'Observations tab'} when it is ready.`
         : defaultSummarizer
           ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
           : 'Writes a summary using a built-in prompt.'
