@@ -31,9 +31,8 @@ describe('todayHighlightsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('records which pulse metric was opened, why it was shown and the ranking variant', async () => {
+    it('records which pulse metric was opened and why it was shown', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue('frecency')
         const logic = todayHighlightsLogic()
         logic.mount()
 
@@ -43,7 +42,6 @@ describe('todayHighlightsLogic', () => {
             kind: 'insight',
             reason: 'dashboard',
             position: 2,
-            pulse_ranking: 'frecency',
         })
     })
 
