@@ -2,7 +2,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
@@ -30,18 +29,11 @@ describe('detectedSourcesLogic', () => {
         setupPlanLogic.mount()
     })
 
-    it('starts the scan when the onboarding flag arrives after mount', async () => {
+    it('starts the scan once on mount', async () => {
         const logic = detectedSourcesLogic({ teamId: MOCK_TEAM_ID })
-        logic.mount()
-        expect(setupPlanLogic.values.setupPlanLoading).toBe(false)
 
         await expectLogic(setupPlanLogic, () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true,
-            })
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true,
-            })
+            logic.mount()
         }).toDispatchActions(['loadSetupPlan', 'loadSetupPlanSuccess'])
         expect(setupPlanRequests).toBe(1)
         logic.unmount()

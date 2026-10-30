@@ -120,8 +120,8 @@ def _marketing_feature_enabled(request: Request, team: Team, flag: str) -> bool:
     )
 
 
-def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = False) -> bool:
-    """Evaluate eligible marketing flags once per request.
+def _setup_enabled(request: Request, team: Team) -> bool:
+    """Evaluate the setup flag once per request.
 
     Evaluated for the requesting person, because the flag's release conditions target
     people and the frontend renders the Setup tab off that same per-person answer.
@@ -130,34 +130,23 @@ def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = Fa
     condition matches too. Cached on the request because a second call in the same one
     would fire a redundant `$feature_flag_called`.
     """
-    cache_attribute = "_ma_read_only_setup_flag" if include_read_only else "_ma_setup_flag"
-    cached = getattr(request, cache_attribute, None)
+    cached = getattr(request, "_ma_setup_flag", None)
     if cached is not None:
         return cached
     person_properties = {}
     email = getattr(request.user, "email", None)
     if email:
         person_properties["email"] = email
-    enabled = any(
-        feature_enabled_or_false(
-            flag,
-            # Service credentials authenticate as a synthetic user with no person behind them;
-            # the team UUID keeps the call well-formed, and a person condition won't match it.
-            getattr(request.user, "distinct_id", None) or str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            person_properties=person_properties,
-            group_properties={"organization": {"id": str(team.organization.id)}},
-        )
-        for flag in (
-            "marketing-analytics-setup",
-            *(
-                ("marketing-analytics-source-onboarding", "marketing-analytics-setup-plan-mcp")
-                if include_read_only
-                else ()
-            ),
-        )
+    enabled = feature_enabled_or_false(
+        "marketing-analytics-setup",
+        # Service credentials authenticate as a synthetic user with no person behind them;
+        # the team UUID keeps the call well-formed, and a person condition won't match it.
+        getattr(request.user, "distinct_id", None) or str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        person_properties=person_properties,
+        group_properties={"organization": {"id": str(team.organization.id)}},
     )
-    setattr(request, cache_attribute, enabled)
+    request._ma_setup_flag = enabled  # type: ignore[attr-defined]
     return enabled
 
 
@@ -1807,10 +1796,6 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
-        # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(request, self.team, include_read_only=True):
-            raise NotFound("Marketing analytics setup is not enabled for this project.")
-
         date_from = request.validated_query_data["date_from"]
         # `IsAuthenticated` on the viewset rules out AnonymousUser, which is the only
         # reason `.pk` is optional here.
@@ -1863,8 +1848,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path="apply_setup_ops", required_scopes=["marketing_analytics:write"])
     def apply_setup_ops(self, request: Request, *args, **kwargs) -> Response:
-        # Same gate as setup_plan: the ops only come from a plan, so an unreleased
-        # read side means there is nothing legitimate to apply.
+        # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
         if not _setup_enabled(request, self.team):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
