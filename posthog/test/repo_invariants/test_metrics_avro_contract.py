@@ -50,8 +50,14 @@ def _avro_type(avro_type: object) -> str:
 def kafka_table_columns(hcl: str, table: str) -> dict[str, str]:
     block = hcl[hcl.index(f'table "{table}" {{') :]
     block = block[: block.index('engine "kafka"')]
-    columns = re.findall(r'column "(\w+)" \{ type = "([^"]+)" \}', block)
-    return {name: _strip_nullable(column_type) for name, column_type in columns}
+    columns: dict[str, str] = {}
+    for name, body in re.findall(r'column\s+"(\w+)"\s*\{([^}]*)\}', block):
+        column_type = re.search(r'\btype\s*=\s*"([^"]+)"', body)
+        assert column_type, f"{KAFKA_TABLE} column {name!r} has no type"
+        columns[name] = _strip_nullable(column_type.group(1))
+    # A declaration the pattern misses would drop out of the reverse check without an error.
+    assert len(columns) == len(re.findall(r'\bcolumn\s+"', block)), f"Could not parse every column of {table}"
+    return columns
 
 
 def _strip_nullable(column_type: str) -> str:
@@ -75,3 +81,19 @@ def test_capture_avro_schema_matches_the_clickhouse_kafka_table() -> None:
 
     assert "series_fingerprint" in fields
     assert contract_errors(fields, columns) == []
+
+
+def test_kafka_table_columns_reads_every_declaration_layout() -> None:
+    hcl = """
+  table "kafka_metrics_avro4" {
+    column "uuid" { type = "String" }
+    column "count" {
+      type = "Nullable(Int64)"
+    }
+    column "retention_days" { type = "Int32" comment = "days" }
+    engine "kafka" {
+    }
+  }
+"""
+
+    assert kafka_table_columns(hcl, KAFKA_TABLE) == {"uuid": "String", "count": "Int64", "retention_days": "Int32"}
