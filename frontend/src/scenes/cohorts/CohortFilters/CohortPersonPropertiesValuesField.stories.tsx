@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { renderField } from 'scenes/cohorts/CohortFilters/constants'
+import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { CohortPersonPropertiesValuesFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
 import { PropertyOperator } from '~/types'

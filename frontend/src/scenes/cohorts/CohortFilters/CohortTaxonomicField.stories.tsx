@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { renderField } from 'scenes/cohorts/CohortFilters/constants'
+import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
 import { actionsModel } from '~/models/actionsModel'
