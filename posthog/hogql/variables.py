@@ -44,26 +44,12 @@ class ReplaceVariables(CloningVisitor):
 
     def visit_field(self, node):
         if self._inside_placeholder and len(node.chain) > 1 and node.chain[0] == "variables":
-            return self._resolve_variable(str(node.chain[1]))
+            matching_variable, _ = self._find_variable(str(node.chain[1]))
+            return self._expression_value(matching_variable.value)
         return super().visit_field(node)
 
     def _resolve_variable(self, variable_code_name: str) -> ast.Expr:
-        if not self.variables:
-            raise self._missing_variable_error(variable_code_name)
-
-        matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
-        if not matching_variables:
-            raise self._missing_variable_error(variable_code_name)
-
-        matching_variable = matching_variables[0]
-
-        matching_insight_variable = [
-            variable for variable in self.insight_variables if variable.code_name == variable_code_name
-        ]
-        if not matching_insight_variable:
-            raise QueryError(f"Variable {variable_code_name} does not exist")
-
-        variable_definition = matching_insight_variable[0]
+        matching_variable, variable_definition = self._find_variable(variable_code_name)
         if matching_variable.isNull:
             if variable_definition.type == InsightVariableType.LIST and variable_definition.is_multi:
                 return ast.Array(exprs=[])
@@ -71,6 +57,27 @@ class ReplaceVariables(CloningVisitor):
 
         value = matching_variable.value if matching_variable.value is not None else variable_definition.default_value
         return self._coerce_value(variable_definition, value)
+
+    def _find_variable(self, variable_code_name: str) -> tuple[HogQLVariable, InsightVariableDefinition]:
+        if not self.variables:
+            raise self._missing_variable_error(variable_code_name)
+
+        matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
+        if not matching_variables:
+            raise self._missing_variable_error(variable_code_name)
+
+        matching_insight_variable = [
+            variable for variable in self.insight_variables if variable.code_name == variable_code_name
+        ]
+        if not matching_insight_variable:
+            raise QueryError(f"Variable {variable_code_name} does not exist")
+
+        return matching_variables[0], matching_insight_variable[0]
+
+    def _expression_value(self, value: Any) -> ast.Expr:
+        if isinstance(value, list):
+            return ast.Array(exprs=[ast.Constant(value=item) for item in value])
+        return ast.Constant(value=value)
 
     def _coerce_value(self, variable_definition: InsightVariableDefinition, value: Any) -> ast.Expr:
         if variable_definition.type == InsightVariableType.LIST:

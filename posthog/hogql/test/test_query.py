@@ -2018,28 +2018,34 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("2026-07-30 12:00:00.000000",)])
 
-    def test_expression_placeholder_reads_request_variable(self) -> None:
+    @parameterized.expand(
+        [
+            ("string", InsightVariable.Type.STRING, False, "Acme", "{variables.my_variable == 'Acme' ? 1 : 2}", 1),
+            ("relative_date", InsightVariable.Type.DATE, False, "-7d", "{variables.my_variable == '-7d' ? 1 : 2}", 1),
+            ("multi_select_list", InsightVariable.Type.LIST, True, ["a", "b"], "{length(variables.my_variable)}", 2),
+        ]
+    )
+    def test_expression_placeholder_reads_request_variable(
+        self, _name: str, variable_type: str, is_multi: bool, value: Any, placeholder: str, expected: int
+    ) -> None:
         insight_variable = InsightVariable.objects.create(
             team=self.team,
-            name="Company",
-            code_name="company_name",
-            type=InsightVariable.Type.STRING,
+            name="My variable",
+            code_name="my_variable",
+            type=variable_type,
+            is_multi=is_multi,
         )
         variables = {
-            "company_name": HogQLVariable(
-                code_name="company_name",
-                value="Acme",
+            "my_variable": HogQLVariable(
+                code_name="my_variable",
+                value=value,
                 variableId=str(insight_variable.id),
             )
         }
 
-        response = execute_hogql_query(
-            "SELECT {variables.company_name == 'Acme' ? 1 : 2}",
-            team=self.team,
-            variables=variables,
-        )
+        response = execute_hogql_query(f"SELECT {placeholder}", team=self.team, variables=variables)
 
-        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(response.results, [(expected,)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
