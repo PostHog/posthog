@@ -40,10 +40,10 @@ import {
     sanitizeVariableKey,
 } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
-import { ViewOnlyFieldset } from './ViewOnlyFieldset'
+import { ViewOnlyArea } from './ViewOnlyArea'
 
 function withViewOnlyContent<T extends { content: React.ReactNode }>(panels: T[]): T[] {
-    return panels.map((panel) => ({ ...panel, content: <ViewOnlyFieldset>{panel.content}</ViewOnlyFieldset> }))
+    return panels.map((panel) => ({ ...panel, content: <ViewOnlyArea>{panel.content}</ViewOnlyArea> }))
 }
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
@@ -105,7 +105,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 contentClassName="flex flex-1 shrink-0 flex-col"
                 styledScrollbars
             >
-                <ViewOnlyFieldset>
+                <ViewOnlyArea>
                     <div className="flex flex-1 flex-col gap-2 p-3">
                         <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
                             {Step?.renderConfiguration(selectedNode)}
@@ -218,7 +218,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             )}
                         </>
                     )}
-                </ViewOnlyFieldset>
+                </ViewOnlyArea>
 
                 {!['trigger', 'exit'].includes(action.type) && (
                     <>

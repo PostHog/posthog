@@ -25,7 +25,7 @@ import { HogFlowEditorPanelSelectedStep } from './HogFlowEditorPanelSelectedStep
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
-import { ViewOnlyFieldset } from './ViewOnlyFieldset'
+import { ViewOnlyArea } from './ViewOnlyArea'
 
 export interface HogFlowEditorPanelProps {
     layout?: 'floating' | 'panel' | 'docked'
@@ -154,15 +154,15 @@ export function HogFlowEditorPanel({
                 ) : (
                     <>
                         {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
-                            <ViewOnlyFieldset>
+                            <ViewOnlyArea>
                                 <HogFlowEditorPanelSelectedStep />
-                            </ViewOnlyFieldset>
+                            </ViewOnlyArea>
                         )}
                         {mode === 'build' && selectedNode && <HogFlowEditorPanelBuildDetail />}
                         {mode === 'variables' && (
-                            <ViewOnlyFieldset>
+                            <ViewOnlyArea>
                                 <HogFlowEditorPanelVariables />
-                            </ViewOnlyFieldset>
+                            </ViewOnlyArea>
                         )}
                         {mode === 'build' &&
                             !selectedNode &&
