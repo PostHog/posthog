@@ -53,10 +53,17 @@ import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
 export const MORE_REPORTS_PAGE_SIZE = 20
-export const TODAY_REPORT_LIST_PARAMS = { view: 'for_you', sort: 'priority' } as const
 export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
+
+function todayReportListParams(): Record<string, string | undefined> {
+    return {
+        view: 'for_you',
+        sort: 'recommended',
+        created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    }
+}
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'list' | 'more'
@@ -522,7 +529,7 @@ export const todayLogic = kea<todayLogicType>([
                     let response
                     try {
                         response = await signalsReportsList(String(values.currentProjectId), {
-                            ...TODAY_REPORT_LIST_PARAMS,
+                            ...todayReportListParams(),
                             limit: TOP_REPORT_COUNT,
                         })
                     } catch (error) {
@@ -548,7 +555,7 @@ export const todayLogic = kea<todayLogicType>([
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
-                        ...TODAY_REPORT_LIST_PARAMS,
+                        ...todayReportListParams(),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
@@ -892,6 +899,12 @@ export const todayLogic = kea<todayLogicType>([
                         capturePreview(reportId, reportList, index + 1)
                         return
                     }
+                }
+            },
+            // A verdict that failed without an answer can still have saved, so the list reloads from the server.
+            [todayVerdictLogic.actionTypes.setReportVerdictFailure]: () => {
+                if (!values.useSampleData) {
+                    actions.loadTopReports()
                 }
             },
             showMoreForYou: () => {

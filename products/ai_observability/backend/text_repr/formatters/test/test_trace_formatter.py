@@ -21,6 +21,7 @@ from ..trace_formatter import (
     _get_event_summary,
     _render_tree,
     format_trace_text_repr,
+    format_trace_text_repr_with_line_owners,
     llm_trace_to_formatter_format,
 )
 
@@ -896,3 +897,80 @@ class TestSurrogateSafety:
 
         assert text.encode("utf-8")
         assert "\ud83c" not in text
+
+
+PLAIN_NUMBERED: FormatterOptions = {
+    "include_markers": False,
+    "truncated": False,
+    "collapsed": False,
+    "include_line_numbers": True,
+}
+NESTED_TRACE = {"properties": {"$ai_span_name": "support-bot", "$ai_error": {"message": "boom", "code": 7}}}
+NESTED_HIERARCHY = [
+    {
+        "event": {"id": "span-1", "event": "$ai_span", "properties": {"$ai_span_name": "retrieve"}},
+        "children": [
+            {
+                "event": {
+                    "id": "gen-1",
+                    "event": "$ai_generation",
+                    "properties": {
+                        "$ai_model": "gpt-4.1-mini",
+                        "$ai_input": [{"role": "user", "content": "Where is my parcel?\nIt was due Monday."}],
+                        "$ai_output_choices": [{"role": "assistant", "content": "It ships tomorrow."}],
+                    },
+                },
+                "children": [],
+            }
+        ],
+    }
+]
+STATE_ONLY_TRACE = {"properties": {"$ai_span_name": "lookup", "$ai_input_state": {"order": 12}}}
+
+
+class TestLineOwners:
+    @parameterized.expand(
+        [
+            ("nested plain numbered", NESTED_TRACE, NESTED_HIERARCHY, PLAIN_NUMBERED),
+            ("nested with markers", NESTED_TRACE, NESTED_HIERARCHY, {"include_markers": True}),
+            ("collapsed", NESTED_TRACE, NESTED_HIERARCHY, {"collapsed": True}),
+            ("state only", STATE_ONLY_TRACE, [], PLAIN_NUMBERED),
+            ("default options", NESTED_TRACE, NESTED_HIERARCHY, None),
+        ]
+    )
+    def test_line_owner_variant_renders_the_same_text(
+        self, _name: str, trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None
+    ) -> None:
+        rendered = format_trace_text_repr_with_line_owners(trace, hierarchy, options)
+
+        assert (rendered.text, rendered.was_sampled) == format_trace_text_repr(trace, hierarchy, options)
+
+    def test_line_owners_follow_each_step_through_nesting_and_multiline_entries(self) -> None:
+        rendered = format_trace_text_repr_with_line_owners(NESTED_TRACE, NESTED_HIERARCHY, PLAIN_NUMBERED)
+        lines = rendered.text.split("\n")
+
+        def owners_of(marker: str) -> set[str | None]:
+            return {owner for line, owner in zip(lines, rendered.line_owners) if marker in line}
+
+        assert len(rendered.line_owners) == len(lines)
+        assert owners_of("[GEN]") == {"gen-1"}
+        assert owners_of("[SPAN]") == {"span-1"}
+        assert owners_of("It was due Monday.") == {"gen-1"}
+        assert owners_of('"code": 7') == {None}
+        assert rendered.line_owners[0] is None
+
+    def test_line_owners_survive_sampling(self) -> None:
+        hierarchy = [
+            {"event": {"id": f"gen-{index}", "event": "$ai_generation", "properties": {"$ai_model": "m"}}}
+            for index in range(200)
+        ]
+        full = format_trace_text_repr_with_line_owners(NESTED_TRACE, hierarchy, PLAIN_NUMBERED)
+        sampled = format_trace_text_repr_with_line_owners(
+            NESTED_TRACE, hierarchy, {**PLAIN_NUMBERED, "max_length": len(full.text) // 3}
+        )
+        kept = [line for line in sampled.text.split("\n") if line.startswith("L") and ":" in line]
+
+        assert sampled.was_sampled and sampled.line_owners == full.line_owners
+        for line in kept:
+            number = int(line[1 : line.index(":")])
+            assert full.text.split("\n")[number - 1] == line

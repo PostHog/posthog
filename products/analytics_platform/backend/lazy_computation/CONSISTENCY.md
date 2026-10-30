@@ -58,6 +58,20 @@ Only works with ReplicatedMergeTree family tables, not Distributed tables direct
 
 Because of this trade, quorum is opt-out per caller: `ensure_precomputed(read_after_write=False)` drops it for builds whose readers arrive later (background warmers, revalidation tasks). Those callers get nothing from the read-your-own-writes guarantee, so for them quorum is pure availability risk: replicas count against quorum by ZooKeeper registration, not liveness, so a dead-but-registered replica (mid-upscale, unrevived node) fails every quorum INSERT until someone repairs the cluster metadata. `web_ensure_precomputed` defaults `read_after_write` to `False`, so every web analytics build skips quorum unless a caller overrides it. Callers that SELECT the rows in the same request (experiments) keep the framework default of `True`. The residual same-call race (build, then read before the part replicates) is handled with a settle wait: `LazyComputationResult.freshly_built` marks coverage that landed during the call, and `ensure_precomputed` sleeps `PREAGGREGATION_REPLICATION_SETTLE_SECONDS` (1s, above the observed sub-second replica lag) before returning it to a quorum-skipping caller, so the caller's immediate read-back cannot cache a partial result.
 
+The INSERT takes `load_balancing` from the HogQL table that reads the rows (`_get_insert_settings`), so the write and the read choose replicas the same way. Web analytics, marketing, `preaggregation_results` and experiment exposures tables set `in_order` (Approach E). Experiment exposures live on the sharded `posthog` cluster. When this was written it had three replicas per shard, so `'auto'` quorum waits for two of them and a spread read can reach the third before it has the part. The experiment metric events table lives on the `aux` cluster, which had one shard with two replicas at the time. It sets no `load_balancing` and uses the profile default, so its reads spread over both replicas and rely on quorum alone (Approach B). Approach B is exact only while `'auto'` quorum covers every replica, which means at most two replicas per shard. `load_balancing` applies to the whole query, so a SELECT that joins both experiment tables still runs `in_order`.
+
+The replica counts above are a snapshot, not a guarantee. Check the current topology in each region before relying on them:
+
+```sql
+SELECT cluster, shard_num, count() AS replicas
+FROM system.clusters
+WHERE cluster IN ('aux', 'posthog')
+GROUP BY cluster, shard_num
+ORDER BY cluster, shard_num
+```
+
+The metric events spread assumes `aux` has at most two replicas per shard. Nothing enforces that assumption yet; a separate PR adds the enforcement.
+
 Sources:
 
 - [ClickHouse settings docs](https://clickhouse.com/docs/operations/settings/settings#insert_quorum)

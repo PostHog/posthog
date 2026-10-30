@@ -1235,6 +1235,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      session.compacting = false;
       this.dispatchQueuedInput(session);
       // Attach the turn's gateway trace id (from the traceparent hook) so the
       // server can stamp it on `_posthog/turn_complete`. Cleared here so a
@@ -1423,6 +1424,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
+                if (session.compacting) break;
                 session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
@@ -3046,7 +3048,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       if (!error.message.startsWith("Session ")) {
         error.message = `Session ${step} failed: ${error.message}`;
       }
-      return error;
+      if (!("startup_failure" in errorData)) return error;
+      return new RequestError(error.code, error.message, {
+        ...errorData,
+        ...(error.data && typeof error.data === "object" ? error.data : {}),
+      });
     }
     return new RequestError(-32603, `Session ${step} failed`, errorData);
   }
@@ -3451,6 +3457,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           },
         );
         throw this.startupFailure(forkSession ? "fork" : "resumption", err, {
+          startup_failure: initialization.failure,
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
@@ -3462,7 +3469,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // with the model config fetch below (the gateway REST call is independent).
     const initStartedAt = Date.now();
     const initPromise = !isResume
-      ? initialization.wait(q.initializationResult())
+      ? initialization.wait(q.initializationResult()).then(
+          (result) => ({ ok: true as const, result }),
+          (error: unknown) => ({ ok: false as const, error }),
+        )
       : undefined;
 
     const [rawModelOptions] = await Promise.all([
@@ -3499,7 +3509,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       let cliOutput: CliOutputSummary | undefined;
       try {
-        const initResult = await initPromise;
+        const initializationResult = await initPromise;
+        if (!initializationResult.ok) throw initializationResult.error;
+        const initResult = initializationResult.result;
         if (initResult.result === "timeout") {
           initializationPhase = initResult.phase;
           timeoutMs = initResult.timeoutMs;
@@ -3548,7 +3560,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             ? "setup hooks"
             : "initialization",
           err,
-          { sessionId, taskId, taskRunId: meta?.taskRunId },
+          {
+            sessionId,
+            taskId,
+            taskRunId: meta?.taskRunId,
+            startup_failure: initialization.failure,
+          },
         );
       }
     }

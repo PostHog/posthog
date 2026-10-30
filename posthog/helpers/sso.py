@@ -46,21 +46,26 @@ def is_sso_reauth_complete(request: HttpRequest) -> bool:
     return getattr(request, "session", {}).get("reauth") == "true"
 
 
-def _with_error_code(url: str, error_code: str) -> str:
-    """Attach `error_code` to a relative URL, keeping it ahead of any fragment.
+def _with_error_code(url: str, error_code: str, error_detail: str | None = None) -> str:
+    """Attach `error_code`, and `error_detail` when given, to a relative URL, keeping them ahead of any fragment.
 
     `next` is the whole path the modal was opened from, fragment included, and a query string placed
     after the `#` reads as fragment text - leaving the frontend with no error code to report.
     """
     path, fragment_separator, fragment = url.partition("#")
     joiner = "&" if "?" in path else "?"
-    # url is either a literal or a same-origin path validated by get_safe_next_url, and the error code
-    # is urlencoded, so this is a redirect target, not HTML
+    params = {"error_code": error_code}
+    if error_detail:
+        params["error_detail"] = error_detail
+    # url is either a literal or a same-origin path validated by get_safe_next_url, and the params
+    # are urlencoded, so this is a redirect target, not HTML
     # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-    return f"{path}{joiner}{urlencode({'error_code': error_code})}{fragment_separator}{fragment}"
+    return f"{path}{joiner}{urlencode(params)}{fragment_separator}{fragment}"
 
 
-def sso_failure_redirect_url(request: HttpRequest, error_code: str, is_reauth: bool | None = None) -> str:
+def sso_failure_redirect_url(
+    request: HttpRequest, error_code: str, is_reauth: bool | None = None, *, error_detail: str | None = None
+) -> str:
     """Where to send the browser when an SSO flow fails.
 
     A re-auth still has a valid session, so it goes back to the page that opened the modal with the
@@ -72,6 +77,6 @@ def sso_failure_redirect_url(request: HttpRequest, error_code: str, is_reauth: b
 
     if is_reauth:
         next_url = get_safe_next_url(request.GET.get("next") or getattr(request, "session", {}).get("next"), request)
-        return _with_error_code(next_url or "/", error_code)
+        return _with_error_code(next_url or "/", error_code, error_detail)
 
-    return _with_error_code("/login", error_code)
+    return _with_error_code("/login", error_code, error_detail)

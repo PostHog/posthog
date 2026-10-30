@@ -24,8 +24,14 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPinStatus, HighlightPriority, HighlightsStatus
-from ..feature_flags import pulse_ranking
+from ..facade.enums import (
+    HighlightInterval,
+    HighlightLabel,
+    HighlightMetricReason,
+    HighlightPinStatus,
+    HighlightPriority,
+    HighlightsStatus,
+)
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -33,7 +39,6 @@ from ..temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
-    PinnedNumber,
     highlights_workflow_id,
 )
 from . import pulse_pins
@@ -49,7 +54,7 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
-PULSE_TILES = 4
+PULSE_CANDIDATES = 6
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
 
@@ -60,20 +65,16 @@ _HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
     now = timezone.now()
     day = now.astimezone(team.timezone_info).date()
-    pins = [
-        PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
-        for pin in pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes)
-    ]
     key = _key(team, user, scopes)
-    pins_key = _pins_key(pins)
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
         .order_by("-created_at")
     )
     latest = rows.first()
-    if latest is None or latest.pins_key != pins_key or _is_due(latest, now):
-        _start(team, user, scopes, day, key, pins, pins_key, after=latest.id if latest else None)
+    # A row with a pins key puts pinned tiles first, so compute it again with suggestions only.
+    if latest is None or latest.pins_key or _is_due(latest, now):
+        _start(team, user, scopes, day, key, after=latest.id if latest else None)
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -93,14 +94,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
-
-
-def _pins_key(pins: Sequence[PinnedNumber]) -> str:
-    if not pins:
-        return ""
-    signature = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
-    return hashlib.sha256(signature.encode()).hexdigest()[:32]
+    return hashlib.sha256(f"{granted}:{restrictions}".encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:
@@ -116,16 +110,12 @@ def _start(
     scopes: frozenset[str] | None,
     day: date,
     key: str,
-    pins: list[PinnedNumber],
-    pins_key: str,
     after: UUID | None,
 ) -> None:
-    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}:{after}"
+    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{day.isoformat()}:{after}"
     if not cache.add(lock, True, START_LOCK_SECONDS):
         return
-    row = TodayHighlights.objects.for_team(team.id).create(
-        team_id=team.id, user_id=user.id, local_day=day, key=key, pins_key=pins_key
-    )
+    row = TodayHighlights.objects.for_team(team.id).create(team_id=team.id, user_id=user.id, local_day=day, key=key)
     inputs = ComputeHighlightsInputs(
         team_id=team.id,
         user_id=user.id,
@@ -133,7 +123,6 @@ def _start(
         local_day=day.isoformat(),
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
-        pins=pins,
     )
     try:
         asyncio.run(
@@ -217,7 +206,11 @@ def build_highlights(
             offered.setdefault(metric.key, metric)
     resolved = {**offered, **(pinned or {})}
     chosen = [resolved[key] for key in pins if key in resolved]
-    pulse = [*chosen, *(metric for key, metric in offered.items() if key not in pins)][:PULSE_TILES]
+    suggested = sorted(
+        (metric for key, metric in offered.items() if key not in pins),
+        key=lambda metric: metric.reason == HighlightMetricReason.POPULAR,
+    )
+    pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,

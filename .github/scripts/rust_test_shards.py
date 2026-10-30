@@ -42,7 +42,7 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "deltalite-core": 5,
     "deltalite-python": 5,
     "embedding-worker": 90,
-    "feature-flags": 241,
+    "feature-flags": 356,
     "flags-consumer": 23,
     "health": 5,
     "hogql_parser_rs": 7,

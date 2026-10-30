@@ -8,8 +8,23 @@ MAX_OFFSET = 20_000
 
 EVENTS = "events"
 ROLES = "roles"
+GROUPS = "groups"
+GROUP_LOCKS = "group_locks"
 
-ENDPOINTS = ("locks", "places", "users", "groups", "role_assignments", "controllers", "readers", ROLES, EVENTS)
+ENDPOINTS = (
+    "locks",
+    "places",
+    "users",
+    GROUPS,
+    "role_assignments",
+    "controllers",
+    "readers",
+    ROLES,
+    EVENTS,
+    GROUP_LOCKS,
+    "teams",
+    "team_memberships",
+)
 PRIMARY_KEYS: dict[str, list[str]] = {EVENTS: ["uuid"]}
 DEFAULT_PRIMARY_KEYS = ["id"]
 # Roles have no creation timestamp to partition on.
@@ -17,6 +32,8 @@ PARTITION_KEYS: dict[str, list[str] | None] = {ROLES: None}
 DEFAULT_PARTITION_KEYS = ["created_at"]
 # Kisi returns every role in one response, with no pagination parameters.
 UNPAGINATED_ENDPOINTS = (ROLES,)
+# Kisi requires a group_id on every group locks request, so the table reads each group in turn.
+GROUP_LOCKS_PATH = "group_locks?group_id={group_id}"
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     EVENTS: [

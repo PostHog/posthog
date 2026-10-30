@@ -589,6 +589,10 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    # Facade only: the trace view links a trace's git branch to its pull request.
+    "products.engineering_analytics",
+    # Trace feedback reads trace-linked survey responses through the surveys facade.
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -704,6 +708,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
+    "products.alerts_platform",
     "products.dashboards",
     "products.error_tracking",
     "products.exports",
@@ -876,7 +882,7 @@ depends_on = [
     "products.experiments",
     "products.exports",
     "products.feature_flags",
-    # Facade-only: the watch feed's hourly Jev sweep calls the shared decision-model client.
+    # Facade-only: the highlight feed's hourly Jev sweep calls the shared decision-model client.
     "products.ml_inference",
     "products.notifications",
     "products.signals",
@@ -1743,6 +1749,13 @@ expose = [
     "backend\\.llm.*",
     "backend\\.markdown_outline.*",
     "backend\\.models.*",
+    "backend\\.offline_evaluation_billing.get_offline_evaluation_usage",
+    "backend\\.offline_evaluation_service.OfflineEvaluationIngestionService",
+    "backend\\.offline_evaluation_service.OfflineExperimentService",
+    "backend\\.offline_evaluation_types.ExperimentSubmission",
+    "backend\\.offline_evaluation_types.ItemSubmission",
+    "backend\\.offline_evaluation_types.ResultSubmission",
+    "backend\\.offline_evaluation_types.UploadSubmission",
     "backend\\.prompt_references.*",
     "backend\\.queries.*",
     "backend\\.summarization.*",

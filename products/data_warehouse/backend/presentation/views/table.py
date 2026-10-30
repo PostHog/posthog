@@ -1,6 +1,7 @@
 import re
 import uuid
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -68,6 +69,7 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
+    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -117,6 +119,27 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
     EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
+
+
+SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
+    "You can't create self-managed tables when managed object storage sources are enabled. "
+    "Add {provider} as a source instead."
+)
+
+MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
+    ("r2.cloudflarestorage.com", "Cloudflare R2"),
+    ("amazonaws.com", "Amazon S3"),
+    ("googleapis.com", "Google Cloud Storage"),
+    ("blob.core.windows.net", "Azure Blob Storage"),
+)
+
+
+def _managed_source_name_for_url(url_pattern: str | None) -> str:
+    host = (urlparse(url_pattern or "").hostname or "").lower()
+    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
+        if host == suffix or host.endswith(f".{suffix}"):
+            return name
+    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -643,6 +666,17 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # so a rule that denies the source must hide its tables from the list too.
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
 
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Checked before the serializer runs, so a blocked request never reaches URL validation.
+        if object_storage_sources_enabled(self.team_id):
+            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
+            raise serializers.ValidationError(
+                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
+                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
+                )
+            )
+        return super().create(request, *args, **kwargs)
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
 
@@ -692,11 +726,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         was_history_table = instance.is_history_table
+        had_ph_history_naming = instance.has_ph_history_naming
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        # The sync owns this marker, and an `options` edit through this API must not drop it.
+        # The sync owns these markers, and an `options` edit through this API must not drop them.
         if was_history_table:
-            instance.mark_as_history_table()
+            instance.mark_as_history_table(ph_naming=had_ph_history_naming)
 
         if (
             instance._is_csv_format()

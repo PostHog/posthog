@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 import { MetricsQueryLanguage, NodeKind } from '~/queries/schema/schema-general'
 import { UniversalFiltersGroup } from '~/types'
 
-import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
+import { MetricQueryIntervalEnumApi, OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import {
     DEFAULT_DATE_FROM,
@@ -66,6 +66,9 @@ const LEGACY_VIEWER_PARAMS = [
 ] as const
 // PromQL and SQL queries are written as `language` plus the query text in `query`.
 const TEXT_LANGUAGES: MetricsQueryLanguage[] = ['promql', 'sql']
+
+const isMetricQueryInterval = (value: unknown): value is MetricQueryIntervalEnumApi =>
+    typeof value === 'string' && (Object.values(MetricQueryIntervalEnumApi) as string[]).includes(value)
 
 // A clause's alias must satisfy the backend's identifier rules (formulas reference it).
 const CLAUSE_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
@@ -152,6 +155,7 @@ export interface metricsSceneLogicValues {
     filterGroup: UniversalFiltersGroup // metricsViewerLogic
     formula: string // metricsViewerLogic
     groupByKeys: string[] // metricsViewerLogic
+    interval: string | null // metricsViewerLogic
     language: MetricsQueryLanguage // metricsViewerLogic
     metricName: string // metricsViewerLogic
     namedClauses: MetricsViewerClause[] // metricsViewerLogic
@@ -202,6 +206,9 @@ export interface metricsSceneLogicActions {
     setGroupByKeys: (groupByKeys: string[]) => {
         groupByKeys: string[]
     } // metricsViewerLogic
+    setInterval: (interval: string | null) => {
+        interval: string | null
+    } // metricsViewerLogic
     setMetricName: (metricName: string) => {
         metricName: string
     } // metricsViewerLogic
@@ -242,6 +249,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 'rangeFunction',
                 'dateFrom',
                 'dateTo',
+                'interval',
                 'groupByKeys',
                 'filterGroup',
                 'viewerClauses',
@@ -260,6 +268,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 'setRangeFunction',
                 'setDateFrom',
                 'setDateTo',
+                'setInterval',
                 'setGroupByKeys',
                 'setFilterGroup',
                 'setClauses',
@@ -403,6 +412,10 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 if (dateTo !== values.dateTo) {
                     actions.setDateTo(dateTo)
                 }
+                const interval = isMetricQueryInterval(params.interval) ? params.interval : null
+                if (interval !== values.interval) {
+                    actions.setInterval(interval)
+                }
             } finally {
                 actions.setRestoringFromUrl(false)
             }
@@ -468,6 +481,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 }
                 updateSearchParams(params, 'dateFrom', values.dateFrom, DEFAULT_DATE_FROM)
                 updateSearchParams(params, 'dateTo', values.dateTo, null)
+                updateSearchParams(params, 'interval', values.interval, null)
                 return params
             })
             queueMicrotask(() => {
@@ -483,6 +497,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             setRangeFunction: () => syncUrl(),
             setDateFrom: () => syncUrl(),
             setDateTo: () => syncUrl(),
+            setInterval: () => syncUrl(),
             setGroupByKeys: () => syncUrl(),
             setFilterGroup: () => syncUrl(),
             setClauses: () => syncUrl(),

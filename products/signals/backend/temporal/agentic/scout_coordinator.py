@@ -27,6 +27,7 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import (
     SignalReportAction,
     SignalReportArtefact,
@@ -1076,7 +1077,7 @@ def _reconcile_wildcard_operational_configs(
 def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | None = None) -> list[tuple[Team, bool]]:
     """Resolve enrollment to canonical `Team`s to run scouts on, each tagged `needs_seed`.
 
-    Two ways a team participates:
+    Three ways a team participates:
     - explicit `guaranteed_team_ids` (skip removed) → force-provisioned: `needs_seed=True`, so the
       tick seeds canonical skills + registers configs from nothing (the pinned internal projects).
       Adding an id in the flag UI enrolls it on the next tick with no manual seed; removing it (or
@@ -1087,11 +1088,15 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
       explicit tag wins (it gets the seed pass).
       `reconcile_team_ids` joins the wildcard set too: a team whose only scouts are operational
       ones the harness left off has no enabled config, and it must still reach the reconcile.
+    - completed GitHub-optional pilot activation while its project flag is enabled. Activation
+      provisions the general scout, so this path needs no seed pass or separate fleet allowlist.
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
     Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
     and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
     raw ids differ but their canonical parent matches.
     """
+    if enrollment.drained:
+        return []
     skip_canonical = _canonicalize_team_ids(enrollment.skip)
     explicit = _canonicalize_team_ids(enrollment.explicit) - skip_canonical
 
@@ -1114,6 +1119,7 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
             .distinct()
         )
         wildcard_ids |= reconcile_team_ids or set()
+    wildcard_ids |= ResearchAccessPolicy.enrolled_team_ids(exclude_team_ids=wildcard_ids | explicit | skip_canonical)
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
 

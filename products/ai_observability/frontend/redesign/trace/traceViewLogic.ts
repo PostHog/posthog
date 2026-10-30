@@ -27,7 +27,7 @@ import {
 } from '../../generated/api'
 import type {
     TraceApi,
-    TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceTimelineRowApi,
@@ -48,7 +48,7 @@ export interface traceViewLogicValues {
     createdAt: string | null
     defaultNodeId: string
     errorMessage: string
-    evaluationResults: TraceEvaluationResultApi[] | null
+    evaluationResults: TraceEvaluationResultsApi | null
     evaluationResultsFailed: boolean
     evaluationResultsLoading: boolean
     loadFailure: LoadFailure | null
@@ -89,10 +89,10 @@ export interface traceViewLogicActions {
         errorObject?: any
     }
     loadEvaluationResultsSuccess: (
-        evaluationResults: TraceEvaluationResultApi[],
+        evaluationResults: TraceEvaluationResultsApi,
         payload?: any
     ) => {
-        evaluationResults: TraceEvaluationResultApi[]
+        evaluationResults: TraceEvaluationResultsApi
         payload?: any
     }
     loadNode: (
@@ -183,7 +183,7 @@ function toLoadFailure(error: unknown): LoadFailure {
 
 const layoutNavOverrideOwner = (props: TraceViewLogicProps): string => `ai-trace-${props.traceId}`
 
-function elapsedMs(since: number): number {
+export function elapsedMs(since: number): number {
     return Math.round(performance.now() - since)
 }
 
@@ -214,15 +214,13 @@ export const traceViewLogic = kea<traceViewLogicType>([
             },
         ],
         evaluationResults: [
-            null as TraceEvaluationResultApi[] | null,
+            null as TraceEvaluationResultsApi | null,
             {
-                loadEvaluationResults: async (): Promise<TraceEvaluationResultApi[]> => {
-                    const { results } = await aiObservabilityTracesEvaluationsRetrieve(
+                loadEvaluationResults: async (): Promise<TraceEvaluationResultsApi> =>
+                    await aiObservabilityTracesEvaluationsRetrieve(
                         String(ApiConfig.getCurrentProjectId()),
                         encodeTraceIdSegment(props.traceId)
-                    )
-                    return results
-                },
+                    ),
             },
         ],
     })),
