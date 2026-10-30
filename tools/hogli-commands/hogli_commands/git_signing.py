@@ -33,6 +33,13 @@ SIGN_PROGRAM: Final = f"""#!/bin/sh
 SSH_SK_PROVIDER={PROVIDER} exec {SSH_KEYGEN} "$@"
 """
 
+DEVBOX_SIGNING_WARNING: Final = (
+    "Devbox commit signing with a Secure Enclave key isn't supported yet. "
+    "A devbox signs through your forwarded SSH agent, and the agent can't hold this key.",
+    "A devbox you set up before keeps signing with your previous key until you remove that key from GitHub.",
+    'If you need this, tell team devex: hogli devex:feedback -c idea "Secure Enclave signing on devboxes"',
+)
+
 GIT_VALUES: Final = {
     "gpg.format": "ssh",
     "user.signingkey": str(KEY_PATH),
@@ -70,6 +77,22 @@ def add_allowed_signer(path: Path, email: str, public_key_line: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f'{existing}{separator}{email} namespaces="git" {identity}\n')
     return True
+
+
+def signs_with_secure_enclave_key() -> bool:
+    """Return whether the global git config signs through the wrapper this command installs."""
+    result = subprocess.run(["git", "config", "--global", "--get", "gpg.ssh.program"], capture_output=True, text=True)
+    return result.stdout.strip() == str(SIGN_PROGRAM_PATH)
+
+
+def forwards_agent_to_devboxes(ssh_config: Path) -> bool:
+    """Return whether the Coder block that `coder config-ssh` writes forwards an SSH agent."""
+    try:
+        content = ssh_config.read_text()
+    except OSError:
+        return False
+    coder_block = content.partition("START-CODER")[2].partition("END-CODER")[0]
+    return "ForwardAgent yes" in coder_block
 
 
 def git_config_command(repo: Path | None) -> list[str]:
@@ -147,11 +170,9 @@ class SecureEnclaveSigningSetup:
                 effective = self._git_config_get(effective_config_command(target), setting)
                 click.echo(f"    {setting} = {effective or '(unset)'}")
         click.echo("SSH logins and pushes keep using your current SSH agent.")
-        if None in self.targets:
-            click.echo(
-                "Devbox commits sign through your forwarded SSH agent, which can't hold this key. "
-                "With the global config they stop signing. To sign on a devbox, use Secretive instead."
-            )
+        if forwards_agent_to_devboxes(SSH_DIR / "config"):
+            for line in DEVBOX_SIGNING_WARNING:
+                click.echo(line)
         click.confirm("Continue?", abort=True)
 
     def _export_keys(self, directory: Path) -> dict[str, Path]:
@@ -356,9 +377,9 @@ def signing_key(use_global: bool, repos: tuple[Path, ...]) -> None:
     It signs without a prompt, also while the screen is locked. No GPG key is involved.
     git uses it instead of your current signing key, for example one in 1Password or Secretive.
     Choose where git signs with it: this repository and its worktrees, a list of repositories,
-    or every repository. SSH logins and pushes stay as they are. Devbox commits sign through
-    your forwarded SSH agent, so with --global they stop signing. Use Secretive for a devbox.
-    Run it again to reuse the key, for example to add another repository. Each Mac needs its own key.
+    or every repository. SSH logins and pushes stay as they are. Devbox signing with this key
+    isn't supported yet. Run it again to reuse the key, for example to add another repository.
+    Each Mac needs its own key.
 
     \b
         hogli git:signing-key

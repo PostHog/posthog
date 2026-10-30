@@ -7,7 +7,13 @@ import pytest
 from unittest import mock
 
 import click
-from hogli_commands.git_signing import SecureEnclaveSigningSetup, add_allowed_signer, pick_new_key, public_key_identity
+from hogli_commands.git_signing import (
+    SecureEnclaveSigningSetup,
+    add_allowed_signer,
+    forwards_agent_to_devboxes,
+    pick_new_key,
+    public_key_identity,
+)
 
 
 class TestPickNewKey:
@@ -101,3 +107,24 @@ class TestGitHubBeforeGitConfig:
                 setup.run()
 
         assert configure_git.called == configured
+
+
+class TestForwardsAgentToDevboxes:
+    @pytest.mark.parametrize(
+        "ssh_config, expected",
+        [
+            ("# --- START-CODER ---\nHost coder.*\n\tForwardAgent yes\n# --- END-CODER ---\n", True),
+            ("# --- START-CODER ---\nHost coder.*\n\tUser coder\n# --- END-CODER ---\n", False),
+            ("Host *\n\tForwardAgent yes\n", False),
+            (None, False),
+        ],
+        ids=["coder_block_forwards", "coder_block_without_forwarding", "forwarding_outside_coder_block", "no_config"],
+    )
+    def test_detects_agent_forwarding_in_the_coder_block(
+        self, tmp_path: Path, ssh_config: str | None, expected: bool
+    ) -> None:
+        config_path = tmp_path / "config"
+        if ssh_config is not None:
+            config_path.write_text(ssh_config)
+
+        assert forwards_agent_to_devboxes(config_path) == expected

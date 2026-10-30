@@ -24,6 +24,7 @@ import click
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
+from ..git_signing import DEVBOX_SIGNING_WARNING, signs_with_secure_enclave_key
 from . import mutagen
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
@@ -725,6 +726,14 @@ def maybe_configure_git_signing(
         return
 
     if configure_git_signing is None and already_set:
+        return
+
+    # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
+    if signs_with_secure_enclave_key():
+        click.echo()
+        click.echo(click.style("Git commit signing (not supported yet)", bold=True))
+        for line in DEVBOX_SIGNING_WARNING:
+            click.echo(f"  {line}")
         return
 
     public_key = _resolve_local_signing_key()
