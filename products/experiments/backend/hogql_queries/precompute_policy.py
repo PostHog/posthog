@@ -6,12 +6,13 @@ Shared by the experiment query runner, the exposures query runner, and replay li
 """
 
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db.models import Q
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -27,6 +28,9 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+if TYPE_CHECKING:
+    from products.experiments.backend.hogql_queries.metric_events_precompute import MetricEventsPrecompute
 
 # Variable TTL for experiment exposure lazy computation. Days 2-4 stay
 # recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
@@ -191,6 +195,46 @@ def team_precompute_skip_reason(
     if has_uncalculated_cohorts(team, exposure_criteria, *cohort_filter_sources):
         return PrecomputeSkipReason.COHORT_NOT_CALCULATED
     return None
+
+
+@frozen
+class MetricEventsPrecomputePlan:
+    """Whether one metric can build and read experiment_metric_events_preaggregated now, and why not."""
+
+    # A rule of the metric or the flag: MetricEventsPrecompute.ineligibility_reason values, or "group_aggregation".
+    metric_skip_reason: Optional[str] = None
+    # A team gate. The PRECOMPUTED query override skips these, and only these.
+    team_skip_reason: Optional[PrecomputeSkipReason] = None
+
+    def __post_init__(self) -> None:
+        if self.metric_skip_reason is not None and self.team_skip_reason is not None:
+            raise ValueError("A plan carries one skip reason: the first rule that fails")
+
+    @property
+    def reads_precomputed(self) -> bool:
+        return self.metric_skip_reason is None and self.team_skip_reason is None
+
+
+def metric_events_precompute_plan(
+    config: TeamExperimentsConfig, metric_events: "MetricEventsPrecompute"
+) -> MetricEventsPrecomputePlan:
+    """
+    The single source for the metric-events precompute rules, shared by the query runner and
+    recalculation routing. The metric rules run first, so a metric the table cannot serve skips
+    the team gates and their cohort query.
+    """
+    # The build INSERT references $group_N, which INSERT ... SELECT can't resolve.
+    if metric_events.group_type_index is not None:
+        return MetricEventsPrecomputePlan(metric_skip_reason="group_aggregation")
+    metric_skip_reason = metric_events.ineligibility_reason()
+    if metric_skip_reason is not None:
+        return MetricEventsPrecomputePlan(metric_skip_reason=metric_skip_reason)
+    experiment = metric_events.experiment
+    return MetricEventsPrecomputePlan(
+        team_skip_reason=team_precompute_skip_reason(
+            metric_events.team, config, experiment, experiment.exposure_criteria, metric_events.metric
+        )
+    )
 
 
 def ensure_exposures_precomputed(
