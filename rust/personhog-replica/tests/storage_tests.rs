@@ -5245,6 +5245,12 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     ctx.add_distinct_id_to_person(q.id, "w_q_same")
         .await
         .unwrap();
+    ctx.add_distinct_id_to_person(q.id, "w_q_tomb")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(q.id, "w_q_named_stray")
+        .await
+        .unwrap();
     ctx.add_distinct_id_to_person(p.id, "w_p_gone")
         .await
         .unwrap();
@@ -5259,6 +5265,29 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     };
     let s = ctx.insert_person("w_s", None).await.unwrap();
     ctx.tombstone_person(s.id, None).await.unwrap();
+    let s2 = ctx.insert_person("w_s2", None).await.unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray_done")
+        .await
+        .unwrap();
+    ctx.tombstone_person(s2.id, Some("w_stray")).await.unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray_high")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE posthog_persondistinctid SET version = 7 WHERE team_id = $1 AND distinct_id = 'w_stray_high'")
+        .bind(ctx.team_id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let s3 = ctx.insert_person("w_s3", None).await.unwrap();
+    ctx.add_distinct_id_to_person(s3.id, "w_stray_expect")
+        .await
+        .unwrap();
+    ctx.tombstone_person(s3.id, Some("w_stray_expect"))
+        .await
+        .unwrap();
 
     let write =
         |distinct_id: &str, action, person: &common::TestPerson, min_version, expected_version| {
@@ -5270,7 +5299,7 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
                 expected_version,
             }
         };
-    use DistinctIdWriteAction::{Insert, Raise};
+    use DistinctIdWriteAction::{Insert, Raise, Tombstone};
     use DistinctIdWriteOutcome::{Applied, PersonNotLive, PreconditionFailed, Unchanged};
     let writes = vec![
         write("w_new", Insert, &p, 5, None),
@@ -5284,6 +5313,13 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
         write("w_on_missing", Insert, &ghost, 5, None),
         write("w_s", Insert, &p, 5, None),
         write("w_p_gone", Raise, &p, 5, None),
+        write("w_stray", Tombstone, &s2, 5, Some(0)),
+        write("w_stray_done", Tombstone, &s2, 1, None),
+        write("w_stray_expect", Tombstone, &s3, 0, Some(7)),
+        write("w_q_tomb", Tombstone, &q, 10, None),
+        write("w_q_named_stray", Tombstone, &s2, 10, None),
+        write("w_stray_high", Tombstone, &s2, 2, None),
+        write("w_s2", Tombstone, &s2, 5, None),
     ];
 
     let results = ctx
@@ -5318,6 +5354,21 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
             ("w_on_missing", PersonNotLive, None),
             ("w_s", PreconditionFailed, Some((s.id, 1, true))),
             ("w_p_gone", PreconditionFailed, Some((p.id, 2, true))),
+            ("w_stray", Applied, Some((s2.id, 5, true))),
+            ("w_stray_done", Unchanged, Some((s2.id, 1, true))),
+            (
+                "w_stray_expect",
+                PreconditionFailed,
+                Some((s3.id, 0, false))
+            ),
+            ("w_q_tomb", PreconditionFailed, Some((q.id, 0, false))),
+            (
+                "w_q_named_stray",
+                PreconditionFailed,
+                Some((q.id, 0, false))
+            ),
+            ("w_stray_high", Applied, Some((s2.id, 8, true))),
+            ("w_s2", PreconditionFailed, Some((s2.id, 1, true))),
         ]
     );
     let marks_left: i64 =
