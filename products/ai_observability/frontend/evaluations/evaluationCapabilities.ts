@@ -93,7 +93,3 @@ export function evaluationCanResolveModel(
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationType === 'llm_judge' || evaluationType === 'hog'
 }
-
-export function evaluationTypeHasEditableCriteria(evaluationType: EvaluationType | null | undefined): boolean {
-    return evaluationTypeDefaultsToBooleanOutput(evaluationType)
-}
