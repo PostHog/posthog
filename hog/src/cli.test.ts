@@ -82,7 +82,7 @@ describe('hog', () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(0)
         const manifest = result.json()
-        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code' })
+        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code', aliases: { et: 'error-tracking' } })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
@@ -96,6 +96,9 @@ describe('hog', () => {
             'query run',
             'query check',
             'query editor',
+            'error-tracking upload',
+            'config check',
+            'config schema',
             'commands',
             ...Object.keys(LEGACY_COMMANDS),
         ])
