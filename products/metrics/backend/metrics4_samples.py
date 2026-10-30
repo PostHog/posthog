@@ -26,7 +26,6 @@ METRICS_RETENTION = dt.timedelta(days=DEFAULT_RETENTION_DAYS)
 # Each point column of `metrics` maps to one array of `metric_samples`.
 _POINT_ARRAYS: dict[str, str] = {
     "timestamp": "timestamp_arr",
-    "observed_timestamp": "observed_timestamp_arr",
     "value": "value_arr",
     "count": "count_arr",
     "histogram_counts": "histogram_counts_arr",
