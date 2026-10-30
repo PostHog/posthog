@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -5,6 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayRequestRejected, OrgLedgerResult
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -157,3 +160,107 @@ class TestBillingConsumerBillingActivity(BaseTest):
         # process_message leaves the message for SQS to redeliver instead of dropping the audit.
         with self.assertRaises(Exception):
             self._build_consumer()._process_billing_activity(self._message())
+
+
+ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
+
+
+def _funding_added(**overrides):
+    return {
+        "type": "ai_funding_added",
+        "version": 1,
+        "organization_id": ORG_ID,
+        "operation_id": "ai_credit:in_1",
+        "amount_cents": 2000,
+        "kind": "top_up",
+        "reload_request_id": None,
+        **overrides,
+    }
+
+
+def _funding_reversed(**overrides):
+    return {
+        "type": "ai_funding_reversed",
+        "version": 1,
+        "organization_id": ORG_ID,
+        "operation_id": "ai_credit_reversal:re_1",
+        "amount_cents": 2000,
+        "reverses_operation_id": "ai_credit:in_1",
+        "reason": "refund",
+        **overrides,
+    }
+
+
+def _recorded() -> OrgLedgerResult:
+    return OrgLedgerResult(org_id=ORG_ID, entry_id="entry-1", amount_usd="20.00", balance_usd="118.40", duplicate=False)
+
+
+class TestBillingConsumerAIFunding(SimpleTestCase):
+    def _build_consumer(self) -> BillingConsumer:
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+    def _deliver(self, consumer: BillingConsumer, body: dict) -> None:
+        consumer.process_message({"Body": json.dumps(body), "MessageId": "msg-1", "ReceiptHandle": "receipt-1"})
+
+    @patch(f"{CONSUMER}.grant_org_credit", return_value=_recorded())
+    def test_grants_funding_to_the_org_wallet_and_acks(self, mock_grant):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _funding_added())
+
+        mock_grant.assert_called_once_with(ORG_ID, "20.00", "top_up", "ai_credit:in_1")
+        mock_delete.assert_called_once_with("receipt-1")
+
+    @patch(f"{CONSUMER}.reverse_org_credit", return_value=_recorded())
+    def test_reverses_funding_with_its_reason_and_acks(self, mock_reverse):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _funding_reversed())
+
+        mock_reverse.assert_called_once_with(ORG_ID, "20.00", "refund", "ai_credit_reversal:re_1")
+        mock_delete.assert_called_once_with("receipt-1")
+
+    @patch(f"{CONSUMER}.grant_org_credit", side_effect=AIGatewayInternalError("HTTP 503"))
+    def test_a_failed_grant_leaves_the_message_for_another_delivery(self, _mock_grant):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message") as mock_delete:
+            self._deliver(consumer, _funding_added())
+
+        mock_delete.assert_not_called()
+
+    @patch(f"{CONSUMER}.grant_org_credit")
+    def test_an_unknown_version_stays_on_the_queue(self, mock_grant):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message") as mock_delete:
+            self._deliver(consumer, _funding_added(version=2))
+
+        mock_grant.assert_not_called()
+        mock_delete.assert_not_called()
+
+    @patch(f"{CONSUMER}.capture_exception")
+    @patch(f"{CONSUMER}.grant_org_credit", side_effect=AIGatewayRequestRejected("amount does not match", 409))
+    def test_a_rejected_grant_is_captured_and_acked(self, _mock_grant, mock_capture):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _funding_added())
+
+        mock_capture.assert_called_once()
+        mock_delete.assert_called_once_with("receipt-1")
+
+    @parameterized.expand(
+        [
+            ("no_organization", {"organization_id": None}),
+            ("no_operation", {"operation_id": ""}),
+            ("zero_amount", {"amount_cents": 0}),
+            ("amount_as_text", {"amount_cents": "2000"}),
+            ("no_kind", {"kind": None}),
+        ]
+    )
+    @patch(f"{CONSUMER}.capture_exception")
+    @patch(f"{CONSUMER}.grant_org_credit")
+    def test_a_malformed_message_is_captured_without_a_grant(self, _name, overrides, mock_grant, mock_capture):
+        self._build_consumer()._relay_ai_funding(_funding_added(**overrides), mock_grant, reason_field="kind")
+
+        mock_grant.assert_not_called()
+        mock_capture.assert_called_once()
