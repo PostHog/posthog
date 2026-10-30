@@ -254,47 +254,60 @@ describe('wizardRunSyncLogic', () => {
         expect(logic.values.userRuns.map((run) => run.id)).toEqual([createdRun.id, 'newer'])
     })
 
-    it.each([MOCK_DEFAULT_USER.id, MOCK_DEFAULT_USER.id + 1])(
-        'restores terminal tasks for project member %s and retries a failed request',
-        async (createdById) => {
-            await expectLogic(logic).toFinishAllListeners()
-            const completed = { ...run('newer'), created_by_id: createdById, status: 'completed' as const }
-            logic.actions.runsLoaded([completed])
-            jest.mocked(wizardRunsTasksRetrieve).mockRejectedValueOnce(new Error('unavailable'))
-            logic.actions.loadRunData(completed)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.runDataErrors.newer).toBeTruthy()
+    it.each([
+        { createdById: MOCK_DEFAULT_USER.id, retry: 'manual' },
+        { createdById: MOCK_DEFAULT_USER.id + 1, retry: 'manual' },
+        { createdById: MOCK_DEFAULT_USER.id, retry: 'backoff' },
+    ])('restores terminal tasks for project member $createdById after $retry retry', async ({ createdById, retry }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const completed = { ...run('newer'), created_by_id: createdById, status: 'completed' as const }
+        logic.actions.runsLoaded([completed])
+        jest.mocked(wizardRunsTasksRetrieve).mockRejectedValueOnce(new Error('unavailable'))
+        logic.actions.loadRunData(completed)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runDataErrors.newer).toBeTruthy()
 
-            const tasks: WizardRunTaskApi[] = [
-                {
-                    name: 'Install SDK',
-                    status: 'completed',
-                    created_at: '2026-09-23T10:00:00Z',
-                    started_at: null,
-                    completed_at: null,
-                    failed_at: null,
-                    error_message: null,
-                },
-            ]
-            jest.mocked(wizardRunsTasksRetrieve).mockResolvedValueOnce({ tasks })
-            logic.actions.loadRunData(completed)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.tasksByRunId.newer).toEqual(tasks)
-            expect(logic.values.runDataErrors.newer).toBeNull()
-            expect(logic.values.runDataLoading.newer).toBe(false)
-            expect(loadWizardRunArtifacts).toHaveBeenCalledWith('1', completed.id)
+        const requests = jest.mocked(wizardRunsTasksRetrieve).mock.calls.length
+        logic.actions.watchRuns('test', [])
+        logic.actions.runsLoaded([completed])
+        logic.actions.loadRunData(completed)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(wizardRunsTasksRetrieve).toHaveBeenCalledTimes(requests)
+
+        const tasks: WizardRunTaskApi[] = [
+            {
+                name: 'Install SDK',
+                status: 'completed',
+                created_at: '2026-09-23T10:00:00Z',
+                started_at: null,
+                completed_at: null,
+                failed_at: null,
+                error_message: null,
+            },
+        ]
+        jest.mocked(wizardRunsTasksRetrieve).mockResolvedValueOnce({ tasks })
+        if (retry === 'backoff') {
+            jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 30_000)
         }
-    )
+        logic.actions.loadRunData(completed, { force: retry === 'manual' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.tasksByRunId.newer).toEqual(tasks)
+        expect(logic.values.runDataErrors.newer).toBeNull()
+        expect(logic.values.runDataLoading.newer).toBe(false)
+        expect(loadWizardRunArtifacts).toHaveBeenCalledWith('1', completed.id)
+    })
 
     it('loads and streams a selected teammate run before discovery finishes', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const teammateRun = { ...run('teammate'), created_by_id: MOCK_DEFAULT_USER.id + 1 }
         const tasks = [{ name: 'Install SDK', status: 'running' } as WizardRunTaskApi]
         jest.mocked(wizardRunsTasksRetrieve).mockResolvedValueOnce({ tasks })
+        const artifactReads = jest.mocked(loadWizardRunArtifacts).mock.calls.length
         logic.actions.watchRuns('run-details', [teammateRun.id])
-        logic.actions.loadRunData(teammateRun)
+        logic.actions.loadRunData(teammateRun, { tasksOnly: true })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.tasksByRunId.teammate).toEqual(tasks)
+        expect(loadWizardRunArtifacts).toHaveBeenCalledTimes(artifactReads)
         expect(logic.values.userRuns.map((run) => run.id)).not.toContain(teammateRun.id)
         const stream = MockEventSource.last()
         expect(stream.url).toBe('/api/projects/1/wizard/runs/teammate/stream/')
@@ -341,7 +354,7 @@ describe('wizardRunSyncLogic', () => {
         jest.mocked(loadWizardRunArtifacts).mockResolvedValueOnce([]).mockResolvedValueOnce([artifact])
         logic.actions.loadRunData(logic.values.userRuns[0])
 
-        await expectLogic(logic, () =>
+        await expectLogic(logic, () => {
             MockEventSource.last().emitMessage(
                 JSON.stringify({
                     status: 'completed',
@@ -350,7 +363,8 @@ describe('wizardRunSyncLogic', () => {
                     tasks: [],
                 })
             )
-        ).toDispatchActions(['runDataLoaded'])
+            logic.actions.loadRunData(logic.values.userRuns[0])
+        }).toDispatchActions(['runDataLoaded'])
         expect(logic.values.artifactsByRunId.newer).toEqual([artifact])
         resolveSnapshot({ tasks: [] })
         await expectLogic(logic).toFinishAllListeners()

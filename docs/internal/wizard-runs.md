@@ -73,6 +73,9 @@ Every 30 seconds, a bounded fallback refreshes one watched active run and its ta
 Hidden tabs pause polling and streams; terminal runs do not open streams.
 Opening run details or restoring an onboarding run loads its task snapshot and artifacts, including after completion.
 Active streamed updates reuse their task snapshots instead of downloading tasks and artifacts on each update.
+Only the selected onboarding run or open run details request hydration; discovery never retries previously opened runs.
+Failed hydration waits 30 seconds before an automatic retry, and the onboarding retry button bypasses that delay.
+Run details load only tasks into shared state and use the dialog's existing artifact request.
 
 ### Onboarding state
 
