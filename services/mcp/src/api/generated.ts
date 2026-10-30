@@ -105167,20 +105167,20 @@ export namespace Schemas {
 
     export interface SpendAmount {
       /**
-         * Recorded customer spend in USD cents, before billing exemptions; null when untracked.
+         * Recorded usage in USD cents, before billing exemptions; null when untracked.
          * @nullable
          */
       total_spend: number | null;
-      /** Whether spend is still settling or accounting is incomplete. */
+      /** Whether usage is still settling or accounting is incomplete. */
       incomplete: boolean;
     }
 
     export interface ReportSpend {
-      /** Spend on the report's backing signals, research and repository selection. */
+      /** Usage for the report's backing signals, research and repository selection. */
       generation: SpendAmount;
-      /** Spend on implementation tasks owned by the report. */
+      /** Usage for implementation tasks owned by the report. */
       implementation: SpendAmount;
-      /** Full spend of scout runs that authored this report. Shared with all other output of those runs. */
+      /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
       shared_scout_runs: SpendAmount;
     }
 
@@ -109363,7 +109363,7 @@ export namespace Schemas {
     export interface ScoutSpend {
       /** Name of the scout skill. */
       skill_name: string;
-      /** Accumulated spend for this scout's runs in the period. */
+      /** Accumulated usage for this scout's runs in the period. */
       spend: SpendAmount;
     }
 
@@ -117394,7 +117394,7 @@ export namespace Schemas {
       source_type: string;
       /** Number of signals received in the last 30 days. */
       signal_count: number;
-      /** Accumulated processing spend on these signals, including later processing. */
+      /** Accumulated processing usage on these signals, including later processing. */
       spend: SpendAmount;
     }
 
@@ -117458,9 +117458,9 @@ export namespace Schemas {
       period_start: string;
       /** Exclusive end of the rolling 30-day run window. */
       period_end: string;
-      /** Spend for each scout with runs in the period. */
+      /** Usage for each scout with runs in the period. */
       scouts: ScoutSpend[];
-      /** Total scout run spend in the period. */
+      /** Total scout run usage in the period. */
       scout_spend: SpendAmount;
     }
 
