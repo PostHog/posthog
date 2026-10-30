@@ -12,7 +12,7 @@ const UNDO_DISABLED_REASON = 'Wait for the dashboard to finish saving'
 
 /** Layout changes save as they happen, so this is how an editor takes the last one back. */
 export function DashboardLayoutUndoButton(): JSX.Element | null {
-    const { canUndoLayoutChange, dashboardLoading } = useValues(dashboardLogic)
+    const { canUndoLayoutChange, tileSavesPending } = useValues(dashboardLogic)
     const { undoLayoutChange } = useActions(dashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -20,7 +20,7 @@ export function DashboardLayoutUndoButton(): JSX.Element | null {
         return null
     }
 
-    const disabledReason = dashboardLoading ? UNDO_DISABLED_REASON : undefined
+    const disabledReason = tileSavesPending ? UNDO_DISABLED_REASON : undefined
 
     return todayRailNav ? (
         <Button

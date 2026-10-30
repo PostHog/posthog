@@ -1767,6 +1767,61 @@ describe('dashboardLogic', () => {
                 expect(xOf()).toEqual(startX)
                 expect(logic.values.canUndoLayoutChange).toBe(false)
             })
+
+            it('puts a tile back where the server has it when its autosave fails', async () => {
+                await storeComputedLayouts()
+                const firstTileId = logic.values.dashboard!.tiles[0].id
+                const xOf = (): number => logic.values.layouts.sm!.find((layout) => layout.i === String(firstTileId))!.x
+                const startX = xOf()
+                jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('offline'))
+
+                await expectLogic(logic, () => {
+                    moveFirstTileRight()
+                }).toFinishAllListeners()
+
+                expect(xOf()).toEqual(startX)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                expect(logic.values.canUndoLayoutChange).toBe(false)
+            })
+
+            it('keeps the undo step when the undo fails to save', async () => {
+                await storeComputedLayouts()
+                const firstTileId = logic.values.dashboard!.tiles[0].id
+                const xOf = (): number => logic.values.layouts.sm!.find((layout) => layout.i === String(firstTileId))!.x
+                await expectLogic(logic, () => {
+                    moveFirstTileRight()
+                }).toFinishAllListeners()
+                const movedX = xOf()
+                jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('offline'))
+
+                await expectLogic(logic, () => logic.actions.undoLayoutChange()).toFinishAllListeners()
+
+                expect(xOf()).toEqual(movedX)
+                expect(logic.values.layoutUndoStack).toHaveLength(1)
+            })
+
+            it('ignores undo while a layout save is still out', async () => {
+                await storeComputedLayouts()
+                await expectLogic(logic, () => {
+                    moveFirstTileRight()
+                }).toFinishAllListeners()
+                let finishSave: (dashboard: DashboardType) => void = () => {}
+                jest.spyOn(api, 'update').mockReturnValueOnce(
+                    new Promise<DashboardType>((resolve) => {
+                        finishSave = resolve
+                    })
+                )
+                moveFirstTileRight()
+                expect(logic.values.tileSavesPending).toBe(true)
+
+                await expectLogic(logic, () => logic.actions.undoLayoutChange()).toNotHaveDispatchedActions([
+                    'restoreTilePlacements',
+                ])
+
+                finishSave(logic.values.dashboard!)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.tileSavesPending).toBe(false)
+            })
         })
 
         it('keeps saved settings when an older layout save finishes later', async () => {
@@ -2603,43 +2658,22 @@ describe('dashboardLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
         })
 
-        it.each([
-            {
-                name: 'a failed layout save',
-                act: async (): Promise<void> => {
-                    const firstTile = logic.values.dashboard!.tiles[0]
-                    jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
-                    logic.actions.stageLayouts({
-                        sm: logic.values.layouts.sm?.map((layout) =>
-                            layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
-                        ),
-                    })
-                },
-                unsaved: true,
-            },
-            {
-                name: 'a duplicated tile',
-                act: async (): Promise<void> => {
-                    const sourceTile = logic.values.dashboard!.tiles[0]
-                    jest.spyOn(api, 'update').mockResolvedValueOnce({
-                        ...logic.values.dashboard!,
-                        tiles: [
-                            ...logic.values.dashboard!.tiles,
-                            { ...sourceTile, id: 999, layouts: { sm: { x: 0, y: 99, w: 6, h: 5 } } },
-                        ],
-                    })
-                    logic.actions.duplicateTile(sourceTile)
-                },
-                unsaved: false,
-            },
-        ])('counts $name as saved only when the server has it', async ({ act, unsaved }) => {
+        it('counts a duplicated tile as saved only when the server has it', async () => {
             await expectLogic(logic).toFinishAllListeners()
+            const sourceTile = logic.values.dashboard!.tiles[0]
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                tiles: [
+                    ...logic.values.dashboard!.tiles,
+                    { ...sourceTile, id: 999, layouts: { sm: { x: 0, y: 99, w: 6, h: 5 } } },
+                ],
+            })
 
-            await expectLogic(logic, act)
+            await expectLogic(logic, () => logic.actions.duplicateTile(sourceTile))
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions([dashboardsModel.actionTypes.updateDashboardSuccess])
 
-            expect(logic.values.hasUnsavedLayoutChanges).toBe(unsaved)
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
         })
 
         it('does not show a success toast when exiting edit mode with no changes', async () => {

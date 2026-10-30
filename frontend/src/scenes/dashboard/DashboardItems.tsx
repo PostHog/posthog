@@ -425,7 +425,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const flushPendingLayouts = useCallback(() => {
-        setLayoutGestureActive(false)
         finishInteraction()
         // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
@@ -434,7 +433,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }
         })
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [finishInteraction, setLayoutGestureActive])
+    }, [finishInteraction])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -483,11 +482,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const handleResizeStop = useCallback(() => {
+        setLayoutGestureActive(false)
         flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized')
         }
-    }, [dashboard?.id, flushPendingLayouts])
+    }, [dashboard?.id, flushPendingLayouts, setLayoutGestureActive])
 
     const handleDragStart = useCallback(
         (
@@ -538,12 +538,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 isDragging.current = false
             }, 250)
             flushPendingLayouts()
+            // The drop target is read from the grids as they look now, so their drop space stays until it is.
             finishTileDrag(newItem, element, event)
+            setLayoutGestureActive(false)
             if (dashboard?.id) {
                 reportDashboardTileRepositioned(dashboard.id, 'moved')
             }
         },
-        [dashboard?.id, flushPendingLayouts, finishTileDrag, stopAutoScroll]
+        [dashboard?.id, flushPendingLayouts, finishTileDrag, stopAutoScroll, setLayoutGestureActive]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -636,6 +638,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     tile={tile}
                     placement={placement}
                     dashboardId={dashboard?.id}
+                    isDraggingRef={isDragging}
                     onEdit={tileActions.edit}
                     onMoveToDashboard={commonTileProps.moveToDashboard}
                     tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
