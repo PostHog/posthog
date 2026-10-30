@@ -1,4 +1,3 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
 import { getRemotePiConversation } from "@posthog/agent/pi/remote-rpc-client";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { PiRuntime } from "@posthog/agent/pi/runtime";
@@ -8,6 +7,7 @@ import type {
   StoredLogEntry,
 } from "@posthog/shared";
 import type { McpToolPolicyUpdater } from "@posthog/workspace-server/services/agent/ports";
+import { type Attachment, isImage, withFilePaths } from "./images";
 import { controlOf, type PiControl } from "./models";
 import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
@@ -29,7 +29,7 @@ export interface LocalAgent {
   readonly model?: string;
   start(): Promise<void>;
   watch(onView: (view: RunView) => void): () => void;
-  prompt(message: string, images?: ImageContent[]): Promise<void>;
+  prompt(message: string, attachments?: Attachment[]): Promise<void>;
   watchPrompts(onPrompts: (prompts: AgentPrompt[]) => void): () => void;
   answer(prompt: AgentPrompt, reply: PromptReply): Promise<void>;
   stop(): Promise<void>;
@@ -152,11 +152,12 @@ export class LocalSession implements LocalAgent {
   }
 
   // A message sent mid-turn steers it: the agent reads it after its current tool calls, before its next step.
-  async prompt(message: string, images: ImageContent[] = []): Promise<void> {
+  async prompt(message: string, attachments: Attachment[] = []): Promise<void> {
+    const images = attachments.filter(isImage);
     const response = await this.pi.sendCommand({
       type: "prompt",
       id: globalThis.crypto.randomUUID(),
-      message,
+      message: withFilePaths(message, attachments),
       ...(images.length > 0 && { images }),
       streamingBehavior: "steer",
     });

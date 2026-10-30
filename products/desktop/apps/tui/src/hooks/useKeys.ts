@@ -6,7 +6,7 @@ import { track } from "../analytics";
 import { readClipboardImage } from "../clipboard";
 import { type Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
-import { droppedImages, droppedPaths } from "../images";
+import { droppedAttachments, droppedPaths } from "../images";
 import {
   activeWorkspace,
   backToPrevious,
@@ -365,7 +365,7 @@ export function useKeys({
         flashNotice("Press Esc again to go back", { paneId });
       return;
     }
-    // Local agents take images directly; cloud runs get them uploaded as attachments when the message is sent.
+    // Local agents take images directly and files by path; cloud runs get both uploaded when the message is sent.
     if (matchesKey(sequence, "ctrl+v")) {
       readClipboardImage().then((image) =>
         image
@@ -374,8 +374,8 @@ export function useKeys({
       );
       return;
     }
-    const dropped = droppedImages(sequence);
-    if (dropped.length > 0) for (const image of dropped) composer.attach(image);
+    const dropped = droppedAttachments(sequence);
+    if (dropped.length > 0) for (const file of dropped) composer.attach(file);
     else composer.handleInput(sequence);
   };
 

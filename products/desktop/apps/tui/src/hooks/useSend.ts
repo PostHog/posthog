@@ -1,4 +1,3 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
 import type { Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { track } from "../analytics";
@@ -6,6 +5,7 @@ import { billingBlocker, cloudHarnessFor, localHarnessFor } from "../billing";
 import type { PiChats, StartPick } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
+import type { Attachment } from "../images";
 import {
   assignTask,
   expandPane,
@@ -29,7 +29,7 @@ import type { OpenModal } from "./useSheets";
 
 export interface Send {
   // What the composer submits: an answer to a typed prompt, a slash command, a ! command, or a message.
-  onSubmit: (paneId: string, text: string, images?: ImageContent[]) => void;
+  onSubmit: (paneId: string, text: string, images?: Attachment[]) => void;
   // Messages on their way, by chat (by pane before the chat has a task), shown until the chat has them.
   pending: Map<string, string>;
   // Chats whose stopped run a reply is bringing back.
@@ -150,7 +150,7 @@ export function useSend({
   const onSubmit = (
     paneId: string,
     text: string,
-    images: ImageContent[] = [],
+    images: Attachment[] = [],
   ): void => {
     const pane = findPane(layout, paneId);
     const current = taskOf(pane?.taskId ?? null);

@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { ImageContent } from "@earendil-works/pi-ai";
 import {
   parseSessionEntries,
   type SessionEntry,
@@ -8,6 +7,7 @@ import { getRemotePiConversation } from "@posthog/agent/pi/remote-rpc-client";
 import type { AgentRuntime, StoredLogEntry } from "@posthog/shared";
 import type { StartPick } from "./chats";
 import { sessionModel } from "./claudeLocal";
+import type { Attachment } from "./images";
 import { asEntry, type LocalAgent } from "./local";
 import type { LocalChats } from "./localChats";
 import { type PiControl, shortModelName } from "./models";
@@ -103,7 +103,7 @@ export class LocalChatHandle implements LocalAgent {
     };
   }
 
-  async prompt(message: string, images?: ImageContent[]): Promise<void> {
+  async prompt(message: string, images?: Attachment[]): Promise<void> {
     const agent = this.live ?? (await this.spawn());
     this.attach(agent);
     await agent.prompt(message, images);

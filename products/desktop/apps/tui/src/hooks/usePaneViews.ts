@@ -1,7 +1,7 @@
-import type { ImageContent } from "@earendil-works/pi-ai";
 import { useEffect, useRef, useState } from "react";
 import { ChatView } from "../chatView";
 import { Composer } from "../composer";
+import type { Attachment } from "../images";
 import { allPanes, findPane, type LayoutState } from "../layout";
 import type { TranscriptLine } from "../transcript";
 
@@ -26,7 +26,7 @@ export function usePaneViews({
   onSubmit,
 }: {
   layout: LayoutState;
-  onSubmit: (paneId: string, text: string, images: ImageContent[]) => void;
+  onSubmit: (paneId: string, text: string, images: Attachment[]) => void;
 }): PaneViews {
   const chatViews = useRef(new Map<string, ChatView>());
   const composers = useRef(new Map<string, Composer>());

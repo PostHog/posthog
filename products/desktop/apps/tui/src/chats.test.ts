@@ -360,6 +360,7 @@ describe("PiChats", () => {
 
   describe("with images", () => {
     const image = {
+      type: "image" as const,
       data: Buffer.from("png").toString("base64"),
       mimeType: "image/png",
     };
