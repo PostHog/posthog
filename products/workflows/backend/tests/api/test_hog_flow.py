@@ -8563,12 +8563,14 @@ class TestT3CodeStepOwnership(APIBaseTest):
             return self.owner
         level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
         teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
-        if who == "shared_editor":
+        if who in ("shared_editor", "shared_with_everyone"):
             AccessControl.objects.create(
                 team=self.team,
                 resource="hog_flow",
                 resource_id=str(self.flow.id),
-                organization_member=OrganizationMembership.objects.get(user=teammate),
+                organization_member=(
+                    OrganizationMembership.objects.get(user=teammate) if who == "shared_editor" else None
+                ),
                 access_level="editor",
             )
         self.client.force_login(teammate)
@@ -8578,6 +8580,7 @@ class TestT3CodeStepOwnership(APIBaseTest):
         [
             ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
             ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_200_OK),
             ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
             ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
             ("teammate", {"status": "archived"}, status.HTTP_200_OK),
