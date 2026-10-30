@@ -68,7 +68,7 @@ def load_exposure_reads(experiment: Experiment) -> ExposureReads | None:
 
 def _precomputes_exposures(experiment: Experiment) -> bool:
     """Whether a metric query on events reads the exposures from the table that a separate query fills, which applies
-    the exposure filters once. It follows the rules of `ExperimentQueryRunner`, without a metric's cohorts."""
+    the exposure filters once. It follows the rules of `ExperimentQueryRunner` that don't depend on the metric."""
     if experiment.feature_flag.aggregation_group_type_index is not None:
         return False
     config = team_experiments_configs([experiment.team_id])[experiment.team_id]

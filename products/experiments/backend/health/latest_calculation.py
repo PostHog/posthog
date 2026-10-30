@@ -5,6 +5,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
 from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
+from products.experiments.backend.hogql_queries.precompute_policy import has_uncalculated_cohorts
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
@@ -104,5 +105,6 @@ def _shown_failure(
         can_quote_evaluation_rules=can_hold_evaluation_rules(calculation_config.definition),
         retriable=error.get("retriable") is True,
         definition=calculation_config.definition,
-        reads_data_warehouse=metric_dict_reads_data_warehouse(calculation_config.definition),
+        skips_precomputed_exposures=metric_dict_reads_data_warehouse(calculation_config.definition)
+        or has_uncalculated_cohorts(experiment.team, calculation_config.definition),
     )

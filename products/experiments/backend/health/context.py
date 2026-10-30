@@ -326,8 +326,9 @@ class MetricCalculationFailure:
     retriable: bool
     # The effective definition now, in which the wording looks for the names that the message gives.
     definition: Mapping[str, Any]
-    # Whether the metric reads a data warehouse table, which keeps its query from using precomputed exposures.
-    reads_data_warehouse: bool
+    # Whether the metric's query can't use precomputed exposures, because the metric reads a data warehouse table or a
+    # cohort that isn't calculated yet.
+    skips_precomputed_exposures: bool
 
 
 @frozen
@@ -371,9 +372,8 @@ class ExposureFilterWithoutColumn:
 class ExposureReads:
     """How the metric queries read the exposures, as far as the settings say."""
 
-    # Whether a metric query on events reads precomputed exposures, which apply the filters once. A query on a data
-    # warehouse metric always reads the events. When a precompute fails, any query reads the events, but the stored
-    # failure doesn't say so.
+    # Whether a metric query reads precomputed exposures, which apply the filters once, unless the failure says that it
+    # skips them. When a precompute fails, any query reads the events, but the stored failure doesn't say so.
     precomputed: bool
     filters_without_column: tuple[ExposureFilterWithoutColumn, ...]
 

@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
@@ -37,6 +38,7 @@ from products.experiments.backend.health.test.factories import ENDED, RUNNING_CO
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED
@@ -65,7 +67,7 @@ def _failure(
     role: str = "primary",
     retriable: bool = True,
     can_quote_evaluation_rules: bool = False,
-    reads_data_warehouse: bool = False,
+    skips_precomputed_exposures: bool = False,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -77,7 +79,7 @@ def _failure(
         can_quote_evaluation_rules=can_quote_evaluation_rules,
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
-        reads_data_warehouse=reads_data_warehouse,
+        skips_precomputed_exposures=skips_precomputed_exposures,
     )
 
 
@@ -381,7 +383,7 @@ class TestMetricCalculationFailed(TestCase):
             ),
             (
                 "data_warehouse_metrics_read_the_events_in_a_project_that_precomputes",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", reads_data_warehouse=True),),
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", skips_precomputed_exposures=True),),
                 0,
                 READS_PRECOMPUTED,
                 ("exposure_criteria", 'filter on the group property "plan"'),
@@ -402,7 +404,7 @@ class TestMetricCalculationFailed(TestCase):
             ),
             (
                 "completed_metric_read_the_exposures_another_way",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", reads_data_warehouse=True),),
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", skips_precomputed_exposures=True),),
                 1,
                 READS_PRECOMPUTED,
                 (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
@@ -610,19 +612,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
 
-    @parameterized.expand(
-        [
-            ("every_metric_reached_a_limit", (), ("exposure_criteria", 'filter on the group property "plan"')),
-            (
-                "other_metrics_completed",
-                ("rejected", "secondary"),
-                ("metric", "while other metrics of the experiment returned results"),
-            ),
-        ]
-    )
-    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
-        self, _name: str, completed_rows: tuple[str, ...], expected: tuple[str, str]
-    ) -> None:
+    def _reach_a_read_limit(self, metric_uuids: tuple[str, ...], completed_rows: tuple[str, ...] = ()) -> None:
         self.experiment.exposure_criteria = {
             "exposure_config": {
                 "kind": "ExperimentEventExposureConfig",
@@ -637,12 +627,25 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self._run(
             status=ExperimentMetricsRecalculation.Status.FAILED,
             created_at=timezone.now() - timedelta(hours=2),
-            metric_errors={
-                metric_uuid: read_limit
-                for metric_uuid in ("primary", "rejected", "secondary")
-                if metric_uuid not in completed_rows
-            },
+            metric_errors=dict.fromkeys(metric_uuids, read_limit),
             completed_rows=completed_rows,
+        )
+
+    @parameterized.expand(
+        [
+            ("every_metric_reached_a_limit", (), ("exposure_criteria", 'filter on the group property "plan"')),
+            (
+                "other_metrics_completed",
+                ("rejected", "secondary"),
+                ("metric", "while other metrics of the experiment returned results"),
+            ),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
+        self, _name: str, completed_rows: tuple[str, ...], expected: tuple[str, str]
+    ) -> None:
+        self._reach_a_read_limit(
+            tuple(uuid for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows), completed_rows
         )
 
         [finding] = [finding for finding in self._health().findings if finding.code == CODE]
@@ -650,6 +653,29 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         reason, words = expected
         self.assertEqual(finding.reason, reason)
         self.assertIn(words, finding.detail)
+
+    @parameterized.expand(
+        [
+            ("cohort_not_calculated_yet", None, "exposure_criteria"),
+            ("cohort_calculated", 1, None),
+        ]
+    )
+    def test_a_metric_cohort_can_keep_a_query_from_precomputed_exposures(
+        self, _name: str, cohort_version: int | None, expected_reason: str | None
+    ) -> None:
+        TeamExperimentsConfig.objects.update_or_create(
+            team=self.team, defaults={"experiment_precomputation_enabled": True}
+        )
+        cohort = Cohort.objects.create(team=self.team, name="Buyers", version=cohort_version)
+        metric = _mean("primary")
+        metric["source"]["properties"] = [{"key": "id", "type": "cohort", "value": cohort.pk}]
+        self.experiment.metrics = [metric]
+        self.experiment.metrics_secondary = []
+        self._reach_a_read_limit(("primary",))
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        self.assertEqual(finding.reason, expected_reason)
 
     @parameterized.expand(
         [

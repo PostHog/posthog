@@ -361,12 +361,12 @@ def _with_query_limit_cause(
 
 def _shares_exposure_read(failure: MetricCalculationFailure, reads: ExposureReads | None) -> bool:
     """Whether a completed metric read the exposures as this metric did. In a project that precomputes exposures, it
-    can have read them precomputed while a data warehouse metric reads the events."""
-    return not failure.reads_data_warehouse or (reads is not None and not reads.precomputed)
+    can have read them precomputed while this metric reads the events."""
+    return not failure.skips_precomputed_exposures or (reads is not None and not reads.precomputed)
 
 
 def _applies_exposure_filters(failure: MetricCalculationFailure, reads: ExposureReads) -> bool:
-    return failure.reads_data_warehouse or not reads.precomputed
+    return failure.skips_precomputed_exposures or not reads.precomputed
 
 
 def _metric_cause(failure: MetricCalculationFailure, limit: str, completed_count: int) -> _Wording:
