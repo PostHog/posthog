@@ -65,6 +65,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
+    _UsageRecordRow,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -5606,6 +5607,47 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         #     groups={"instance": ANY},
         #     timestamp=None,
         # )
+
+    @parameterized.expand([("both",), ("realtime",)])
+    @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("ee.sqs.SQSProducer.get_sqs_producer")
+    def test_send_usage_ignores_usage_counter_modes(
+        self, mode: str, mock_get_sqs_producer: MagicMock, mock_client: MagicMock
+    ) -> None:
+        mock_producer = MagicMock()
+        mock_get_sqs_producer.return_value = mock_producer
+        usage_records = MagicMock(
+            return_value=[
+                _UsageRecordRow(
+                    team_id=self.team.id,
+                    organization_id=str(self.organization.id),
+                    usage_key="workflow_emails_sent",
+                    unit="invocations",
+                    quantity=16,
+                )
+            ]
+        )
+
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES=f"workflow-emails:{mode}"),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_workflow_emails_sent_in_period",
+                return_value=[(self.team.id, 24)],
+            ),
+            patch("posthog.tasks.usage_report._query_usage_records", usage_records),
+        ):
+            send_all_org_usage_reports(dry_run=False)
+
+        mock_producer.send_message.assert_called_once()
+        message = json.loads(
+            gzip.decompress(base64.b64decode(mock_producer.send_message.call_args.kwargs["message_body"]))
+        )
+        report = message["usage_report"]
+        assert report["workflow_emails_sent_in_period"] == 24
+        assert "usage_sources" not in report
+        assert "counter_comparisons" not in report
+        usage_records.assert_not_called()
 
     @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
     @patch("posthog.tasks.usage_report.get_ph_client")
