@@ -568,6 +568,37 @@ class TestServiceEdgeRows:
 
 
 class TestSlowEventRows:
+    @pytest.mark.parametrize("status_code", [404, 422])
+    @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
+    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 3600)
+    def test_a_bucket_older_than_retention_is_skipped_not_fatal(self, status_code: int) -> None:
+        # A bucket outside the account's tracing retention gets the same aged-out-range response
+        # as /deploys/stats (see TestDeployStatsRows), not a hard failure for the whole sync.
+        result = _driver().run("slow_events", _v2_script(post={"/tracing/slow_events": status_code}))
+
+        assert result.raised is None
+        assert result.rows == []
+
+    @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
+    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
+    def test_a_later_in_retention_bucket_still_yields_rows_after_a_skipped_one(self) -> None:
+        # The skip must not stop the walk: an in-retention bucket after a skipped one still
+        # contributes its rows, rather than the whole sync going quietly empty.
+        calls: list[dict[str, Any]] = []
+
+        def respond(body: dict[str, Any]) -> Any:
+            calls.append(body)
+            return 422 if len(calls) == 1 else [{"digest": "d1", "impact": 9}]
+
+        # Pinned to a bucket boundary so the lookback produces exactly two windows.
+        now = datetime.fromtimestamp(1_000_000 - 1_000_000 % 3600, UTC)
+        with time_machine.travel(now, tick=False):
+            result = _driver().run("slow_events", _v2_script(post={"/tracing/slow_events": respond}))
+
+        assert result.raised is None
+        assert [row["digest"] for row in result.rows] == ["d1"]
+        assert len(calls) == 2
+
     @mock.patch(f"{MODULE}.MAX_SLOW_EVENT_DIGESTS_PER_SYNC", 1)
     @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
     @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
