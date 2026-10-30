@@ -6,7 +6,7 @@ preset windows from a single read of the longest one. A build keeps only rows th
 bounded number of places per scanner, which is all a page load can reach.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import fields
 from datetime import datetime, timedelta
 from typing import Any
@@ -61,6 +61,7 @@ class RankedEntry:
     experiment_id: int
     percentile: float
     group_root: Any
+    person_key: int | None
 
 
 @frozen
@@ -92,7 +93,7 @@ def _ranked_sql(
         WITH bounds(window_days, window_start, window_end) AS (VALUES {window_values}),
         ranked_rows AS MATERIALIZED (
             SELECT observation_id, scanner_id, created_at, contrast, category, experiment_id,
-                COALESCE(feed_group_id, observation_id) AS group_root
+                COALESCE(feed_group_id, observation_id) AS group_root, person_key
             FROM replay_vision_replayobservationrank
             WHERE team_id = %s AND anchor_version = %s
                 AND created_at >= (SELECT min(window_start) FROM bounds)
@@ -114,7 +115,7 @@ def _ranked_sql(
             ) windowed
         )
         SELECT window_days, place, observation_id, scanner_id, created_at, category, experiment_id, percentile,
-            group_root
+            group_root, person_key
         FROM placed
         WHERE scanner_rows >= %s AND place <= %s AND percentile >= %s
     """
@@ -190,7 +191,7 @@ def build_highlight_feed(team_id: int, anchor_version: int, *, wait: bool = True
                 f"""
                 INSERT INTO replay_vision_replayhighlightfeedentry (
                     team_id, generation, window_days, place, observation_id, scanner_id, created_at, category,
-                    experiment_id, percentile, group_root
+                    experiment_id, percentile, group_root, person_key
                 )
                 SELECT %s, %s, ranked.* FROM ({sql}) ranked
                 """,
@@ -226,9 +227,10 @@ def stored_generation(team_id: int, anchor_version: int, as_of: datetime) -> int
     return max(current_by_then) if current_by_then else min(build[0] for build in state.builds)
 
 
-def rebuild_changed_feeds(anchor_version: int) -> int:
+def rebuild_changed_feeds(anchor_version: int, *, on_team: Callable[[], None] | None = None) -> int:
     """Rebuild teams whose ranks changed since their last build, least recently tried first, skipping any team another
-    process is building. A team whose build fails waits behind the others. Returns how many it built."""
+    process is building. A team whose build fails waits behind the others. `on_team` runs before each team's build.
+    Returns how many it built."""
     now = timezone.now()
     states = ReplayHighlightFeedState.objects.unscoped()
     due = list(
@@ -242,6 +244,8 @@ def rebuild_changed_feeds(anchor_version: int) -> int:
     states.filter(team_id__in=due).update(attempted_at=now)
     built = 0
     for team_id in due:
+        if on_team is not None:
+            on_team()
         try:
             built += build_highlight_feed(team_id, anchor_version, wait=False) is not None
         except Exception:

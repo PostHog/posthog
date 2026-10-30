@@ -2503,7 +2503,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 None if date_to is not None else HIGHLIGHT_FEED_PRESETS.get(params["date_from"]),
             ),
             allowed_ids,
-            viewed,
+            viewer_id,
             self.user_access_control,
             self.team_id,
             HIGHLIGHT_FEED_CANDIDATE_CAP,
