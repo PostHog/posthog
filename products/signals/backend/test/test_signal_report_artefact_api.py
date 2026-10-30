@@ -1482,6 +1482,27 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
         assert all(item["is_default_owner"] is False for item in reviewers)
 
+    def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self):
+        # An unprotected report stores the identity pair as given, and a later reviewer edit matches
+        # the stored login — so an entry pairing the owner's uuid with a teammate's login would hand
+        # the teammate the mark, and with it the silence their removal is supposed to break.
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
+        self._create_org_member("teammate@example.com", github_login="teammate-login")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {
+                "artefact_type": "suggested_reviewers",
+                "content": [{"user_uuid": str(owner.uuid), "github_login": "teammate-login"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [False]
+
     @parameterized.expand(
         [
             ("by_uuid", False),
