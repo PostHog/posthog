@@ -27,6 +27,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
     add_pre_logs_distinct_patterns_patch_defaults,
+    add_pre_mcp_event_count_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     build_manifest,
@@ -173,6 +174,7 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
     [
         (add_pre_logs_distinct_patterns_patch_defaults, "teams_with_logs_distinct_patterns_in_period"),
         (add_pre_transactional_emails_patch_defaults, "teams_with_workflow_transactional_emails_sent_in_period"),
+        (add_pre_mcp_event_count_patch_defaults, "teams_with_mcp_event_count_in_period"),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(

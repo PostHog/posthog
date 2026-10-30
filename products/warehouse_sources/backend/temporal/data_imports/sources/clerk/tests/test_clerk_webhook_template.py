@@ -6,7 +6,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import WEBHOOK_EVENT_TO_SCHEMA
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.webhook_template import template
 
@@ -16,7 +16,7 @@ KEY_BYTES = bytes(range(0xE0, 0xF8))
 SECRET = "whsec_" + base64.b64encode(KEY_BYTES).decode()
 
 
-class TestClerkWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
+class TestClerkWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
 
     def createHogGlobals(self, globals=None) -> dict:

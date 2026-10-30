@@ -22,6 +22,11 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeState,
@@ -402,12 +407,24 @@ class TestRealtimeReadiness(BaseTest):
 
         assert self._state(cohort) == CohortRealtimeState.DAILY
 
+    @parameterized.expand(
+        [
+            ("off_the_pipeline", None),
+            # A load-test team runs the pipeline, but the cohort list must not show its users a state.
+            ("processing_only", RealtimeCohortLevel.PROCESSING),
+        ]
+    )
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
-    def test_team_without_the_pipeline_has_no_realtime_state(self) -> None:
+    def test_team_not_serving_has_no_realtime_state(self, _name: str, access_level: RealtimeCohortLevel | None) -> None:
         # Cohort type is computed for every team, so without this gate every cohort in the fleet
         # would claim a realtime state the team's flags can never read.
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         cohort = self._cohort()
-        with self.assertNumQueries(0):
+        # The one query reads the team's access row, which production serves from a per-process cache.
+        with self.assertNumQueries(1):
             assert resolve_realtime_readiness([cohort]) == {}
 
     def test_resolving_a_page_costs_the_same_queries_as_one_cohort(self) -> None:
