@@ -360,7 +360,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                             parameters: alignVariantDetails(
                                 state.parameters,
                                 config.variants,
-                                currentConfig.filters?.multivariate?.variants ?? []
+                                // Linking a flag sends its key too. Its variants replace the rows instead of
+                                // renaming them, so details follow the variant keys, not the row positions
+                                config.feature_flag_key !== undefined
+                                    ? config.variants
+                                    : (currentConfig.filters?.multivariate?.variants ?? [])
                             ),
                         }),
                         feature_flag_config: {

@@ -560,6 +560,23 @@ describe('createExperimentLogic', () => {
             })
         })
 
+        it('matches details by key when a linked flag lists the same variants in another order', () => {
+            startWith(['control', 'test'], {
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { test: ['media-1'] },
+            })
+
+            logic.actions.setFeatureFlagConfig({
+                feature_flag_key: 'checkout-flow',
+                variants: variantsWithKeys('test', 'control'),
+            })
+
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { test: ['media-1'] },
+            })
+        })
+
         it("drops a removed variant's details, without shifting the rest onto other variants", () => {
             startWith(['control', 'test', 'test-2'], {
                 variant_notes: { test: 'One-page checkout', 'test-2': 'Express checkout' },
