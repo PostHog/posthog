@@ -7,16 +7,16 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("ee", "0068_enterpriseeventdefinition_scheduled_deletion_at"),
+        ("event_definitions", "0016_eventdefinition_scheduled_deletion_at"),
     ]
 
     operations = [
         SafeAddIndexConcurrently(
-            model_name="enterpriseeventdefinition",
+            model_name="eventdefinition",
             index=models.Index(
                 condition=models.Q(("scheduled_deletion_at__isnull", False)),
                 fields=["scheduled_deletion_at"],
-                name="ee_eventdef_sched_del_idx",
+                name="posthog_eventdef_sched_del_idx",
             ),
         ),
     ]
