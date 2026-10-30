@@ -86,8 +86,13 @@ def run_citation_checks(
     # this thread, so the workers never open their own Django connections.
     pool = ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY))
     futures = {pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts}
+    stopped = False
+    done = 0
     try:
-        for done, future in enumerate(as_completed(futures), start=1):
+        for future in as_completed(futures):
+            if future.cancelled():
+                continue
+            done += 1
             try:
                 result = future.result()
             except Exception as e:
@@ -99,22 +104,24 @@ def run_citation_checks(
                     prompt_id=str(futures[future].id),
                     error=str(e)[:300],
                 )
-                continue
-            engine_failures += result.failures
-            checks.extend(result.fields_per_engine)
-            if record and result.fields_per_engine:
-                if _record_prompt_checks(team, canonical_team_id, run_id, result.prompt, result.fields_per_engine):
-                    rows_written += len(result.fields_per_engine)
-                else:
-                    write_failures += len(result.fields_per_engine)
+            else:
+                engine_failures += result.failures
+                checks.extend(result.fields_per_engine)
+                if record and result.fields_per_engine:
+                    if _record_prompt_checks(team, canonical_team_id, run_id, result.prompt, result.fields_per_engine):
+                        rows_written += len(result.fields_per_engine)
+                    else:
+                        write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
-            if stop is not None and stop.is_set():
+            if stop is not None and not stopped and stop.is_set():
+                # Drop the queued prompts but keep draining the ones already running: their calls are
+                # paid for, and recording them keeps the next dispatch from repeating them.
+                stopped = True
                 logger.warning(
                     "aeo_citation_run_stopped", team_id=team.id, run_id=run_id, done=done, total=len(prompts)
                 )
                 pool.shutdown(wait=False, cancel_futures=True)
-                break
     except BaseException:
         # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
         # make no more paid calls whose results nobody records.
@@ -132,6 +139,7 @@ def run_citation_checks(
         cited=sum(1 for check in checks if check["cited"]),
         rows_written=rows_written,
         write_failures=write_failures,
+        error="stopped: the run lease was lost to a later dispatch" if stopped else None,
     )
     logger.info(
         "aeo_citation_run_complete",

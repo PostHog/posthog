@@ -83,7 +83,11 @@ class _StubEngine:
     name = "stub-engine"
     model = "stub"
 
+    def __init__(self) -> None:
+        self.calls = 0
+
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.calls += 1
         return CitationCheck(engine=self.name, model=self.model, cited_urls=["https://posthog.com/docs"])
 
 
@@ -164,6 +168,7 @@ class _BlockingEngine(_StubEngine):
     """Holds every check until the test releases it, so the test decides which prompts are in flight."""
 
     def __init__(self, workers: int) -> None:
+        super().__init__()
         self.prompts: list[str] = []
         self.threads: set[threading.Thread] = set()
         self.all_workers_busy = threading.Barrier(workers + 1)
@@ -172,21 +177,56 @@ class _BlockingEngine(_StubEngine):
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         self.prompts.append(prompt)
         self.threads.add(threading.current_thread())
-        self.all_workers_busy.wait(timeout=5)
-        self.release.wait(timeout=5)
+        # Only the first wave meets at the barrier; a prompt picked up after the release runs through.
+        if not self.release.is_set():
+            self.all_workers_busy.wait(timeout=5)
+            self.release.wait(timeout=5)
         return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
 
 
-def test_a_stopped_run_ends_after_the_prompt_in_hand(team: Team, settings) -> None:
+class _DownEngine(_StubEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        self.calls += 1
+        raise RuntimeError("engine down")
+
+
+@pytest.mark.parametrize("engine_factory", [_StubEngine, _DownEngine], ids=["answers", "down"])
+def test_a_stopped_run_records_what_it_paid_for_and_reports_the_stop(
+    team: Team, settings, engine_factory: type
+) -> None:
     settings.AEO_RUN_CONCURRENCY = 1
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(4)])
     stop = threading.Event()
     stop.set()
+    engine = engine_factory()
 
-    summary, _ = run_citation_checks(team, engines=[_StubEngine()], stop=stop)
+    summary, _ = run_citation_checks(team, engines=[engine], stop=stop)
 
-    assert summary.rows_written == 1
-    assert AEOCitationCheck.objects.for_team(team.id).count() == 1
+    # A worker may pick the next queued prompt before the stop cancels it, so the count is not
+    # fixed; what must hold is that nothing paid for is discarded and the stop is reported.
+    assert summary.error == "stopped: the run lease was lost to a later dispatch"
+    expected_rows = 0 if isinstance(engine, _DownEngine) else engine.calls
+    assert summary.rows_written == expected_rows
+    assert AEOCitationCheck.objects.for_team(team.id).count() == expected_rows
+
+
+def test_a_stopped_run_keeps_the_results_of_the_checks_already_running(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(3)])
+    engine = _BlockingEngine(workers=2)
+    stop = threading.Event()
+    stop.set()
+
+    def release_once_both_workers_are_busy() -> None:
+        engine.all_workers_busy.wait(timeout=5)
+        engine.release.set()
+
+    threading.Thread(target=release_once_both_workers_are_busy).start()
+    summary, _ = run_citation_checks(team, engines=[engine], stop=stop)
+
+    assert len(engine.prompts) >= 2
+    assert summary.rows_written == len(engine.prompts)
+    assert AEOCitationCheck.objects.for_team(team.id).count() == len(engine.prompts)
 
 
 def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings, monkeypatch) -> None:
