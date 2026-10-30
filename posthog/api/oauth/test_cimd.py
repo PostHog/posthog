@@ -395,6 +395,25 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         else:
             self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_PUBLIC)
 
+    @parameterized.expand(
+        [
+            ("document_logo", {"logo_uri": "https://cdn.example.com/logo.png"}, "https://cdn.example.com/logo.png"),
+            (
+                "host_icon_without_logo",
+                {"client_uri": "https://someone-else.example.org"},
+                "https://app.example.com/apple-touch-icon.png",
+            ),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_stores_logo_or_document_host_icon(self, _name, overrides, expected_logo_uri, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(**overrides), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.logo_uri, expected_logo_uri)
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_updates_existing_application(self, mock_get, _url_mock):
         metadata1 = _make_metadata(client_name="Original Name")
