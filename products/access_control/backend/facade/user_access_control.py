@@ -2040,7 +2040,7 @@ class UserAccessControl:
         rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
         return self._most_specific_resource_access_from_rows(resource, rows)
 
-    def _most_specific_resource_fallback(
+    def _most_specific_access_without_object_rules(
         self, resource: APIScopeObject, parent: Optional[APIScopeObject]
     ) -> ResolvedAccess:
         if self.has_access_levels_for_resource(resource):
@@ -2078,7 +2078,7 @@ class UserAccessControl:
         row = self._most_specific_rows_decision(resource, object_rows)
         if row:
             if self._row_subject(row) == "default" and row.access_level != NO_ACCESS_LEVEL:
-                resource_access = self._most_specific_resource_fallback(resource, parent)
+                resource_access = self._most_specific_access_without_object_rules(resource, parent)
                 if resource_access.access_level == NO_ACCESS_LEVEL:
                     return resource_access
             return ResolvedAccess(
@@ -2096,7 +2096,7 @@ class UserAccessControl:
             parent_row = self._most_specific_rows_decision(parent, parent_rows)
             if parent_row:
                 if self._row_subject(parent_row) == "default" and parent_row.access_level != NO_ACCESS_LEVEL:
-                    resource_access = self._most_specific_resource_fallback(resource, parent)
+                    resource_access = self._most_specific_access_without_object_rules(resource, parent)
                     if resource_access.access_level == NO_ACCESS_LEVEL:
                         return resource_access
                 return ResolvedAccess(
@@ -2107,7 +2107,7 @@ class UserAccessControl:
                     source_resource_id=parent_row.resource_id,
                 )
 
-        return self._most_specific_resource_fallback(resource, parent)
+        return self._most_specific_access_without_object_rules(resource, parent)
 
     def _most_specific_resource_access_from_rows(
         self, resource: APIScopeObject, rows: list[_AccessControl]
