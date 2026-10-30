@@ -13,7 +13,7 @@ export interface ManifestEntry {
     name: string
     description: string
     available: boolean
-    arguments?: { name: string; description: string; required: boolean; stdin: boolean }[]
+    arguments?: { name: string; description: string; required: boolean; variadic: boolean; stdin: boolean }[]
     options?: OptionEntry[]
     scopes?: readonly string[]
     examples?: readonly string[]
@@ -48,6 +48,7 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                             name: kebabCase(argName),
                             description: spec.description,
                             required: spec.optional !== true,
+                            variadic: spec.variadic === true,
                             stdin: spec.stdin === true,
                         })),
                         options: describeOptions(node.options ?? {}),
@@ -57,6 +58,19 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
                 ]
         }
     })
+}
+
+export function describeAliases(tree: CommandTree, prefix = ''): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(tree).flatMap(([name, node]) => {
+            if (node.kind !== 'group') {
+                return []
+            }
+            const path = prefix ? `${prefix} ${name}` : name
+            const own = (node.aliases ?? []).map((alias) => [prefix ? `${prefix} ${alias}` : alias, path])
+            return [...own, ...Object.entries(describeAliases(node.commands, path))]
+        })
+    )
 }
 
 export function describeGlobalOptions(): OptionEntry[] {
