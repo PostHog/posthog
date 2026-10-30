@@ -15,11 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     OffsetPaginator,
+    SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    Hooks,
-    RESTClient,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -40,7 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlivoResumeConfig:
     # ISO start/end of the <=30-day window being paged. Both None for non-windowed endpoints.
     # window_end pins the resumed window's upper bound so re-deriving it against a later "now"
@@ -51,6 +49,8 @@ class PlivoResumeConfig:
     offset: int = 0
     # Next page cursor within the current window, for cursor-paginated endpoints (UsageSummary).
     page_token: str | None = None
+    # Index of the next parent row to fan out within the parent page at `offset`.
+    parent_index: int = 0
 
 
 def _coerce_datetime(value: Any) -> datetime:
@@ -68,13 +68,11 @@ def _format_filter_value(dt: datetime) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _build_windows(
-    start: datetime, end: datetime, max_days: int = MAX_QUERY_RANGE_DAYS
-) -> list[tuple[datetime, datetime]]:
-    """Contiguous (start, end] slices of at most `max_days` covering [start, end]."""
+def _build_windows(start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+    """Contiguous (start, end] slices of at most MAX_QUERY_RANGE_DAYS covering [start, end]."""
     windows: list[tuple[datetime, datetime]] = []
     window_start = start
-    step = timedelta(days=max_days)
+    step = timedelta(days=MAX_QUERY_RANGE_DAYS)
     while window_start < end:
         window_end = min(window_start + step, end)
         windows.append((window_start, window_end))
@@ -112,8 +110,7 @@ def _paginate(
     params: dict[str, Any],
     config: PlivoEndpointConfig,
     initial_offset: int,
-    on_checkpoint: Callable[[int | None], None] | None = None,
-    hooks: Hooks | None = None,
+    on_checkpoint: Callable[[int | None], None],
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk one offset-paginated listing, yielding normalized row pages.
 
@@ -127,15 +124,13 @@ def _paginate(
     )
 
     def resume_hook(state: Optional[dict[str, Any]]) -> None:
-        if on_checkpoint is not None:
-            on_checkpoint(int(state["offset"]) if state else None)
+        on_checkpoint(int(state["offset"]) if state else None)
 
     for page in client.paginate(
         path=path,
         params=params,
         paginator=paginator,
         data_selector="objects",
-        hooks=hooks,
         resume_hook=resume_hook,
     ):
         yield [_normalize_row(row, config) for row in page]
@@ -156,6 +151,7 @@ def _get_participant_rows(
     )
 
     parent_offset = resume.offset if resume else 0
+    skip_parents = resume.parent_index if resume else 0
     parent_pages = client.paginate(
         path=f"Account/{auth_id}/{parent.path}",
         params=parent_params,
@@ -163,23 +159,31 @@ def _get_participant_rows(
         data_selector="objects",
     )
     for mpcs in parent_pages:
-        # Stage this parent page's offset before yielding any of its children: a resume re-reads
-        # the page (merge dedupes) and skips every page already finished.
-        resumable_source_manager.save_state(PlivoResumeConfig(offset=parent_offset))
-        for raw_mpc in mpcs:
+        for index, raw_mpc in enumerate(mpcs):
+            if index < skip_parents:
+                continue
             mpc = _normalize_row(raw_mpc, parent)
             mpc_uuid = mpc["mpc_uuid"]
+            # Stage the position after this MPC before yielding its participants, so a resume
+            # starts at the next MPC and never writes these participants twice.
+            resumable_source_manager.save_state(PlivoResumeConfig(offset=parent_offset, parent_index=index + 1))
             child_path = f"Account/{auth_id}/{child.path}".replace("{mpc_uuid}", mpc_uuid)
-            yielded = False
-            for participants in _paginate(client, child_path, {}, child, 0, hooks=child_hooks):
-                if participants:
-                    yielded = True
-                    yield [
-                        {**participant, "mpc_uuid": mpc_uuid, "mpc_end_time": mpc.get("end_time")}
-                        for participant in participants
-                    ]
-            if not yielded:
+            participants = [
+                {**participant, "mpc_uuid": mpc_uuid, "mpc_end_time": mpc.get("end_time")}
+                for page in client.paginate(
+                    path=child_path,
+                    # The participant listing takes no limit or offset and returns every participant.
+                    paginator=SinglePagePaginator(),
+                    data_selector="objects",
+                    hooks=child_hooks,
+                )
+                for participant in page
+            ]
+            if participants:
+                yield [_normalize_row(participant, child) for participant in participants]
+            else:
                 resumable_source_manager.safe_point()
+        skip_parents = 0
         parent_offset += PAGE_SIZE
 
 
@@ -203,13 +207,15 @@ def _get_usage_rows(
     else:
         start = end - timedelta(days=USAGE_BACKFILL_DAYS)
 
-    windows = _build_windows(start, end, USAGE_MAX_QUERY_RANGE_DAYS)
-    if resume is not None and resume.window_end and windows:
-        resumed_end = _coerce_datetime(resume.window_end)
-        windows[0] = (windows[0][0], resumed_end)
-        windows[1:] = _build_windows(resumed_end, end, USAGE_MAX_QUERY_RANGE_DAYS)
-
-    for index, (window_start, window_end) in enumerate(windows):
+    # Pin the resumed window's saved upper bound so its page token stays valid.
+    resumed_end = _coerce_datetime(resume.window_end) if resume is not None and resume.window_end else None
+    window_start = start
+    index = 0
+    while window_start < end:
+        if index == 0 and resumed_end is not None:
+            window_end = resumed_end
+        else:
+            window_end = min(window_start + timedelta(days=USAGE_MAX_QUERY_RANGE_DAYS), end)
         params = {
             "granularity": "day",
             "from_date": window_start.strftime("%Y-%m-%d"),
@@ -238,12 +244,21 @@ def _get_usage_rows(
         for page in client.paginate(
             path=path,
             params=params,
-            paginator=JSONResponseCursorPaginator(cursor_path="meta.next_page_token", cursor_param="page_token"),
-            data_selector="usage",
+            paginator=JSONResponseCursorPaginator(
+                cursor_path="meta.next_page_token", cursor_param="page_token", raise_on_repeated_cursor=True
+            ),
             resume_hook=window_checkpoint,
             initial_paginator_state={"cursor": resumed_token} if resumed_token else None,
         ):
-            yield [_normalize_row({**row, "id": _usage_row_id(row)}, config) for row in page]
+            rows: list[dict[str, Any]] = []
+            for body in page:
+                rows.extend({**row, "charge_type": "usage"} for row in body.get("usage") or [])
+                # Rentals, fees, taxes and adjustments arrive only on a window's first page.
+                rows.extend({**charge, "charge_type": "other_charge"} for charge in body.get("other_charges") or [])
+            yield [_normalize_row({**row, "id": _usage_row_id(row)}, config) for row in rows]
+
+        window_start = window_end
+        index += 1
 
 
 def get_rows(

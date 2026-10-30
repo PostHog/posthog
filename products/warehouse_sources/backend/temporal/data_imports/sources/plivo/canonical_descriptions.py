@@ -140,7 +140,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "usage_summary": {
-        "description": "Billed usage and spend for one day, broken down by product, type, country and direction.",
+        "description": "Billed usage and other charges for one day, with usage broken down by product, type, country and direction.",
         "docs_url": "https://www.plivo.com/docs/account/api/usage-summary",
         "columns": {
             "id": "Identifier PostHog derives from the row's dimensions (date, product, type, country, direction and so on).",
@@ -157,6 +157,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "surcharge": "Surcharge included in the total amount, if any.",
             "error_code": "Messaging delivery error code the usage is grouped by, if any.",
             "error_reason": "Description of the messaging delivery error code, if any.",
+            "charge_type": "Kind of row: usage for traffic usage, or other_charge for rentals, fees, taxes and adjustments.",
+            "description": "Description of the charge, for other_charge rows.",
         },
     },
 }

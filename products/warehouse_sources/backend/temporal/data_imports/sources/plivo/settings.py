@@ -27,7 +27,7 @@ USAGE_BACKFILL_DAYS = 365
 USAGE_METRIC_FIELDS = frozenset({"total_units", "duration_seconds", "total_amount", "surcharge"})
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlivoEndpointConfig:
     name: str
     # Path relative to /v1/Account/{auth_id}/, e.g. "Message/".
@@ -151,7 +151,7 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     MULTI_PARTY_CALLS: "Multiparty calls (MPCs): conference-style calls with several participants.",
     MULTI_PARTY_CALL_PARTICIPANTS: "Participants of each multiparty call, with their role and join and exit details.",
     USAGE_SUMMARY: (
-        "Daily billed usage and spend per product, type, country and direction. "
+        "Daily billed usage per product, type, country and direction, plus other charges such as number rentals. "
         "The first sync backfills the last 365 days."
     ),
 }

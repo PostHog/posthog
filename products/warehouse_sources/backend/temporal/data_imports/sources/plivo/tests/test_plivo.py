@@ -35,11 +35,18 @@ def _count_page(objects: list[dict[str, Any]]) -> ScriptedResponse:
     return ScriptedResponse(json={"meta": {"count": len(objects), "limit": PAGE_SIZE, "offset": 0}, "objects": objects})
 
 
-def _usage_page(usage: list[dict[str, Any]], next_page_token: str | None = None) -> ScriptedResponse:
+def _usage_page(
+    usage: list[dict[str, Any]],
+    next_page_token: str | None = None,
+    other_charges: list[dict[str, Any]] | None = None,
+) -> ScriptedResponse:
     meta: dict[str, Any] = {"granularity": "day", "page_size": 1000}
     if next_page_token:
         meta["next_page_token"] = next_page_token
-    return ScriptedResponse(json={"meta": meta, "usage": usage})
+    body: dict[str, Any] = {"meta": meta, "usage": usage}
+    if other_charges is not None:
+        body["other_charges"] = other_charges
+    return ScriptedResponse(json=body)
 
 
 def _usage_row(**overrides: Any) -> dict[str, Any]:
@@ -195,9 +202,19 @@ class TestUsageSummary:
         assert set(result.params("granularity")) == {"day"}
 
     def test_follows_page_token_within_window(self) -> None:
+        rental = {
+            "from_date": "2026-07-19T00:00:00Z",
+            "to_date": "2026-07-20T00:00:00Z",
+            "description": "Number rental",
+            "total_units": 1,
+            "total_amount": 0.8,
+        }
         result = _driver().run(
             "usage_summary",
-            [_usage_page([_usage_row()], next_page_token="tok-2"), _usage_page([_usage_row(type="mms")])],
+            [
+                _usage_page([_usage_row()], next_page_token="tok-2", other_charges=[rental]),
+                _usage_page([_usage_row(type="mms")]),
+            ],
             incremental_field="from_date",
             db_incremental_field_last_value=datetime(2026, 7, 19, tzinfo=UTC),
         )
@@ -205,7 +222,12 @@ class TestUsageSummary:
         assert result.raised is None
         assert result.params("page_token") == [None, "tok-2"]
         assert result.params("from_date") == ["2026-07-19", "2026-07-19"]
-        assert len(result.rows) == 2
+        assert [(row["charge_type"], row.get("type"), row.get("description")) for row in result.rows] == [
+            ("usage", "sms", None),
+            ("other_charge", None, "Number rental"),
+            ("usage", "mms", None),
+        ]
+        assert len({row["id"] for row in result.rows}) == 3
         assert result.rows[0]["from_date"] == datetime(2026, 7, 19, tzinfo=UTC)
 
     def test_row_id_tracks_dimensions_not_metrics(self) -> None:
@@ -255,22 +277,30 @@ class TestMultiPartyCallParticipants:
             "/v1/Account/MA123/MultiPartyCall/uuid_mpc-1/Participant/",
             "/v1/Account/MA123/MultiPartyCall/uuid_mpc-gone/Participant/",
         ]
+        # The participant listing is fetched once per MPC, without offset pagination.
+        assert result.params("offset") == ["0", None, None]
         # The participant list has no time filter, so the incremental cursor narrows the parent MPCs.
         assert result.params("end_time__gt") == ["2026-07-11 12:00:00", None, None]
         assert [(row["mpc_uuid"], row["member_id"]) for row in result.rows] == [("mpc-1", "1"), ("mpc-1", "2")]
         assert {row["mpc_end_time"] for row in result.rows} == {datetime(2026, 7, 15, 10, tzinfo=UTC)}
         assert result.rows[0]["join_time"] == datetime(2026, 7, 15, 9, tzinfo=UTC)
 
-    def test_resume_restarts_at_saved_parent_page(self) -> None:
+    def test_resume_skips_mpcs_already_fanned_out(self) -> None:
         result = _driver().run(
             "multi_party_call_participants",
-            [_count_page([{"mpc_uuid": "mpc-21"}]), _count_page([{"member_id": "1"}])],
-            resume_state=PlivoResumeConfig(offset=PAGE_SIZE),
+            [
+                _count_page([{"mpc_uuid": "mpc-done"}, {"mpc_uuid": "mpc-next"}]),
+                _count_page([{"member_id": "1"}]),
+            ],
+            resume_state=PlivoResumeConfig(offset=PAGE_SIZE, parent_index=1),
         )
 
         assert result.raised is None
         assert result.params("offset")[0] == str(PAGE_SIZE)
-        assert result.saved_states[0] == PlivoResumeConfig(offset=PAGE_SIZE)
+        assert result.paths[1:] == ["/v1/Account/MA123/MultiPartyCall/uuid_mpc-next/Participant/"]
+        # The position after an MPC is staged before its participants are yielded, so a later
+        # resume never writes them twice.
+        assert result.committed_states == [PlivoResumeConfig(offset=PAGE_SIZE, parent_index=2)]
 
 
 class TestValidateCredentials:
