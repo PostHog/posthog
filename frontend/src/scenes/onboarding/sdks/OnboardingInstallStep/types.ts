@@ -1,4 +1,4 @@
-import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-sync/WizardModeShell'
+import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-command/WizardModeShell'
 
 import { type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 

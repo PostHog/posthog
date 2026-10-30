@@ -13,9 +13,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
-import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
-import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -39,18 +36,6 @@ const InternalFeedbackWidget = lazyWithRetry(() =>
         default: InternalFeedbackWidget,
     }))
 )
-// Deciding whether a run is active takes API polls, so the shell cannot gate these cheaply.
-// Lazy loading keeps their logic and generated API clients off the first paint instead.
-const WizardSyncFab = lazyWithRetry(() =>
-    import('scenes/onboarding/shared/wizard-sync/WizardSyncFab').then(({ WizardSyncFab }) => ({
-        default: WizardSyncFab,
-    }))
-)
-const WizardRunSyncFab = lazyWithRetry(() =>
-    import('products/wizard/frontend/runs/WizardRunSyncFab').then(({ WizardRunSyncFab }) => ({
-        default: WizardRunSyncFab,
-    }))
-)
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
     useMountedLogic(apiStatusLogic)
@@ -67,9 +52,10 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { user } = useValues(userLogic)
+
     const showInternalFeedback =
         !!featureFlags[FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET] && !!user?.email?.toLowerCase().endsWith('@posthog.com')
-    const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
+
     const toasts = (
         <ToastContainer
             autoClose={6000}
@@ -108,15 +94,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <Command />
                 <ImpersonationNotice />
-                <ErrorBoundary>
-                    <ChunkLoadErrorBoundary>
-                        <Suspense fallback={null}>{runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}</Suspense>
-                    </ChunkLoadErrorBoundary>
-                </ErrorBoundary>
-                {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
-                    but the doc dialog must be able to open from any surface. */}
-                <WizardHandoffDialog />
-                <WizardSyncDebugPanel />
                 {showInternalFeedback && (
                     <ErrorBoundary>
                         <Suspense fallback={null}>

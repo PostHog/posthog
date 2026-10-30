@@ -1,5 +1,4 @@
-import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
+import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { getWizardRunsStreamRetrieveUrl, wizardRunsList } from '../generated/api'
 import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../generated/api.schemas'
@@ -7,9 +6,7 @@ import { wizardRunIsActive } from '../wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
 
-// Cutoff for wizard runs to be shown in the FAB.
-// This prevents users who already ran the wizard to get a FAB
-// for older runs.
+// Runs created before this are never synced, so older history does not open streams.
 const RUN_VISIBLE_AFTER = '2026-09-28T00:00:00Z'
 
 const RUN_LIST_LIMIT = 5
@@ -25,27 +22,18 @@ export interface wizardRunSyncLogicProps {
 }
 
 export interface wizardRunSyncLogicValues {
-    activeCount: number
     runs: WizardRunApi[]
-    visibleRuns: WizardRunApi[]
-    closedRunIds: string[]
-    dismissedRunIds: string[]
     run: WizardRunApi | null
-    selectedRunId: string | null
     tasks: readonly WizardRunTaskApi[]
 }
 
 export interface wizardRunSyncLogicActions {
     checkRuns: () => { value: true }
-    runsLoaded: (count: number, runs: WizardRunApi[]) => { count: number; runs: WizardRunApi[] }
+    runsLoaded: (runs: WizardRunApi[]) => { runs: WizardRunApi[] }
     clearTasks: () => { value: true }
     runUpdated: (state: RunStreamState) => { state: RunStreamState }
     showRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
-    selectRun: (run: WizardRunApi) => { run: WizardRunApi }
     connectRun: () => { value: true }
-    closeRun: (runId: string) => { runId: string }
-    dismissRun: (runId: string) => { runId: string }
-    expandFab: (runsCount: number) => { runsCount: number }
 }
 
 export type wizardRunSyncLogicType = MakeLogicType<
@@ -60,44 +48,21 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
     key((logicProps) => logicProps.projectId),
     actions({
         checkRuns: true,
-        runsLoaded: (count: number, runs: WizardRunApi[]) => ({ count, runs }),
+        runsLoaded: (runs: WizardRunApi[]) => ({ runs }),
         clearTasks: true,
         runUpdated: (state: RunStreamState) => ({ state }),
         showRun: (run: WizardRunApi | null) => ({ run }),
-        selectRun: (run: WizardRunApi) => ({ run }),
         connectRun: true,
-        closeRun: (runId: string) => ({ runId }),
-        dismissRun: (runId: string) => ({ runId }),
-        expandFab: (runsCount: number) => ({ runsCount }),
     }),
     reducers({
-        activeCount: [0, { runsLoaded: (_, { count }) => count }],
         runs: [[] as WizardRunApi[], { runsLoaded: (_, { runs }) => runs }],
-        closedRunIds: [[] as string[], { closeRun: (current, { runId }) => [...current, runId] }],
-        dismissedRunIds: [
-            [] as string[],
-            { persist: true },
-            { dismissRun: (current, { runId }) => (current.includes(runId) ? current : [...current, runId]) },
-        ],
-        selectedRunId: [
-            null as string | null,
-            {
-                runsLoaded: (current, { runs }) => (current && runs.some((run) => run.id === current) ? current : null),
-                selectRun: (_, { run }) => run.id,
-                closeRun: (current, { runId }) => (current === runId ? null : current),
-                dismissRun: (current, { runId }) => (current === runId ? null : current),
-            },
-        ],
         run: [
             null as WizardRunApi | null,
             {
                 runsLoaded: (current, { runs }) =>
                     current ? (runs.find((run) => run.id === current.id) ?? current) : null,
                 showRun: (_, { run }) => run,
-                selectRun: (_, { run }) => run,
                 runUpdated: (current, { state }) => (current ? { ...current, ...state } : null),
-                closeRun: () => null,
-                dismissRun: () => null,
             },
         ],
         tasks: [
@@ -105,18 +70,8 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             {
                 clearTasks: () => [],
                 showRun: () => [],
-                selectRun: () => [],
                 runUpdated: (_, { state }) => state.tasks,
-                closeRun: () => [],
-                dismissRun: () => [],
             },
-        ],
-    }),
-    selectors({
-        visibleRuns: [
-            (s) => [s.runs, s.closedRunIds, s.dismissedRunIds],
-            (runs: WizardRunApi[], closedRunIds: string[], dismissedRunIds: string[]): WizardRunApi[] =>
-                runs.filter((run) => !closedRunIds.includes(run.id) && !dismissedRunIds.includes(run.id)),
         ],
     }),
     listeners(({ actions, cache, props: logicProps, values }) => ({
@@ -140,7 +95,7 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
                 const activeRuns = activePage.results
                     .map((run) => recentPage.results.find((recentRun) => recentRun.id === run.id) ?? run)
                     .filter(wizardRunIsActive)
-                actions.runsLoaded(activePage.count - (activePage.results.length - activeRuns.length), [
+                actions.runsLoaded([
                     ...activeRuns,
                     ...recentPage.results.filter((run) => !activeRuns.some((activeRun) => activeRun.id === run.id)),
                 ])
@@ -151,26 +106,15 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             }
         },
         runsLoaded: () => {
-            const nextRun =
-                values.visibleRuns.find((run) => run.id === values.selectedRunId) ??
-                values.visibleRuns[0] ??
-                (values.run && !wizardRunIsActive(values.run) ? values.run : null)
+            const nextRun = values.runs[0] ?? (values.run && !wizardRunIsActive(values.run) ? values.run : null)
             if (nextRun?.id !== values.run?.id) {
                 actions.showRun(nextRun)
             }
             actions.connectRun()
         },
-        selectRun: () => {
-            actions.connectRun()
-        },
         connectRun: () => {
             const run = values.run
-            if (
-                !run ||
-                values.closedRunIds.includes(run.id) ||
-                values.dismissedRunIds.includes(run.id) ||
-                !wizardRunIsActive(run)
-            ) {
+            if (!run || !wizardRunIsActive(run)) {
                 cache.disposables.dispose('run-stream')
                 cache.connectedRunId = undefined
                 return
@@ -198,32 +142,6 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
                 }
                 return () => stream.close()
             }, 'run-stream')
-        },
-        closeRun: ({ runId }) => {
-            posthog.capture('wizard run sync fab closed', {
-                event_source: 'wizard_ui',
-                wizard_run_id: runId,
-                type: 'dismiss',
-            })
-            cache.disposables.dispose('run-stream')
-            cache.connectedRunId = undefined
-            actions.runsLoaded(values.activeCount, values.runs)
-        },
-        dismissRun: ({ runId }) => {
-            posthog.capture('wizard run sync fab closed', {
-                event_source: 'wizard_ui',
-                wizard_run_id: runId,
-                type: 'close_forever',
-            })
-            cache.disposables.dispose('run-stream')
-            cache.connectedRunId = undefined
-            actions.runsLoaded(values.activeCount, values.runs)
-        },
-        expandFab: ({ runsCount }) => {
-            posthog.capture('wizard run sync fab expanded', {
-                event_source: 'wizard_ui',
-                runs_count: runsCount,
-            })
         },
     })),
     events(({ actions, cache }) => ({

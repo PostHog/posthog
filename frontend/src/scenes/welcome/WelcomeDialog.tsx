@@ -10,7 +10,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AskMaxCard } from './cards/AskMaxCard'
 import { FlagshipProductsCard } from './cards/FlagshipProductsCard'
-import { InstallProgressCard } from './cards/InstallProgressCard'
 import { PopularDashboardsCard } from './cards/PopularDashboardsCard'
 import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
@@ -123,11 +122,10 @@ export function WelcomeDialog(): JSX.Element | null {
                     ) : (
                         <p className="text-muted text-sm m-0">{introCopy}</p>
                     )}
-                    {/* Provisioned/new accounts lead with the background install + a tour of what PostHog
-                        offers; invited users get their team's context first and the product tour lower down. */}
+                    {/* Provisioned/new accounts lead with a tour of what PostHog offers; invited users get
+                        their team's context first and the product tour lower down. */}
                     {isProvisionedUser ? (
                         <>
-                            <InstallProgressCard />
                             <FlagshipProductsCard />
                             <AskMaxCard />
                             <SuggestedNextStepsCard />
