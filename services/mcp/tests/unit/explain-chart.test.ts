@@ -10,6 +10,14 @@ const WEEKS = ['2026-09-21', '2026-09-28', '2026-10-05']
 const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
 const QUARTERS = ['2025-10-01', '2026-01-01', '2026-04-01']
 const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
+// The displays the insight page draws an explanation over, so only these get a link.
+const INSIGHT_PAGE_DISPLAYS: string[] = [
+    'ActionsLineGraph',
+    'ActionsBar',
+    'ActionsUnstackedBar',
+    'ActionsAreaGraph',
+    'ActionsStackedBar',
+]
 
 function createContext(
     query: Record<string, unknown>,
@@ -151,10 +159,11 @@ describe('explain-chart', () => {
             await expect(call).rejects.toThrow('one value over time')
             return
         }
-        await call
+        const result = await call
         expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
             query: expect.objectContaining({ trendsFilter: { display: drawnAs } }),
         })
+        expect(result._posthogUrl?.includes('?explanation=')).toBe(INSIGHT_PAGE_DISPLAYS.includes(display))
     })
 
     it('draws each piece of evidence from the query behind it', async () => {

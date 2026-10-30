@@ -1,15 +1,19 @@
 import json
 from functools import cached_property
-from typing import Any
+from typing import Any, cast
 
 from django.db import models
 from django.db.models import QuerySet
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle, UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 
 from products.product_analytics.backend.models import Insight, InsightExplanation
 
@@ -135,6 +139,16 @@ class InsightExplanationSerializer(serializers.ModelSerializer):
         )
 
 
+class InsightExplanationAccessPermission(AccessControlPermission):
+    # The resource-wide check refuses a create before object grants are read, so check the parent insight instead.
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return self.has_object_permission(request, view, cast(InsightExplanationViewSet, view).insight)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        insight = obj.insight if isinstance(obj, InsightExplanation) else obj
+        return isinstance(insight, Insight) and super().has_object_permission(request, view, insight)
+
+
 class InsightExplanationViewSet(
     TeamAndOrgViewSetMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
 ):
@@ -153,9 +167,21 @@ class InsightExplanationViewSet(
             ).first()
         except ValueError:
             raise NotFound("Insight not found.")
-        if insight is None or not self.user_access_control.check_access_level_for_object(insight, "viewer"):
+        if insight is None:
             raise NotFound("Insight not found.")
         return insight
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            TeamMemberAccessPermission(),
+            InsightExplanationAccessPermission(),
+        ]
+
+    def _should_skip_parents_filter(self) -> bool:
+        # A child environment stores explanations under its parent team, so scope by the insight alone.
+        return True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(insight=self.insight)

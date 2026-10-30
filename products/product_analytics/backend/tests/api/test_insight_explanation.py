@@ -103,22 +103,37 @@ class TestInsightExplanationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_a_member_without_access_to_the_insight_cannot_save_or_load(self) -> None:
+    @parameterized.expand(
+        [
+            ("insight_hidden", "none", None, status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN),
+            ("insight_shared_with_member", "none", "viewer", status.HTTP_201_CREATED, status.HTTP_200_OK),
+        ]
+    )
+    def test_access_follows_the_insight(
+        self, _name: str, resource_level: str, insight_level: str | None, save_status: int, load_status: int
+    ) -> None:
         created = self.client.post(self._url(self.insight), {"data": EXPLANATION}, format="json")
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
-        AccessControl.objects.create(
-            resource="insight", resource_id=self.insight.id, team=self.team, access_level="none"
-        )
-        self.client.force_login(self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER))
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(team=self.team, resource="insight", resource_id=None, access_level=resource_level)
+        if insight_level:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="insight",
+                resource_id=str(self.insight.id),
+                access_level=insight_level,
+                organization_member=member.organization_memberships.first(),
+            )
+        self.client.force_login(member)
 
         saved = self.client.post(self._url(self.insight), {"data": EXPLANATION}, format="json")
         loaded = self.client.get(f"{self._url(self.insight)}{created.json()['id']}/")
 
-        assert saved.status_code == status.HTTP_404_NOT_FOUND
-        assert loaded.status_code == status.HTTP_404_NOT_FOUND
+        assert saved.status_code == save_status, saved.json()
+        assert loaded.status_code == load_status, loaded.json()
 
     def test_saving_is_rate_limited_per_user(self) -> None:
         with patch(

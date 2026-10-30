@@ -26,19 +26,19 @@ export interface InsightExplainChartProps {
 }
 
 export function InsightExplainChart({ insightProps, renderChart }: InsightExplainChartProps): JSX.Element {
-    const { storyAvailable, explainAvailable, story, storyShown, storySeriesKey, formatValue } = useValues(
+    const { storyAvailable, explainAvailable, story, chartStory, storyShown, storySeriesKey, formatValue } = useValues(
         explainChartLogic(insightProps)
     )
     const { askFollowUp } = useActions(explainChartLogic(insightProps))
 
-    if (!storyAvailable || !story || !storyShown) {
+    if (!storyAvailable || !story || !chartStory || !storyShown) {
         return <>{renderChart()}</>
     }
     return (
         <div data-quill>
             <ExplainChartView
                 key={story.headline}
-                data={story}
+                data={chartStory}
                 renderChart={(overlay) => <div data-not-quill>{renderChart(overlay)}</div>}
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
                 formatValue={formatValue}

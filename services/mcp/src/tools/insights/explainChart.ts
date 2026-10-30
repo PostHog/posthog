@@ -15,6 +15,7 @@ import type {
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -139,7 +140,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
 
 interface StoryChart {
     query: StoryTrendsQuery
-    insightId: number | null
+    linkableInsightId: number | null
     insightName: string | null
     path: string
 }
@@ -176,7 +177,7 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     if (params.insightId === undefined) {
         const query = asTrendsQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
-        return { query, insightId: null, insightName: null, path: newInsightPath(query) }
+        return { query, linkableInsightId: null, insightName: null, path: newInsightPath(query) }
     }
     const insight = await context.api.insights({ projectId }).get({ insightId: params.insightId })
     if (!insight.success) {
@@ -184,7 +185,11 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     }
     return {
         query: asTrendsQuery(insight.data.query),
-        insightId: insight.data.id,
+        linkableInsightId: insightPageShowsStory(
+            (analyzeQuery(insight.data.query).innerQuery as StoryTrendsQuery | undefined)?.trendsFilter?.display
+        )
+            ? insight.data.id
+            : null,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -202,11 +207,13 @@ async function saveExplanation(
     chart: StoryChart,
     data: ExplainChartData
 ): Promise<string | null> {
-    if (chart.insightId === null) {
+    if (chart.linkableInsightId === null) {
         return null
     }
     try {
-        const saved = await context.api.insights({ projectId }).saveExplanation({ insightId: chart.insightId, data })
+        const saved = await context.api
+            .insights({ projectId })
+            .saveExplanation({ insightId: chart.linkableInsightId, data })
         return saved.success ? `${chart.path}?explanation=${saved.data.id}` : null
     } catch {
         return null

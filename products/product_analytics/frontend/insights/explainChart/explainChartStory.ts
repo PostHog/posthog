@@ -1,7 +1,10 @@
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import type {
+    ExplainChartData,
+    StorySeriesResult,
+} from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
 const INSIGHT_ID_KEYS = ['insightId', 'insight_id', 'id', 'short_id', 'shortId']
@@ -17,6 +20,29 @@ export function explainChartStoryFor(
         return null
     }
     return isExplainChartData(output) ? output : null
+}
+
+export function storyOnChart(
+    story: ExplainChartData,
+    results: StorySeriesResult[],
+    lastPointInProgress: boolean
+): ExplainChartData {
+    const savedDays = story.results[story.seriesIndex]?.days ?? []
+    const chartDays = results[story.seriesIndex]?.days
+    if (!chartDays || (chartDays.length === savedDays.length && chartDays.every((day, i) => day === savedDays[i]))) {
+        return story
+    }
+    const chartIndex = new Map(chartDays.map((day, index) => [day, index]))
+    return {
+        ...story,
+        results,
+        lastPointInProgress,
+        chapters: story.chapters.map((chapter) => {
+            const start = chapter.range ? chartIndex.get(savedDays[chapter.range[0]]) : undefined
+            const end = chapter.range ? chartIndex.get(savedDays[chapter.range[1]]) : undefined
+            return { ...chapter, range: start !== undefined && end !== undefined ? [start, end] : null }
+        }),
+    }
 }
 
 export function followUpContextFor(
