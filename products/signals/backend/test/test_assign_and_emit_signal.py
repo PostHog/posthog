@@ -3,6 +3,7 @@ import random
 from datetime import timedelta
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
@@ -182,13 +183,15 @@ async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, p
     with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
         first = await assign_and_emit_signal_activity(signal)
         signal.match_result = _new_match("A retry must not create this report")
-        second = await assign_and_emit_signal_activity(signal)
+        with time_machine.travel(first.timestamp + timedelta(minutes=5)):
+            second = await assign_and_emit_signal_activity(signal)
         with patch(
             f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         ):
             paused = await assign_and_emit_signal_activity(signal)
     assert first.report_id == second.report_id
+    assert first.timestamp == second.timestamp
     assert paused.report_id == first.report_id and not paused.promoted
     successor = await SignalReport.objects.aget(team=ateam, id=first.report_id)
     assert successor.signal_count == (5 if match in {"researched", "researching"} else 1)
