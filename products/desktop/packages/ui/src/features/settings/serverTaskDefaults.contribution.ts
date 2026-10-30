@@ -122,6 +122,20 @@ export class ServerTaskDefaultsContribution implements Contribution {
         store.setAutoPublishCloudRuns(sync.pullAutoPublishCloudRuns);
       }
       if (sync.pullInitialTaskMode !== null) {
+        const pulledPlan = sync.pullInitialTaskMode === "plan";
+        for (const [otherId, other] of Object.entries(
+          store.taskDefaultsOnServer,
+        )) {
+          if (
+            otherId !== String(projectId) &&
+            other.startInPlanMode !== undefined
+          ) {
+            store.setTaskDefaultsOnServer(Number(otherId), {
+              ...other,
+              startInPlanMode: pulledPlan,
+            });
+          }
+        }
         store.setDefaultInitialTaskMode(sync.pullInitialTaskMode);
       }
     } catch (err) {
