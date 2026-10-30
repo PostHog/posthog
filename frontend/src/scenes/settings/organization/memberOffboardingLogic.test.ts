@@ -101,8 +101,10 @@ describe('memberOffboardingLogic', () => {
         expect(submitted).toEqual([{ keep: [...resources.map((resource) => resource.id), alert.id] }])
     })
 
-    it('does not retain public links when leaving the organization yourself', async () => {
+    it('skips the resource review when leaving the organization yourself', async () => {
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding/': [] } })
         await expectLogic(logic, () => logic.actions.open(MOCK_DEFAULT_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        expect(logic.values.resources).toEqual([])
         expect(logic.values.keep).toEqual([])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
         expect(submitted).toEqual([{ keep: [] }])

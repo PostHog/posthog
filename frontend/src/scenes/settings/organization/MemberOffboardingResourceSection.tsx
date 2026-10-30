@@ -201,13 +201,6 @@ export function MemberOffboardingResourceSection({
                         : []),
                 ]}
             />
-            {isSelf && (
-                <p>
-                    {isSubscription
-                        ? 'These subscriptions and alerts will be disabled when you leave.'
-                        : 'Public sharing will be disabled for these resources when you leave.'}
-                </p>
-            )}
         </section>
     )
 }
