@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { AiOnboarding } from 'products/posthog_ai/frontend/api/onboarding'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { resolvePhaiOnboardingMounts } from './phaiOnboardingHost'
-import { MAX_SIDE_PANEL_ID } from './PhaiSidePanelChat'
 
 /**
  * Mounts the PostHog AI onboarding takeover for whichever composers are on screen, and decides which of them

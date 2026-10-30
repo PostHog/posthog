@@ -25,6 +25,7 @@ const requestRoot = join(appRoot, 'releases/requests')
 const config = JSON.parse(readFileSync(join(appRoot, 'releases/config.json'), 'utf8'))
 const repo = 'PostHog/posthog'
 const pointerRef = 'tags/mobile-production'
+let releaseInventory
 
 function run(command, args, options = {}) {
     return (
@@ -296,7 +297,24 @@ function releaseTag(id) {
 }
 
 function releaseReceipt(id) {
-    const release = optionalApi(`releases/tags/${encodeURIComponent(releaseTag(id))}`)
+    if (!releaseInventory) {
+        const inventory = []
+        for (let page = 1; ; page++) {
+            const releases = api(`releases?per_page=100&page=${page}`)
+            inventory.push(...releases.filter(({ tag_name }) => tag_name.startsWith('mobile-release/')))
+            if (releases.length < 100) {
+                break
+            }
+        }
+        releaseInventory = [...new Map(inventory.map((release) => [release.id, release])).values()]
+    }
+    const matches = releaseInventory.filter(({ tag_name }) => tag_name === releaseTag(id))
+    if (matches.length > 1) {
+        throw new Error(
+            `Multiple GitHub receipts for ${id}; reconcile release IDs ${matches.map(({ id }) => id).join(', ')} before retrying`
+        )
+    }
+    const [release] = matches
     return release ? { release, receipt: JSON.parse(release.body) } : null
 }
 
@@ -432,28 +450,23 @@ async function publish() {
     const receipt = { schemaVersion: 1, state: 'claimed', request, commit, runUrl: process.env.MOBILE_RELEASE_RUN_URL }
     const message = `mobile-release:${request.id}@${commit}`
     let deployment
+    let releaseId
     try {
         await publishOnce({
             existing: null,
             commit,
             request,
             claim: () => {
-                const path = saveReceipt(receipt)
-                run('gh', [
-                    'release',
-                    'create',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--target',
-                    commit,
-                    '--draft',
-                    '--prerelease',
-                    '--title',
-                    `Mobile ${request.id}`,
-                    '--notes-file',
-                    path,
-                ])
+                saveReceipt(receipt)
+                const release = api('releases', {
+                    tag_name: releaseTag(request.id),
+                    target_commitish: commit,
+                    draft: true,
+                    prerelease: true,
+                    name: `Mobile ${request.id}`,
+                    body: JSON.stringify(receipt, null, 2),
+                })
+                releaseId = release.id
             },
             stage: async () => {
                 deployment = api('deployments', {
@@ -515,15 +528,12 @@ async function publish() {
                 }
                 receipt.staged = staged
                 receipt.stagingDeployment = deployment.id
-                run('gh', [
-                    'release',
-                    'edit',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--notes-file',
-                    saveReceipt(receipt),
-                ])
+                saveReceipt(receipt)
+                api(
+                    `releases/${releaseId}`,
+                    { tag_name: releaseTag(request.id), body: JSON.stringify(receipt, null, 2) },
+                    'PATCH'
+                )
                 deploymentStatus(deployment.id, 'success')
                 return staged
             },
@@ -572,17 +582,17 @@ async function publish() {
                     request.kind === 'native'
                         ? { commit, runtimeVersion: request.runtimeVersion, fingerprints, certificateFingerprint }
                         : previous.native
-                run('gh', [
-                    'release',
-                    'edit',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--draft=false',
-                    '--prerelease',
-                    '--notes-file',
-                    saveReceipt(receipt),
-                ])
+                saveReceipt(receipt)
+                api(
+                    `releases/${releaseId}`,
+                    {
+                        tag_name: releaseTag(request.id),
+                        draft: false,
+                        prerelease: true,
+                        body: JSON.stringify(receipt, null, 2),
+                    },
+                    'PATCH'
+                )
                 advancePointer(receipt)
                 return receipt
             },
