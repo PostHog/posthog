@@ -78,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import (
     get_experiment_health,

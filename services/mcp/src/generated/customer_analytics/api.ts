@@ -19,6 +19,7 @@ export const AccountRelationshipDefinitionsListParams = () => zod.object({
 export const AccountRelationshipDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
 
 export const AccountRelationshipDefinitionsCreateParams = () => zod.object({
@@ -564,6 +565,7 @@ export const CustomPropertyDefinitionsListParams = () => zod.object({
 export const CustomPropertyDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pagination: zod.enum(['none']).optional().describe('Return all definitions in one response when set to none.'),
 })
 
 export const CustomPropertyDefinitionsCreateParams = () => zod.object({

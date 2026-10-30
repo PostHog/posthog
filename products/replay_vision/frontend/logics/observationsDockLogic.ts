@@ -541,8 +541,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             showObservations: ({ inWatchLayout }) => {
-                // In the watch layout the observations live in the list column's Moments segment, which follows the
-                // tab change on its own. Opening the sidebar there would switch the page into Debug mode instead.
+                // In the watch layout the observations live in the list's Moments segment, which follows the tab change
+                // itself. Opening the sidebar there would switch the page into Debug mode.
                 if (!inWatchLayout) {
                     actions.setSidebarOpen(true)
                 }

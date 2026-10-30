@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -29,6 +30,7 @@ import {
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
+const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -42,6 +44,7 @@ const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/eval
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
@@ -257,19 +260,39 @@ describe('TraceScene', () => {
             expect(await findByText('Cites a source')).toBeTruthy()
         })
 
-        it('shows the trace git branch in the summary bar', async () => {
-            useMocks({
-                get: {
-                    [TRACE_URL]: () => [
-                        200,
-                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
-                    ],
-                },
-            })
-            const { findByText } = renderNewView()
+        it.each([
+            [true, urls.engineeringAnalyticsPullRequest('acme', 'app', 42)],
+            [false, null],
+        ])(
+            'shows the trace git branch, linked to its pull request when engineering analytics is on (%s)',
+            async (enabled, expectedHref) => {
+                useMocks({
+                    get: {
+                        [TRACE_URL]: () => [
+                            200,
+                            makeTraceResource({
+                                defaultNodeId: 'gen-2',
+                                git: { branch: 'feat/rag', repo: 'acme/app' },
+                            }),
+                        ],
+                        [PULL_REQUEST_URL]: () => [
+                            200,
+                            { pullRequest: { repoOwner: 'acme', repoName: 'app', number: 42, title: null } },
+                        ],
+                    },
+                })
+                const { findByText, container } = renderNewView({ [ENGINEERING_ANALYTICS_FLAG]: enabled })
 
-            expect(await findByText('feat/rag')).toBeTruthy()
-        })
+                expect(await findByText('feat/rag')).toBeTruthy()
+                await waitFor(() =>
+                    expect(
+                        container
+                            .querySelector('[data-attr="trace-view-git-pull-request-link"]')
+                            ?.getAttribute('href') ?? null
+                    ).toBe(expectedHref && addProjectIdIfMissing(expectedHref))
+                )
+            }
+        )
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
             const { findByText, queryByText } = renderNewView({ [DATASETS_FLAG]: enabled })

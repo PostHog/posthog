@@ -343,6 +343,8 @@ CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
+# In deployed cloud, the live raw_sessions_v3 MergeTree is on this satellite cluster.
+CLICKHOUSE_SESSIONS_CLUSTER: str = os.getenv("CLICKHOUSE_SESSIONS_CLUSTER", "sessions")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
