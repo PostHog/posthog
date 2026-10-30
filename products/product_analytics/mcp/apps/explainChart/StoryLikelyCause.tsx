@@ -43,7 +43,7 @@ export function StoryLikelyCause({ cause, confidence, confidenceReason }: StoryL
                             render={
                                 <button
                                     type="button"
-                                    className="cursor-default rounded-md border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
+                                    className="flex cursor-default rounded-md border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
                                     data-attr="explain-chart-confidence"
                                 />
                             }

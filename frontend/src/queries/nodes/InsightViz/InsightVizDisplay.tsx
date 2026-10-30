@@ -6,6 +6,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -47,6 +48,9 @@ import {
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
+import { ExplainChartAIAnalysisFallback } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback'
+import { ExplainChartButton } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartButton'
+import { InsightExplainChart } from 'products/product_analytics/frontend/insights/explainChart/InsightExplainChart'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -225,6 +229,8 @@ export function InsightVizDisplay({
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
+    const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
+
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
@@ -382,14 +388,14 @@ export function InsightVizDisplay({
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
-    function renderActiveView(): JSX.Element | null {
+    function renderActiveView(viewContext = context): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
                 return (
                     <TrendInsight
                         view={InsightType.TRENDS}
                         editMode={editMode}
-                        context={context}
+                        context={viewContext}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
@@ -547,12 +553,25 @@ export function InsightVizDisplay({
             hasBlockingEmptyState: !!BlockingEmptyState,
             hasResults: hasResultRows(insightData),
         }) ? (
-            <InsightAIAnalysis />
+            showsExplainChart ? (
+                <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+            ) : (
+                <InsightAIAnalysis />
+            )
         ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
     const showsDataChecks = !!context?.showDataChecks && !inSharedMode
+    const showsExplainChart = explainChartEnabled && !embedded && !inSharedMode && activeView === InsightType.TRENDS
+    const chart = showsExplainChart ? (
+        <InsightExplainChart
+            insightProps={insightProps}
+            renderChart={(overlay) => renderActiveView(overlay ? { ...context, chartOverlay: overlay } : context)}
+        />
+    ) : (
+        renderActiveView()
+    )
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -599,6 +618,7 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsExplainChart && <ExplainChartButton insightProps={insightProps} />}
                                         {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
@@ -617,13 +637,13 @@ export function InsightVizDisplay({
                                 BlockingEmptyState
                             ) : showSideLegend ? (
                                 <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__left">{chart}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
                             ) : (
-                                <>{renderActiveView()}</>
+                                chart
                             )}
                         </div>
                     </>
