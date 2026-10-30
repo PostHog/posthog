@@ -28,6 +28,15 @@ class ExternalDataSchemaContext(ActivityContextBase):
     source_type: str
 
 
+def _source_and_organization_id(schema: ExternalDataSchema) -> tuple[ExternalDataSource, int]:
+    if ExternalDataSchema.source.is_cached(schema) and ExternalDataSchema.team.is_cached(schema):
+        return schema.source, schema.team.organization_id
+    # Lazy loads read through `_base_manager` too, so this join finds the same rows the two lazy loads did.
+    source = ExternalDataSource._base_manager.select_related("team").get(pk=schema.source_id)
+    team = source.team if source.team_id == schema.team_id else schema.team
+    return source, team.organization_id
+
+
 @mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
 def handle_external_data_schema_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -41,7 +50,7 @@ def handle_external_data_schema_change(
     if not external_data_schema:
         return
 
-    source = external_data_schema.source
+    source, organization_id = _source_and_organization_id(external_data_schema)
     source_type = source.source_type if source else ""
 
     sync_frequency = None
@@ -57,7 +66,7 @@ def handle_external_data_schema_change(
     )
 
     log_activity(
-        organization_id=external_data_schema.team.organization_id,
+        organization_id=organization_id,
         team_id=external_data_schema.team_id,
         user=user,
         was_impersonated=was_impersonated,
