@@ -1956,6 +1956,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                 validated_data={"mode": mode, "pending_user_message": "Implement this report"},
             )
         assert result is not None and result.error is None and result.run_error is None
+        assert result.run_id is not None
         assert (result.run_id == warm.id) is reuse
         run = TaskRun.objects.get(id=result.run_id)
         if reuse:

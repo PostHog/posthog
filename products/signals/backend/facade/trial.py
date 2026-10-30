@@ -125,7 +125,7 @@ def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
         onboarding = (
             scout is not None
             and scout.skill_name == FIRST_REPORT_SCOUT
-            and scout.metadata.get("triggered_by") == "onboarding"
+            and (scout.metadata or {}).get("triggered_by") == "onboarding"
         )
         if scout is None or not scout.scout_config or (not scout.scout_config.enabled and not onboarding):
             raise TrialRefused("scout_disabled")

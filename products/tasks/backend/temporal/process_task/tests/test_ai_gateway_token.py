@@ -661,6 +661,7 @@ class TestProvisioningBoundaries:
         task.signal_report = SignalReport.objects.create(team=task.team, triggering_signal_id=uuid4())
         task.save()
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+            assert task.created_by_id is not None
             grant = TrialPolicy(task.team).claim(user_id=task.created_by_id)
             run = task.create_run(extra_state={"ai_stage": "research"})
             ctx = self._ctx()
