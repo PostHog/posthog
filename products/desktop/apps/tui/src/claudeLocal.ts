@@ -249,7 +249,12 @@ export class ClaudeLocalSession implements LocalAgent {
       : null;
     const { sessionId, configOptions } =
       resumed ??
-      (await this.agent.startSession({ ...params, runMode: "local" }));
+      // A TUI local chat has a task row but no run, so there is nothing on the server for its log to append to.
+      (await this.agent.startSession({
+        ...params,
+        runMode: "local",
+        skipLogPersistence: true,
+      }));
     this.sessionId = sessionId;
     this.configOptions = configOptions;
     return sessionId;

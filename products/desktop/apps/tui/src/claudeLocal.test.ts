@@ -65,6 +65,7 @@ describe("ClaudeLocalSession", () => {
       claudeModelAccess: "own-subscription",
       permissionMode: "auto",
       runMode: "local",
+      skipLogPersistence: true,
       model: "claude-opus-5-5",
       effort: "high",
     });

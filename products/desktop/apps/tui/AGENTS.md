@@ -97,7 +97,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 ## Open ends
 
 - Before a run exists, `/` lists only the built-in commands. The plan is bundled skills and the repo's `.claude/skills` from disk, then user skills with the desktop's upload step.
-- A local chat has a task row but no run, and its conversation lives only in its pi session file on this machine. The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
+- A local chat has a task row but no run, and its conversation lives only in its pi session file on this machine (a local Claude Code session starts with `skipLogPersistence`, or the agent's log writer 404s against the server once a second). The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
 - The desktop app keeps its own local pi session files, so a TUI local chat opened there shows no conversation, and the reverse.
 - Cloud sandboxes run the published `@posthog/agent`. Harness and agent changes on this branch (background shells, compaction details, the aborted-turn fix) reach cloud chats only after they land on master and the sandbox image picks up the release.
 - pi chats have no auto, manual or plan modes: pi has none, and the harness adds none. A Claude Code or Codex chat's modes come from the `mode` option in its ACP log (the session's opening result and each `config_option_update`); a cloud run switches through the `set_config_option` command and starts in the mode `initial_permission_mode` names. The desktop app's embedded chat view shows Claude's mode picker on pi chats, and it does nothing there.
