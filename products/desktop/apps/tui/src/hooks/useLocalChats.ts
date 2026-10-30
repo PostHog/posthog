@@ -12,7 +12,7 @@ import { messageOf } from "../errors";
 import { allPanes, type LayoutState, renameTask } from "../layout";
 import { type LocalAgent, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
-import { localHistory } from "../localHistory";
+import { type LocalChatHandle, localHistory } from "../localHistory";
 import { loadPrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import type { FlashNotice } from "./useNotice";
@@ -22,8 +22,8 @@ export interface LocalChatsState {
   isLocal: (taskId: string | null) => taskId is string;
   // The chat's agent, started on first use.
   localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
-  // The saved conversation of each local chat a pane shows whose agent has not started, read from its files.
-  coldSessions: Map<string, LocalAgent>;
+  // One handle per local chat a pane shows: its saved conversation, then its agent once the first message starts it.
+  handles: Map<string, LocalChatHandle>;
   // Agents that have started, by task id.
   localSessions: Map<string, LocalAgent>;
   // Restarts the chat's agent on an empty conversation, under the same task and on the same model.
@@ -170,35 +170,37 @@ export function useLocalChats({
     setPrompts(new Map());
   }, [startLocal, watched]);
 
-  // A local chat in a pane shows its saved conversation until its agent starts; a chat no pane shows is dropped.
-  const [coldSessions, setColdSessions] = useState<Map<string, LocalAgent>>(
+  // One handle per local chat in a pane, from its files; a chat no pane shows is dropped, and read again next time.
+  const [handles, setHandles] = useState<Map<string, LocalChatHandle>>(
     new Map(),
   );
-  const coldIds = allPanes(layout)
-    .flatMap((pane) =>
-      isLocal(pane.taskId) && !localSessions.has(pane.taskId)
-        ? [pane.taskId]
-        : [],
-    )
+  const handleIds = allPanes(layout)
+    .flatMap((pane) => (isLocal(pane.taskId) ? [pane.taskId] : []))
     .join();
-  // Read once per chat: a long log takes a moment to parse, and the panes change more often than their chats.
-  const coldLoaded = useRef(coldSessions);
-  coldLoaded.current = coldSessions;
+  // Read once per chat while it stays on screen: a long log takes a moment to parse.
+  const loaded = useRef(handles);
+  loaded.current = handles;
+  const startFor = useRef(localFor);
+  startFor.current = localFor;
   useEffect(() => {
-    const wanted = new Set(coldIds ? coldIds.split(",") : []);
-    setColdSessions((current) =>
+    const wanted = new Set(handleIds ? handleIds.split(",") : []);
+    setHandles((current) =>
       [...current.keys()].every((id) => wanted.has(id))
         ? current
         : new Map([...current].filter(([id]) => wanted.has(id))),
     );
     let left = false;
     for (const id of wanted) {
-      if (coldLoaded.current.has(id)) continue;
-      void localHistory(localChats, id).then(
-        (cold) => {
-          if (left || !cold) return;
-          setColdSessions((current) =>
-            current.has(id) ? current : new Map(current).set(id, cold),
+      if (loaded.current.has(id)) continue;
+      void localHistory(localChats, id, (pick) =>
+        startFor.current(id, pick),
+      ).then(
+        (handle) => {
+          if (left || !handle) return;
+          // An agent that outlived a hot reload is watched again, so its turn keeps showing.
+          if (runningLocals.has(id)) void startFor.current(id).catch(() => {});
+          setHandles((current) =>
+            current.has(id) ? current : new Map(current).set(id, handle),
           );
         },
         () => {},
@@ -207,12 +209,16 @@ export function useLocalChats({
     return () => {
       left = true;
     };
-  }, [coldIds, localChats]);
+  }, [handleIds, localChats]);
+  // An agent started from anywhere (a message, a shell command, a hot reload) takes over the chat's handle.
+  useEffect(() => {
+    for (const [id, agent] of localSessions) handles.get(id)?.attach(agent);
+  }, [localSessions, handles]);
 
   return {
     isLocal,
     localFor,
-    coldSessions,
+    handles,
     localSessions,
     clear,
     localActive,
