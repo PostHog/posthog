@@ -1300,10 +1300,9 @@ class SignalReportListPagination(LimitOffsetPagination):
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        if request.query_params.get("search"):
-            page, window_count = self._search_page(queryset, self.offset, self.limit)
-        else:
-            page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
+        page, window_count = self._page_by_ids(
+            queryset, self.offset, self.limit, with_window_count=bool(request.query_params.get("search"))
+        )
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
         elif window_count is not None:
@@ -1314,17 +1313,27 @@ class SignalReportListPagination(LimitOffsetPagination):
             self.display_page_controls = True
         return page
 
-    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
-        # Ids only, because COUNT(*) OVER () buffers every match and full report rows spill to disk.
-        rows = list(
-            queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                offset : offset + limit
-            ]
-        )
-        if not rows:
+    def _page_by_ids(
+        self, queryset, offset: int, limit: int, *, with_window_count: bool
+    ) -> tuple[list[SignalReport], int | None]:
+        # The sort covers every matching report in the team, so it selects ids only. Full rows would
+        # carry the wide report columns and the refund and tracker issue joins through that sort, and
+        # COUNT(*) OVER () would buffer them and spill to disk. The full rows load for the page alone.
+        if with_window_count:
+            rows = list(
+                queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
+                    offset : offset + limit
+                ]
+            )
+            page_ids = [pk for pk, _ in rows]
+            window_count = rows[0][1] if rows else None
+        else:
+            page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
+            window_count = None
+        if not page_ids:
             return [], None
-        reports = {report.pk: report for report in queryset.filter(pk__in=[pk for pk, _ in rows]).order_by()}
-        return [reports[pk] for pk, _ in rows if pk in reports], rows[0][1]
+        reports = {report.pk: report for report in queryset.filter(pk__in=page_ids).order_by()}
+        return [reports[pk] for pk in page_ids if pk in reports], window_count
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)

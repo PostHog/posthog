@@ -1669,7 +1669,7 @@ class TestSignalReportListAPI(APIBaseTest):
         list_sql = [
             query["sql"]
             for query in ctx.captured_queries
-            if query["sql"].startswith('SELECT "signals_signalreport"."id"') and "ORDER BY" in query["sql"]
+            if query["sql"].startswith('SELECT "signals_signalreport"."id" AS "pk"')
         ]
         assert len(list_sql) == 1
         # The sort reads every matching report, so a priority subquery repeated per CASE branch
@@ -1847,7 +1847,7 @@ class TestSignalReportListAPI(APIBaseTest):
         list_sql = [
             query["sql"]
             for query in ctx.captured_queries
-            if query["sql"].startswith('SELECT "signals_signalreport"."id"') and "ORDER BY" in query["sql"]
+            if query["sql"].startswith('SELECT "signals_signalreport"."id" AS "pk"')
         ]
         assert len(list_sql) == 1
         # The sort reads every matching report, so a score subquery repeated in the ORDER BY
@@ -2619,6 +2619,23 @@ class TestSignalReportListAPI(APIBaseTest):
             q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]
         ]
         assert bool(count_queries) == runs_count_query
+
+    @parameterized.expand([("plain", {}), ("search", {"search": "checkout"})])
+    def test_page_sort_selects_ids_without_joining_one_to_one_rows(self, _name: str, params: dict[str, str]) -> None:
+        for i in range(3):
+            self._create_report(title=f"Checkout failure {i}")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(ordering="-created_at", limit=2, **params))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["title"] for r in response.json()["results"]] == ["Checkout failure 2", "Checkout failure 1"]
+        sort_queries = [
+            q["sql"] for q in ctx.captured_queries if q["sql"].startswith('SELECT "signals_signalreport"."id" AS "pk"')
+        ]
+        assert len(sort_queries) == 1
+        assert "signals_signalreporttrackerissue" not in sort_queries[0]
+        assert "signals_signalreportrefund" not in sort_queries[0]
 
     def test_filter_actionability_absent_returns_all(self):
         a = self._create_report(title="A")
