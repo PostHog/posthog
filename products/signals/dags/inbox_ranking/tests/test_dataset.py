@@ -1349,6 +1349,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_user_vectors,
             dag.inbox_engagement_export,
             dag.inbox_activity_summary_vectors,
         ]
@@ -1359,6 +1360,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.USER_VECTORS_TABLE,
         dag.ENGAGEMENT_EXPORT,
         dag.ACTIVITY_SUMMARY_VECTORS_TABLE,
     ):

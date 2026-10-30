@@ -7,7 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import experiment_flag_ids
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
     HOLDOUT_SEED_C,
     RULE_B,
@@ -55,7 +55,7 @@ class TestExperimentRules(AdmittedV2TestCase):
         assert rule["id"] and rule["seed"] and rule["holdout"]["seed"]
         assert len({rule["seed"], rule["holdout"]["seed"]}) == 2
         assert "experiment_id" not in rule and set(rule["holdout"]) == {"seed", "exclusion_percentage"}
-        assert not Experiment.objects.filter(feature_flag=flag).exists()
+        assert flag.id not in experiment_flag_ids([self.team.id], include_deleted=True)
         assert response.json()["filters"] == flag.filters
 
     def test_seeds_survive_reorder_and_unrelated_edits(self) -> None:

@@ -1,7 +1,7 @@
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_serving_team
 from products.workflows.backend.facade.contracts import RealtimeCohortStatus
 
 
@@ -86,15 +86,18 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
 
 
 def realtime_cohort_can_finish(cohort: Cohort) -> bool:
-    """Whether the realtime pipeline runs for this cohort's team, so the cohort can become ready at all."""
-    return is_realtime_cohort_team(cohort.team_id)
+    """Whether this cohort's team is at the `serving` level, so the cohort can become ready at all.
+
+    A `processing` team runs the pipeline, but its users must not see a realtime audience come alive.
+    """
+    return is_serving_team(cohort.team_id)
 
 
 def realtime_cohort_is_ready(cohort: Cohort) -> bool:
     """Whether the realtime pipeline holds this cohort's full membership and keeps it current.
 
-    The backfill stamps stay set when a team leaves the realtime allowlist, but the pipeline then
-    stops updating the membership, so the team has to be on the allowlist too.
+    The backfill stamps stay set when a team stops serving, but the pipeline may then stop updating
+    the membership, so the team has to be serving too.
     """
     return cohort.is_flag_compatible and realtime_cohort_can_finish(cohort)
 
@@ -108,8 +111,8 @@ def realtime_cohort_status(cohort: Cohort) -> RealtimeCohortStatus:
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if realtime_cohort_is_ready(cohort):
         state: str = CohortRealtimeState.READY
-    elif not is_realtime_cohort_team(cohort.team_id):
-        # The pipeline doesn't run for this team, so the cohort never finishes calculating.
+    elif not is_serving_team(cohort.team_id):
+        # The pipeline doesn't serve this team, so the cohort never finishes calculating.
         state = CohortRealtimeState.NEEDS_ATTENTION
     elif readiness is not None and readiness.state in _REPORTED_PENDING_STATES:
         state = readiness.state

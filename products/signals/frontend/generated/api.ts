@@ -43,6 +43,7 @@ import type {
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    PersonalRankingApi,
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCiStatusesResponseApi,
@@ -99,6 +100,8 @@ import type {
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
+    SignalReportBulkClaimRequestApi,
+    SignalReportBulkClaimResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
@@ -156,6 +159,7 @@ import type {
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsAvailableReviewersRetrieve200,
     SignalsReportsAvailableReviewersRetrieveParams,
+    SignalsReportsForMeRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsReportsSectionCountsRetrieveParams,
@@ -1516,6 +1520,58 @@ export const signalsReportsBulkStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportBulkStateRequestApi),
+    })
+}
+
+export const getSignalsReportsBulkClaimUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk_claim/`
+}
+
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaim = async (
+    projectId: string,
+    signalReportBulkClaimRequestApi: SignalReportBulkClaimRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkClaimResponseApi> => {
+    return apiMutator<SignalReportBulkClaimResponseApi>(getSignalsReportsBulkClaimUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkClaimRequestApi),
+    })
+}
+
+export const getSignalsReportsForMeRetrieveUrl = (projectId: string, params?: SignalsReportsForMeRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/for_me/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/for_me/`
+}
+
+/**
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. A current stored list returns at once. Otherwise the request builds a new list, which can take 30 seconds or more. Only the user the list is about can read it.
+ * @summary Get your personal ranked inbox
+ */
+export const signalsReportsForMeRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsForMeRetrieveParams,
+    options?: RequestInit
+): Promise<PersonalRankingApi> => {
+    return apiMutator<PersonalRankingApi>(getSignalsReportsForMeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

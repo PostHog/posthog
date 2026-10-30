@@ -16,19 +16,20 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { canOpenInNewTab } from 'lib/components/Search/utils'
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
+import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
@@ -84,6 +85,7 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequ
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
 const FAST_REQUESTS = ['objects', 'persons']
+const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
 
@@ -104,6 +106,7 @@ export interface commandKSearchLogicValues {
     productsItems: SearchItem[] // searchListsLogic
     settingsItems: SearchItem[] // searchListsLogic
     starredItems: SearchItem[] // searchListsLogic
+    shortcutItems: SearchItem[] // shortcutLogic
     currentTeamId: number | null // teamLogic
     isDarkModeOn: boolean // themeLogic
     user: UserType | null // userLogic
@@ -309,6 +312,7 @@ export interface commandKSearchLogicMeta {
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
+            shortcutItems: SearchItem[],
             productsItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
@@ -404,6 +408,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ['groupTypes', 'aggregationLabel'],
             themeLogic,
             ['isDarkModeOn'],
+            shortcutLogic,
+            ['shortcutItems'],
         ],
         actions: [
             commandLogic,
@@ -641,6 +647,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
+                s.shortcutItems,
                 s.productsItems,
                 s.settingsItems,
                 s.newItems,
@@ -652,6 +659,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (
                 recents: SearchItem[],
                 starred: SearchItem[],
+                shortcuts: SearchItem[],
                 products: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
@@ -662,6 +670,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ): LocalLists => ({
                 recents,
                 starred,
+                shortcuts,
                 products,
                 settings,
                 create,
@@ -739,7 +748,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         highlightedRow: [
             (s) => [s.selectableRows, s.highlightedKey],
             (rows: CommandKRow[], highlightedKey: string | null): CommandKRow | null =>
-                rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null,
+                highlightedKey === INPUT_HIGHLIGHT_KEY
+                    ? null
+                    : (rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null),
         ],
         highlightIsFilterRow: [
             (s) => [s.highlightedRow],
@@ -982,12 +993,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     case 'edit-chip':
                         actions.editChip(intent.index)
                         break
-                    case 'clear-or-close':
-                        if (values.isPaletteEmpty) {
-                            actions.closeCommand()
-                        } else {
-                            actions.clearQuery()
-                        }
+                    case 'close':
+                        actions.closeCommand()
                         break
                 }
             },
@@ -997,7 +1004,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     return
                 }
                 const currentIndex = values.highlightedRow ? rows.indexOf(values.highlightedRow) : -1
-                actions.setHighlightedKey(rows[(currentIndex + direction + rows.length) % rows.length].key)
+                const nextIndex = Math.min(currentIndex + direction, rows.length - 1)
+                actions.setHighlightedKey(nextIndex < 0 ? INPUT_HIGHLIGHT_KEY : rows[nextIndex].key)
             },
             activateRow: ({ row, newTab, via }) => {
                 if (row.kind === 'filter-key') {

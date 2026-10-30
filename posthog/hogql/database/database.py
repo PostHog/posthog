@@ -176,6 +176,7 @@ from posthog.schema_enums import (
     DatabaseSerializedFieldType,
     DataWarehouseSavedQueryOrigin,
     PersonsOnEventsMode,
+    SessionsV2JoinMode,
     SessionTableVersion,
 )
 from posthog.scopes import APIScopeObject
@@ -251,6 +252,9 @@ class HogQLDatabaseSources:
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
+    read_flag_calls_from_flag_evaluations: bool
+    # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
+    flag_calls_only_in_flag_evaluations: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -454,7 +458,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-from-flag-evaluations"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -472,6 +476,16 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
             "organization": {"id": str(team.organization_id)},
             "project": {"id": str(team.id)},
         },
+        send_feature_flag_events=False,
+    )
+
+
+def _evaluate_flag_calls_rewrite_flag(team: Team) -> bool:
+    return feature_enabled_or_false(
+        "hogql-flag-calls-from-flag-evaluations",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
 
@@ -829,6 +843,8 @@ class Database(BaseModel):
     # because a warehouse table merged into the root first can hold the bare stored name.
     _models_alias_nodes: dict[str, TableNode] = {}
     _connection_id: str | None = None
+    _read_flag_calls_from_flag_evaluations: bool = False
+    _flag_calls_only_in_flag_evaluations: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -890,6 +906,8 @@ class Database(BaseModel):
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
+        self._read_flag_calls_from_flag_evaluations = False
+        self._flag_calls_only_in_flag_evaluations = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1258,6 +1276,15 @@ class Database(BaseModel):
 
     def _is_direct_query(self) -> bool:
         return self._connection_id is not None
+
+    @property
+    def read_flag_calls_from_flag_evaluations(self) -> bool:
+        # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
+        return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
+
+    @property
+    def flag_calls_only_in_flag_evaluations(self) -> bool:
+        return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -1937,6 +1964,8 @@ class Database(BaseModel):
             # Resolving the org gate needs a Postgres read. This path exists to avoid that I/O,
             # so it prunes the table as it prunes the other gated tables.
             include_flag_evaluations_table=False,
+            read_flag_calls_from_flag_evaluations=False,
+            flag_calls_only_in_flag_evaluations=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -2032,10 +2061,23 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
+            from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
+            from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
+                get_flag_evaluations_read_mode,
+                is_flag_evaluations_table_enabled,
+            )
 
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
+            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
+            # organization still on EVENTS. The flag goes first because it reads no row.
+            read_mode: int = FlagEvaluationsMode.EVENTS
+            if include_flag_evaluations_table and _cached_team_flag(
+                "hogql-flag-calls-from-flag-evaluations", team, lambda: _evaluate_flag_calls_rewrite_flag(team)
+            ):
+                read_mode = get_flag_evaluations_read_mode(team.organization_id)
+            read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
+            flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -2300,6 +2342,8 @@ class Database(BaseModel):
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
+            read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
+            flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2353,6 +2397,8 @@ class Database(BaseModel):
                 week_start_day=team.week_start_day,
                 include_posthog_tables=sources.connection_id is None,
             )
+            database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
+            database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:
@@ -2418,6 +2464,9 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]]
+                    if modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID
+                    else [],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V2,
                 )
@@ -2444,6 +2493,7 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V3,
                 )
@@ -3151,7 +3201,10 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
     group_mappings = {mapping["group_type_index"]: mapping for mapping in group_types}
-    table = database.get_table("events")
+    tables = [database.get_table("events")]
+    # A flag call query on events can read flag_evaluations instead, so its group keys take the same cutoff.
+    if database.has_table(["posthog", "flag_evaluations"]):
+        tables.append(database.get_table(["posthog", "flag_evaluations"]))
 
     for group_index in range(5):
         field_name = f"$group_{group_index}"
@@ -3159,11 +3212,6 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
         group_mapping = group_mappings.get(group_index, None)
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
         if group_mapping and group_mapping["created_at"]:
-            # Store the original field as a "raw" version before replacing
-            original_field = table.fields[field_name]
-            raw_field_name = f"_{field_name}_raw"
-            table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
-
             # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
             # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
             # the cutoff by the project's UTC offset.
@@ -3171,22 +3219,29 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=UTC)
 
-            table.fields[field_name] = ExpressionField(
-                name=field_name,
-                expr=ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["timestamp"]),
-                            op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at),
-                        ),
-                        ast.Constant(value=""),
-                        ast.Field(chain=[raw_field_name]),
-                    ],
-                ),
-                isolate_scope=True,
-            )
+            for table in tables:
+                # Store the original field as a "raw" version before replacing
+                original_field = table.fields[field_name]
+                raw_field_name = f"_{field_name}_raw"
+                table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+                table.fields[field_name] = ExpressionField(
+                    name=field_name,
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                op=ast.CompareOperationOp.Lt,
+                                right=ast.Constant(value=created_at),
+                            ),
+                            ast.Constant(value=""),
+                            ast.Field(chain=[raw_field_name]),
+                        ],
+                    ),
+                    isolate_scope=True,
+                    description=original_field.description,
+                )
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:

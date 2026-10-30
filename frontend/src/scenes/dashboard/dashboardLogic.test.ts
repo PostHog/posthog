@@ -2216,6 +2216,51 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it.each([
+            ['a dashboard refresh', (): void => logic.actions.triggerDashboardRefresh()],
+            [
+                'a single tile refresh',
+                (): void => logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] }),
+            ],
+        ])('adds the tile request timing to refresh analytics after %s', async (_name, refreshTiles) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const requestId = '11111111-1111-4111-8111-111111111111'
+            const refresh = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight, _dashboardId, _queryId, _refresh, methodOptions) => {
+                    methodOptions?.onRequestTiming?.({
+                        request_total_ms: 20,
+                        http_request_id: requestId,
+                        resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
+                        http_status: 200,
+                    })
+                    return insight
+                })
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+            try {
+                await expectLogic(logic, refreshTiles).toFinishAllListeners()
+
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard insight refreshed',
+                    expect.objectContaining({
+                        http_request_id: requestId,
+                        resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
+                        request_total_ms: 20,
+                        http_status: 200,
+                    })
+                )
+            } finally {
+                refresh.mockRestore()
+            }
+        })
+
         it('refreshes a large builtin dashboard on a variable change, since it has no Preview button', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             logic.unmount()

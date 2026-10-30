@@ -1,0 +1,14 @@
+# products/mobile is a standalone workspace with its own lockfile. This file stops pnpm
+# from walking up to the repo root workspace, which excludes this directory.
+packages:
+    - '.'
+
+# Match the repo root: only install versions that have been public for 7 days.
+minimumReleaseAge: 10080
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+
+# pnpm 10 skips dependency install scripts unless they are listed here. Skia's postinstall links its
+# prebuilt iOS and Android binaries, and `pod install` fails without them.
+onlyBuiltDependencies:
+    - '@shopify/react-native-skia'

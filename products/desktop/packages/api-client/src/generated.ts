@@ -325,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
@@ -545,6 +546,33 @@ export namespace Schemas {
         operator: AccountsTableThresholdOperator;
         value: number;
     };
+    export type AccountsTableCustomPropertyDisplayType =
+        | "text"
+        | "link"
+        | "number"
+        | "currency"
+        | "percent"
+        | "date"
+        | "datetime"
+        | "boolean"
+        | "select";
+    export type AccountsTableCustomPropertyOption = {
+        color: string;
+        id?: (string | null) | undefined;
+        label: string;
+    };
+    export type AccountsTableCustomPropertySource = { id: string };
+    export type AccountsTableCustomPropertyDefinition = {
+        description?: (string | null) | undefined;
+        display_type: AccountsTableCustomPropertyDisplayType;
+        has_workflow_reference: boolean;
+        id: string;
+        is_big_number?: (boolean | null) | undefined;
+        is_canonical: boolean;
+        name: string;
+        options?: (Array<AccountsTableCustomPropertyOption> | null) | undefined;
+        source?: (AccountsTableCustomPropertySource | null) | undefined;
+    };
     export type AccountsTableCustomPropertyOperator =
         | "exact"
         | "is_not"
@@ -615,6 +643,13 @@ export namespace Schemas {
         tagNames: Array<string>;
     };
     export type AccountsTableUnassignedFilter = Partial<{ kind: string }>;
+    export type AccountsTableRelationshipDefinition = {
+        description?: (string | null) | undefined;
+        id: string;
+        is_controlled: boolean;
+        is_single_holder?: (boolean | null) | undefined;
+        name: string;
+    };
     export type AccountsTableRow = {
         /**
          * Requested direct Account fields, keyed by their typed field reference.
@@ -643,6 +678,19 @@ export namespace Schemas {
         tags?: (Array<string> | null) | undefined;
     };
     export type AccountsTableQueryResponse = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -652,6 +700,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -714,6 +765,7 @@ export namespace Schemas {
                   | AccountsTableCustomPropertyFilter
               > | null)
             | undefined;
+        ignoreMissingDefinitions?: (boolean | null) | undefined;
         includeChurned?: (boolean | null) | undefined;
         includeIgnored?: (boolean | null) | undefined;
         kind?: string | undefined;
@@ -730,6 +782,7 @@ export namespace Schemas {
         response?: (AccountsTableQueryResponse | null) | undefined;
         sort?: (AccountsTableSort | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
+        useDefaultColumns?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     /**
@@ -4706,12 +4759,15 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
@@ -7428,6 +7484,19 @@ export namespace Schemas {
             | undefined;
     };
     export type Response20 = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7437,6 +7506,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -9156,6 +9228,10 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -9978,6 +10054,10 @@ export namespace Schemas {
          */
         subcode: string | null;
         /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
+        /**
          * How much the problem affects the results: critical, warning, or info.
          *
          * * `critical` - Critical severity
@@ -10501,6 +10581,10 @@ export namespace Schemas {
          */
         evidence: Record<string, string | number | null>;
         /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
+        /**
          * How much the problem affects the results: critical, warning, or info.
          */
         severity: ExperimentExposureHealthFindingSeverity;
@@ -10863,6 +10947,10 @@ export namespace Schemas {
         incremental: boolean;
         status: string | null;
         /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
@@ -10954,6 +11042,10 @@ export namespace Schemas {
          * Whether exact source-side column metadata is available for safe source-query projection.
          */
         source_column_metadata_available: boolean;
+        /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         */
+        history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -12437,6 +12529,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13851,7 +13944,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15275,6 +15369,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15776,7 +15871,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -16362,7 +16457,17 @@ export namespace Schemas {
         query_status: unknown;
         hogql: string | null;
         types: Array<unknown> | null;
+        /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         */
         resolved_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         */
+        resolved_compare_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
@@ -19387,6 +19492,10 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
@@ -19616,6 +19725,10 @@ export namespace Schemas {
         hogql: string | null;
         types: Array<unknown> | null;
         resolved_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        resolved_compare_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
@@ -19927,6 +20040,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -19954,7 +20068,8 @@ export namespace Schemas {
         | "workflow"
         | "space_setup"
         | "business_knowledge"
-        | "metrics_import";
+        | "metrics_import"
+        | "knowledge_writer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -23188,7 +23303,8 @@ export namespace Endpoints {
                     | "workflow"
                     | "space_setup"
                     | "business_knowledge"
-                    | "metrics_import";
+                    | "metrics_import"
+                    | "knowledge_writer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23208,6 +23324,7 @@ export namespace Endpoints {
                     | "experiments"
                     | "hogdesk"
                     | "image_builder"
+                    | "knowledge_writer"
                     | "loop"
                     | "mcp_analytics"
                     | "onboarding"

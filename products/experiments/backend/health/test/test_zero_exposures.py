@@ -24,7 +24,13 @@ from products.experiments.backend.health.checks.zero_exposures import (
     FLAG_NOT_CALLED,
     zero_exposures,
 )
-from products.experiments.backend.health.context import ExposureEvents, ExposureTotals, FlagState, load_health_context
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    ExposureTotals,
+    FlagState,
+    HealthContext,
+    load_health_context,
+)
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.edits import FlagVariant
@@ -52,6 +58,7 @@ NO_EXPOSURES = ExposureTotals(
     hours_since_launch=48,
     counts_groups=False,
 )
+TEST_ACCOUNTS_ONLY = replace(NO_EXPOSURES, exposed_without_test_account_filter=12)
 FLAG_CALLS = ExposureEvents(
     custom_event=None, required_flag_key="checkout-test", variant_property="$feature_flag_response", flag_key_filters=()
 )
@@ -77,6 +84,13 @@ class TestZeroExposures(TestCase):
                 {"flag_called_during_run": True},
                 CALLS_NOT_COUNTED,
                 (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
+                WARNING,
+            ),
+            (
+                "flag_called_by_test_accounts_only",
+                {"flag_called_during_run": True, "exposures": TEST_ACCOUNTS_ONLY},
+                CALLS_NOT_COUNTED,
+                (Action.EDIT_EXPOSURE_CRITERIA,),
                 WARNING,
             ),
             ("calls_unknown", {"flag_called_during_run": None}, None, (Action.EDIT_EXPOSURE_CRITERIA,), WARNING),
@@ -115,6 +129,13 @@ class TestZeroExposures(TestCase):
                 {**ENDED, "flag_called_during_run": True},
                 CALLS_NOT_COUNTED,
                 (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
+                WARNING,
+            ),
+            (
+                "ended_flag_called_by_test_accounts_only",
+                {**ENDED, "flag_called_during_run": True, "exposures": TEST_ACCOUNTS_ONLY},
+                CALLS_NOT_COUNTED,
+                (Action.EDIT_EXPOSURE_CRITERIA,),
                 WARNING,
             ),
             (
@@ -185,6 +206,72 @@ class TestZeroExposures(TestCase):
                 'With the activation "signed_up" set' in finding.detail,
             ),
             (title, names_the_group, names_the_activation),
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "running",
+                RUNNING_CONTEXT,
+                1200,
+                "test_account_filter",
+                {"exposed_without_test_account_filter": 1200},
+                "No users exposed: the test account filter removes all of them",
+                "The exposure criteria filter out test accounts, and the project's test account filters match all 1,200 "
+                'users that got a variant of the feature flag "checkout-test" during the experiment, so nobody is '
+                'counted as exposed. Turn off "Filter out internal and test users" in the exposure criteria, or change '
+                "the project's test account filters so that they don't match your users.",
+            ),
+            (
+                "ended_one_user",
+                replace(RUNNING_CONTEXT, **ENDED),
+                1,
+                "test_account_filter",
+                {"exposed_without_test_account_filter": 1},
+                "No users exposed: the test account filter removed all of them",
+                "No users were exposed while the experiment ran, because the exposure criteria filter out test "
+                "accounts, and the project's test account filters matched the only user that got a variant of the "
+                'feature flag "checkout-test". Turn off "Filter out internal and test users" in the exposure criteria '
+                "to count them.",
+            ),
+            (
+                "nobody_without_the_filter",
+                RUNNING_CONTEXT,
+                0,
+                None,
+                {"exposed_without_test_account_filter": 0},
+                "No users exposed, although the feature flag is called",
+                'PostHog has recorded calls of the feature flag "checkout-test" during the experiment, but none of them '
+                "counts as an exposure. A call counts when the flag returns one of the experiment's variants and the "
+                "user passes the exposure criteria. Check that the flag's release conditions include your users, and "
+                "that the exposure criteria, such as the test account filter, don't leave them out.",
+            ),
+        ]
+    )
+    def test_counts_the_users_that_the_test_account_filter_removes(
+        self,
+        _name: str,
+        base: HealthContext,
+        exposed: int,
+        reason: str | None,
+        evidence: dict[str, int | str],
+        title: str,
+        detail: str,
+    ) -> None:
+        ctx = replace(
+            base,
+            flag=FLAG,
+            exposures=replace(NO_EXPOSURES, exposed_without_test_account_filter=exposed),
+            exposure_events=FLAG_CALLS,
+            flag_called_during_run=True,
+        )
+
+        finding = zero_exposures(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(
+            (finding.subcode, finding.reason, finding.title, finding.detail, finding.evidence),
+            (CALLS_NOT_COUNTED, reason, title, detail, {"hours_since_launch": 48, **evidence}),
         )
 
 
