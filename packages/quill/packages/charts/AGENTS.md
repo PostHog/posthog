@@ -61,7 +61,7 @@ const series: Series[] = [
 - `key`, `label`, `data` are required. `key` is the React key and the stacking identity.
 - `labels` must be unique. The x-scale keys positions off the strings; a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO dates and format ticks via `xAxis.timezone` / `interval`.
 - `meta` carries arbitrary data into tooltips and click handlers; narrow it with `Series<MyMeta>`.
-- `visibility.{excluded,tooltip,total,valueLabel}` controls where a series appears. `overlay: true` marks a derived series (trend line, moving average). Line-only: `points`, `stroke.pattern`, `stroke.partial`, `fill`. Bar-only: `bars[]`, `trackData`. Full field docs on `Series` in `src/core/types.ts`.
+- `visibility.{excluded,tooltip,total,valueLabel}` controls where a series appears. `overlay: true` marks a derived series (trend line, moving average). Line-only: `points`, `stroke.width`, `stroke.pattern`, `stroke.partial`, `fill`. Bar-only: `bars[]`, `trackData`. Full field docs on `Series` in `src/core/types.ts`.
 
 ## Sizing
 
