@@ -2,7 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -174,15 +174,18 @@ describe('highlightPicksLogic', () => {
             expect(shownEvents()).toEqual([])
         })
 
-        it('opens the Scans segment on every pick', async () => {
-            const column = replayListColumnLogic({ logicKey: 'test-picks' })
-            column.mount()
+        it('opens the Observations section on every pick', async () => {
+            const settings = playerSettingsLogic()
+            settings.mount()
             for (const position of [0, 1]) {
-                column.actions.setSegment('picks')
+                if (settings.values.watchPanelOpenSections.includes('observations')) {
+                    settings.actions.toggleWatchPanelSection('observations')
+                }
+                expect(settings.values.watchPanelOpenSections).not.toContain('observations')
                 logic.actions.highlightPick(logic.values.picks![position], position)
-                expect(column.values.segment).toBe('moments')
+                expect(settings.values.watchPanelOpenSections).toContain('observations')
             }
-            column.unmount()
+            settings.unmount()
         })
 
         it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {
