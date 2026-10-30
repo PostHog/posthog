@@ -534,13 +534,13 @@ class LazyTable(Table):
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyTableToAdd:
     lazy_table: LazyTable
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class UnexpandedScan:
     """The FROM entry of a lazy table before lazy table resolution replaced it with a subquery.
 
@@ -552,7 +552,7 @@ class UnexpandedScan:
     types: tuple["Type", ...]
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyJoinToAdd:
     from_table: str
     to_table: str
