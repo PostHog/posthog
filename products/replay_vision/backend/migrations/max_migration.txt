@@ -1,1 +1,1 @@
-0136_retire_search_suggestion_columns
+0143_replay_highlight_autovacuum

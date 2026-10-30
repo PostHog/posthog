@@ -123,6 +123,81 @@ class TestEventFanout:
         )
 
 
+def _count(checked_in: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"checkedIn": checked_in, "ticketTypes": [{"ticketTypeId": "tt1", "checkedIn": checked_in}]}
+    )
+
+
+class TestCheckInCounts:
+    def test_fetches_one_count_per_live_event_date(self) -> None:
+        events: list[dict[str, Any]] = [
+            {"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2", "deleted": True}]},
+            {"_id": "e2"},
+            {"_id": "e3", "dates": [{"_id": "d3"}, {"_id": "d4"}]},
+        ]
+        result = _driver().run(
+            "check_in_counts",
+            [
+                _page(events, total=3),
+                _count(5),
+                ScriptedResponse(status=404, json={"code": "event_not_found"}),
+                _count(0),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/events",
+            "/v1/events/e1/check-in-count",
+            "/v1/events/e3/check-in-count",
+            "/v1/events/e3/check-in-count",
+        ]
+        assert result.params("eventDateId")[1:] == ["d1", "d3", "d4"]
+        assert [(row["eventId"], row["eventDateId"], row["checkedIn"]) for row in result.rows] == [
+            ("e1", "d1", 5),
+            ("e3", "d4", 0),
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["eventId", "eventDateId"]
+        assert result.saved_states[-1] == HumanitixResumeConfig(next_page=1, completed=["e1:d1", "e3:d3", "e3:d4"])
+
+    @parameterized.expand(
+        [
+            ("skips_completed_dates", HumanitixResumeConfig(next_page=2, completed=["e1:d1"]), ["d2", "d3"]),
+            (
+                "skips_completed_dates_after_one_is_removed",
+                HumanitixResumeConfig(next_page=2, completed=["e9:d9", "e1:d2"]),
+                ["d1", "d3"],
+            ),
+        ]
+    )
+    def test_resume(self, _name: str, resume_state: HumanitixResumeConfig, expected_dates: list[str]) -> None:
+        events = [{"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2"}, {"_id": "d3"}]}]
+        result = _driver().run(
+            "check_in_counts",
+            [_page(events, total=PAGE_SIZE + 1)] + [_count(1) for _ in expected_dates],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.params("page")[0] == "2"
+        assert result.params("eventDateId")[1:] == expected_dates
+        assert [row["eventDateId"] for row in result.rows] == expected_dates
+        # Every checkpoint keeps the dates finished before the restart, so a second restart skips them too.
+        for state in result.saved_states:
+            assert set(resume_state.completed or []) <= set(state.completed or [])
+
+    @parameterized.expand([("null", b"null"), ("empty_list", b"[]"), ("scalar", b"5")])
+    def test_non_object_count_body_fails_without_checkpoint(self, _name: str, body: bytes) -> None:
+        events = [{"_id": "e1", "dates": [{"_id": "d1"}]}]
+        result = _driver().run("check_in_counts", [_page(events, total=1), ScriptedResponse(body=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+        assert result.saved_states == []
+
+
 class TestRetryAndErrors:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_errors_raise_without_retry(self, _name: str, status: int) -> None:

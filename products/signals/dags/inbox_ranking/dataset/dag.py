@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Ten assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Eleven assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -11,6 +11,7 @@ Ten assets on one daily partition, each writing Parquet under the configured S3 
     inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
     inbox_user_report_interactions/v1/dt=D/ cumulative interactions at (report, person) grain
     inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
+    inbox_user_vectors/v1/dt=D/             per-user mean report vectors of past engagement, by kind
     inbox_activity_summary_vectors/v1/dt=D/ one row per activity summary vector generated during D
 
 inbox_engagement_export writes no dataset object. It sends the dt=D engagement moments of the other
@@ -23,6 +24,8 @@ is a report-grain leaf: nothing joins it, and no model family trains on it. inbo
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
 leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
 (team, kind) leaf with its own schema version, built from the embeddings and labels snapshots.
+inbox_user_vectors is an (organization, user, kind) leaf with its own schema version, built from the
+embeddings and interactions snapshots.
 inbox_activity_summary_vectors is a (team, user, day) leaf with its own schema version: the durable
 copy of the per-user activity summary vectors, which the source table drops after its 3-month TTL.
 
@@ -142,8 +145,14 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     EMBEDDING_COLUMNS,
     LABEL_COLUMNS,
     PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_INTERACTION_COLUMNS,
+    USER_VECTORS_SCHEMA_VERSION,
+    history_buckets,
+    prior_views,
     project_vectors,
     teams_with_history,
+    user_vectors,
+    with_user_hashes,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
     ACTIVITY_SUMMARY_VECTORS_QUERY_SETTINGS,
@@ -187,6 +196,7 @@ SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 REVIEWERS_TABLE = "inbox_report_reviewers"
 USER_INTERACTIONS_TABLE = "inbox_user_report_interactions"
 PROJECT_VECTORS_TABLE = "inbox_project_vectors"
+USER_VECTORS_TABLE = "inbox_user_vectors"
 ENGAGEMENT_EXPORT = "inbox_engagement_export"
 ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
 
@@ -1511,6 +1521,77 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+def team_organizations(team_ids: frozenset[int]) -> dict[int, str]:
+    return {
+        team_id: str(organization_id)
+        for team_id, organization_id in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
+    }
+
+
+@dagster.asset(
+    name=USER_VECTORS_TABLE,
+    # After the project vectors, so the two reads of the embeddings snapshot do not share the run
+    # pod's memory. Nothing joins this asset, so its failure does not fail the training table.
+    deps=[PROJECT_VECTORS_TABLE, USER_INTERACTIONS_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
+    """Per-user context vectors as of the partition end, for a report scored on the next day.
+
+    The rows are the user vectors the pair lane rebuilds through `pair_user_vectors` for a report
+    born on D+1, so serving reads the same inputs that training reads. Each row carries the
+    `user_hash` of its (organization, user).
+    """
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    bucket = dataset_bucket()
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = s3_client()
+
+    interactions = read_parquet(
+        client,
+        bucket,
+        partition_object_key(prefix, USER_INTERACTIONS_TABLE, partition_key),
+        list(USER_INTERACTION_COLUMNS),
+    )
+    # The snapshot was filtered when it was written. Filter it again, so an opt-out since then counts.
+    consent_team_ids = training_consent_team_ids()
+    consented = interactions.filter(
+        pc.is_in(interactions.column("report_team_id"), value_set=pa.array(sorted(consent_team_ids), type=pa.int64()))
+    )
+    excluded_rows = interactions.num_rows - consented.num_rows
+    del interactions
+    organizations = team_organizations(consent_team_ids)
+    embeddings = read_parquet(
+        client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), list(EMBEDDING_COLUMNS)
+    )
+    table = with_user_hashes(user_vectors(consented, embeddings, snapshot_end, organizations=organizations))
+    del embeddings
+
+    key = partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)
+    write_parquet(client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
+    users = set(
+        zip(table.column("organization_id").to_pylist(), table.column("user_distinct_id").to_pylist(), strict=True)
+    )
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "users": dagster.MetadataValue.int(len(users)),
+            "organizations": dagster.MetadataValue.int(len({organization_id for organization_id, _ in users})),
+            **{
+                f"users_with_{name}_prior_views": dagster.MetadataValue.int(count)
+                for name, count in history_buckets(
+                    prior_views(consented, snapshot_end, organizations=organizations)
+                ).items()
+            },
+            "excluded_no_training_consent_rows": dagster.MetadataValue.int(excluded_rows),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 def activity_summary_vectors_table(partition_key: str, consent_team_ids: Collection[int]) -> tuple[pa.Table, int]:
     """The activity summary vectors generated during dt=D for the teams in `consent_team_ids`, one row
     per document, and the number of rows skipped because their document_id names no user."""
@@ -1930,6 +2011,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         REVIEWERS_TABLE,
         USER_INTERACTIONS_TABLE,
         PROJECT_VECTORS_TABLE,
+        USER_VECTORS_TABLE,
         ENGAGEMENT_EXPORT,
         ACTIVITY_SUMMARY_VECTORS_TABLE,
     ],

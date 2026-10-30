@@ -1,3 +1,4 @@
+import time
 from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
@@ -89,7 +90,11 @@ from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,
 )
-from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
+from products.signals.backend.tracker_issues import (
+    close_tracker_issue_for_report,
+    complete_monitoring_tracker_issues,
+    link_pull_request_to_tracker_issue,
+)
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -139,27 +144,6 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     )
 
     InboxOnboardingActivation(team_id).run(job, final_attempt=self.request.retries >= self.max_retries)
-
-
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
-@with_team_scope()
-def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
-    from products.signals.backend.onboarding_completion import (
-        InboxOnboardingReconciler,  # noqa: PLC0415 - keep onboarding dependencies off task discovery
-        RepositoryCheckUnavailable,
-    )
-
-    try:
-        pending = InboxOnboardingReconciler(team_id, priority=Priority.BATCH).run()
-    except RepositoryCheckUnavailable as error:
-        reconcile_inbox_onboarding.apply_async(
-            args=[team_id],
-            kwargs={"failed_checks": failed_checks + 1},
-            countdown=max(min(60 * 2 ** min(failed_checks, 4), 900), error.retry_after),
-        )
-        return
-    if pending:
-        reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
 
 
 @shared_task(
@@ -321,6 +305,8 @@ def close_dismissed_report_pr(
     ignore_result=True,
     bind=True,
     max_retries=5,
+    soft_time_limit=45,
+    time_limit=60,
 )
 @with_team_scope()
 def close_report_tracker_issue(
@@ -341,6 +327,12 @@ def close_report_tracker_issue(
     )
     if retry_needed:
         raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_tracker_issues() -> None:
+    complete_monitoring_tracker_issues(deadline=time.monotonic() + 40)
 
 
 @shared_task(
@@ -762,28 +754,10 @@ def send_reviewer_added_slack_notifications(
 ) -> None:
     """Slack-ping reviewers a human just added to a report.
 
-    Runs on a worker because delivery makes several network calls (source-product metadata,
-    Slack user lookups, chat.postMessage) that must not hold up the reviewer-edit request.
+    Runs on a worker because delivery makes several network calls (Slack user lookups,
+    chat.postMessage) that must not hold up the reviewer-edit request.
     Best-effort end to end — the dispatcher logs per-destination failures itself.
     """
-    # Imported here rather than at module level: signal_metadata drags posthog.schema and
-    # posthog.hogql.query onto the django.setup() path (tasks are autodiscovered by celery),
-    # which the startup import budget forbids.
-    from products.signals.backend.signal_metadata import fetch_source_products_for_reports  # noqa: PLC0415
-
-    team = Team.objects.get(id=team_id)
-    # Source products are cosmetic (one metadata line in the message), so a failure fetching
-    # them must not suppress the ping itself.
-    source_products: list[str] | None = None
-    try:
-        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ClickHouseUser.SIGNALS).get(report_id)
-        source_products = meta.source_products if meta else None
-    except Exception:
-        logger.exception(
-            "failed to fetch source products for reviewer-added notification",
-            report_id=report_id,
-            team_id=team_id,
-        )
     github_logins = [value for value in added_github_logins if not value.startswith("user:")]
     user_uuids = [value.removeprefix("user:") for value in added_github_logins if value.startswith("user:")]
     dispatch_reviewer_added_notifications(
@@ -791,7 +765,6 @@ def send_reviewer_added_slack_notifications(
         team_id=team_id,
         added_github_logins=github_logins,
         added_user_uuids=user_uuids,
-        source_products=source_products,
         exclude_user_id=exclude_user_id,
     )
 

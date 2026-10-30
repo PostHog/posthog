@@ -104,7 +104,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, resolve_task_origin
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -200,6 +200,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.task_sources import apply_task_source
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -1361,16 +1362,6 @@ def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
-def filter_task_ids_created_by(task_ids: Iterable[str | UUID], team_id: int, user_id: int) -> frozenset[UUID]:
-    """The ids among `task_ids` of the team's tasks that the user started."""
-    ids = [str(t) for t in task_ids]
-    if not ids:
-        return frozenset()
-    return frozenset(
-        Task.objects.filter(id__in=ids, team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
-    )
-
-
 def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
     """The id of the user who started each task, without loading the full task."""
     ids = [str(t) for t in task_ids]
@@ -2030,6 +2021,7 @@ def create_and_run_task(
     internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
+    source: TaskSource | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -2053,6 +2045,10 @@ def create_and_run_task(
     origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
     origin_product = cast("Task.OriginProduct", origin.origin_product)
     internal = origin.internal
+    columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
+    signal_report_id = columns.signal_report_id
+    if columns.hog_flow_id is not None:
+        extra["hog_flow_id"] = columns.hog_flow_id
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2266,6 +2262,7 @@ def create_task_without_run(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
     options: TaskRunOptions | None = None,
+    source: TaskSource | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -2290,6 +2287,7 @@ def create_task_without_run(
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         options=options,
+        source=source,
     )
     return task.id
 
@@ -3043,6 +3041,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
+        # Decides which repositories the run's GitHub token can write to.
+        "github_access_repositories",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -6970,7 +6970,14 @@ def _task_detail_queryset():
     ).prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+def _visible_task_qs(
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
+    for_list: bool = False,
+):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
@@ -6980,8 +6987,11 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     """
     qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
+        channel_team_id = team_id if for_list else None
         qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+            task_control_q(user_id, channel_team_id)
+            if for_control
+            else task_visibility_q(user_id, channel_team_id) | _shared_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.
@@ -7049,7 +7059,7 @@ def get_conversation_task_dtos(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .select_related("created_by")
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
@@ -7138,7 +7148,7 @@ def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
 
 
 def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).exclude(id__in=exclude_task_ids).values("id")
+    visible_tasks = _visible_task_qs(team_id, user_id, for_list=True).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -7185,7 +7195,7 @@ def list_workflow_last_runs(
         return {}
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     rows = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(hog_flow_id__in=ids, internal=False)
         .order_by("hog_flow_id", "-created_at", "-id")
         .distinct("hog_flow_id")
@@ -7271,7 +7281,7 @@ def _task_source(origin_product: str, client_provenance: str | None) -> str:
 def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
     pairs = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False, created_by_id=user_id)
         .exclude(id__in=exclude_task_ids)
         .order_by()
@@ -7286,7 +7296,7 @@ def _list_tasks_queryset(
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -7572,7 +7582,7 @@ def search_tasks(
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True)
         .filter(internal=False)
         .exclude(id__in=exclude_task_ids)
         .values("id")
@@ -7629,7 +7639,7 @@ def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_id
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
     )
     plural = (
@@ -7727,7 +7737,7 @@ def get_task_summaries(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
@@ -9435,7 +9445,13 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
+    for protected_key in (
+        "wizard_head_branch",
+        "self_driving_head_branch",
+        "stack_base_branch",
+        "github_read_access",
+        "github_access_repositories",
+    ):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
@@ -9830,6 +9846,11 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
+        # The resumed agent still works with the repositories it was told about, so its token must
+        # keep covering them. The key is PATCH-protected, so this copy is the only way it carries.
+        prev_github_access_repositories = (previous_run.state or {}).get("github_access_repositories")
+        if prev_github_access_repositories:
+            extra_state["github_access_repositories"] = prev_github_access_repositories
         if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 
@@ -10595,7 +10616,7 @@ def list_channel_contributors(team_id: int, user_id: int | None) -> list[contrac
         return []
     task_rows = (
         Task.objects.filter(
-            task_visibility_q(user_id),
+            task_visibility_q(user_id, team_id),
             team_id=team_id,
             channel_id__in=channel_ids,
             deleted=False,
@@ -11645,7 +11666,7 @@ def list_mentions(
         team_id=team_id,
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
-        task__in=_visible_task_qs(team_id, user_id),
+        task__in=_visible_task_qs(team_id, user_id, for_list=True),
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
@@ -11726,7 +11747,7 @@ ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
 
 def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     return (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False)
         .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
     )

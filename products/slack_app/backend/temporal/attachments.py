@@ -10,10 +10,10 @@ from django.conf import settings
 import structlog
 
 from posthog.egress.slack.transport import slack_request
-from posthog.models.integration import Integration
 
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage
 from products.slack_app.backend.services.slack_scopes import has_scopes
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -102,7 +102,7 @@ class PreparedSlackAttachments:
         return self.requested_count > 0
 
 
-def can_read_slack_files(integration: Integration) -> bool:
+def can_read_slack_files(integration: WorkspaceIntegration) -> bool:
     return has_scopes(integration, {SLACK_FILE_READ_SCOPE})
 
 

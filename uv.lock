@@ -52,6 +52,16 @@ members = [
 constraints = [{ name = "posthoganalytics", specifier = "<8" }]
 
 [[manifest.dependency-metadata]]
+name = "django-prometheus"
+version = "2.5.0"
+requires-dist = ["django>=4.2,!=5.0.*", "prometheus-client>=0.7"]
+
+[[manifest.dependency-metadata]]
+name = "django-scim2"
+version = "0.23.0"
+requires-dist = ["django>=5.2.8", "pygments>=2.20.0,<3.0.0", "scim2-filter-parser>=0.5.0"]
+
+[[manifest.dependency-metadata]]
 name = "xgboost"
 version = "3.2.0"
 requires-dist = ["numpy", "scipy"]
@@ -1941,16 +1951,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "5.2.18"
+version = "6.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/fe/79e692b430c7721bf4b812c328bfe687e73e3f28f56611a6a18a97e887cc/django-5.2.18.tar.gz", hash = "sha256:461c5dd06d2ea16bd5ca37d3f46e4def1d6b0fe7588c6f4e2119517bb0af8b2d", size = 10910238, upload-time = "2026-10-06T13:01:09.371Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/89/24/20d187a22ac821288b53c53b8f696019dcb0c7b4f973f052ade19392c74d/django-6.1.2.tar.gz", hash = "sha256:a1e92451ccb8b514e91bbb3b6d186d20b4030558f116b5d9de6535455ff210b7", size = 11251425, upload-time = "2026-10-06T12:53:29.622Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/01/6568ec52b26548ca1b83d33249f7274db3bf74698f42c0da42ec9db1a24a/django-5.2.18-py3-none-any.whl", hash = "sha256:92ed81d500be6408ecd704d7bd1366c534f30427bffcc63c5fefb129561aec7c", size = 8316071, upload-time = "2026-10-06T13:01:04.413Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/83/90ff2dbfac7b519ed77620bdbb827cd2d1a83faf00d076bf95056428bce7/django-6.1.2-py3-none-any.whl", hash = "sha256:141efee6ec64d1db6db90683bf734c550102450f444fb099063b0be1bd27d991", size = 8420684, upload-time = "2026-10-06T12:53:17.381Z" },
 ]
 
 [[package]]
@@ -6219,7 +6229,7 @@ requires-dist = [
     { name = "deltalite", specifier = "==0.1.15" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.1.2" },
-    { name = "django", specifier = "~=5.2.0" },
+    { name = "django", specifier = "~=6.1.0" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.3.1" },
     { name = "django-cors-headers", specifier = "~=4.9.0" },
@@ -6313,7 +6323,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.76.0" },
+    { name = "posthoganalytics", specifier = "==7.80.3" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6480,7 +6490,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.76.0"
+version = "7.80.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6488,9 +6498,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/52/717c6d4ea646ad62a9f9f64e531397811549758e08b6a5f6d5aadbf065b0/posthoganalytics-7.76.0.tar.gz", hash = "sha256:ac46889d4957f6edddbe6ffe5a0857aa696a13ba204490a4090604b3c0f36b0d", size = 822783, upload-time = "2026-10-27T13:06:52.861Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/22/0a96ed43b5d777c736d6cb1b9099677eef9987776134368c8ad6c89724cf/posthoganalytics-7.80.3.tar.gz", hash = "sha256:adfa0d69e2392558bb5808b68c8e663eefb4b98cb844a82b966c8193352d451c", size = 865348, upload-time = "2026-10-29T14:04:43.998Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/dc/b0abea89d488203836613f4a33cbb381d49c43004c4383e2020e700de91c/posthoganalytics-7.76.0-py3-none-any.whl", hash = "sha256:b5e13eb025a93e82c0b7d12184e9aae7f8dd420c66b7a71b93210eef19033cdb", size = 966059, upload-time = "2026-10-27T13:06:50.842Z" },
+    { url = "https://files.pythonhosted.org/packages/71/ae/7f25e42a65b295c9643bd651106c2b1f4519512c97aec0219aa5813064ee/posthoganalytics-7.80.3-py3-none-any.whl", hash = "sha256:c4b33c6941e3ed31787ae15f1de693085c0efb88164c566d150c4af870df23da", size = 1011188, upload-time = "2026-10-29T14:04:41.713Z" },
 ]
 
 [[package]]

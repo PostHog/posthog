@@ -8,7 +8,6 @@ import { TerraformExportModal } from 'lib/components/TerraformExporter/Terraform
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +23,7 @@ import { MetricFromInsightModal } from 'products/data_catalog/frontend/component
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import { INSIGHT_SCREENSHOT_KEY } from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { insightModalsLogic } from './insightModalsLogic'
