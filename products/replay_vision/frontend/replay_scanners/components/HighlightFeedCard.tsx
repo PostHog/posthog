@@ -265,10 +265,15 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  */
 export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad, dateFrom, categories } = useValues(highlightFeedLogic)
+    const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
-    // Keyed by feed load, so a card that stays across a reload counts toward the new load too.
-    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS, feedLoad?.feedLoadId)
+    // Paused behind the reload overlay, then keyed by feed load, so a card that stays across a reload counts toward the new load.
+    const rowRef = useAutoMarkRead(
+        !feedReloading,
+        () => cardSeen(item, position),
+        CARD_SEEN_DWELL_MS,
+        feedLoad?.feedLoadId
+    )
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like highlightCardHeadline.
     const scannerType =

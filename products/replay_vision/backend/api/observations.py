@@ -241,9 +241,7 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     )
 
 
-# Kept 15 minutes short of the hour the redirect target is signed for, so a cached redirect never points at an
-# expired URL.
-_THUMBNAIL_REDIRECT_MAX_AGE_S = 2700
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
 
 
 def _is_servable(asset: ExportedAsset | None) -> bool:
@@ -1381,6 +1379,8 @@ class ReplayObservationViewSet(
         if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
             asset = media.small_asset
         response = get_export_asset_content_response(asset=asset, download=False)
+        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
+        # of posters does not come back through here on every visit.
         response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 

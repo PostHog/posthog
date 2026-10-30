@@ -71,7 +71,7 @@ class TestObservationThumbnail(_VisionAPITestCase):
 
         assert response.status_code in (200, 302)
         # The redirect target is signed for an hour, so a cache longer than that would outlive it.
-        assert response.headers["Cache-Control"] == "private, max-age=2700"
+        assert response.headers["Cache-Control"] == "private, max-age=600"
 
     @parameterized.expand(
         [
