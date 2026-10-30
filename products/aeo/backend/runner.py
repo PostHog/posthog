@@ -258,9 +258,12 @@ def _record_prompt_checks(
         # The fail-closed manager refuses writes without a team scope, and none of the callers
         # (the Celery task, the management command) run inside one.
         with transaction.atomic(), team_scope(canonical_team_id):
+            # Two runs recording the same prompt serialize on its row, so the checks below see each
+            # other's writes. The prompt row is a quiet child row, never a hot parent.
+            locked = AEOPrompt.objects.for_team(team.id).select_for_update().filter(id=prompt.id).exists()
             if answered:
                 still_due = Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=checked_before)
-                claimed = (
+                claimed = locked and (
                     AEOPrompt.objects.for_team(team.id)
                     .filter(still_due, id=prompt.id)
                     .update(last_checked_at=timezone.now())

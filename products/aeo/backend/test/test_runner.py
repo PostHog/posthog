@@ -7,6 +7,8 @@ from typing import NoReturn
 import pytest
 import time_machine
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from posthog.models.organization import Organization
@@ -297,8 +299,12 @@ def test_a_prompt_recorded_by_another_run_is_not_recorded_twice(team: Team, answ
         )
     ]
 
-    first = runner._record_prompt_checks(team, team.id, "run-a", prompt, fields, checked_before)
+    with CaptureQueriesContext(connection) as queries:
+        first = runner._record_prompt_checks(team, team.id, "run-a", prompt, fields, checked_before)
     second = runner._record_prompt_checks(team, team.id, "run-b", prompt, fields, checked_before)
 
     assert (first, second) == ("written", "superseded")
     assert AEOCitationCheck.objects.for_team(team.id).count() == 1
+    # Two runs writing the same prompt at once must serialize on its row; this is the only
+    # observable trace of that lock short of a multi-connection test.
+    assert any("FOR UPDATE" in query["sql"] for query in queries.captured_queries)
