@@ -748,10 +748,10 @@ class TestUploadedTableMigration(_MigrationTest):
                 "'tags' is a Array",
             ),
             (
-                "json_dates",
+                "json_unknown_time_zone",
                 DataWarehouseTableFormat.JSON,
-                {"day": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"}},
-                "'day' is a Date",
+                {"at": {"clickhouse": "DateTime('Nowhere/Land')", "hogql": "DateTimeDatabaseField"}},
+                "time zone 'Nowhere/Land'",
             ),
             (
                 "padded_csv_header",
@@ -779,6 +779,28 @@ class TestUploadedTableMigration(_MigrationTest):
         assert outcome.status.state == TableMigrationState.SKIPPED
         assert reason in (outcome.status.reason or "")
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            ("date", "Nullable(Date)", "date"),
+            ("datetime", "DateTime64(3)", "datetime"),
+            ("datetime_with_time_zone", "DateTime('Europe/London')", {"kind": "datetime", "timezone": "Europe/London"}),
+        ]
+    )
+    def test_an_uploaded_json_table_with_a_date_column_keeps_the_date_type(
+        self, _name: str, clickhouse_type: str, stored: Any
+    ) -> None:
+        table = self._uploaded("events", "managed/team_{team}/events.jsonl", DataWarehouseTableFormat.JSON)
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+            columns={"day": {"clickhouse": clickhouse_type, "hogql": "DateDatabaseField"}}
+        )
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.AWAITING_SYNC
+        schema_metadata = _schema_for(table).schema_metadata
+        assert schema_metadata is not None
+        assert schema_metadata["csv"]["column_types"] == {"day": stored}
 
     def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
         self.flag_missing.return_value = True

@@ -17,7 +17,7 @@ export interface V4LeafColumn {
     opaque?: boolean
 }
 
-/** A repeated group of required leaves; Parquet readers see it as a non-null list of structs. */
+/** A non-null list of structs of required leaves. */
 export interface V4RepeatedColumn {
     name: string
     repeated: true
@@ -30,7 +30,13 @@ export interface V4ListColumn {
     list: ParquetType
 }
 
-export type V4Column = V4LeafColumn | V4RepeatedColumn | V4ListColumn
+/** A nullable list of non-null values, in the 3-level LIST layout. */
+export interface V4NullableListColumn {
+    name: string
+    elements: ParquetType
+}
+
+export type V4Column = V4LeafColumn | V4RepeatedColumn | V4ListColumn | V4NullableListColumn
 
 const required = (type: ParquetType, ...names: string[]): V4LeafColumn[] => names.map((name) => ({ name, type }))
 const optional = (type: ParquetType, ...names: string[]): V4LeafColumn[] =>
@@ -108,6 +114,75 @@ export const BLOCK_INDEX_COLUMNS: readonly V4Column[] = [
     { name: 'window_ids', list: 'UTF8' },
     { name: 'urls', type: 'UTF8', optional: true, opaque: true },
     ...required('BOOLEAN', 'urls_truncated'),
+    // A recorder from before the surfacing columns sends rows without them, so they are nullable.
+    ...optional(
+        'INT32',
+        'surfacing_event_count',
+        'surfacing_click_count',
+        'surfacing_keypress_count',
+        'surfacing_mouse_activity_count',
+        'surfacing_rage_click_count',
+        'surfacing_dead_click_count',
+        'surfacing_quick_back_count',
+        'surfacing_page_visit_count',
+        'surfacing_text_selection_count',
+        'surfacing_scroll_event_count',
+        'surfacing_console_error_count',
+        'surfacing_console_error_after_click_count',
+        'surfacing_console_warn_count',
+        'surfacing_network_request_count',
+        'surfacing_network_failed_request_count',
+        'surfacing_network_4xx_count',
+        'surfacing_network_5xx_count',
+        'surfacing_network_request_duration_count',
+        'surfacing_mouse_position_count',
+        'surfacing_mouse_direction_change_count',
+        'surfacing_mouse_velocity_count',
+        'surfacing_scroll_direction_reversal_count',
+        'surfacing_rapid_scroll_reversal_count',
+        'surfacing_scroll_to_top_count',
+        'surfacing_inter_action_gap_count',
+        'surfacing_long_idle_gap_count',
+        'surfacing_backspace_count',
+        'surfacing_mutation_count',
+        'surfacing_viewport_resize_count',
+        'surfacing_touch_event_count',
+        'surfacing_selection_copy_count',
+        'surfacing_login_path_visit_count',
+        'surfacing_signup_path_visit_count',
+        'surfacing_checkout_path_visit_count',
+        'surfacing_cart_path_visit_count',
+        'surfacing_billing_path_visit_count',
+        'surfacing_settings_path_visit_count',
+        'surfacing_account_path_visit_count',
+        'surfacing_error_path_visit_count',
+        'surfacing_not_found_path_visit_count',
+        'surfacing_admin_path_visit_count',
+        'surfacing_dashboard_path_visit_count',
+        'surfacing_onboarding_path_visit_count',
+        'surfacing_cancel_path_visit_count',
+        'surfacing_refund_path_visit_count'
+    ),
+    ...optional(
+        'INT64',
+        'surfacing_mouse_sum_x_millipx',
+        'surfacing_mouse_sum_x_squared_px2',
+        'surfacing_mouse_sum_y_millipx',
+        'surfacing_mouse_sum_y_squared_px2',
+        'surfacing_mouse_distance_traveled_millipx',
+        'surfacing_mouse_velocity_sum_px_per_s',
+        'surfacing_mouse_velocity_sum_of_squares_px2_per_s2',
+        'surfacing_total_scroll_magnitude_millipx',
+        'surfacing_inter_action_gap_sum_ms',
+        'surfacing_inter_action_gap_sum_of_squares_ms2',
+        'surfacing_network_request_duration_sum_us',
+        'surfacing_network_request_duration_sum_of_squares_ms2',
+        'surfacing_max_scroll_y_millipx',
+        'surfacing_max_idle_gap_ms'
+    ),
+    { name: 'surfacing_visited_url_fingerprints', elements: 'UTF8' },
+    { name: 'surfacing_click_target_ids', elements: 'INT64' },
+    { name: 'surfacing_form_field_ids', elements: 'INT64' },
 ]
 
 export const INDEX_COLUMNS: Record<V4Index, readonly V4Column[]> = {
@@ -164,6 +239,14 @@ function selectColumns(value: unknown, columns: readonly V4Column[], prefix = ''
                 return invalid
             }
             row[column.name] = field
+        } else if ('elements' in column) {
+            if (field === null || field === undefined) {
+                row[column.name] = null
+            } else if (Array.isArray(field) && field.every((item) => isEncodableValue(column.elements, item))) {
+                row[column.name] = field
+            } else {
+                return invalid
+            }
         } else if (field === null || field === undefined) {
             if (!column.optional) {
                 return invalid

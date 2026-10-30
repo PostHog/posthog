@@ -9,18 +9,21 @@ from posthog.dataclasses import frozen
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 
 # How a review run was triggered. Gates are trigger-aware: inbox → `review_inbox_prs`, automatic →
-# the repository rules; label, manual (CLI/eval), ui (an explicit human ask from the Code review
-# scene) and comment (an `@posthog review` pull request comment) → ungated. Plain strings (not an
-# Enum) so Temporal payloads stay forward/backward-compatible across deploys.
+# the repository rules; stamphog (a Stamphog refusal of a self-driving PR), manual (CLI/eval), ui
+# (an explicit human ask from the Code review scene) and comment (an `@posthog review` pull request
+# comment) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# across deploys.
+TRIGGER_STAMPHOG = "stamphog"
+# No new run uses it. Label runs started before the label trigger was removed still replay with it.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
 TRIGGER_AUTOMATIC = "automatic"
-# The triggers a person starts and then waits on for an answer. An inbox review comes from the signals
-# agent, so it is not one of them.
-REQUESTED_TRIGGERS = frozenset({TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
+# The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
+# Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
+REQUESTED_TRIGGERS = frozenset({TRIGGER_STAMPHOG, TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
 
 
 @frozen
@@ -53,7 +56,7 @@ class ReviewPRWorkflowInputs:
     pr_number: int | None = None
     publish: bool = False
     acting_user_id: int | None = None
-    # Which trigger started this run (TRIGGER_LABEL / TRIGGER_INBOX / TRIGGER_MANUAL).
+    # Which trigger started this run (TRIGGER_STAMPHOG / TRIGGER_INBOX / TRIGGER_MANUAL).
     trigger_source: str = TRIGGER_MANUAL
     # The signals report whose implementation this run reviews (inbox trigger only): stamped onto the
     # ReviewReport as provenance, and the target of the `code_review` artefact receipt.

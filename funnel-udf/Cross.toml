@@ -1,0 +1,7 @@
+# The default images follow cross's main branch, so a rebuild can silently raise the glibc version that
+# ClickHouse hosts need to run the binaries. These images link against glibc 2.23.
+[target.x86_64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
+
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"

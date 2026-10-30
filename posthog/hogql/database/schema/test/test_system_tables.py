@@ -99,7 +99,7 @@ from products.error_tracking.backend.facade.testing import (
     create_symbol_set,
 )
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
@@ -625,9 +625,9 @@ def _create_hog_function(team: Team, label: str) -> HogFunction:
     )
 
 
-def _create_experiment(team: Team, label: str) -> Experiment:
+def _create_experiment(team: Team, label: str) -> int:
     flag = FeatureFlag.objects.create(team=team, key=f"flag_for_exp_{label}")
-    return Experiment.objects.create(team=team, name=f"experiment_{label}", feature_flag=flag)
+    return create_experiment(team_id=team.id, name=f"experiment_{label}", feature_flag_id=flag.id)
 
 
 def _create_export(team: Team, label: str) -> ExportedAsset:

@@ -72,7 +72,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,

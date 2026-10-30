@@ -192,7 +192,13 @@ const inboxReportActionsRun = (): ToolBase<
 const InboxReportArtefactsCreateSchema = () => {
     const SignalsReportArtefactsCreateBody = orvalSchemas.SignalsReportArtefactsCreateBody()
     const SignalsReportArtefactsCreateParams = orvalSchemas.SignalsReportArtefactsCreateParams()
-    return SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(SignalsReportArtefactsCreateBody.shape)
+    return SignalsReportArtefactsCreateParams.omit({ project_id: true })
+        .extend(SignalsReportArtefactsCreateBody.shape)
+        .extend({
+            content: SignalsReportArtefactsCreateBody.shape['content'].describe(
+                'The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use.'
+            ),
+        })
 }
 
 const inboxReportArtefactsCreate = (): ToolBase<
@@ -1052,6 +1058,12 @@ const inboxSourceConfigsCreate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
@@ -1129,6 +1141,12 @@ const inboxSourceConfigsPartialUpdate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -1186,6 +1204,12 @@ const inboxSourceConfigsUpdate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.config_set !== undefined) {
+            body['config_set'] = params.config_set
+        }
+        if (params.config_remove !== undefined) {
+            body['config_remove'] = params.config_remove
+        }
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
@@ -1224,6 +1248,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         autostart_enabled: true,
         default_autostart_priority: true,
         default_slack_notification_channel: true,
+        default_slack_notification_integration: true,
         autostart_base_branches: true,
         issue_tracking_integration: true,
         issue_tracking_config: true,
@@ -1232,6 +1257,8 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         github_issue_writeback_enabled: true,
         pull_request_label_enabled: true,
         pull_request_label: true,
+        implementation_repositories: true,
+        anomaly_scoring_enabled: true,
     })
 }
 
@@ -1874,6 +1901,47 @@ const scoutMetadataGet = (): ToolBase<ReturnType<typeof ScoutMetadataGetSchema>,
         const result = await context.api.request<Schemas.ScoutMetadata>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/metadata/current/`,
+        })
+        return result
+    },
+})
+
+const ScoutMonitoringResultSubmitSchema = () => {
+    const SignalsScoutSubmitMonitoringResultBody = orvalSchemas.SignalsScoutSubmitMonitoringResultBody()
+    const SignalsScoutSubmitMonitoringResultParams = orvalSchemas.SignalsScoutSubmitMonitoringResultParams()
+    return SignalsScoutSubmitMonitoringResultParams.omit({ project_id: true }).extend(
+        SignalsScoutSubmitMonitoringResultBody.shape
+    )
+}
+
+const scoutMonitoringResultSubmit = (): ToolBase<
+    ReturnType<typeof ScoutMonitoringResultSubmitSchema>,
+    Schemas.SubmitMonitoringResultResponse
+> => ({
+    name: 'scout-monitoring-result-submit',
+    schema: ScoutMonitoringResultSubmitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutMonitoringResultSubmitSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.evidence_status !== undefined) {
+            body['evidence_status'] = params.evidence_status
+        }
+        if (params.evidence_reason !== undefined) {
+            body['evidence_reason'] = params.evidence_reason
+        }
+        if (params.expectation_matches !== undefined) {
+            body['expectation_matches'] = params.expectation_matches
+        }
+        if (params.explanation !== undefined) {
+            body['explanation'] = params.explanation
+        }
+        if (params.evidence_refs !== undefined) {
+            body['evidence_refs'] = params.evidence_refs
+        }
+        const result = await context.api.request<Schemas.SubmitMonitoringResultResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/monitoring_result/`,
+            body,
         })
         return result
     },
@@ -3599,6 +3667,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-lighthouse-audit': scoutLighthouseAudit,
     'scout-members-list': scoutMembersList,
     'scout-metadata-get': scoutMetadataGet,
+    'scout-monitoring-result-submit': scoutMonitoringResultSubmit,
     'scout-notes-create': scoutNotesCreate,
     'scout-notes-delete': scoutNotesDelete,
     'scout-notes-list': scoutNotesList,
