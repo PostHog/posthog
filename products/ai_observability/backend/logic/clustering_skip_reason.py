@@ -7,6 +7,12 @@ from posthog.temporal.ai_observability.clustering_skip_status import ClusteringL
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 
+class ClusteringAnalysisLevel(models.TextChoices):
+    TRACE = "trace", "Trace"
+    GENERATION = "generation", "Generation"
+    EVALUATION = "evaluation", "Evaluation"
+
+
 class ClusteringSkipReason(models.TextChoices):
     AI_DATA_PROCESSING_NOT_APPROVED = "ai_data_processing_not_approved", "AI data processing not approved"
     NO_ENABLED_JOB = "no_enabled_job", "No enabled job for this level"

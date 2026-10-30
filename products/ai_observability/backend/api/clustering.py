@@ -35,7 +35,11 @@ from posthog.temporal.ai_observability.trace_clustering.models import AnalysisLe
 from posthog.temporal.common.client import sync_connect
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.logic.clustering_skip_reason import ClusteringSkipReason, explain_clustering_skip
+from products.ai_observability.backend.logic.clustering_skip_reason import (
+    ClusteringAnalysisLevel,
+    ClusteringSkipReason,
+    explain_clustering_skip,
+)
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 logger = structlog.get_logger(__name__)
@@ -159,7 +163,7 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
 
 class ClusteringSkipReasonQuerySerializer(serializers.Serializer):
     analysis_level = serializers.ChoiceField(
-        choices=[("trace", "trace"), ("generation", "generation"), ("evaluation", "evaluation")],
+        choices=ClusteringAnalysisLevel.choices,
         help_text="Clustering level to explain: trace, generation, or evaluation.",
     )
 

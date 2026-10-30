@@ -1,10 +1,9 @@
 from posthog.test.base import APIBaseTest
 
-from django.core.cache import cache
-
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.redis import get_client
 from posthog.temporal.ai_observability.clustering_skip_status import ClusteringLevel, record_not_enough_items
 
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
@@ -13,7 +12,7 @@ from products.ai_observability.backend.models.clustering_job import ClusteringJo
 class TestClusteringSkipReason(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        cache.clear()
+        get_client().flushdb()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
