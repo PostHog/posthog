@@ -89,6 +89,7 @@ const LABELS: Record<Change['field'], string> = {
     materialization: 'Materialization',
     schedule: 'Schedule',
     variables: 'Variables',
+    defaults: 'Defaults',
 }
 
 // `from` is the side that changes: PostHog for a push, the file for a pull.

@@ -112,13 +112,23 @@ describe('global options', () => {
     })
 
     test.each([
-        ['posthog.json beats the host the credentials carry', {}, 'https://config.example.com'],
-        ['HOG_HOST beats posthog.json', { HOG_HOST: 'https://env.example.com' }, 'https://env.example.com'],
-    ])('%s', async (_name, env, host) => {
+        [
+            'a posthog.json host that matches the credentials',
+            'https://stored.example.com',
+            {},
+            'https://stored.example.com',
+        ],
+        [
+            'HOG_HOST beats posthog.json',
+            'https://config.example.com',
+            { HOG_HOST: 'https://env.example.com' },
+            'https://env.example.com',
+        ],
+    ])('%s', async (_name, configHost, env, host) => {
         const result = await runHog(['endpoints', 'list'], {
             env: { ...AGENT, ...env },
             files: {
-                '/work/posthog.json': JSON.stringify({ host: 'https://config.example.com' }),
+                '/work/posthog.json': JSON.stringify({ host: configHost }),
                 '/home/test/.posthog/credentials.json': JSON.stringify({
                     token: 'phx_test',
                     env_id: '7',
@@ -127,7 +137,25 @@ describe('global options', () => {
             },
             respond: () => ({ status: 200, body: { results: [] } }),
         })
+
         expect(result.requests[0]!.url).toStartWith(`${host}/api/`)
+    })
+
+    test('a posthog.json host never receives credentials stored for another host', async () => {
+        const result = await runHog(['endpoints', 'list'], {
+            env: AGENT,
+            files: {
+                '/work/posthog.json': JSON.stringify({ host: 'https://config.example.com' }),
+                '/home/test/.posthog/credentials.json': JSON.stringify({
+                    token: 'phx_test',
+                    env_id: '7',
+                    host: 'https://stored.example.com',
+                }),
+            },
+        })
+
+        expect(result.error().code).toBe('host_mismatch')
+        expect(result.requests).toEqual([])
     })
 
     test('a posthog.json hog cannot read stops the command before it sends anything', async () => {
