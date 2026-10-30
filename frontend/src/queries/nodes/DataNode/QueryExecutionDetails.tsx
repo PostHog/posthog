@@ -12,7 +12,8 @@ import { humanizeBytes } from 'lib/utils/numbers'
 import { dataNodeLogic } from './dataNodeLogic'
 
 export function QueryExecutionDetails(): JSX.Element | null {
-    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(dataNodeLogic)
+    const { queryLog, queryId, queryLogLoading, queryLogQueryId, elapsedTime, isShowingCachedResults } =
+        useValues(dataNodeLogic)
     const { loadQueryLog } = useActions(dataNodeLogic)
 
     const [popoverVisible, setPopoverVisible] = useState(false)
@@ -92,7 +93,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                             )}
                             {queryDurationMs !== null && (
                                 <div className="flex justify-between items-start deprecated-space-x-2 py-1">
-                                    <span>Duration:</span>
+                                    <span>Database time:</span>
                                     {queryDurationMs > 999 ? (
                                         <Tooltip title={`${queryDurationMs}ms`}>
                                             <span className="font-mono">
@@ -104,6 +105,14 @@ export function QueryExecutionDetails(): JSX.Element | null {
                                     )}
                                 </div>
                             )}
+                            {elapsedTime && !isShowingCachedResults ? (
+                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                    <Tooltip title="Time until results showed in your browser, including the transfer over your network">
+                                        <span>Total time:</span>
+                                    </Tooltip>
+                                    <span className="font-mono">{humanFriendlyMilliseconds(elapsedTime)}</span>
+                                </div>
+                            ) : null}
                         </>
                     ) : (
                         <div className="py-1">No execution details available.</div>
