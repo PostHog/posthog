@@ -199,6 +199,22 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert (during, after) == (True, False)
 
+    def test_rolled_back_user_deletion_is_not_kept(self) -> None:
+        user = User.objects.create_and_join(self.organization, "third@posthog.com", "testtest")
+        resource = resource_for_object(self.dashboard)
+        subject = Subject(user_id=user.id)
+
+        with authorization.authorization_session():
+            with pytest.raises(RuntimeError):
+                with transaction.atomic():
+                    self._rule("dashboard", "editor", str(self.dashboard.id))
+                    User.objects.filter(pk=user.id).delete()
+                    during = authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+                    raise RuntimeError
+            after = authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+
+        assert (during, after) == (False, True)
+
     def test_session_answers_each_team_with_its_own_rules(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_dashboard = Dashboard.objects.create(team=other_team, name="Costs", created_by=self.other_user)

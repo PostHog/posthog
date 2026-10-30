@@ -108,9 +108,12 @@ def _principal(session: Session, subject: Subject | None) -> Any:
         raise NotImplementedError("Only user subjects are supported yet.")
     if isinstance(request_user, User) and request_user.pk == subject.user_id:
         return request_user
-    if subject.user_id not in session.users:
-        session.users[subject.user_id] = User.objects.filter(pk=subject.user_id).first()
-    return session.users[subject.user_id]
+    if subject.user_id in session.users:
+        return session.users[subject.user_id]
+    user = User.objects.filter(pk=subject.user_id).first()
+    if session.can_cache():
+        session.users[subject.user_id] = user
+    return user
 
 
 def _principal_key(principal: Any) -> PrincipalKey:
