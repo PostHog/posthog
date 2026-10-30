@@ -1,4 +1,4 @@
-import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
+import type { ApiKeyAccess, ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
@@ -9,7 +9,13 @@ import { apiConnection, groupSlug, unwrap } from '@/posthog/api-tools'
 const TOP_SCOPES = 10
 
 // A key can be limited to projects or to organizations. An organization limit needs the project's organization.
-async function reachesProject(ctx: Context, access: ApiKeyAccess, projectId: string): Promise<boolean> {
+// Null when that can't be checked.
+async function reachesProject(
+    ctx: Context,
+    library: ApiToolLibrary,
+    access: ApiKeyAccess,
+    projectId: string
+): Promise<boolean | null> {
     if (access.scopedTeams.length > 0) {
         return access.scopedTeams.includes(Number(projectId))
     }
@@ -21,7 +27,11 @@ async function reachesProject(ctx: Context, access: ApiKeyAccess, projectId: str
         const project = await api.get<{ organization: string }>(`/api/projects/${projectId}/`)
         return access.scopedOrganizations.includes(project.organization)
     } catch (error) {
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+        // Without project:read the lookup fails for any project, so a 403 says nothing about the limit.
+        if (error instanceof ApiError && error.status === 403) {
+            return library.missingScopes(access.scopes, ['project:read']).length === 0 ? false : null
+        }
+        if (error instanceof ApiError && error.status === 404) {
             return false
         }
         throw error
@@ -54,7 +64,7 @@ export default defineCommand({
         return {
             scopes: access.scopes,
             projectId: connection.projectId ?? null,
-            projectAllowed: await reachesProject(ctx, access, projectId),
+            projectAllowed: await reachesProject(ctx, library, access, projectId),
             scopedProjects: access.scopedTeams,
             scopedOrganizations: access.scopedOrganizations,
             tools: tools.length,
@@ -66,11 +76,12 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        if (!result.projectAllowed) {
-            const projects = result.scopedProjects.join(', ')
-            out.line(
-                out.style(`The key can't reach project ${result.projectId}. It only reaches ${projects}.`, 'yellow')
-            )
+        if (result.projectAllowed === false) {
+            const reach =
+                result.scopedProjects.length > 0
+                    ? `projects ${result.scopedProjects.join(', ')}`
+                    : `organizations ${result.scopedOrganizations.join(', ')}`
+            out.line(out.style(`The key can't reach project ${result.projectId}. It only reaches ${reach}.`, 'yellow'))
         }
         out.line(`Scopes: ${result.scopes.join(', ') || 'none'}`)
         out.line(`Usable tools: ${result.usable} of ${result.tools}`)

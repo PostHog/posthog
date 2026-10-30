@@ -33,7 +33,7 @@ export function listInsightVariables(api: PostHogApi): Promise<InsightVariable[]
 
 export function createInsightVariable(
     api: PostHogApi,
-    variable: { code_name: string; type: string; default_value?: unknown }
+    variable: { code_name: string; type: string; default_value?: unknown; is_multi?: boolean }
 ): Promise<InsightVariable> {
     return api.post<InsightVariable>('insight_variables/', { name: variable.code_name, ...variable })
 }
