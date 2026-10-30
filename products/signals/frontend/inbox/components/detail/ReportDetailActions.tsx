@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -14,6 +14,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCloseReport, canMonitorReport, canResolveReport } from '../../utils/reportActions'
+import { isReportClaimable } from '../../utils/reportClaim'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -40,8 +41,8 @@ export interface ReportDetailAction {
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { changeReportState } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks } = useValues(detailLogic)
+    const { changeReportState, setReportClaimed } = useActions(detailLogic)
+    const { reportStateSaving, reportChecks, claimSaving } = useValues(detailLogic)
     const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -208,6 +209,19 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
+        // Dismiss and Resolve need the claim, so the claim takes their place. A teammate's claim is left to them.
+        ...(!canClose && isReportClaimable(report)
+            ? [
+                  {
+                      key: 'claim',
+                      label: 'Claim',
+                      icon: <IconPerson />,
+                      loading: claimSaving,
+                      tooltip: 'Claim this report to resolve or dismiss it',
+                      onClick: () => setReportClaimed(true),
+                  },
+              ]
+            : []),
         ...(canClose
             ? [
                   {

@@ -1795,13 +1795,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const report: SignalReport = {
                 ...(values.report ?? currentReport),
                 assignee: updated.assignee,
+                viewer_can_close: updated.viewer_can_close,
                 updated_at: updated.updated_at,
             }
             actions.setReport(report)
             if (scene?.values.selectedReportId === props.reportId) {
                 scene.actions.seedSelectedReport(report)
             }
-            inboxBulkActionsLogic.findMounted()?.actions.reportClaimChanged(props.reportId, updated.assignee)
+            inboxBulkActionsLogic
+                .findMounted()
+                ?.actions.reportClaimChanged(props.reportId, updated.assignee, updated.viewer_can_close)
             actions.loadReportArtefacts()
             actions.setClaimSaving(false)
         },

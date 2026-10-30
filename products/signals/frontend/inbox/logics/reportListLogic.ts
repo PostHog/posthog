@@ -367,10 +367,12 @@ export interface reportListLogicActions {
     }
     setReportAssignee: (
         reportId: string,
-        assignee: SignalReport['assignee']
+        assignee: SignalReport['assignee'],
+        viewerCanClose?: boolean
     ) => {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
+        viewerCanClose: boolean | undefined
     }
     setReportClaimed: (
         report: SignalReport,
@@ -526,7 +528,11 @@ export const reportListLogic = kea<reportListLogicType>([
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
-        setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
+        setReportAssignee: (reportId: string, assignee: SignalReport['assignee'], viewerCanClose?: boolean) => ({
+            reportId,
+            assignee,
+            viewerCanClose,
+        }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
         // Ask the server for the newest snapshot of the metrics these rows show. Best effort: a
@@ -658,9 +664,16 @@ export const reportListLogic = kea<reportListLogicType>([
                           count: Math.max(0, state.count - 1),
                       }
                     : state,
-            setReportAssignee: (state, { reportId, assignee }) =>
+            setReportAssignee: (state, { reportId, assignee, viewerCanClose }) =>
                 state?.results.some((r) => r.id === reportId)
-                    ? { ...state, results: state.results.map((r) => (r.id === reportId ? { ...r, assignee } : r)) }
+                    ? {
+                          ...state,
+                          results: state.results.map((r) =>
+                              r.id === reportId
+                                  ? { ...r, assignee, viewer_can_close: viewerCanClose ?? r.viewer_can_close }
+                                  : r
+                          ),
+                      }
                     : state,
             setSuggestedToMe: (state, { reportIds, isSuggested }) => {
                 const ids = new Set(reportIds)
@@ -1052,7 +1065,7 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
         // new claim reloads the list so the row joins it. Every other list updates the claim tag.
-        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee, viewerCanClose }) => {
             const isLoaded = values.reports.some((r) => r.id === reportId)
             if (values.scopeAssignee) {
                 const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
@@ -1065,7 +1078,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     return
                 }
             }
-            actions.setReportAssignee(reportId, assignee)
+            actions.setReportAssignee(reportId, assignee, viewerCanClose)
         },
         [inboxBulkActionsLogic.actionTypes.unassignedMe]: ({ reportIds }: { reportIds: string[] }) => {
             if (values.isScopedToMe) {
@@ -1113,9 +1126,13 @@ export const reportListLogic = kea<reportListLogicType>([
             // Every mounted list updates the row, and the Claimed by you list gains or drops it.
             const bulkActions = inboxBulkActionsLogic.findMounted()
             if (bulkActions) {
-                bulkActions.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+                bulkActions.actions.reportClaimChanged(
+                    report.id,
+                    outcome.updated.assignee,
+                    outcome.updated.viewer_can_close
+                )
             } else {
-                actions.setReportAssignee(report.id, outcome.updated.assignee)
+                actions.setReportAssignee(report.id, outcome.updated.assignee, outcome.updated.viewer_can_close)
             }
         },
     })),

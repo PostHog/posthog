@@ -119,10 +119,12 @@ export interface inboxBulkActionsLogicActions {
     }
     reportClaimChanged: (
         reportId: string,
-        assignee: SignalReport['assignee']
+        assignee: SignalReport['assignee'],
+        viewerCanClose?: boolean
     ) => {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
+        viewerCanClose: boolean | undefined
     }
     reportReviewersChanged: (
         reportId: string,
@@ -226,7 +228,11 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
         /** Broadcast that a report was claimed or released elsewhere (the detail pane, a row menu), with the
          * new assignee (null once released), so every mounted list updates the row's claim in place. */
-        reportClaimChanged: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
+        reportClaimChanged: (reportId: string, assignee: SignalReport['assignee'], viewerCanClose?: boolean) => ({
+            reportId,
+            assignee,
+            viewerCanClose,
+        }),
     }),
 
     reducers({
