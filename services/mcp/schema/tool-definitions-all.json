@@ -1880,7 +1880,7 @@
         "feature_flag": "organization-billing-api"
     },
     "billing-forecast-get": {
-        "description": "Projected usage and amounts for the rest of the billing period, with and without the spend limit, per product, add-on and tier, with the four projected totals. Needs full billing access. Use it for \"what will this month cost\"; for what has accrued so far call billing-spend-summary-get. Needs an API key or OAuth token with organization access, because a key limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "description": "Projected usage and amounts for the rest of the billing period, with and without the spend limit, per product, add-on and tier, with the four projected totals. On free plans, the amounts price the projected usage on the paid plans an upgrade moves the organization to, not a bill it owes. Needs full billing access. Use it for \"what will this month cost\"; for what has accrued so far call billing-spend-summary-get. Needs an API key or OAuth token with organization access, because a key limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get the forecast for this billing period",
