@@ -80,7 +80,8 @@ export class HogFunctionMonitoringService {
 
     constructor(
         private outputs: IngestionOutputs<MonitoringOutput>,
-        private internalLogsProducer?: InternalLogsProducer
+        private internalLogsProducer?: InternalLogsProducer,
+        private internalLogsSources: ReadonlySet<string> = new Set()
     ) {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
@@ -173,7 +174,9 @@ export class HogFunctionMonitoringService {
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
 
-        this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
+        if (this.internalLogsSources.has(source)) {
+            this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
+        }
     }
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {

@@ -166,6 +166,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
+        | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -573,9 +574,15 @@ export function createCdpCoreServices(
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
+    const internalLogsSources = new Set(
+        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         outputs,
-        new InternalLogsProducer(config, deps.teamManager)
+        internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,
+        internalLogsSources
     )
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)

@@ -124,9 +124,8 @@ describe('HogFunctionMonitoringService', () => {
         ])
     })
 
-    it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
-        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
-        const producer = new InternalLogsProducer(
+    const internalLogsProducer = (): InternalLogsProducer =>
+        new InternalLogsProducer(
             {
                 LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
                 LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
@@ -137,22 +136,29 @@ describe('HogFunctionMonitoringService', () => {
             },
             { getTeam: (teamId: number) => Promise.resolve({ id: teamId, api_token: `phc_${teamId}` } as any) }
         )
-        const producerFlush = jest.spyOn(producer, 'flush')
-        service = new HogFunctionMonitoringService(outputs, producer)
-        const log = (teamId: number): LogEntry => ({
-            team_id: teamId,
-            log_source: 'hog_flow',
-            log_source_id: 'flow-1',
-            instance_id: 'run-1',
-            timestamp: DateTime.fromISO('2026-10-27T12:00:00Z'),
-            level: 'info',
-            message: `team ${teamId}`,
-        })
+
+    const log = (teamId: number): LogEntry => ({
+        team_id: teamId,
+        log_source: 'hog_flow',
+        log_source_id: 'flow-1',
+        instance_id: 'run-1',
+        timestamp: DateTime.fromISO('2026-10-27T12:00:00Z'),
+        level: 'info',
+        message: `team ${teamId}`,
+    })
+
+    it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        service = new HogFunctionMonitoringService(
+            outputs,
+            internalLogsProducer(),
+            new Set(['hog_flow', 'hog_function'])
+        )
         service.queueLogs([log(2), log(2), log(3)], 'hog_flow')
         service.queueLogs([log(2)], 'hog_function')
 
         await service.flush()
-        await producerFlush.mock.results[0].value
+        await new Promise((resolve) => setImmediate(resolve))
 
         expect(produceMock).toHaveBeenCalledTimes(4)
         expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -169,5 +175,17 @@ describe('HogFunctionMonitoringService', () => {
         service.queueLogs([log(2)], 'hog_flow')
         await service.stop()
         expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('sends nothing to the logs product for a source not in CDP_INTERNAL_LOGS_SOURCES', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_function']))
+
+        service.queueLogs([log(2)], 'hog_flow')
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock).not.toHaveBeenCalled()
     })
 })
