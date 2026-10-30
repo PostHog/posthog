@@ -210,6 +210,20 @@ describe('applicationObservabilityLogic', () => {
             expect(usageRequests[0]).not.toContain('environment=')
         })
 
+        it('skips service health while usage is open and loads it when a health tab opens', async () => {
+            router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            requests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])
+            expect(requests).toHaveLength(0)
+
+            logic.actions.setTab('services')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            expect(requests).toHaveLength(1)
+        })
+
         it('keeps the last usage rows and flags the failure when a usage refresh fails', async () => {
             router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'usage' })
             await expectLogic(logic).toDispatchActions(['loadServiceUsageSuccess'])

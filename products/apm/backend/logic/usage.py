@@ -30,10 +30,11 @@ logger = structlog.get_logger(__name__)
 SERVICES_LIMIT = 500
 
 # Every signal's time_bucket is at most one day wide, so this bound adds no rows. It lets ClickHouse
-# prune parts by the primary key before it reads timestamps.
+# prune parts by the primary key before it reads timestamps. The day is cut in UTC because buckets
+# start at UTC midnight; the project timezone would move the bound past buckets inside the window.
 _WINDOW_WHERE = (
     "timestamp >= {date_from} AND timestamp < {date_to} "
-    "AND time_bucket >= toStartOfDay({date_from}) AND time_bucket <= {date_to}"
+    "AND time_bucket >= toStartOfDay({date_from}, 'UTC') AND time_bucket <= {date_to}"
 )
 
 # The window sums give exact totals even when a team has more services than SERVICES_LIMIT.
@@ -75,7 +76,7 @@ METRIC_POINTS_USAGE_QUERY = f"""
 METRIC_SERIES_USAGE_QUERY = """
     SELECT service_name, uniq(series_fingerprint) AS series, sum(uniq(series_fingerprint)) OVER () AS total_series
     FROM posthog.metric_series
-    WHERE time_bucket >= toStartOfHour({date_from}) AND time_bucket < {date_to}
+    WHERE time_bucket >= toStartOfHour(toTimeZone({date_from}, 'UTC')) AND time_bucket < {date_to}
     GROUP BY service_name
     ORDER BY series DESC, service_name
     LIMIT {limit}
