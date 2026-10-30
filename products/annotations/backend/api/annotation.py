@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
+from posthog.models.utils import strict_fetch
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -233,7 +234,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             # `date_marker` alone is not a total order, so limit-offset pages can repeat or drop rows.
-            queryset = queryset.order_by("-date_marker", "-id")
+            queryset = strict_fetch(queryset.order_by("-date_marker", "-id"))
         if self.action != "partial_update":
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`
