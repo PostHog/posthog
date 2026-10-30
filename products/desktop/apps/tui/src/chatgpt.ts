@@ -1,0 +1,67 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { AuthPrompt } from "@earendil-works/pi-ai";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+// pi's own ChatGPT provider; the harness reads its login from pi's credential file.
+export const CHATGPT_PROVIDER = "openai-codex";
+export const CHATGPT_MODEL = `${CHATGPT_PROVIDER}/gpt-5.5`;
+
+const authPath = (): string => join(getAgentDir(), "auth.json");
+
+const PROFILE_CLAIM = "https://api.openai.com/profile";
+
+const emailOf = (access: string): string | null => {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(access.split(".")[1] ?? "", "base64url").toString("utf8"),
+    ) as Record<string, { email?: string } | undefined>;
+    return payload[PROFILE_CLAIM]?.email ?? null;
+  } catch {
+    return null;
+  }
+};
+
+// The login's email from its access token, "ChatGPT" when the token hides it, null when nobody is logged in.
+export function chatgptAccount(path: string = authPath()): string | null {
+  try {
+    const saved = JSON.parse(readFileSync(path, "utf8")) as Record<
+      string,
+      { access?: string } | undefined
+    >;
+    const access = saved[CHATGPT_PROVIDER]?.access;
+    return access ? (emailOf(access) ?? "ChatGPT") : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ChatgptLoginUi {
+  openUrl(url: string): void;
+  // Asks the user a question; rejects when `signal` aborts, which happens once the browser answered it.
+  prompt(message: string, signal?: AbortSignal): Promise<string>;
+}
+
+// Runs pi's browser login for ChatGPT and saves the result where the harness reads it.
+export async function chatgptLogin(
+  ui: ChatgptLoginUi,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const runtime = await ModelRuntime.create({ authPath: authPath() });
+  await runtime.login(CHATGPT_PROVIDER, "oauth", {
+    signal,
+    prompt: (prompt: AuthPrompt) =>
+      prompt.type === "select"
+        ? Promise.resolve(prompt.options[0].id)
+        : ui.prompt(prompt.message, prompt.signal),
+    notify: (event) => {
+      if (event.type === "auth_url") ui.openUrl(event.url);
+    },
+  });
+  return chatgptAccount();
+}
+
+export async function chatgptLogout(): Promise<void> {
+  const runtime = await ModelRuntime.create({ authPath: authPath() });
+  await runtime.logout(CHATGPT_PROVIDER);
+}

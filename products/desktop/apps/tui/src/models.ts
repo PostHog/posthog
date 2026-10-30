@@ -4,6 +4,7 @@ import {
 } from "@posthog/agent/pi/remote-rpc-client";
 import { SESSION_START_MODEL_ID } from "@posthog/harness/extensions/posthog-provider/model-catalog";
 import { isOfferedModel } from "@posthog/shared/model-catalog";
+import { CHATGPT_PROVIDER } from "./chatgpt";
 import type { Sheet } from "./sheet";
 import type { ShellResult } from "./shell";
 
@@ -58,10 +59,10 @@ export interface RunCommand {
   description?: string;
 }
 
-// The TUI runs only on the PostHog harness. Pi also reports models from the
-// user's own pi logins (~/.pi/agent/auth.json), and picking one leaves the
-// gateway, so those stay out of the picker. The gateway also serves models the
-// shared catalog does not offer, which the desktop picker hides too.
+// The TUI runs on the PostHog harness. Pi also reports models from the user's
+// own pi logins (~/.pi/agent/auth.json), and picking one leaves the gateway, so
+// only the ChatGPT login from settings gets through. The gateway also serves
+// models the shared catalog does not offer, which the desktop picker hides too.
 const HARNESS_PROVIDER = "posthog";
 
 const BRAND_NAMES: Record<string, string> = {
@@ -175,7 +176,9 @@ export function controlOf(
         available: available
           .filter(
             (model) =>
-              model.provider === HARNESS_PROVIDER && isOfferedModel(model.id),
+              (model.provider === HARNESS_PROVIDER &&
+                isOfferedModel(model.id)) ||
+              model.provider === CHATGPT_PROVIDER,
           )
           .map(choice),
         current: state.model ? choice(state.model) : null,
