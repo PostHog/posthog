@@ -2,10 +2,12 @@ import { StdinBuffer } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import type { PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { Composer, isAppKey } from "../composer";
 import {
   activeWorkspace,
+  assignTask,
   closeFocused,
   cycleFocus,
   focusPane,
@@ -41,6 +43,7 @@ import { Sidebar } from "./Sidebar";
 const PAGE_SIZE = 10;
 const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
+const SEND_ERROR_MS = 8_000;
 // Log entries per preloaded run: roughly the last ten messages.
 const PREVIEW_ENTRIES = 300;
 
@@ -66,10 +69,12 @@ function dividerProps(divider: "left" | "top" | null) {
 export function App({
   work,
   runs,
+  chats,
   mouse,
 }: {
   work: WorkList;
   runs: CloudRuns;
+  chats: PiChats;
   mouse?: MouseEvents;
 }): ReactElement {
   const { exit } = useApp();
@@ -83,19 +88,21 @@ export function App({
   });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [known, setKnown] = useState<Map<string, Task>>(new Map());
+  // Tasks this app just started or resumed; they win until the list shows the same run.
+  const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
   const [selected, setSelected] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
-  const chats = useRef(new Map<string, ChatView>());
+  const chatViews = useRef(new Map<string, ChatView>());
   // Scrolling happens inside ChatView, so a tick tells React to repaint.
   const [, repaint] = useState(0);
   const chatFor = (paneId: string): ChatView => {
-    let chat = chats.current.get(paneId);
+    let chat = chatViews.current.get(paneId);
     if (!chat) {
       chat = new ChatView();
-      chats.current.set(paneId, chat);
+      chatViews.current.set(paneId, chat);
     }
     return chat;
   };
@@ -103,7 +110,10 @@ export function App({
   const composerFor = (paneId: string): Composer => {
     let composer = composers.current.get(paneId);
     if (!composer) {
-      composer = new Composer(() => repaint((tick) => tick + 1));
+      composer = new Composer(
+        () => repaint((tick) => tick + 1),
+        (text) => handlers.current.onSubmit(paneId, text),
+      );
       composers.current.set(paneId, composer);
     }
     return composer;
@@ -182,15 +192,46 @@ export function App({
       );
     }
   }, [work, missingKey]);
-  const taskOf = (taskId: string | null): Task | undefined =>
-    taskId
-      ? (page.tasks?.find((task) => task.id === taskId) ?? known.get(taskId))
-      : undefined;
+  const taskOf = (taskId: string | null): Task | undefined => {
+    if (!taskId) return undefined;
+    const listed = page.tasks?.find((task) => task.id === taskId);
+    const recent = fresh.get(taskId);
+    if (recent && recent.latest_run?.id !== listed?.latest_run?.id)
+      return recent;
+    return listed ?? known.get(taskId);
+  };
+
+  const onSubmit = (paneId: string, text: string): void => {
+    const pane = layout.workspaces
+      .flatMap((w) => panes(w.root))
+      .find((candidate) => candidate.id === paneId);
+    const current = taskOf(pane?.taskId ?? null);
+    setNotice(current ? "Sending…" : "Starting a cloud run…");
+    (current ? chats.reply(current, text) : chats.start(text)).then(
+      (task) => {
+        setFresh((tasks) => new Map(tasks).set(task.id, task));
+        if (!current) setLayout((state) => assignTask(state, paneId, task.id));
+        setNotice(null);
+      },
+      (error: unknown) => {
+        setNotice(
+          `Couldn't send: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        setTimeout(() => setNotice(null), SEND_ERROR_MS);
+      },
+    );
+  };
 
   const rows = useMemo(
     () =>
-      sidebarRows({ layout, work: page, collapsed, working: new Set(), known }),
-    [layout, page, collapsed, known],
+      sidebarRows({
+        layout,
+        work: page,
+        collapsed,
+        working: new Set(),
+        known: new Map([...known, ...fresh]),
+      }),
+    [layout, page, collapsed, known, fresh],
   );
   const selectedIndex = selected < 0 ? firstSelectable(rows) : selected;
   const workspace = activeWorkspace(layout);
@@ -287,8 +328,8 @@ export function App({
     if (layout.focus !== "pane" || isAppKey(sequence)) return;
     composerFor(workspace.focusedPaneId).handleInput(sequence);
   };
-  const handlers = useRef({ onClick, onWheel, onKey });
-  handlers.current = { onClick, onWheel, onKey };
+  const handlers = useRef({ onClick, onWheel, onKey, onSubmit });
+  handlers.current = { onClick, onWheel, onKey, onSubmit };
 
   useEffect(() => {
     if (!mouse) return;

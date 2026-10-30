@@ -1,6 +1,7 @@
 import type { Task } from "@posthog/shared";
 import { renderToString } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PiChats } from "../chats";
 import { initialLayout, openTask, saveLayout } from "../layout";
 import type { CloudRuns } from "../runs";
 import { renderInTerminal } from "../testing";
@@ -28,7 +29,9 @@ describe("App", () => {
       listRecent: () => new Promise(() => {}),
     } as unknown as WorkList;
     expect(
-      renderToString(<App work={work} runs={{} as CloudRuns} />),
+      renderToString(
+        <App work={work} runs={{} as CloudRuns} chats={{} as PiChats} />,
+      ),
     ).toContain("Work");
   });
 
@@ -45,7 +48,9 @@ describe("App", () => {
       prefetch: vi.fn(async () => {}),
     } as unknown as CloudRuns;
 
-    const { instance } = renderInTerminal(<App work={work} runs={runs} />);
+    const { instance } = renderInTerminal(
+      <App work={work} runs={runs} chats={{} as PiChats} />,
+    );
     await vi.waitFor(() => expect(runs.watch).toHaveBeenCalledTimes(1));
     for (let refresh = 0; refresh < 3; refresh++) {
       await vi.advanceTimersByTimeAsync(10_000);

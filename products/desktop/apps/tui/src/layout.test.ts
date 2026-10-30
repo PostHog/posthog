@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
+  assignTask,
   closeFocused,
   cycleFocus,
   focusPane,
@@ -76,6 +77,23 @@ describe("layout", () => {
     expect(state.activeWorkspaceId).toBe(state.workspaces[0].id);
     expect(focusedTask(state)).toBe("a");
     expect(state.focus).toBe("pane");
+  });
+
+  it("puts a started chat into the pane it came from, even after focus moved", () => {
+    let state = splitFocused(initialLayout(), "row");
+    const [first, second] = paneIds(activeWorkspace(state).root);
+    state = focusPane(state, second);
+
+    state = assignTask(state, first, "new");
+
+    const workspace = activeWorkspace(state);
+    expect(workspace.root).toMatchObject({
+      children: [
+        { id: first, taskId: "new" },
+        { id: second, taskId: null },
+      ],
+    });
+    expect(workspace.focusedPaneId).toBe(second);
   });
 
   it("closes the focused pane, collapses the split and focuses the previous pane", () => {

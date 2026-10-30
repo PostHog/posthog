@@ -149,6 +149,22 @@ export function openTask(state: LayoutState, taskId: string): LayoutState {
   };
 }
 
+export function assignTask(
+  state: LayoutState,
+  paneId: string,
+  taskId: string,
+): LayoutState {
+  return {
+    ...state,
+    workspaces: state.workspaces.map((workspace) => ({
+      ...workspace,
+      root: mapPanes(workspace.root, (pane) =>
+        pane.id === paneId ? { ...pane, taskId } : pane,
+      ),
+    })),
+  };
+}
+
 export function closeFocused(state: LayoutState): LayoutState | "quit" {
   const active = activeWorkspace(state);
   const ids = paneIds(active.root);

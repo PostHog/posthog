@@ -27,7 +27,10 @@ describe("Composer", () => {
 
   it("edits text with pi's editor and draws it without the hardware cursor marker", () => {
     let repaints = 0;
-    const composer = new Composer(() => repaints++);
+    const composer = new Composer(
+      () => repaints++,
+      () => {},
+    );
     for (const key of ["h", "e", "y", "\x1b[D", "!"]) composer.handleInput(key);
 
     const lines = composer.render(30, true);
@@ -36,5 +39,21 @@ describe("Composer", () => {
       "he!y",
     );
     expect(repaints).toBeGreaterThan(0);
+  });
+
+  it("hands the text to submit on Enter, then clears", () => {
+    const sent: string[] = [];
+    const composer = new Composer(
+      () => {},
+      (text) => sent.push(text),
+    );
+    for (const key of ["h", "i", "\r"]) composer.handleInput(key);
+
+    expect(sent).toEqual(["hi"]);
+    expect(
+      composer
+        .render(30, true)
+        .map((line) => stripTerminalSequences(line).trim()),
+    ).not.toContain("hi");
   });
 });

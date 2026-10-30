@@ -32,7 +32,10 @@ const DIM = (text: string): string => `\u001b[2m${text}\u001b[22m`;
 export class Composer {
   private readonly editor: Editor;
 
-  constructor(private readonly repaint: () => void) {
+  constructor(
+    private readonly repaint: () => void,
+    submit: (text: string) => void,
+  ) {
     const host = {
       requestRender: repaint,
       terminal: { rows: 40 },
@@ -41,7 +44,11 @@ export class Composer {
       borderColor: DIM,
       selectList: getSelectListTheme(),
     });
-    this.editor.disableSubmit = true;
+    this.editor.onSubmit = (text) => {
+      if (!text.trim()) return;
+      this.editor.addToHistory(text);
+      submit(text);
+    };
   }
 
   handleInput(sequence: string): void {
