@@ -48,7 +48,6 @@ Then, once the commands above work:
 
 Smaller follow-ups, none of them blocking:
 
-- [ ] `hog error-tracking upload --include-source`: read `DW_LNE_define_file` entries in the DWARF line program, so hog bundles the same source files as posthog-cli. Current compilers don't emit them, and DWARF 5 removed them.
 - [ ] `hog error-tracking upload --include-source`: write ZIP64, so a binary that names more than 65,533 source files keeps its sources. hog uploads it without sources and warns.
 
 Not planned:
