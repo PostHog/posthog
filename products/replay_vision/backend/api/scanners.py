@@ -120,6 +120,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
+from products.replay_vision.backend.queries.filter_errors import REDACTED_FILTER_ERROR, filter_error_message
 from products.replay_vision.backend.quota import (
     ScannerBudget,
     ScannerSpend,
@@ -345,8 +346,15 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
             # The scanner's own query no longer builds, for example a deleted action or a bad
             # cohort reference. No launch heals that, so keep it in error tracking.
             logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
-    except Exception:
-        logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+    except Exception as error:
+        message = filter_error_message(error)
+        if message is None:
+            logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+        else:
+            # The first sweep records it on the scanner, since the estimate's wider query can fail
+            # where the sweep's does not.
+            record_estimate_outcome("filter_error")
+            logger.warning("replay_vision.estimate_filter_error", scanner_id=str(scanner.id), reason=message)
     else:
         record_estimate_outcome("refreshed")
 
@@ -652,6 +660,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
+            "filter_error",
             "created_at",
             "created_by",
             "updated_at",
@@ -674,6 +683,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
+            "filter_error",
             "created_at",
             "created_by",
             "updated_at",
@@ -989,6 +999,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # check in validate_experiment_targeting — a caller without experiment access sees null.
         if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
             data["experiment_targeting"] = None
+            # The query error can quote the experiment's exposure filter, so a denied caller gets the fact only.
+            if data.get("filter_error"):
+                data["filter_error"] = REDACTED_FILTER_ERROR
         # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
         # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
         # separate question: `_restore_redacted_experiment_config` refuses every config write from a
@@ -1001,6 +1014,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     for key, value in data["scanner_config"].items()
                     if key not in ("experiment_id", "variants")
                 }
+                if data.get("filter_error"):
+                    data["filter_error"] = REDACTED_FILTER_ERROR
         return data
 
     def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:

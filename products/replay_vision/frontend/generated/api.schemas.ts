@@ -1368,6 +1368,11 @@ export interface ReplayScannerApi {
     readonly dashboard_suggested: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error: string | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1512,6 +1517,11 @@ export interface PatchedReplayScannerApi {
     readonly dashboard_suggested?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
+    /**
+     * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+     * @nullable
+     */
+    readonly filter_error?: string | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
