@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -27,7 +28,16 @@ def schedule_docs_pull_request(instance: Any, *, created: bool, update_fields: A
         return
     if not (instance.output or {}).get("head_branches"):
         return
-    from .logic import pull_requests  # noqa: PLC0415 — keeps the GitHub client off the setup import path
+    task_run_id, task_id, team_id = instance.id, instance.task_id, instance.team_id
+    transaction.on_commit(lambda: start_publish_or_record_failure(task_run_id, task_id, team_id), robust=True)
 
-    task_run_id, team_id = instance.id, instance.team_id
-    transaction.on_commit(lambda: pull_requests.open_or_join_pull_request(task_run_id, team_id=team_id), robust=True)
+
+def start_publish_or_record_failure(task_run_id: UUID, task_id: UUID, team_id: int) -> None:
+    from .logic import pull_requests  # noqa: PLC0415 — keeps the GitHub client off the setup import path
+    from .temporal import client as temporal_client  # noqa: PLC0415 — keeps temporalio off the setup import path
+
+    try:
+        temporal_client.start_publish(task_run_id, team_id=team_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
+        pull_requests.record_pull_request_failure(task_id, team_id, "publish_not_started")
