@@ -385,6 +385,11 @@ def _group_reach(
     return {str(row["root"]): GroupReach(sessions=row["sessions"], people=row["people"]) for row in members}
 
 
+def views_by(viewer_id: int, as_of: datetime) -> QuerySet[ReplayObservationView]:
+    """The viewer's observation views up to `as_of`, so later views wait for the next feed load."""
+    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of)
+
+
 def select_embedding_picks(
     window: FeedWindow,
     scanner_ids: Sequence[Any],
@@ -435,9 +440,9 @@ def select_embedding_picks(
     # The entries carry everything ranking reads, so no observation row loads until the endpoint fetches its page,
     # which also gates that page's rows on experiment access.
     viewed = set(
-        ReplayObservationView.objects.filter(
-            observation_id__in=list(window_values), user_id=viewer_id, created_at__lte=window.as_of
-        ).values_list("observation_id", flat=True)
+        views_by(viewer_id, window.as_of)
+        .filter(observation_id__in=list(window_values))
+        .values_list("observation_id", flat=True)
     )
     roots = {entry["group_root"] for entry in window_values.values()}
     reach = _group_reach(team_id, window, roots, scanner_ids, categories, experiment_ids)
@@ -487,7 +492,7 @@ def select_embedding_filler(
         )
         .annotate(feed_viewed=viewed)
     )
-    fields = ("id", "scanner_id", "session_id", "created_at", "feed_viewed")
+    fields = ("id", "scanner_id", "created_at", "feed_viewed")
     # Two short newest-first walks, instead of ordering by the viewed flag, which would sort the whole window.
     rows = list(
         base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:HIGHLIGHT_FEED_MIN_ITEMS]

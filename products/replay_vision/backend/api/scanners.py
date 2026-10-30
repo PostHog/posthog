@@ -100,7 +100,6 @@ from products.replay_vision.backend.models.replay_observation import (
     hydrate_for_serialization,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
-from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -185,6 +184,7 @@ from products.replay_vision.backend.watch_rank import (
     rank_highlight_feed_by_embedding,
     select_embedding_filler,
     select_embedding_picks,
+    views_by,
 )
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
@@ -2488,11 +2488,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "observation_id", flat=True
             )
         )
-        viewed = Exists(
-            ReplayObservationView.objects.filter(
-                observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
-            )
-        )
+        viewed = Exists(views_by(viewer_id, as_of).filter(observation_id=OuterRef("id")))
         categories = params.get("categories") or ISSUE_CATEGORIES
         candidate_rows = select_embedding_picks(
             feed_window(

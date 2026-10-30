@@ -276,5 +276,3 @@ HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
 # One team's build is bounded by its 120s statement timeout, so a heartbeat per team arrives well inside this.
 HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=3)
-# The activity stops claiming teams after this, which leaves room for the last builds inside its timeout.
-HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=5)

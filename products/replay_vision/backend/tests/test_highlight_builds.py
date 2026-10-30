@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -255,8 +256,10 @@ class TestHighlightBuilds(BaseTest):
                 other.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=index / 10, category="failure")}
             )
 
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, started_time=_NOW)
         with patch("products.replay_vision.backend.highlight_builds.REBUILDS_PER_SWEEP", 1):
-            result = ActivityEnvironment().run(rebuild_highlight_feeds_activity)
+            result = env.run(rebuild_highlight_feeds_activity)
 
         assert result.built == 2
         assert set(ReplayHighlightFeedState.objects.unscoped().values_list("team_id", "generation")) == {
