@@ -17,7 +17,6 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
-/** Shaped like a card, so the feed does not jump when the real cards replace it. */
 function CardSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 rounded-lg border bg-surface-primary p-4">

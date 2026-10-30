@@ -68,7 +68,6 @@ export function ObservationThumbnail({
             ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
             : undefined
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
-    // Keyed by the source, so a poster swapped for another fades in again rather than flashing the old frame.
     const loaded = loadedSrc === src
 
     const onError = (): void => {

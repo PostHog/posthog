@@ -267,7 +267,7 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
     const { observation, reason } = item
     const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
-    // Paused behind the reload overlay, then keyed by feed load, so a card that stays across a reload counts toward the new load.
+    // Re-armed per feed load, so a card kept across a reload counts toward the new load.
     const rowRef = useAutoMarkRead(
         !feedReloading,
         () => cardSeen(item, position),
