@@ -837,15 +837,14 @@ describe('HogFunctionHandler', () => {
                 })
             }
         )
-        action.config.sensitive = true
+        ;(action.config as any).sensitive = true
         const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
             queuePriority: 0,
         })
         await hogFunctionHandler.execute({ invocation, action, result: firstResult })
         expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
-
-        action.config.sensitive = false
+        ;(action.config as any).sensitive = false
         await hogFunctionHandler.execute({
             invocation: firstResult.invocation,
             action,
