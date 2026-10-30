@@ -72167,6 +72167,8 @@ export namespace Schemas {
     export interface MemberOffboardingResource {
       /** Opaque identifier used to update this resource during offboarding. */
       id: string;
+      /** Identifier accepted by the resource’s own API. */
+      resource_id: string;
       /** The kind of public object or automated delivery.
        *
        * * `dashboard` - Dashboard
@@ -89658,17 +89660,6 @@ export namespace Schemas {
          */
       text?: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
-    }
-
-    export interface PatchedMemberOffboardingUpdate {
-      /**
-         * Resource identifiers to update immediately.
-         * @maxItems 1000
-         * @items.maxLength 200
-         */
-      ids?: string[];
-      /** Whether the selected resources should be enabled. */
-      enabled?: boolean;
     }
 
     export interface PatchedMessageCategory {

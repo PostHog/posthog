@@ -37,13 +37,13 @@ export function MemberOffboardingModal(): JSX.Element {
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
-    const busyReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
+    const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const hasResources = !resourcesLoading && !loadError && !!resources?.length
 
     return (
         <LemonModal
             isOpen={!!member}
-            onClose={busyReason ? undefined : close}
+            onClose={disabledReason ? undefined : close}
             title={
                 isSelf
                     ? 'Leave organization?'
@@ -52,7 +52,7 @@ export function MemberOffboardingModal(): JSX.Element {
             width={hasResources ? 720 : 576}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={close} disabledReason={busyReason}>
+                    <LemonButton type="secondary" onClick={close} disabledReason={disabledReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -60,7 +60,7 @@ export function MemberOffboardingModal(): JSX.Element {
                         status="danger"
                         loading={removedLoading}
                         disabledReason={
-                            busyReason ||
+                            disabledReason ||
                             (resourcesLoading
                                 ? 'Checking public resources…'
                                 : loadError || resources === null
@@ -91,7 +91,7 @@ export function MemberOffboardingModal(): JSX.Element {
                     <h3>Publicly shared resources</h3>
                     <p>
                         These resources were shared by this member and are accessible to anyone with the link. You can
-                        disable public sharing. This won't delete them. Changes apply immediately, even if you cancel.
+                        disable public sharing. This won't delete them.
                     </p>
                     {!isSelf && (
                         <div className="relative h-9">
@@ -113,7 +113,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                       rowAriaLabel: (resource) => `Select ${resource.name}`,
                                       headerAriaLabel: 'Select all resources on this page',
                                       clearSelectionKey: member?.user.uuid,
-                                      isRowSelectable: () => (busyReason ? { disabledReason: busyReason } : true),
+                                      isRowSelectable: () => (disabledReason ? { disabledReason } : true),
                                       barPortalTarget: bulkBarTarget,
                                       actionsPlacement: 'start',
                                       barClassName: 'justify-start! px-0! [&>span]:min-w-0 [&>span]:truncate',
@@ -124,7 +124,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                               status="danger"
                                               size="small"
                                               loading={savingResourcesLoading}
-                                              disabledReason={busyReason}
+                                              disabledReason={disabledReason}
                                               onClick={() => {
                                                   disableResources([...ctx.selectedKeys])
                                                   ctx.clearSelection()
@@ -181,7 +181,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                                       loading={savingResourcesLoading}
                                                       checked={keep.includes(resource.id)}
                                                       onChange={(enabled) => setKeep(resource.id, enabled)}
-                                                      disabledReason={busyReason}
+                                                      disabledReason={disabledReason}
                                                       aria-label={`Public sharing for ${resource.name}`}
                                                       data-attr="offboarding-disable-dashboard"
                                                   />

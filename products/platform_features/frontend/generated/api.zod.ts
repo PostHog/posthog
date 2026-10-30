@@ -301,19 +301,6 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
-export const membersOffboardingResourcesPartialUpdateBodyIdsItemMax = 200
-
-export const membersOffboardingResourcesPartialUpdateBodyIdsMax = 1000
-
-export const MembersOffboardingResourcesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.string().max(membersOffboardingResourcesPartialUpdateBodyIdsItemMax))
-        .max(membersOffboardingResourcesPartialUpdateBodyIdsMax)
-        .optional()
-        .describe('Resource identifiers to update immediately.'),
-    enabled: zod.boolean().optional().describe('Whether the selected resources should be enabled.'),
-})
-
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */
