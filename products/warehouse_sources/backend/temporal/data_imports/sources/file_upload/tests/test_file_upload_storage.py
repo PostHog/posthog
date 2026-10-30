@@ -62,16 +62,28 @@ class TestFileUploadStorage(BaseTest):
 
     @parameterized.expand(
         [
-            ("original", False, -1, True),
-            ("replacement_pending", True, -1, False),
-            ("replacement_imported", True, 1, True),
+            ("original", False, -1, "live", True),
+            ("replacement_pending", True, -1, "live", False),
+            ("replacement_imported", True, 1, "live", True),
+            ("table_unlinked", False, -1, "unlinked", False),
+            ("table_deleted", False, -1, "deleted", False),
         ]
     )
     def test_manual_sync_refuses_only_an_import_of_the_current_file(
-        self, _name: str, replaced: bool, completed_minutes: int, refused: bool
+        self, _name: str, replaced: bool, completed_minutes: int, table_state: str, refused: bool
     ) -> None:
         entries = [SupersededUpload(upload=self._upload(OLD_ID), superseded_at=SYNC_STARTED_AT)] if replaced else []
         source = self._source(self._inputs(CURRENT_ID), *entries)
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="Parquet",
+            url_pattern="https://example.com/orders.parquet",
+            deleted=table_state == "deleted",
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="orders", table=table if table_state != "unlinked" else None
+        )
         job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.COMPLETED)
         ExternalDataJob.objects.filter(pk=job.pk).update(
             created_at=SYNC_STARTED_AT + timedelta(minutes=completed_minutes)

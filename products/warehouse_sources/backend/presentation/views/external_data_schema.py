@@ -2311,6 +2311,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
+        if getattr(self, "swagger_fake_view", False):
+            return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"

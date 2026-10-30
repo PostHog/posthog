@@ -249,7 +249,7 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
             completed_jobs = completed_jobs.filter(
                 created_at__gte=max(entry.superseded_at for entry in pending_uploads)
             )
-        if completed_jobs.exists():
+        if completed_jobs.exists() and source_model.schemas.filter(deleted=False, table__deleted=False).exists():
             return "This table already imported its file. To refresh the data, use Replace file to upload a new one."
         return None
 

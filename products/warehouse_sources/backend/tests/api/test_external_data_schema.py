@@ -18,6 +18,8 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
@@ -5594,3 +5596,14 @@ class TestSchemaDisplayStatus(SimpleTestCase):
     )
     def test_maps_billing_statuses_to_labels(self, raw_status, expected):
         assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected
+
+
+class TestExternalDataSchemaIntrospection(SimpleTestCase):
+    def test_schema_generation_needs_no_team_context(self) -> None:
+        view = ExternalDataSchemaViewset()
+        view.swagger_fake_view = True
+        view.request = Request(APIRequestFactory().get("/"))
+        view.format_kwarg = None
+        view.kwargs = {}
+
+        assert "table_id" in view.get_serializer().fields
