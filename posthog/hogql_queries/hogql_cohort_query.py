@@ -799,21 +799,18 @@ class HogQLCohortQuery:
 
 @frozen
 class FlagCallReads:
-    rewrite_enabled: bool
     reads_from_events: int
 
 
 def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
-    """Whether the flag_evaluations rewrite is on for the team, and how many flag-call reads the batch query for this
-    cohort leaves on events.
+    """How many flag-call reads the batch query for this cohort leaves on events.
 
-    It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules, its rollout gate,
-    and its fallback to events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
+    It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules and its fallback to
+    events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
     """
     executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
-    _, context = executor.generate_clickhouse_sql()
+    executor.generate_clickhouse_sql()
     prepared = executor.clickhouse_prepared_ast
     return FlagCallReads(
-        rewrite_enabled=context.database is not None and context.database.read_flag_calls_from_flag_evaluations,
         reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
     )
