@@ -27,7 +27,12 @@ import {
 import { renderSheet, type Sheet } from "../sheet";
 import type { StatusChip } from "../status";
 import { orange } from "../theme";
-import { type TodayHit, type TodayState, todayLines } from "../today";
+import {
+  TODAY_MARGIN,
+  type TodayHit,
+  type TodayState,
+  todayLines,
+} from "../today";
 import {
   type PendingShell,
   queuedMessage,
@@ -455,6 +460,16 @@ export function Pane({
     onTodayHits?.(todayLayout?.hits ?? []);
   });
   let content: ReactElement;
+  // The briefing's composer starts a chat like an empty pane's, so the same lines say where it would run, under
+  // the briefing and in its margin, when the pane has room below it; a popup takes their place.
+  const todayFooter =
+    popupLines.length > 0
+      ? popupLines
+      : todayLayout && chatHeight - todayLayout.lines.length > banner.length
+        ? banner
+            .slice(1)
+            .map((line) => faint(`${" ".repeat(TODAY_MARGIN)}${line}`))
+        : [];
   if (todayLayout)
     content = (
       <Box flexDirection="column">
@@ -465,7 +480,7 @@ export function Pane({
               Math.max(0, chatHeight - todayLayout.lines.length),
             ).fill(""),
           ].map((line) => shade(line || " ")),
-          popupLines,
+          todayFooter,
         ).map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
           <Text key={`today-${index}`} wrap="truncate-end">
