@@ -38,7 +38,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
         register_source_kinds({"ably": AuthType.TOKEN})
         self.github = IntegrationManager.github.oauth.create(self.team.id, external_id="gh-1", config={})
         self.team_id = self.team.id
-        self.id = self.github.id
+        self.github_id = self.github.id
 
     @parameterized.expand(
         [
@@ -186,7 +186,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
             ),
         ):
             with self.assertRaises(IntegrationInUse):
-                IntegrationManager.github.oauth.delete(self.team_id, self.id)
+                IntegrationManager.github.oauth.delete(self.team_id, self.github_id)
 
         assert _counts("delete", "named", "github", "oauth", "in_use") == before + 1
 
@@ -194,7 +194,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
         before_get = _counts("get", "named", "github", "oauth", "ok")
         before_usages = _counts("usages", "named", "github", "oauth", "ok")
 
-        IntegrationManager.github.oauth.usages(self.team_id, self.id)
+        IntegrationManager.github.oauth.usages(self.team_id, self.github_id)
 
         assert _counts("get", "named", "github", "oauth", "ok") == before_get
         assert _counts("usages", "named", "github", "oauth", "ok") == before_usages + 1
@@ -219,7 +219,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
 
         with patch.object(IntegrationReader, "_row", side_effect=IntegrationNotFound("missing")):
             with self.assertRaises(IntegrationNotFound):
-                async_to_sync(IntegrationManager.github.oauth.aget)(self.team_id, self.id)
+                async_to_sync(IntegrationManager.github.oauth.aget)(self.team_id, self.github_id)
 
         assert _counts("get", "named", "github", "oauth", "not_found") == before + 1
 
@@ -231,7 +231,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
     )
     def test_broken_metrics_do_not_break_the_call(self, _name: str, broken_metrics: Callable[[], Any]) -> None:
         with broken_metrics():
-            assert IntegrationManager.github.oauth.get(self.team_id, self.id).id == self.id
+            assert IntegrationManager.github.oauth.get(self.team_id, self.github_id).id == self.github_id
             with self.assertRaises(IntegrationNotFound):
                 IntegrationManager.github.oauth.get(self.team_id, 0)
 
