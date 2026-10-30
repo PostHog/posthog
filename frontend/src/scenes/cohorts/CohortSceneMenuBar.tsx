@@ -48,7 +48,7 @@ export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Eleme
 
 function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element | null {
     const logic = cohortEditLogic({ id })
-    const { cohort, cohortLoading, staticCohortMode } = useValues(logic)
+    const { cohort, cohortLoading, hasAddUsersMenu } = useValues(logic)
     const { duplicateCohort, deleteCohort, restoreCohort, setCsvUploadModalOpen } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic({ id })
     const { showAddPersonToCohortModal } = useActions(modalLogic)
@@ -161,7 +161,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
             </SceneMenuBarMenu>
             {!isDeleted && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    {!isNewCohort && cohort.is_static && staticCohortMode === 'people' && (cohort.count ?? 0) > 0 && (
+                    {hasAddUsersMenu && (
                         <>
                             <SceneMenuBarSubMenu label="Add users">
                                 <SceneMenuBarItem

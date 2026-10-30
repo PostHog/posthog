@@ -4,20 +4,18 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortLogicProps, cohortEditLogic } from './cohortEditLogic'
+import { cohortCsvTooLargeMessage } from './cohortUtils'
 
 export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
     const logic = cohortEditLogic({ id })
-    const { cohort, cohortErrors, cohortLoading, csvUploadModalOpen } = useValues(logic)
+    const { cohort, cohortLoading, csvUploadModalOpen, csvMaxBytes } = useValues(logic)
     const { setCohortValue, setCsvUploadModalOpen, uploadCohortCsv } = useActions(logic)
 
-    const onClose = (): void => {
-        if (!cohortErrors.name) {
-            setCohortValue('csv', undefined)
-        }
-        setCsvUploadModalOpen(false)
-    }
+    const csvTooLarge = !!cohort.csv && cohort.csv.size > csvMaxBytes
 
-    const onCancel = (): void => {
+    // The modal only opens for saved cohorts, where the upload sends the CSV alone,
+    // so an abandoned file can always be dropped on close.
+    const onClose = (): void => {
         setCohortValue('csv', undefined)
         setCsvUploadModalOpen(false)
     }
@@ -33,7 +31,7 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                 <>
                     <LemonButton
                         type="secondary"
-                        onClick={onCancel}
+                        onClick={onClose}
                         disabledReason={cohortLoading ? 'Uploading the CSV' : undefined}
                         data-attr="cohort-upload-csv-modal-cancel"
                     >
@@ -43,7 +41,13 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                         type="primary"
                         onClick={() => uploadCohortCsv()}
                         loading={cohortLoading}
-                        disabledReason={!cohort.csv ? 'Choose a CSV file first' : undefined}
+                        disabledReason={
+                            !cohort.csv
+                                ? 'Choose a CSV file first'
+                                : csvTooLarge
+                                  ? cohortCsvTooLargeMessage(csvMaxBytes)
+                                  : undefined
+                        }
                         data-attr="cohort-upload-csv-modal-save"
                     >
                         Upload
@@ -51,7 +55,7 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                 </>
             }
         >
-            {cohortErrors.name && <LemonBanner type="error">{cohortErrors.name}</LemonBanner>}
+            {csvTooLarge && <LemonBanner type="error">{cohortCsvTooLargeMessage(csvMaxBytes)}</LemonBanner>}
             <div className="ph-ignore-input">
                 <CohortCsvDropzone
                     value={cohort.csv ?? null}

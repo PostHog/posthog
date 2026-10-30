@@ -44,7 +44,6 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -206,17 +205,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         usedInExpanded,
         staticCohortMode,
         activeTab,
+        hasAddUsersMenu,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { zenMode } = useValues(navigation3000Logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    const isPeopleStaticCohort = cohort.is_static && staticCohortMode === 'people'
-    const hasAddUsersMenu = !isNewCohort && isPeopleStaticCohort && (cohort.count ?? 0) > 0
-    const showAddUsersMenu = hasAddUsersMenu && !zenMode
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
     const broadcastLogic = messageAudienceOpenLogic({ audience: cohortBroadcastAudience(cohort) })
@@ -234,7 +230,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         isNewCohort ||
         !cohort.is_static ||
         (usedIn ? cohortUsedInSections(usedIn).length > 0 || usedIn.workflows.total > 0 : false)
-    const hasSectionAbovePersons = hasOverviewDetails || staticCohortMode === 'criteria' || !showAddUsersMenu
+    const hasSectionAbovePersons = hasOverviewDetails || staticCohortMode === 'criteria' || !hasAddUsersMenu
 
     useFileSystemLogView({
         type: 'cohort',
@@ -450,7 +446,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             >
                                                 Save
                                             </Button>
-                                            {showAddUsersMenu && (
+                                            {hasAddUsersMenu && (
                                                 <LemonMenu
                                                     items={[
                                                         {
@@ -499,7 +495,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             >
                                                 Save
                                             </LemonButton>
-                                            {showAddUsersMenu && (
+                                            {hasAddUsersMenu && (
                                                 <LemonMenu
                                                     items={[
                                                         {
@@ -736,7 +732,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         </div>
                                     </SceneSection>
                                 </>
-                            ) : cohort.is_static && !showAddUsersMenu ? (
+                            ) : cohort.is_static && !hasAddUsersMenu ? (
                                 <>
                                     <SceneDivider />
                                     <SceneSection
@@ -761,18 +757,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 />
                                             )}
                                         </LemonField>
-                                        {!isNewCohort && zenMode && (
-                                            <>
-                                                <LemonDivider label="OR" />
-                                                <LemonButton
-                                                    type="secondary"
-                                                    onClick={showAddPersonToCohortModal}
-                                                    data-attr="cohort-add-users-modal-open"
-                                                >
-                                                    Add users manually
-                                                </LemonButton>
-                                            </>
-                                        )}
                                     </SceneSection>
                                     {isNewCohort && (
                                         <>

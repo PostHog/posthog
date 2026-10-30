@@ -150,6 +150,7 @@ export interface cohortEditLogicValues {
     cohortValidationErrors: DeepPartialMap<CohortType, ValidationErrorType>
     creationPersonQuery: ActorsQuery
     csvMaxBytes: number
+    hasAddUsersMenu: boolean
     duplicatedCohort: CohortType | null
     duplicatedCohortLoading: boolean
     effectiveQuery: DataTableNode
@@ -340,10 +341,10 @@ export interface cohortEditLogicActions {
     }
     saveCohort: (
         cohortParams?: any,
-        formData?: FormData
+        csvOnlyFormData?: FormData
     ) => {
         cohortParams: any
-        formData: FormData | undefined
+        csvOnlyFormData: FormData | undefined
     }
     saveCohortFailure: (
         error: string,
@@ -553,6 +554,7 @@ export interface cohortEditLogicMeta {
         canRemovePersonFromCohort: (cohort: CohortType) => boolean | undefined
         isPendingCalculation: (cohort: CohortType) => boolean
         csvMaxBytes: (preflight: PreflightStatus | null) => number
+        hasAddUsersMenu: (cohort: CohortType, staticCohortMode: StaticCohortMode) => boolean
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
     }
 }
@@ -588,7 +590,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     actions({
-        saveCohort: (cohortParams = {}, formData?: FormData) => ({ cohortParams, formData }),
+        saveCohort: (cohortParams = {}, csvOnlyFormData?: FormData) => ({ cohortParams, csvOnlyFormData }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
         restoreCohort: true,
@@ -872,6 +874,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
         isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
         csvMaxBytes: [(s) => [s.preflight], (preflight: PreflightStatus | null) => cohortCsvMaxBytes(preflight)],
+        // Single source for when the add-users controls collapse into a menu, read by both the
+        // title actions in CohortEdit and the Edit menu in CohortSceneMenuBar.
+        hasAddUsersMenu: [
+            (s) => [s.cohort, s.staticCohortMode],
+            (cohort: CohortType, staticCohortMode: StaticCohortMode) =>
+                typeof cohort.id === 'number' &&
+                !!cohort.is_static &&
+                staticCohortMode === 'people' &&
+                (cohort.count ?? 0) > 0,
+        ],
         isCalculatingOrPending: [
             (s) => [s.cohort, s.isPendingCalculation],
             (cohort: CohortType, isPendingCalculation: boolean) => {
@@ -974,11 +986,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         return values.cohort
                     }
                 },
-                saveCohort: async ({ cohortParams, formData }, breakpoint) => {
+                saveCohort: async ({ cohortParams, csvOnlyFormData }, breakpoint) => {
                     const existingCohort = values.cohort
                     let cohort = { ...existingCohort, ...cohortParams }
                     const cohortFormData =
-                        formData ??
+                        csvOnlyFormData ??
                         createCohortFormData(cohort, {
                             preserveStaticFilters: cohort.is_static && values.staticCohortMode === 'criteria',
                         })
@@ -991,12 +1003,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             )
                             cohortsModel.actions.updateCohort(savedCohort)
 
-                            if (!formData && savedCohort.experiment_set && savedCohort.experiment_set.length > 0) {
+                            if (
+                                !csvOnlyFormData &&
+                                savedCohort.experiment_set &&
+                                savedCohort.experiment_set.length > 0
+                            ) {
                                 // someone edited an exposure cohort. Track what kind of updates were made
                                 actions.reportExperimentExposureCohortEdited(existingCohort, savedCohort)
                             }
 
-                            cohort = formData
+                            // A CSV-only PATCH doesn't send the name or description, so the server
+                            // response carries the saved values; keep the editor's unsaved drafts.
+                            cohort = csvOnlyFormData
                                 ? {
                                       ...savedCohort,
                                       name: existingCohort.name,
@@ -1220,9 +1238,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
 
-            const formData = new FormData()
-            formData.append('csv', values.cohort.csv)
-            actions.saveCohort({}, formData)
+            // The CSV-only path skips form validation, so the size limit from `forms.cohort.errors`
+            // must be enforced here; the modal shows the limit and disables Upload.
+            if (values.cohort.csv.size > values.csvMaxBytes) {
+                return
+            }
+
+            const csvOnlyFormData = new FormData()
+            csvOnlyFormData.append('csv', values.cohort.csv)
+            actions.saveCohort({}, csvOnlyFormData)
         },
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
             // When the person property key changes, auto-reset the operator to match the

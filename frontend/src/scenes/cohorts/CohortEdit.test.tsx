@@ -11,7 +11,6 @@ import { NEW_COHORT, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/con
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { urls } from 'scenes/urls'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -126,31 +125,65 @@ describe('cohortEditLogic', () => {
             cleanup()
         })
 
-        it('shows cohort name validation errors in the modal', async () => {
-            logic = cohortEditLogic({ id: 'new' })
-            render(<CohortCsvUploadModal id="new" />)
+        it('clears the chosen CSV on close and on cancel', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
 
             act(() => {
                 logic.actions.setCohort({
                     ...NEW_COHORT,
-                    id: 'new',
-                    name: '',
+                    id: 10,
+                    name: 'Saved cohort',
                     is_static: true,
                     csv: new File(['person@example.com'], 'people.csv', { type: 'text/csv' }),
                 })
                 logic.actions.setCsvUploadModalOpen(true)
             })
 
-            await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
-
-            expect(await screen.findByText('Cohort name cannot be empty')).toBeVisible()
-
-            await userEvent.click(screen.getByRole('button', { name: 'close' }))
-            expect(logic.values.cohort.csv).toBeInstanceOf(File)
-
-            act(() => logic.actions.setCsvUploadModalOpen(true))
-            await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+            const closeButton = document.querySelector('.LemonModal__close button') as HTMLElement
+            await userEvent.click(closeButton)
             expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+
+            act(() => {
+                logic.actions.setCohortValue('csv', new File(['a@b.com'], 'people.csv', { type: 'text/csv' }))
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+            const cancelButton = document.querySelector('[data-attr="cohort-upload-csv-modal-cancel"]') as HTMLElement
+            await userEvent.click(cancelButton)
+            expect(logic.values.cohort.csv).toBeUndefined()
+            expect(logic.values.csvUploadModalOpen).toBe(false)
+        })
+
+        it('shows the size limit and disables Upload for an oversized CSV', async () => {
+            logic = cohortEditLogic({ id: 10 })
+            render(<CohortCsvUploadModal id={10} />)
+
+            // Let the mount-time fetch land first, or its response would replace the state set below.
+            await waitFor(() => expect(logic.values.cohort.id).toEqual(mockCohort.id))
+
+            const csv = new File(['person@example.com'], 'people.csv', { type: 'text/csv' })
+            Object.defineProperty(csv, 'size', { value: logic.values.csvMaxBytes + 1 })
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 10,
+                    name: 'Saved cohort',
+                    is_static: true,
+                    csv,
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            expect(await screen.findByText(/larger than the limit/i)).toBeVisible()
+            const uploadButton = document.querySelector(
+                '[data-attr="cohort-upload-csv-modal-save"]'
+            ) as HTMLButtonElement
+            expect(uploadButton).toHaveAttribute('aria-disabled', 'true')
         })
     })
 
@@ -730,7 +763,6 @@ describe('cohortEditLogic', () => {
 
     describe('add users controls on an existing people cohort', () => {
         afterEach(() => {
-            act(() => navigation3000Logic.actions.setZenMode(false, 'url'))
             cleanup()
         })
 
@@ -765,30 +797,6 @@ describe('cohortEditLogic', () => {
                 expect(dropzone).not.toBeInTheDocument()
                 expect(addUsersMenu).toBeInTheDocument()
             }
-        })
-
-        it('keeps the add users controls available in zen mode', async () => {
-            const cohortId = 23
-            useMocks({
-                get: {
-                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
-                        ...mockCohort,
-                        id: cohortId,
-                        name: 'People cohort 3',
-                        is_static: true,
-                        filters: { properties: { type: 'OR', values: [] } },
-                        count: 3,
-                    },
-                },
-            })
-            render(<CohortEdit id={cohortId} />)
-
-            await screen.findAllByText('People cohort 3')
-            act(() => navigation3000Logic.actions.setZenMode(true, 'url'))
-
-            expect(await screen.findByText('Upload a CSV')).toBeInTheDocument()
-            expect(screen.getByRole('button', { name: 'Add users manually' })).toBeInTheDocument()
-            expect(screen.getByText('Drag a file here or click to browse for a file')).toBeInTheDocument()
         })
     })
 
