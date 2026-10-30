@@ -228,8 +228,8 @@ class BillingConsumer(SQSConsumer):
         try:
             result = record(str(organization_id), f"{Decimal(amount_cents) / 100:.2f}", str(reason), str(operation_id))
         except AIGatewayRequestRejected as e:
-            # A 4xx, such as an operation ID the gateway already holds with another amount, fails
-            # the same way on every delivery.
+            # A 400 or 409, such as an operation ID the gateway already holds with another amount,
+            # fails the same way on every delivery.
             logger.exception("ai_funding.rejected_by_gateway", extra={**context, "status_code": e.status_code})
             capture_exception(e, {**context, "status_code": e.status_code})
             return

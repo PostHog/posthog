@@ -218,7 +218,7 @@ class TestOrgLedger:
         )
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_4xx_is_rejected_with_its_status(self, mock_settings):
+    def test_a_conflict_is_rejected_with_its_status(self, mock_settings):
         _configured(mock_settings)
         conflict = _response(409, {"error": "amount_usd does not match the original entry for this Idempotency-Key"})
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=conflict):
@@ -227,10 +227,11 @@ class TestOrgLedger:
 
         assert excinfo.value.status_code == 409
 
+    @pytest.mark.parametrize("status", [401, 403, 404, 408, 429, 500, 503])
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_5xx_is_an_internal_error_to_retry(self, mock_settings):
+    def test_a_failure_that_can_recover_is_an_internal_error_to_retry(self, mock_settings, status):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(503, {"error": "down"})):
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
             with pytest.raises(AIGatewayInternalError) as excinfo:
                 grant_org_credit(ORG_ID, "20.00", "top_up", "ai_credit:in_1")
 
