@@ -5230,6 +5230,28 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
         )
 
+    def test_restricted_picks_never_take_a_page_slot(self) -> None:
+        experiment = create_experiment(self.team, "restricted-picks-flag")
+        restricted = self._create_scanner(name="restricted", experiment_targeting={"experiment_id": experiment.id})
+        open_scanner = self._create_scanner(name="open")
+        for index in range(10):
+            obs = self._succeeded_observation(restricted, f"restricted-{index}", index, self._monitor_result("yes"))
+            set_rank(obs, category="failure", contrast=index / 10, group=None)
+            obs = self._succeeded_observation(open_scanner, f"open-{index}", index, self._monitor_result("yes"))
+            set_rank(obs, category="struggle", contrast=index / 10, group=None)
+        restricted.experiment_targeting = None
+        restricted.save()
+
+        # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            resp = self.client.get(self.feed_url, {"limit": 2})
+        self.assertEqual(
+            sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-8", "open-9"]
+        )
+
     def test_a_later_page_drops_rows_the_viewer_lost_access_to_after_the_first(self) -> None:
         experiment = create_experiment(self.team, "revoked-flag")
         scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
