@@ -1176,6 +1176,22 @@ snapshots:
         hash: v1.k794b7964.442798f2e600069a7d91562610b8b7c7d3a4056ac586377a06dac861281fe95f.bESiPj85ewuYoqwKk98dJdyqFQEiE0ObW8p3BH9V6yw
     components-hogcharts-funnelchart--with-step-footer--light:
         hash: v1.k794b7964.0bf7642c300b844208cbb1fb7a17fbf96eb0222026882205f6d7cecebc88008a.6iZXA9vx-lh-6uP8V86vyU4_pyGgidZCpHGKj3IMQaI
+    components-hogcharts-gauge--horizontal-bars--dark:
+        hash: v1.k794b7964.496e7887f45bfad375b48364fca4940bc8472862c9f3a5bfad59ece5af06ef1a.XITA9-yWlgbUHa1CQb5m2aPgeDq4-21HciUPcw7fOsg
+    components-hogcharts-gauge--horizontal-bars--light:
+        hash: v1.k794b7964.902539b7506ba78676d7b9d1a417ee5e65e36e5195bb7650b7e2831313464d99.gLDvNZmbJ-urn_Csm5xiuJ90ax7kw7ThUgqNCaNFrSA
+    components-hogcharts-gauge--radial--dark:
+        hash: v1.k794b7964.dae5f33ccbfed907ab6030b081a333c92bf1cf2dcf56638cee3845152b6fdc04.rT28jj1M7QFe_XJRhT5JjrKIsqQT05VObOVCGx_dMR8
+    components-hogcharts-gauge--radial--light:
+        hash: v1.k794b7964.ab4322efb36b505112e31f4f7a2d8673b2650495a3d0d8edc82a041de92ae6a3.XJPjjz67FY4U9cZUvXfaJ-XX_91aKElEsE7jWjZe13g
+    components-hogcharts-gauge--single-radial--dark:
+        hash: v1.k794b7964.21965aaa19dbddc3d424adb4764c7d223c3d2d8231150a6027b0e91baf312470.I89UTKsHdJT44ZQPRHzwv2wZ-kICm4h2IJEdL3YYwxI
+    components-hogcharts-gauge--single-radial--light:
+        hash: v1.k794b7964.c49bc45d6349017c0a0348c9b908fc79cda18d51eab18ed995e5fb5623c739ec.n0dCFiWnVn2J2o4Br0PdEVw_R7jb3IvcCIpNzZW6Gtc
+    components-hogcharts-gauge--vertical-bars--dark:
+        hash: v1.k794b7964.8dab5c388f9526c94fced2142972ddf6a94a5f0744abfe942235b5a51bcb6b65.XjRKjgjy_WvxTK97vwgN3g9egA1DSE2BoQd3U7BHB_E
+    components-hogcharts-gauge--vertical-bars--light:
+        hash: v1.k794b7964.ce89ef457c33eba9b0968c296bfb7bc468d0ad344eda88d505022d41acfa65d6.JO2EjhBfRGUelLi_962DN9HDbLD84ILl3iwUK68MI28
     components-hogcharts-highlightedrange--mirroring-drag-selection--dark:
         hash: v1.k794b7964.6cabdb75668a4e0d83c77a0efc5d955045cf29752863b13587974b387194f2f1.10_3SllxBWGEb3SJCvNqQjJgB4Smu1SGPftAkKoft34
     components-hogcharts-highlightedrange--mirroring-drag-selection--light:
