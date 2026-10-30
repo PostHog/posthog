@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
   resetCapabilitiesCache,
@@ -6,6 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatView, overlayBottom, shimmer } from "./chatView";
+import { IMAGES_DIR } from "./images";
 import type { TranscriptLine } from "./transcript";
 
 const plain = (lines: string[]): string[] =>
@@ -96,6 +98,43 @@ describe("ChatView", () => {
     ]);
     // Ink draws an empty string with no height, so a blank line must carry a space to take up a row.
     expect(chat.render(40, 8).every((line) => line.length > 0)).toBe(true);
+  });
+
+  it("lists a message's images under it, each opening the saved file", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      {
+        kind: "user",
+        id: "u1",
+        text: "compare [Image #2] with [Image #3]",
+        images: [
+          {
+            data: Buffer.from("first").toString("base64"),
+            mimeType: "image/png",
+          },
+          {
+            data: Buffer.from("second").toString("base64"),
+            mimeType: "image/jpeg",
+          },
+        ],
+      },
+    ]);
+    const rows = plain(chat.render(40, 4));
+    const first = rows.findIndex(
+      (row) => row.includes("[Image #2]") && row.includes("└"),
+    );
+
+    expect(rows.slice(first, first + 2).map((row) => row.trim())).toEqual([
+      "└ [Image #2]",
+      "└ [Image #3]",
+    ]);
+    const files = [chat.imageAt(first), chat.imageAt(first + 1)];
+    expect(files.every((file) => file?.startsWith(IMAGES_DIR))).toBe(true);
+    expect(files.map((file) => readFileSync(file ?? "", "utf8"))).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(chat.imageAt(0)).toBeNull();
   });
 
   it("opens a tool group on a click to show each call and its output", () => {

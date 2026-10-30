@@ -130,6 +130,27 @@ describe("transcriptFrom", () => {
     },
   );
 
+  it("keeps the images a pi message was sent with on its user line", () => {
+    const image = { type: "image", data: "aGk=", mimeType: "image/png" };
+    const lines = transcriptFrom("pi", [
+      piEvent(1, {
+        type: "user_message",
+        id: "u1",
+        content: [{ type: "text", text: "look at [Image #2]" }, image],
+      }),
+      piEvent(2, {
+        type: "user_message",
+        id: "u2",
+        content: [{ type: "text", text: "and nothing here" }],
+      }),
+    ]).lines.filter((line) => line.kind === "user");
+
+    expect(lines.map((line) => line.kind === "user" && line.images)).toEqual([
+      [{ data: "aGk=", mimeType: "image/png" }],
+      undefined,
+    ]);
+  });
+
   it("shows a new pi chat's first message before the sandbox echoes it, and only once after", () => {
     expect(
       transcriptFrom("pi", [], "Fix the flaky test").lines.map(

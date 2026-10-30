@@ -13,12 +13,25 @@ import {
 import { z } from "zod";
 
 export type TranscriptLine =
-  | { kind: "user"; id: string; text: string }
+  | UserLine
   | { kind: "assistant"; id: string; text: string }
   | ToolLine
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
   | { kind: "actions"; id: string; actions: ShowAction[] }
   | ShellLine;
+
+// A message the user sent, with the images that went with it.
+export interface UserLine {
+  kind: "user";
+  id: string;
+  text: string;
+  images?: SentImage[];
+}
+
+export interface SentImage {
+  data: string;
+  mimeType: string;
+}
 
 // A shell command the user ran with ! in the composer, not one the agent ran.
 export interface ShellLine {
@@ -73,7 +86,10 @@ export function transcriptFrom(
           convertStoredEntriesToEvents(entries, taskDescription),
           null,
         );
-  const lines = built.items.flatMap(toLine);
+  const lines =
+    runtime === "pi"
+      ? withImages(built.items.flatMap(toLine), entries)
+      : built.items.flatMap(toLine);
   const turnOpen = built.lastTurnInfo?.isComplete === false;
   // An open turn holds its negated start time until it completes.
   const turnStartedAt =
@@ -103,6 +119,37 @@ export function transcriptFrom(
     };
   }
   return { lines, turnOpen, lastTurn, turnStartedAt };
+}
+
+// The conversation builder keeps a message's text and drops its images, so each user line takes them back
+// from the first unclaimed pi message with the same text.
+function withImages(
+  lines: TranscriptLine[],
+  entries: StoredLogEntry[],
+): TranscriptLine[] {
+  const sent = entries.flatMap((entry) => {
+    const event = entry.type === "pi_event" ? entry.event : undefined;
+    if (event?.type !== "user_message") return [];
+    const images = event.content.flatMap((block) =>
+      block.type === "image"
+        ? [{ data: block.data, mimeType: block.mimeType }]
+        : [],
+    );
+    if (images.length === 0) return [];
+    const text = event.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("")
+      .trim();
+    return [{ text, images }];
+  });
+  if (sent.length === 0) return lines;
+  return lines.map((line) => {
+    if (line.kind !== "user") return line;
+    const index = sent.findIndex(({ text }) => text === line.text.trim());
+    if (index < 0) return line;
+    const [{ images }] = sent.splice(index, 1);
+    return { ...line, images };
+  });
 }
 
 // Bookkeeping the harness asks for every turn; it says nothing about the work.

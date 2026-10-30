@@ -46,7 +46,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `models.ts` | `/model`, `/effort`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |
 | `transcript.ts` | Log entries to transcript lines, reusing the desktop's `buildConversationItems` |
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
-| `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open |
+| `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open, and only a sent image the TUI saved opens as a file |
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
 | `prompts.ts` | A local agent's dialogs and MCP permission requests, shown on the sheet and answered through the pi extension response |
 | `status.ts` | The PR and status chips in the pane header |
@@ -55,7 +55,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
 | `selection.ts`, `clipboard.ts`, `highlight.ts` | Click or drag: a press and release on one cell clicks (in the composer it places the cursor), and a drag selects chat or composer text and copies it on release |
-| `images.ts` | Images for a local chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker |
+| `images.ts` | Images for a local chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker. A sent image is saved under `~/.config/posthog-tui/images/` by a hash of its bytes, and its row under the message opens it |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
 | `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |

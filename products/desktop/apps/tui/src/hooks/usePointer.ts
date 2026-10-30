@@ -16,7 +16,7 @@ import {
   type Box as ScreenBox,
   type Wheel,
 } from "../mouse";
-import { openUrl } from "../openUrl";
+import { openImage, openUrl } from "../openUrl";
 import { Gesture } from "../selection";
 import type { SidebarRow } from "../sidebar";
 
@@ -139,7 +139,9 @@ export function usePointer({
       }
       if (!box || !hitTest(click, [["chat", box]])) return;
       const link = chat.linkAt(click.row - box.top, click.column - box.left);
+      const image = chat.imageAt(click.row - box.top);
       if (link) openUrl(link);
+      else if (image) openImage(image);
       else if (chat.toggleAt(click.row - box.top)) repaint();
     }
   };

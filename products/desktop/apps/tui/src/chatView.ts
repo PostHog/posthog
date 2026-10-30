@@ -16,6 +16,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { inverseCells } from "./highlight";
+import { savedImage } from "./images";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
 import { orange } from "./theme";
@@ -220,6 +221,19 @@ class ShellBlock implements Component {
 const needsGap = (previous: Block | undefined, line: Block): boolean =>
   previous !== undefined && previous.kind !== line.kind;
 
+// The images sent with a message, one row each under it, named as the message's markers name them.
+class SentImages implements Component {
+  constructor(private readonly labels: string[]) {}
+
+  render(width: number): string[] {
+    return this.labels.map((label) =>
+      truncateToWidth(` ${DIM("└")} ${label}`, width),
+    );
+  }
+
+  invalidate(): void {}
+}
+
 function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
   switch (line.kind) {
@@ -254,6 +268,8 @@ export class ChatView {
   private groups = new Set<string>();
   private hovered: string | null = null;
   private rows: { id: string; start: number; end: number }[] = [];
+  // The saved file behind each image row, by its item's id.
+  private imageFiles = new Map<string, string[]>();
   // The lines on screen after the last render, for finding the link under a click.
   private shown: string[] = [];
   // Every transcript line and the chat's size at the last render, for selections.
@@ -273,6 +289,7 @@ export class ChatView {
     this.groups = new Set(
       shown.flatMap((block) => (block.kind === "tools" ? [block.id] : [])),
     );
+    this.imageFiles = new Map();
     // An open turn's latest tool calls and its status read as one row, not two that say the same.
     const folded =
       notice?.tone === "working" && shown.at(-1)?.kind === "tools"
@@ -289,9 +306,24 @@ export class ChatView {
             )
           : new Trimmed(componentFor(block));
       const item = { id: block.id, component };
-      return needsGap(shown[index - 1], block)
+      const withGap = needsGap(shown[index - 1], block)
         ? [{ id: `${block.id}:gap`, component: new Spacer(1) }, item]
         : [item];
+      if (block.kind !== "user" || !block.images?.length) return withGap;
+      const markers = block.text.match(/\[Image #\d+\]/g) ?? [];
+      const id = `${block.id}:images`;
+      this.imageFiles.set(id, block.images.map(savedImage));
+      return [
+        ...withGap,
+        {
+          id,
+          component: new SentImages(
+            block.images.map(
+              (_, image) => markers[image] ?? `[Image #${image + 1}]`,
+            ),
+          ),
+        },
+      ];
     });
     if (notice && !folded) {
       this.items.push(
@@ -442,6 +474,14 @@ export class ChatView {
   linkAt(row: number, column: number): string | null {
     const line = this.shown[row];
     return line === undefined ? null : linkAt(line, column);
+  }
+
+  // The saved image under a row within the chat, or null.
+  imageAt(row: number): string | null {
+    const at = this.scroll.scrollTop + row;
+    const hit = this.rows.find(({ start, end }) => at >= start && at < end);
+    if (!hit) return null;
+    return this.imageFiles.get(hit.id)?.[at - hit.start] ?? null;
   }
 
   // A click on a tool group, by row within the chat, opens or closes it; false when it hit something else.
