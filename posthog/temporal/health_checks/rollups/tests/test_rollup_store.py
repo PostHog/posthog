@@ -10,13 +10,16 @@ from django.core.cache import cache
 import dagster
 
 from posthog.dags.daily_rollups import DailyRollupConfig
+from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.rollups import store
 from posthog.temporal.health_checks.rollups.runner import RollupDay, RollupDayRefused, run_rollup_day
 from posthog.temporal.health_checks.rollups.store import delete_days_before, delete_rollup_rows_for_teams
 
 from products.growth.backend.models import SdkVersionsDaily
 from products.growth.backend.sdk_version_rollup import SdkVersionsDailyRollup
+from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
 from products.growth.dags.sdk_versions_rollup import sdk_versions_daily_rollup
 
 YESTERDAY = dt.date(2026, 10, 28)
@@ -151,3 +154,21 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
         assert list(
             SdkVersionsDaily.objects.for_team(self.team.id).filter(day=YESTERDAY).values_list("event_count", flat=True)
         ) == [1]
+
+    def test_check_skips_the_batch_and_keeps_issues_when_the_rollup_is_stale(self) -> None:
+        issue = HealthIssue.objects.create(
+            team=self.team,
+            kind=SdkOutdatedCheck.kind,
+            severity=HealthIssue.Severity.WARNING,
+            payload={"sdk_name": "web"},
+            unique_hash=HealthIssue.compute_unique_hash(SdkOutdatedCheck.kind, {"sdk_name": "web"}, ["sdk_name"]),
+        )
+        SdkVersionsDaily.objects.unscoped().bulk_create(
+            [_sdk_row(self.team.id, YESTERDAY - dt.timedelta(days=offset)) for offset in range(2, 10)]
+        )
+
+        result = _process_batch_detection([self.team.id], SdkOutdatedCheck.kind, SdkOutdatedCheck().detect)
+
+        assert result.teams_skipped == 1
+        issue.refresh_from_db()
+        assert issue.status == HealthIssue.Status.ACTIVE

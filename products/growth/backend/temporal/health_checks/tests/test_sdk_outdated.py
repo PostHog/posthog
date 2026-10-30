@@ -1,53 +1,56 @@
-from unittest.mock import MagicMock, patch
+import datetime as dt
+
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
+from posthog.temporal.health_checks.models import HealthCheckBatchSkipped
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
-from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
-from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck, _cache_team_sdk_data
+from products.growth.backend.models import SdkVersionsDaily
+from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
 
 # A release date far enough in the past that any version behind latest is unambiguously outdated,
 # independent of the wall clock when the test runs.
 OLD_RELEASE = "2020-01-01T00:00:00Z"
 
+WINDOW = RollupWindow(start=dt.date(2026, 3, 14), end=dt.date(2026, 3, 20))
 
-def _make_ch_row(
+
+def _make_row(
     team_id: int,
     lib: str,
     lib_version: str | None,
-    max_timestamp: str = "2026-03-20 12:00:00",
+    max_timestamp: dt.datetime = dt.datetime(2026, 3, 20, 12, tzinfo=dt.UTC),
     event_count: int = 5000,
-) -> tuple:
-    return (team_id, lib, lib_version, max_timestamp, event_count)
-
-
-def _patch_check(github: dict | None, rows: list[tuple]):
-    """Patch the three external boundaries the check touches: GitHub version data, ClickHouse, Redis cache."""
-    return (
-        patch(
-            "products.growth.backend.temporal.health_checks.sdk_outdated._load_github_sdk_data",
-            return_value=github or {},
-        ),
-        patch(
-            "products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query",
-            return_value=rows,
-        ),
-        patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data"),
+) -> SdkVersionsDaily:
+    return SdkVersionsDaily(
+        team_id=team_id,
+        day=WINDOW.end,
+        lib=lib,
+        lib_version=lib_version or "",
+        event_count=event_count,
+        max_timestamp=max_timestamp,
     )
 
 
-class TestSdkOutdatedCheck(SimpleTestCase):
+class TestSdkOutdatedCheck(BaseTest):
     def setUp(self):
+        super().setUp()
         self.check = SdkOutdatedCheck()
 
-    def _run(self, github: dict | None, rows: list[tuple], team_ids: list[int]) -> dict:
-        p_github, p_ch, p_cache = _patch_check(github, rows)
-        with p_github, p_ch, p_cache as mock_cache:
-            self._mock_cache = mock_cache
-            return self.check.detect(team_ids)
+    def _run(self, github: dict | None, rows: list[SdkVersionsDaily], team_ids: list[int]) -> dict:
+        SdkVersionsDaily.objects.unscoped().bulk_create(rows)
+        with patch(
+            "products.growth.backend.temporal.health_checks.sdk_outdated._load_github_sdk_data",
+            return_value=github or {},
+        ):
+            return self.check.detect_from_rollup(team_ids, WINDOW)
 
     def test_detects_outdated_sdk_with_enriched_payload(self):
         github = {
@@ -56,9 +59,9 @@ class TestSdkOutdatedCheck(SimpleTestCase):
             "posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}},
         }
         rows = [
-            _make_ch_row(1, "web", "2.0.0"),
-            _make_ch_row(1, "posthog-node", "3.0.0"),
-            _make_ch_row(1, "posthog-python", "4.0.0", event_count=900),
+            _make_row(1, "web", "2.0.0"),
+            _make_row(1, "posthog-node", "3.0.0"),
+            _make_row(1, "posthog-python", "4.0.0", event_count=900),
         ]
 
         results = self._run(github, rows, [1])
@@ -95,8 +98,8 @@ class TestSdkOutdatedCheck(SimpleTestCase):
             },
         }
         rows = [
-            _make_ch_row(1, "posthog-java", None),
-            _make_ch_row(1, "posthog-server", "2.7.5"),
+            _make_row(1, "posthog-java", None),
+            _make_row(1, "posthog-server", "2.7.5"),
         ]
 
         results = self._run(github, rows, [1])
@@ -135,8 +138,8 @@ class TestSdkOutdatedCheck(SimpleTestCase):
             }
         }
         rows = [
-            _make_ch_row(1, sdk_type, "1.2.0", event_count=100),
-            _make_ch_row(1, sdk_type, "1.10", event_count=50),
+            _make_row(1, sdk_type, "1.2.0", event_count=100),
+            _make_row(1, sdk_type, "1.10", event_count=50),
         ]
 
         results = self._run(github, rows, [1])
@@ -149,8 +152,8 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         # rather than the contradictory "on 1.142.0, latest is 1.142.0".
         github = {"web": {"latestVersion": "1.142.0", "releaseDates": {"1.130.0": OLD_RELEASE}}}
         rows = [
-            _make_ch_row(1, "web", "1.142.0", event_count=700),  # primary: latest, healthy
-            _make_ch_row(1, "web", "1.130.0", event_count=300),  # 30% traffic, behind, old
+            _make_row(1, "web", "1.142.0", event_count=700),  # primary: latest, healthy
+            _make_row(1, "web", "1.130.0", event_count=300),  # 30% traffic, behind, old
         ]
 
         results = self._run(github, rows, [1])
@@ -172,7 +175,7 @@ class TestSdkOutdatedCheck(SimpleTestCase):
 
     def test_escalates_to_critical_when_majority_outdated(self):
         github = {"posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}}}
-        rows = [_make_ch_row(1, "posthog-python", "4.0.0")]
+        rows = [_make_row(1, "posthog-python", "4.0.0")]
 
         results = self._run(github, rows, [1])
 
@@ -181,7 +184,7 @@ class TestSdkOutdatedCheck(SimpleTestCase):
 
     def test_skips_team_on_latest_version(self):
         github = {"web": {"latestVersion": "1.200.0", "releaseDates": {}}}
-        rows = [_make_ch_row(1, "web", "1.200.0")]
+        rows = [_make_row(1, "web", "1.200.0")]
 
         assert self._run(github, rows, [1]) == {}
 
@@ -189,27 +192,45 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         # Proves the heuristics run: a crude current!=latest rule would flag this, but a patch
         # difference is never outdated.
         github = {"web": {"latestVersion": "2.0.5", "releaseDates": {}}}
-        rows = [_make_ch_row(1, "web", "2.0.3")]
+        rows = [_make_row(1, "web", "2.0.3")]
 
         assert self._run(github, rows, [1]) == {}
 
-    def test_returns_empty_when_no_github_data(self):
-        p_github, p_ch, p_cache = _patch_check({}, [])
-        with p_github, p_ch as mock_ch, p_cache:
-            results = self.check.detect([1])
-        assert results == {}
-        mock_ch.assert_not_called()
+    def test_skips_batch_when_no_github_data(self):
+        with pytest.raises(HealthCheckBatchSkipped):
+            self._run({}, [_make_row(1, "web", "1.0.0")], [1])
 
-    def test_skips_team_with_no_clickhouse_data(self):
+    def test_keeps_open_issue_for_sdk_without_github_data(self):
+        kept_payload = {"sdk_name": "posthog-ruby", "latest_version": "3.0.0", "reason": "behind"}
+        HealthIssue.objects.create(
+            team_id=self.team.id,
+            kind=SdkOutdatedCheck.kind,
+            severity=HealthIssue.Severity.WARNING,
+            payload=kept_payload,
+            unique_hash=HealthIssue.compute_unique_hash(SdkOutdatedCheck.kind, kept_payload, ["sdk_name"]),
+        )
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
+
+        results = self._run(
+            github,
+            [_make_row(self.team.id, "web", "1.0.0"), _make_row(self.team.id, "posthog-ruby", "2.0.0")],
+            [self.team.id],
+        )
+
+        assert sorted(issue.payload["sdk_name"] for issue in results[self.team.id]) == ["posthog-ruby", "web"]
+        kept = next(issue for issue in results[self.team.id] if issue.payload["sdk_name"] == "posthog-ruby")
+        assert kept.payload == kept_payload
+
+    def test_skips_team_with_no_rollup_data(self):
         github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
         assert self._run(github, [], [1]) == {}
 
     def test_multiple_teams_in_batch(self):
         github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
         rows = [
-            _make_ch_row(1, "web", "1.0.0"),  # major behind -> outdated
-            _make_ch_row(2, "web", "2.0.0"),  # latest -> healthy
-            _make_ch_row(3, "web", "1.0.0"),  # major behind -> outdated
+            _make_row(1, "web", "1.0.0"),  # major behind -> outdated
+            _make_row(2, "web", "2.0.0"),  # latest -> healthy
+            _make_row(3, "web", "1.0.0"),  # major behind -> outdated
         ]
 
         results = self._run(github, rows, [1, 2, 3])
@@ -225,35 +246,9 @@ class TestSdkOutdatedCheck(SimpleTestCase):
 
     def test_ignores_unknown_sdk_types(self):
         github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
-        rows = [_make_ch_row(1, "unknown-sdk", "1.0.0", event_count=100)]
+        rows = [_make_row(1, "unknown-sdk", "1.0.0", event_count=100)]
 
         assert self._run(github, rows, [1]) == {}
-
-    def test_caches_team_data_in_redis(self):
-        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
-        rows = [_make_ch_row(1, "web", "1.5.0")]
-
-        self._run(github, rows, [1])
-
-        self._mock_cache.assert_called_once()
-        cached_data = self._mock_cache.call_args[0][0]
-        assert 1 in cached_data
-        assert "web" in cached_data[1]
-        assert cached_data[1]["web"][0]["lib_version"] == "1.5.0"
-
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_cache_team_sdk_data_uses_team_sdk_cache_expiry(self, mock_get_client: MagicMock):
-        mock_redis = MagicMock()
-        mock_pipe = MagicMock()
-        mock_redis.pipeline.return_value = mock_pipe
-        mock_get_client.return_value = mock_redis
-
-        _cache_team_sdk_data({1: {"web": [{"lib_version": "1.0.0", "max_timestamp": "x", "count": 1}]}})
-
-        mock_pipe.setex.assert_called_once()
-        key, ttl, _payload = mock_pipe.setex.call_args[0]
-        assert key == "sdk_versions:team:v2:1"
-        assert ttl == TEAM_SDK_CACHE_EXPIRY
 
 
 class TestSdkOutdatedRenderAlert(SimpleTestCase):

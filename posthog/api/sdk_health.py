@@ -20,7 +20,7 @@ from products.growth.backend.constants import (
     SDK_TYPES,
     SdkVersionEntry,
     github_sdk_versions_key,
-    team_sdk_versions_v2_key,
+    team_sdk_versions_v3_key,
 )
 from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
 
@@ -175,9 +175,8 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 type=bool,
                 required=False,
                 description=(
-                    "When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. "
-                    "A background job refreshes this data once a day, so the cached answer is "
-                    "usually current. Use sparingly."
+                    "When true, bypasses the cache and re-reads SDK usage. The cached answer is at "
+                    "most an hour old, so use this sparingly."
                 ),
             ),
         ],
@@ -226,8 +225,8 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 @permission_classes([IsAuthenticated])
 def sdk_health(request: Request) -> Response:
     """
-    Serve team SDK versions. Data is cached by the Temporal sdk_outdated health check.
-    Supports force_refresh=true for on-demand detection.
+    Serve team SDK versions, built from the daily rollup plus live events and cached for an hour.
+    Supports force_refresh=true to rebuild the answer now.
     """
     user = cast(User, request.user)
 
@@ -275,7 +274,7 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
     redis_client = get_client()
 
     if not force_refresh:
-        cache_key = team_sdk_versions_v2_key(team_id)
+        cache_key = team_sdk_versions_v3_key(team_id)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:

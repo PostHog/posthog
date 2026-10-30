@@ -230,9 +230,9 @@ Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 Checks that would scan days of raw `events` read a daily rollup on Postgres instead.
 A Dagster job per rollup reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
 
-| Table                       | Product | Kept    | Dagster job                     |
-| --------------------------- | ------- | ------- | ------------------------------- |
-| `growth_sdk_versions_daily` | growth  | 10 days | `growth_sdk_versions_daily_job` |
+| Table                       | Product | Kept    | Dagster job                     | Read by                             |
+| --------------------------- | ------- | ------- | ------------------------------- | ----------------------------------- |
+| `growth_sdk_versions_daily` | growth  | 10 days | `growth_sdk_versions_daily_job` | `sdk_outdated`, the SDK Health page |
 
 ### How a day is published
 
@@ -250,6 +250,17 @@ Rows for teams that no longer exist are dropped before writing, and team deletio
 A refused or failed day does not stop the other days or retention, and the run fails at the end, which alerts the owning team.
 
 To fill a day by hand, launch the job in Dagster with `days: ["2026-10-01", ...]`, and add `force: true` to publish a day the median rule refused.
+
+### Reading a rollup from a check
+
+Subclass `RollupHealthCheck` instead of `HealthCheck`, set `rollup_model` and `window_days`, and implement `detect_from_rollup(team_ids, window)`.
+The window ends at the latest published day (L).
+When L is missing or more than two days old, or any day of the window is missing, the base class raises `HealthCheckBatchSkipped`.
+The batch then keeps its issues, and the run fails once skipped teams pass `not_processed_threshold`.
+Events after L are not in the rollup, so a check that must see them adds a small live ClickHouse query from `window.live_since`.
+
+Read rows through `window_rows(model, team_ids, window)` (`rollups/freshness.py`).
+Name the rollup model in `READ_REPLICA_OPT_IN` to read it from the read replica.
 
 ### Adding a rollup
 

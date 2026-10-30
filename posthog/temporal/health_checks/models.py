@@ -90,3 +90,11 @@ class HealthCheckWorkflowInputs:
 
 class HealthCheckThresholdExceeded(Exception):
     pass
+
+
+class HealthCheckBatchSkipped(Exception):
+    """Raised by `detect` when the batch cannot be judged, for example when its input data is stale.
+
+    The framework counts every team in the batch as skipped, so each team keeps its current issues
+    and the run fails once skipped teams pass `not_processed_threshold`.
+    """
