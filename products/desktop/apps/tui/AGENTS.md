@@ -10,7 +10,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - Cloud chats: transcripts stream from `CloudTaskEngine`, recent history preloads and older pages load on scroll up. The composer starts a run or continues one, and a pane shows a new run's first message, start-up state and failure reason.
 - Local chats: pi runs on this machine through the desktop's pi client factory, with a task row on the server and a session file here. Agent dialogs and MCP permission requests are answered on the bottom sheet.
 - Chat view: tool calls collapse into clickable summaries that highlight under the pointer, web links open on click, a drag selects and copies text, and the agent's `show_actions` offers sit on the bottom sheet.
-- Composer: `/model`, the live run's own slash commands, floating suggestions, `!` shell mode, Esc to stop the agent and double Esc to clear.
+- Composer: `/model`, `/effort`, the live run's own slash commands, floating suggestions, `!` shell mode, Esc to stop the agent and double Esc to clear.
 - Sign-in from inside the app (OAuth, or a local dev login), with the layout saved between runs.
 
 ## Run and test
@@ -20,7 +20,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
 In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+R reloads all code, Ctrl+Q quits.
-Slash commands: `/model`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
+Slash commands: `/model`, `/effort`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
 `/local` and `/cloud` switch the current pane and set where new chats in other panes run, saved between runs.
 `!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 
@@ -39,7 +39,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `chats.ts` | Starting and replying to pi cloud runs |
 | `local.ts` | Local chats: the harness as a child process (`createPiRpcClient` + `PiRuntime`), with a pi session file each |
 | `localChats.ts` | Local chats' pi session files under `~/.config/posthog-tui/local/`, one per task id, and linking older `local:<uuid>` files to new task rows |
-| `models.ts` | `/model`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |
+| `models.ts` | `/model`, `/effort`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |
 | `transcript.ts` | Log entries to transcript lines, reusing the desktop's `buildConversationItems` |
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
 | `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open |

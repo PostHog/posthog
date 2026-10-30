@@ -41,6 +41,7 @@ export function useSend({
   modalFor,
   openModal,
   openModelSheet,
+  openEffortSheet,
   onChatStarted,
   runShell,
   notice: { flashNotice, showNotice },
@@ -71,6 +72,7 @@ export function useSend({
     choose: (index: number) => void,
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
+  openEffortSheet: (paneId: string, task: Task | undefined) => void;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
     paneId: string,
@@ -133,6 +135,10 @@ export function useSend({
     const slash = parseSlash(text);
     if (slash?.command === "model") {
       openModelSheet(paneId, current);
+      return;
+    }
+    if (slash?.command === "effort") {
+      openEffortSheet(paneId, current);
       return;
     }
     if (slash?.command === "new") {

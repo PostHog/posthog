@@ -160,7 +160,7 @@ describe("App", () => {
     }
   });
 
-  it("names the model a live chat reports, not the one it would start on", async () => {
+  it("names the model and effort a live chat reports, not the model it would start on", async () => {
     const sessions = join(homedir(), ".config", "posthog-tui", "local");
     mkdirSync(sessions, { recursive: true });
     writeFileSync(join(sessions, "t3.jsonl"), "");
@@ -177,6 +177,7 @@ describe("App", () => {
           available: [],
           current: { provider: "posthog", id: "gpt-6.1-sol", name: "Sol 6.1" },
         }),
+        efforts: async () => ({ available: ["low", "high"], current: "high" }),
         commands: async () => [],
       },
     } as unknown as LocalSession;
@@ -200,7 +201,9 @@ describe("App", () => {
       />,
     );
     try {
-      await vi.waitFor(() => expect(output()).toContain("Local · Sol 6.1"));
+      await vi.waitFor(() =>
+        expect(output()).toContain("Local · Sol 6.1 (high)"),
+      );
     } finally {
       instance.unmount();
       rmSync(sessions, { recursive: true });

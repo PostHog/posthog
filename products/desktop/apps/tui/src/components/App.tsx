@@ -141,7 +141,13 @@ export function App({
     flashNotice,
   });
 
-  const { openModelSheet, onRunLive, onChatStarted, modelName } = useModels({
+  const {
+    openModelSheet,
+    openEffortSheet,
+    onRunLive,
+    onChatStarted,
+    modelLabel,
+  } = useModels({
     layout,
     isLocal,
     localSessions,
@@ -174,6 +180,7 @@ export function App({
     modalFor,
     openModal,
     openModelSheet,
+    openEffortSheet,
     onChatStarted,
     runShell,
     notice,
@@ -248,7 +255,7 @@ export function App({
       onOffer={(offer) => setOffer(node.id, offer)}
       picker={pickerFor(node.id)}
       modal={modalFor(node.id) ?? null}
-      model={modelName(node.id, node.taskId)}
+      model={modelLabel(node.id, node.taskId)}
       onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
       onTurn={(turn) => setTurn(node.id, turn)}
       chips={
