@@ -55,8 +55,12 @@ export function startingOptions(
     return { models, model: STARTING_MODEL, effort: null, efforts };
   }
   const adapter = billing === "anthropic" ? "claude" : "codex";
+  // The gateway serves other vendors through the Claude adapter; a Claude plan only runs Anthropic's own.
   const models = MODELS.filter(
-    (entry) => entry.runtimeAdapter === adapter && isOfferedModel(entry.id),
+    (entry) =>
+      entry.runtimeAdapter === adapter &&
+      isOfferedModel(entry.id) &&
+      (adapter !== "claude" || entry.id.startsWith("claude-")),
   ).map((entry) => choice(adapter, entry.id));
   const wanted =
     adapter === "claude"
