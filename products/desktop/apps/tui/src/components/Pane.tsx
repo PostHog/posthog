@@ -9,6 +9,7 @@ import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
 import { claudePlan } from "../claudeLocal";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
+import type { SearchState } from "../hooks/useSearch";
 import type { LocalAgent } from "../local";
 import type { Mode } from "../models";
 import { type Picker, renderPicker } from "../picker";
@@ -42,6 +43,7 @@ import {
   withPendingShells,
 } from "../transcript";
 import { contextFill, isCompacting, shellsStatus, usageStatus } from "../usage";
+import { Search } from "./Search";
 import { Spinner } from "./Spinner";
 
 const COST_REFRESH_MS = 60_000;
@@ -162,6 +164,7 @@ export function Pane({
   notice: paneNotice,
   reopening,
   repoPicker,
+  search = null,
   today = null,
   onTodayHits,
   extraOffer = null,
@@ -219,6 +222,8 @@ export function Pane({
   reopening: boolean;
   // The pane's open /repo picker, drawn in place of the composer.
   repoPicker: Picker | null;
+  // A task search opened in this pane; its pick fills the pane.
+  search?: SearchState | null;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -433,7 +438,8 @@ export function Pane({
       : chat.isScrolledUp()
         ? []
         : [" "];
-  const showsComposer = !repoPicker && (!modal || Boolean(modal.submitText));
+  const showsComposer =
+    !repoPicker && !search && (!modal || Boolean(modal.submitText));
   const bottomLines = [
     ...noticeLines,
     ...sheetLines,
@@ -470,7 +476,8 @@ export function Pane({
             .slice(1)
             .map((line) => faint(`${" ".repeat(TODAY_MARGIN)}${line}`))
         : [];
-  if (todayLayout)
+  if (search) content = <Search search={search} height={chatHeight} />;
+  else if (todayLayout)
     content = (
       <Box flexDirection="column">
         {overlayBottom(

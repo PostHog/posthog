@@ -409,13 +409,18 @@ describe("App", () => {
       title: "Fix the flaky test",
       last_activity_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
     };
-    const search = vi.fn(async () => [found]);
+    const loaded = { ...task(), id: "t8", title: "Known flaky" };
+    const answer = Promise.withResolvers<void>();
+    const search = vi.fn(async () => {
+      await answer.promise;
+      return [found];
+    });
     const mouse: MouseEvents = new EventEmitter();
     const { instance, output, type } = renderInTerminal(
       <App
         session={{
           work: {
-            listRecent: async () => ({ tasks: [], hasMore: false }),
+            listRecent: async () => ({ tasks: [loaded], hasMore: false }),
             get: async () => found,
             search,
           } as unknown as WorkList,
@@ -441,10 +446,16 @@ describe("App", () => {
     const drawnSince = (mark: number): string =>
       stripTerminalSequences(output().slice(mark));
     try {
-      await vi.waitFor(() => expect(output()).toContain("No work yet"));
+      await vi.waitFor(() => expect(output()).toContain("Known flaky"));
       press(opener);
       await vi.waitFor(() => expect(output()).toContain("Search tasks"));
       press("flaky");
+      // A loaded task that matches shows at once, while the server's answer is on its way.
+      await vi.waitFor(() =>
+        expect(drawnSince(0)).toMatch(/● Known flaky[\s\S]*Searching/),
+      );
+      expect(search).not.toHaveBeenCalled();
+      answer.resolve();
       await vi.waitFor(() =>
         expect(drawnSince(0)).toMatch(/● Fix the flaky test\s+2h ago/),
       );
@@ -456,6 +467,71 @@ describe("App", () => {
         expect(drawnSince(picked)).toContain("^N new · ^\\ split"),
       );
       expect(drawnSince(picked)).toContain("Fix the flaky test");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("opens Ctrl+K inside an empty split pane, and the pick fills that pane", async () => {
+    const split = splitFocused(openTask(initialLayout(), "t1"), "row");
+    const [, right] = paneIds(activeWorkspace(split).root);
+    saveLayout(focusPane(split, right));
+    const found = { ...task(), id: "t9", title: "Fix the flaky test" };
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output, type } = renderInTerminal(
+      <Box height={30} flexDirection="column">
+        <App
+          session={{
+            work: {
+              listRecent: async () => ({
+                tasks: [task(), found],
+                hasMore: false,
+              }),
+              get: async (id: string) => (id === "t9" ? found : task()),
+              search: async () => [found],
+            } as unknown as WorkList,
+            runs: {
+              watch: () => ({ stop: () => {}, loadOlder: async () => {} }),
+              prefetch: async () => {},
+              watchPrompts: () => () => {},
+            } as unknown as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+            startLocal: () => Promise.reject(new Error("no local")),
+          }}
+          login={async () => {}}
+          logout={() => {}}
+          mouse={mouse}
+        />
+      </Box>,
+    );
+    const press = (bytes: string): void => {
+      mouse.emit("keys", bytes);
+      type(bytes);
+    };
+    try {
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(output())).toContain("Type a message"),
+      );
+      press("\x0b");
+      await vi.waitFor(() => {
+        const screen = stripTerminalSequences(output()).slice(-3000);
+        // The search draws in the right pane, beside the left chat's header, not over the whole screen.
+        expect(screen).toContain("Search tasks");
+        expect(screen).toContain("│");
+      });
+      press("flaky");
+      // The query is drawn in the pane before Enter, so the pick reads the matches, not the recent list.
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(output()).slice(-3000)).toContain(
+          "❯ flaky",
+        ),
+      );
+      press("\r");
+      await vi.waitFor(() => {
+        const pane = allPanes(loadLayout()).find((p) => p.id === right);
+        expect(pane?.taskId).toBe("t9");
+      });
     } finally {
       instance.unmount();
     }

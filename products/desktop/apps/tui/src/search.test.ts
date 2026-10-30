@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { editQuery, searchRows } from "./search";
+import { cachedMatches, editQuery, searchRows } from "./search";
 
 describe("editQuery", () => {
   it.each([
@@ -11,6 +11,21 @@ describe("editQuery", () => {
     ["ignores a navigation key", "fix", "\x1b[C", "fix"],
   ])("%s", (_, query, sequence, expected) => {
     expect(editQuery(query, sequence)).toBe(expected);
+  });
+});
+
+describe("cachedMatches", () => {
+  it("finds loaded tasks by a word in their title or description, case aside, in their order", () => {
+    const tasks = [
+      { id: "a", title: "Review realtime cohorts PR stack" },
+      { id: "b", title: "Ship it", description: "Realtime audience preview" },
+      { id: "c", title: "Unrelated" },
+    ] as Task[];
+    expect(cachedMatches(tasks, "REALTIME").map((task) => task.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(cachedMatches(tasks, "")).toEqual([]);
   });
 });
 
