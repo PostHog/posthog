@@ -681,6 +681,11 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /**
+     * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+     * @nullable
+     */
+    default_slack_notification_integration?: number | null
     /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
     autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
     /**

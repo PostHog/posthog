@@ -1063,6 +1063,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "startup_requested_at": startup_requested_at.isoformat(),
                         "startup_run_created_at": task_run.created_at.isoformat(),
                         "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+                        # NULL when the caller pinned nothing and the run takes the Tasks default.
+                        "model": state.get("model"),
+                        "runtime_adapter": state.get("runtime_adapter"),
+                        "reasoning_effort": state.get("reasoning_effort"),
                     },
                 )
 

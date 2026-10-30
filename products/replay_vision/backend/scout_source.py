@@ -1,4 +1,4 @@
-from products.signals.backend.enums import SignalSourceProduct
+from products.signals.backend.facade.taxonomy import SignalSourceProduct
 
 # pinned: what a scout's config records as its owner. Signals stores it as `(source_product,
 # source_id)`, where source_id is the scanner's id, and that pair is what ties a scout back to the

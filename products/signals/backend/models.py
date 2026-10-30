@@ -54,6 +54,10 @@ from products.signals.backend.enums import (
     SignalSourceType,
     signal_source_product_choices,
 )
+from products.signals.backend.filter_catalog import (
+    SignalFilterCatalogVersion as SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition as SignalFilterSourceDefinition,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
@@ -239,6 +243,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
+    # id from one of them fails in every other. Null on rows saved before the binding existed.
+    # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
+    default_slack_notification_integration_id = models.BigIntegerField(null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
@@ -1116,6 +1124,13 @@ class SignalReport(UUIDModel):
         can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
         subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
+        artefact_rows, legacy_rows, assignment_rows = SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id)
+        return models.Q(id__in=artefact_rows) | models.Q(id__in=legacy_rows) | models.Q(id__in=assignment_rows)
+
+    @staticmethod
+    def report_ids_for_task_ids(task_ids: Any, *, team_id: int | None = None) -> list["models.QuerySet[Any]"]:
+        """The `report_id` querysets behind `reports_for_task_ids_filter`, one per link table. A caller
+        can run them as separate indexed lookups instead of one `OR` over `SignalReport`."""
         artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
@@ -1128,11 +1143,7 @@ class SignalReport(UUIDModel):
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
             assignment_rows = assignment_rows.filter(team_id=team_id)
-        return (
-            models.Q(id__in=artefact_rows.values("report_id"))
-            | models.Q(id__in=legacy_rows.values("report_id"))
-            | models.Q(id__in=assignment_rows.values("report_id"))
-        )
+        return [rows.values("report_id") for rows in (artefact_rows, legacy_rows, assignment_rows)]
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):

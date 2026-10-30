@@ -18,6 +18,9 @@ const CLAIMABLE_STATUSES: ReadonlySet<SignalReportStatus> = new Set([
 
 export function reportClaimant(report: Pick<SignalReport, 'assignee'>): _UserApi | null {
     const assignee = report.assignee
+    if (assignee?.kind === 'agent') {
+        return assignee.responsible_user ?? assignee.user
+    }
     return assignee?.kind === 'user' ? assignee.user : null
 }
 
