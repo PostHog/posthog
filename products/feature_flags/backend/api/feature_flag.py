@@ -1476,7 +1476,8 @@ def _live_experiments(flag: FeatureFlag) -> tuple[LinkedExperiment, ...]:
 
 
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
+    """Loads the experiments and the condition cohorts of every flag on a page, one query each, instead of one query
+    per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1485,6 +1486,7 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
+        _attach_live_experiments(flags)
         self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
             flags, self.child.context["project_id"]
         )
@@ -4339,12 +4341,6 @@ class FeatureFlagViewSet(
         flag = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
         _attach_live_experiments([flag])
         return flag
-
-    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
-        page = super().paginate_queryset(queryset)
-        if page is not None:
-            _attach_live_experiments(page)
-        return page
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         from products.early_access_features.backend.models import EarlyAccessFeature
