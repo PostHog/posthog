@@ -106,7 +106,7 @@ jobs:
         needs: changes
         if: ${{ !cancelled() }}
         with:
-            run-suite: ${{ needs.changes.outputs.build }}
+            run-suite: ${{ needs.changes.result == 'success' && needs.changes.outputs.build || '' }}
         uses: ./.github/workflows/desktop-build.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -115,7 +115,7 @@ jobs:
         needs: changes
         if: ${{ !cancelled() }}
         with:
-            run-suite: ${{ needs.changes.outputs.quality }}
+            run-suite: ${{ needs.changes.result == 'success' && needs.changes.outputs.quality || '' }}
         uses: ./.github/workflows/desktop-quality.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -124,7 +124,7 @@ jobs:
         needs: changes
         if: ${{ !cancelled() }}
         with:
-            run-suite: ${{ needs.changes.outputs.typecheck }}
+            run-suite: ${{ needs.changes.result == 'success' && needs.changes.outputs.typecheck || '' }}
         uses: ./.github/workflows/desktop-typecheck.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -133,8 +133,8 @@ jobs:
         needs: changes
         if: ${{ !cancelled() }}
         with:
-            run-suite: ${{ needs.changes.outputs.test }}
-            run-e2e: ${{ needs.changes.outputs.test_e2e }}
+            run-suite: ${{ needs.changes.result == 'success' && needs.changes.outputs.test || '' }}
+            run-e2e: ${{ needs.changes.result == 'success' && needs.changes.outputs.test_e2e || '' }}
         uses: ./.github/workflows/desktop-test.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
