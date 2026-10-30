@@ -122,3 +122,19 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
 
         assert result is not None
         assert [(entry["lib_version"], entry["count"]) for entry in result["web"]] == [("2.0.0", 1)]
+
+    def test_reads_every_live_version_past_the_default_hogql_row_limit(self) -> None:
+        for patch_version in range(150):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user",
+                timestamp=dt.datetime.now(dt.UTC),
+                properties={"$lib": "web", "$lib_version": f"1.0.{patch_version}"},
+            )
+        flush_persons_and_events()
+
+        result = get_sdk_versions_for_team(self.team.id)
+
+        assert result is not None
+        assert len(result["web"]) == 150

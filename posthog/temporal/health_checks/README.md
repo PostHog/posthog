@@ -249,7 +249,9 @@ A filled day is refused, and the published day stays as it was, when:
 - it has fewer than half the rows of the median of the last 7 published days, unless the run is forced
 
 Rows for teams that no longer exist are dropped before writing, and team deletion removes a team's rows.
-A refused or failed day does not stop the other days or retention, and the run fails at the end, which alerts the owning team.
+Every run also deletes the rows of teams that no longer exist, which a fill can write while a team deletion runs.
+A refused or failed day does not stop the other days or the clean-up, and the run fails at the end, which alerts the owning team.
+Dagster retries a failed run twice, 15 minutes apart, unless every failed day was refused.
 
 To fill a day by hand, launch the job in Dagster with `days: ["2026-10-01", ...]`, and add `force: true` to publish a day the median rule refused.
 

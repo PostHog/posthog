@@ -16,8 +16,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# A batch reads Postgres rollup rows, not raw events, so it can hold many more teams than a ClickHouse check.
-ROLLUP_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=2500, max_concurrent=2)
+# A batch reads Postgres rollup rows, not raw events, so it holds as many teams as a Postgres check.
+# That size also bounds the issue upserts, which take one advisory lock per team in one transaction.
+ROLLUP_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=1000, max_concurrent=2)
 
 COMPARISON_SAMPLE_RATE = 0.1
 _COMPARISON_LOG_TEAMS = 20

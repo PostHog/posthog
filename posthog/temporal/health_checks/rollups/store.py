@@ -4,10 +4,12 @@ import datetime as dt
 from collections.abc import Sequence
 
 from django.db import connections, models, transaction
+from django.db.models import Exists, OuterRef
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 from posthog.temporal.health_checks.rollups.fill import DayFill
 from posthog.temporal.health_checks.rollups.framework import DailyRollup
 
@@ -99,3 +101,18 @@ def delete_rollup_rows_for_teams(model: type[models.Model], team_ids: Sequence[i
     if not team_ids:
         return 0
     return _delete_in_batches(model._meta.db_table, "team_id = ANY(%s)", [list(team_ids)])
+
+
+def delete_rows_of_deleted_teams(rollup: type[DailyRollup]) -> int:
+    """Delete the rows of environments that no longer exist.
+
+    A fill that publishes while a team deletion runs can write rows after the deletion removed them.
+    """
+    deleted_team_ids = list(
+        rollup.model.objects.unscoped()  # type: ignore[attr-defined]
+        .using(WRITE_DATABASE)
+        .filter(~Exists(Team.objects.filter(id=OuterRef("team_id"))))
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+    return delete_rollup_rows_for_teams(rollup.model, deleted_team_ids)

@@ -28,6 +28,10 @@ SPOOL_MAX_BYTES = 64 * 1024 * 1024
 FILL_QUERY_SETTINGS = {"max_execution_time": 1800, "max_threads": 8}
 
 
+class DayOverRowCap(Exception):
+    """The day has more rows than the rollup allows, so nothing of it may be published."""
+
+
 @frozen
 class TeamIdRange:
     start: int
@@ -121,14 +125,22 @@ def _fetch_rows(rollup: type[DailyRollup], day: dt.date, team_ids: AbstractSet[i
         "day_end": f"{(day + dt.timedelta(days=1)).isoformat()} 00:00:00",
     }
     sql = rollup.fill_sql()
+    # ClickHouse stops a range at the cap, so one oversized range cannot fill the worker's memory.
+    settings = {
+        **FILL_QUERY_SETTINGS,
+        "max_result_rows": rollup.max_rows_per_day + 1,
+        "result_overflow_mode": "break",
+    }
     for team_range in team_id_ranges(team_ids):
         with tags_context(product=rollup.product, feature=Feature.HEALTH_CHECK, name=f"rollup_{rollup.table()}"):
             rows = sync_execute(
                 sql,
                 {**params, "team_id_start": team_range.start, "team_id_end": team_range.end},
-                settings=FILL_QUERY_SETTINGS,
+                settings=settings,
                 workload=Workload.OFFLINE,
             )
+        if len(rows) > rollup.max_rows_per_day:
+            raise DayOverRowCap(f"one team id range has more than {rollup.max_rows_per_day:,} rows")
         yield from rows
 
 
@@ -136,7 +148,7 @@ def fill_day(rollup: type[DailyRollup], day: dt.date, live_team_ids: AbstractSet
     """Read one UTC day from ClickHouse, one team id range at a time, into a COPY buffer.
 
     Rows for teams that no longer exist and rows that do not fit the table are dropped here,
-    before anything reaches Postgres.
+    before anything reaches Postgres. A day over the row cap raises DayOverRowCap.
     """
     event_count_position = _row_columns(rollup).index("event_count")
     string_limits = _string_limits(rollup)
@@ -159,7 +171,7 @@ def fill_day(rollup: type[DailyRollup], day: dt.date, live_team_ids: AbstractSet
             row_count += 1
             event_count += int(row[event_count_position])
             if row_count > rollup.max_rows_per_day:
-                break
+                raise DayOverRowCap(f"the day has more than {rollup.max_rows_per_day:,} rows")
     except BaseException:
         buffer.close()
         raise

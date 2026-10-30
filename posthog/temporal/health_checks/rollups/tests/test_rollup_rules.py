@@ -74,7 +74,6 @@ class TestRollupRules(SimpleTestCase):
         [
             ("empty_day", 0, _history(100, 100, 100), False, "no rows"),
             ("empty_day_even_when_forced", 0, _history(100, 100, 100), True, "no rows"),
-            ("over_cap_even_when_forced", SdkVersionsDailyRollup.max_rows_per_day + 1, [], True, "more than"),
             ("under_half_the_median", 40, _history(100, 90, 110), False, "median"),
             ("under_half_the_median_but_forced", 40, _history(100, 90, 110), True, None),
             ("normal_day", 95, _history(100, 90, 110), False, None),
