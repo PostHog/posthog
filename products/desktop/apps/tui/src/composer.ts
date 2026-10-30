@@ -81,7 +81,7 @@ export const SLASH_COMMANDS = [
   },
   {
     name: "expand",
-    description: "Open this chat full width, as All tasks does",
+    description: "Open this chat full width, as Chats does",
   },
   { name: "search", description: "Search your tasks" },
   { name: "settings", description: "Open settings, like Ctrl+;" },

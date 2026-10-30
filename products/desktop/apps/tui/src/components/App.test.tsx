@@ -571,7 +571,7 @@ describe("App", () => {
       type("\x02");
       await vi.waitFor(() => expect(loadPrefs().narrowSidebar).toBe(true));
       expect(loadPrefs().newChatPlace).toBe("local");
-      // All tasks shrinks to its glyph, which the wide sidebar never draws.
+      // Chats shrinks to its glyph, which the wide sidebar never draws.
       await vi.waitFor(() =>
         expect(stripTerminalSequences(output())).toContain(" ≡ "),
       );

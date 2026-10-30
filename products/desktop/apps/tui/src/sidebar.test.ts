@@ -64,7 +64,7 @@ describe("sidebarRows", () => {
     collapsed = new Set<string>(),
   ) => labels(sidebarRows({ layout, work, collapsed, working: new Set() }));
 
-  it("keeps one Work list, with split tasks in their workspace and in All tasks", () => {
+  it("keeps one Work list, with split tasks in their workspace and in Chats", () => {
     let layout = openTask(initialLayout(), "a");
     layout = openTask(splitFocused(layout, "row"), "b");
     layout = openTask(layout, "c");
@@ -79,7 +79,7 @@ describe("sidebarRows", () => {
       "  Task a",
       "  Task b",
       "",
-      "## All tasks",
+      "## Chats",
       "Task a",
       "Task b",
       "Task c",
@@ -97,7 +97,7 @@ describe("sidebarRows", () => {
     ]);
   });
 
-  it("lists the main view's new chat at the top of All tasks, and Today once opened", () => {
+  it("lists the main view's new chat at the top of Chats, and Today once opened", () => {
     const empty = initialLayout();
     const rows = sidebarRows({
       layout: empty,
@@ -109,7 +109,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "New chat",
       "Task a",
     ]);
@@ -136,13 +136,13 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "Task a",
     ]);
     expect(shown[1]).toEqual({ kind: "today", paneId: mainPane });
   });
 
-  it("puts each workspace above All tasks with a gap after it", () => {
+  it("puts each workspace above Chats with a gap after it", () => {
     let layout = openTask(initialLayout(), "a");
     layout = openTask(splitFocused(layout, "row"), "b");
     layout = newChat(layout);
@@ -166,7 +166,7 @@ describe("sidebarRows", () => {
       "  Task c",
       "  Task d",
       "",
-      "## All tasks",
+      "## Chats",
       "Task a",
       "Task b",
       "Task c",
@@ -188,7 +188,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "Task old",
       "Task a",
     ]);
@@ -216,7 +216,7 @@ describe("sidebarRows", () => {
       "  Fix the flaky test",
       "  New chat",
       "",
-      "## All tasks",
+      "## Chats",
       "[loading]",
     ]);
     expect(rows[5]).toMatchObject({ kind: "task", indicator: null });
@@ -234,7 +234,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "New chat",
       "[signedOut]",
     ]);
@@ -246,7 +246,7 @@ describe("sidebarRows", () => {
       "b",
     );
     expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
-      ["# Work", "Today", "", "> Workspace 1", "", "## All tasks", "[empty]"],
+      ["# Work", "Today", "", "> Workspace 1", "", "## Chats", "[empty]"],
     );
   });
 
@@ -318,14 +318,14 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Today, gap, Workspace 1, a, b, gap, All tasks, a, z, View more
+  // Work, Today, gap, Workspace 1, a, b, gap, Chats, a, z, View more
 
   it.each([
     ["down", 4, 1, 5],
     ["up past the workspace heading to Today", 4, -1, 1],
-    ["down past the gap and All tasks", 5, 1, 8],
+    ["down past the gap and Chats", 5, 1, 8],
     ["down at the end", 10, 1, 10],
-    ["up past All tasks and the gap", 8, -1, 5],
+    ["up past Chats and the gap", 8, -1, 5],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
@@ -404,7 +404,7 @@ describe("sidebar selection", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "Task a",
       "Task mine",
       "Task b",
@@ -423,7 +423,7 @@ describe("sidebar selection", () => {
         "# Work",
         "Today",
         "",
-        "## All tasks",
+        "## Chats",
         "Task a",
         "Task mine",
         "Task b",
@@ -457,7 +457,7 @@ describe("sidebar selection", () => {
       "# Work",
       "Today",
       "",
-      "## All tasks",
+      "## Chats",
       "New chat",
       "Task a",
       "Task new",

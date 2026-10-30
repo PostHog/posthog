@@ -23,7 +23,7 @@ export type SidebarRow =
   // The day's briefing, shown in the main view while it has no chat; the pane it is in, if any.
   | { kind: "today"; paneId: string | null }
   // Names the list of every task, under the split workspaces.
-  | { kind: "section"; label: "All tasks" }
+  | { kind: "section"; label: "Chats" }
   // A blank row after each workspace.
   | { kind: "gap" }
   | {
@@ -199,8 +199,8 @@ export function sidebarRows({
   };
 
   // Today comes first, naming the main view while it shows the briefing. Split workspaces follow, each followed by
-  // a gap. All tasks comes last: the main view's new chat while it has one, single tasks the page does not hold, then
-  // the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
+  // a gap. Chats comes last: the main view's new chat while it has one, single tasks the page does not hold, then
+  // the whole list. A split task shows in both places; its row under Chats jumps to its pane.
   const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
   let newChatPaneId: string | null = null;
   const rows: SidebarRow[] = [
@@ -241,7 +241,7 @@ export function sidebarRows({
     rows.push({ kind: "gap" });
   });
   rows.push(
-    { kind: "section", label: "All tasks" },
+    { kind: "section", label: "Chats" },
     ...(newChatPaneId ? [taskRow(null, newChatPaneId, false)] : []),
     ...unlisted,
   );
@@ -308,7 +308,7 @@ export function activateRow(
 // Identifies a row across re-renders, so the cursor follows the task rather than its position.
 export function selectionKey(row: SidebarRow | undefined): string | null {
   switch (row?.kind) {
-    // A split task also has a row under All tasks, so its workspace row goes by its pane.
+    // A split task also has a row under Chats, so its workspace row goes by its pane.
     case "task":
       return row.taskId && !row.nested
         ? `task:${row.taskId}`
