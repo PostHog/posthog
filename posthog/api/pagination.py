@@ -1,10 +1,9 @@
 from collections.abc import Callable, Collection
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model, QuerySet
 
-from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -12,6 +11,10 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.urls import replace_query_param
 
 from posthog.paging import CursorBound, CursorPageRequest, Page, PageRequest
+
+if TYPE_CHECKING:
+    # DRF's generics module reads DEFAULT_PAGINATION_CLASS while it loads, which can point at this module.
+    from rest_framework.generics import GenericAPIView
 
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
@@ -175,7 +178,7 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     def get_paginated_facade_response[T](
         self,
         request: Request,
-        view: GenericAPIView,
+        view: "GenericAPIView",
         fetch: Callable[[PageRequest], Page[T]],
         serializer_class: type[BaseSerializer] | None = None,
     ) -> Response:
@@ -288,7 +291,7 @@ class FacadeCursorPagination(StableCursorPagination):
     def get_paginated_facade_response[T](
         self,
         request: Request,
-        view: GenericAPIView,
+        view: "GenericAPIView",
         fetch: Callable[[CursorPageRequest], Page[T]],
         serializer_class: type[BaseSerializer] | None = None,
     ) -> Response:
