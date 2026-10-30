@@ -144,16 +144,16 @@ export interface cohortEditLogicValues {
     cohortLoading: boolean
     cohortManualErrors: Record<string, any>
     cohortMissing: boolean
-    csvUploadModalOpen: boolean
     cohortTouched: boolean
     cohortTouches: Record<string, boolean>
     cohortValidationErrors: DeepPartialMap<CohortType, ValidationErrorType>
     creationPersonQuery: ActorsQuery
     csvMaxBytes: number
-    hasAddUsersMenu: boolean
+    csvUploadModalOpen: boolean
     duplicatedCohort: CohortType | null
     duplicatedCohortLoading: boolean
     effectiveQuery: DataTableNode
+    hasAddUsersMenu: boolean
     isCalculatingOrPending: boolean
     isCohortSubmitting: boolean
     isCohortValid: boolean
@@ -357,11 +357,13 @@ export interface cohortEditLogicActions {
         cohort: CohortType,
         payload?: {
             cohortParams: any
+            csvOnlyFormData: FormData | undefined
         }
     ) => {
         cohort: CohortType
         payload?: {
             cohortParams: any
+            csvOnlyFormData: FormData | undefined
         }
     }
     setActiveTab: (tab: CohortEditTab) => {
@@ -416,6 +418,9 @@ export interface cohortEditLogicActions {
         groupIndex: number
         newCriteria: AnyCohortCriteriaType
     }
+    setCsvUploadModalOpen: (open: boolean) => {
+        open: boolean
+    }
     setFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     }
@@ -437,9 +442,6 @@ export interface cohortEditLogicActions {
     }
     setRealtimeReadiness: (realtime: CohortType['realtime']) => {
         realtime: CohortRealtimeReadinessApi | null | undefined
-    }
-    setCsvUploadModalOpen: (open: boolean) => {
-        open: boolean
     }
     setStaticCohortMode: (mode: StaticCohortMode) => {
         mode: StaticCohortMode
@@ -467,9 +469,6 @@ export interface cohortEditLogicActions {
         key: string
     }
     updateCohortCount: () => {
-        value: true
-    }
-    uploadCohortCsv: () => {
         value: true
     }
     updateCohortCountFailure: (
@@ -543,6 +542,9 @@ export interface cohortEditLogicActions {
         payload?: {
             value: true
         }
+    }
+    uploadCohortCsv: () => {
+        value: true
     }
 }
 
@@ -997,6 +999,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     try {
                         if (cohort.id !== 'new') {
+                            // The generated client only sends JSON, and this call uploads the CSV as
+                            // multipart FormData, so there is no generated equivalent.
+                            // nosemgrep: prefer-codegen-api-namespaced-cohorts
                             const savedCohort = await api.cohorts.update(
                                 cohort.id,
                                 cohortFormData as Partial<CohortType>
