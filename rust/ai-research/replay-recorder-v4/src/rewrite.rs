@@ -15,13 +15,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
-use replay_core_v4::bytescan::{
-    array_items, locate_value, object_entries, unescape, write_json_string, ArrayItems,
-    ObjectEntries, Span,
-};
+use replay_core_v4::bytescan::{unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::CssRewrite;
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
 use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
@@ -151,47 +149,29 @@ const CSS_KEYS: [&[u8]; 7] = [
     b"value",
 ];
 
-enum Level<'b> {
-    Object(ObjectEntries<'b>),
-    Array(ArrayItems<'b>),
-}
-
-/// The spans of the JSON strings in `bytes` that hold CSS, in order. A stack of iterators keeps the memory to the depth.
+/// The spans of the JSON strings in `bytes` that hold CSS, in order.
 fn css_string_spans(bytes: &[u8]) -> Vec<Span> {
     let mut spans = Vec::new();
-    let mut levels: Vec<(Level<'_>, bool)> = Vec::new();
-    let mut value = locate_value(bytes, 0).ok().map(|span| (span, false));
-    loop {
-        if let Some((span, css)) = value.take() {
-            match bytes.get(span.0) {
-                Some(b'"') if css => spans.push(span),
-                Some(b'{') => levels.extend(
-                    object_entries(bytes, span)
-                        .ok()
-                        .map(|entries| (Level::Object(entries), css)),
-                ),
-                Some(b'[') => levels.extend(
-                    array_items(bytes, span)
-                        .ok()
-                        .map(|items| (Level::Array(items), css)),
-                ),
-                _ => {}
+    let mut containers_in_css: Vec<bool> = Vec::new();
+    let mut key: Option<Span> = None;
+    for token in Tokens::new(bytes, (0, bytes.len())) {
+        let in_css = containers_in_css.last() == Some(&true)
+            || key.is_some_and(|key| CSS_KEYS.contains(&&bytes[key.0..key.1]));
+        match token {
+            Token::ObjectStart | Token::ArrayStart => {
+                containers_in_css.push(in_css);
+                key = None;
             }
-        }
-        let Some((level, css)) = levels.last_mut() else {
-            break;
-        };
-        let child = match level {
-            Level::Object(entries) => entries.next().and_then(Result::ok).map(|entry| {
-                let key = &bytes[entry.key.0..entry.key.1];
-                (entry.value, *css || CSS_KEYS.contains(&key))
-            }),
-            Level::Array(items) => items.next().and_then(Result::ok).map(|item| (item, *css)),
-        };
-        match child {
-            Some(child) => value = Some(child),
-            None => {
-                levels.pop();
+            Token::ObjectEnd | Token::ArrayEnd => {
+                containers_in_css.pop();
+                key = None;
+            }
+            Token::Key { span, escaped } => key = (!escaped).then_some(span),
+            Token::Value(span) => {
+                if in_css && bytes.get(span.0) == Some(&b'"') {
+                    spans.push(span);
+                }
+                key = None;
             }
         }
     }
