@@ -3,7 +3,6 @@ import datetime as dt
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
@@ -68,7 +67,6 @@ class MissingSessionIdCheck(RollupHealthCheck):
     product = Product.WEB_ANALYTICS
     schedule = "0 6 * * *"
     active_since_days = 30
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = MISSING_SESSION_ID_LOOKBACK_DAYS

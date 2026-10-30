@@ -7,6 +7,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
+from posthog.temporal.health_checks.framework import health_check_class_for_kind
+from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
+from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.fill import DayFill, _copy_text, team_id_ranges
 from posthog.temporal.health_checks.rollups.freshness import window_from_published_days
 from posthog.temporal.health_checks.rollups.runner import plan_requested_days, plan_scheduled_days
@@ -154,3 +158,15 @@ class TestRollupRules(SimpleTestCase):
 
         with pytest.raises(ValueError):
             plan_requested_days([TODAY], today=TODAY)
+
+    def test_checks_not_reading_their_rollup_keep_clickhouse_sized_batches(self) -> None:
+        ensure_registry_loaded()
+        shadow_kinds = []
+        for kind in HEALTH_CHECKS:
+            check = health_check_class_for_kind(kind)
+            if check is not None and issubclass(check, RollupHealthCheck) and not check.reads_rollup:
+                shadow_kinds.append(kind)
+
+        assert shadow_kinds
+        for kind in shadow_kinds:
+            assert HEALTH_CHECKS[kind].batch_size == CLICKHOUSE_BATCH_EXECUTION_POLICY.batch_size, kind

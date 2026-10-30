@@ -2,7 +2,6 @@ from collections import defaultdict
 
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
@@ -48,7 +47,6 @@ class PartialProxyCheck(RollupHealthCheck):
     owner = JobOwners.TEAM_WEB_ANALYTICS
     schedule = "45 6 * * *"
     active_since_days = 30
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     reads_rollup = False
     rollup_model = HostProxyDaily
     window_days = PARTIAL_PROXY_LOOKBACK_DAYS

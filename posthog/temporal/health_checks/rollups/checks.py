@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 import structlog
 
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
+from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckBatchSkipped, HealthCheckResult
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow, rollup_window
@@ -31,15 +31,21 @@ class RollupHealthCheck(HealthCheck):
     current issues instead of reading as healthy.
 
     A check moving onto the rollup sets `reads_rollup = False` and keeps its raw-event query as
-    `detect_from_events`. Its issues then still come from raw events, and each batch also runs the
-    rollup on a sample of teams and logs where the two disagree. Set `reads_rollup = True` and
-    delete `detect_from_events` once the comparison looks right.
+    `detect_from_events`. Its issues then still come from raw events, in ClickHouse-sized batches,
+    and each batch also runs the rollup on a sample of teams and logs where the two disagree.
+    Remove `reads_rollup = False` and delete `detect_from_events` once the comparison looks right.
     """
 
     rollup_model: ClassVar[type[models.Model]]
     window_days: ClassVar[int]
     reads_rollup: ClassVar[bool] = True
     policy = ROLLUP_EXECUTION_POLICY
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        # Set before HealthCheck registers the subclass, because registration reads the policy.
+        if not cls.reads_rollup and "policy" not in cls.__dict__:
+            cls.policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
+        super().__init_subclass__(**kwargs)
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         window = rollup_window(self.rollup_model, self.window_days)

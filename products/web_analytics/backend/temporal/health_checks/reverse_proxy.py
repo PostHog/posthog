@@ -1,6 +1,5 @@
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
@@ -41,7 +40,6 @@ class ReverseProxyCheck(RollupHealthCheck):
     owner = JobOwners.TEAM_WEB_ANALYTICS
     schedule = "30 6 * * *"
     active_since_days = 30
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = REVERSE_PROXY_LOOKBACK_DAYS
