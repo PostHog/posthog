@@ -134,6 +134,8 @@ export async function applyPush(
                         code_name: variable.name,
                         type: apiVariableType(variable.type),
                         ...(variable.default !== undefined ? { default_value: variable.default } : {}),
+                        // A single-selection list keeps only the first value of an array default.
+                        ...(Array.isArray(variable.default) ? { is_multi: true } : {}),
                     })
                     known.set(variable.name, insightVariable)
                 }

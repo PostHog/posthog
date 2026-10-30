@@ -12,9 +12,10 @@ import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
 export type Env = Readonly<Record<string, string | undefined>>
 
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
+// `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
 export type RuntimeFetch = (
     input: string | URL | Request,
-    init?: RequestInit & { timeoutMs?: number }
+    init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
 ) => Promise<Response>
 
 // Everything a command touches outside its own arguments. Tests build one by hand,
@@ -82,7 +83,7 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: (input, { timeoutMs, ...init } = {}) =>
+        fetch: (input, { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = {}) =>
             globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
@@ -154,7 +155,8 @@ export function processRuntime(): Runtime {
         prompts: clackPrompts(),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
         skipTlsVerification: () => {
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+            // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
         loadApiTools: async () => {
             try {

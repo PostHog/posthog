@@ -225,10 +225,13 @@ export function createApiToolLibrary(): ApiToolLibrary {
 
         missingScopes: (granted, required) => required.filter((scope) => !hasScope(granted, scope)),
 
-        keyAccess: (connection: ApiConnection): Promise<ApiToolResult<ApiKeyAccess>> =>
+        keyAccess: (
+            connection: ApiConnection,
+            options: { signal?: AbortSignal } = {}
+        ): Promise<ApiToolResult<ApiKeyAccess>> =>
             attempt(async () => {
                 const context = await contextFor(connection)
-                const result = await context.api.apiKeys().current()
+                const result = await context.api.apiKeys().current(options)
                 if (!result.success) {
                     throw result.error
                 }
