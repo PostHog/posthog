@@ -60,6 +60,13 @@ export function moveAnnouncementUrl(payload: unknown): string | null {
     }
 }
 
+/** Whether cohort calculations read flag calls from flag_evaluations, which every mode but 0 does. */
+export function readsFlagCallsFromFlagEvaluations(
+    flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined
+): boolean {
+    return (flagEvaluationsMode ?? EVENTS_MODE) !== EVENTS_MODE
+}
+
 /** The hidden events that a mode 0 action or cohort editor warns about. Empty until the move is announced. */
 export function eventsWithMoveNotice(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,

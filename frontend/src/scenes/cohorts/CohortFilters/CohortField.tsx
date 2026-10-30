@@ -11,9 +11,9 @@ import { isPersonMetadataPropertyFilter, isPersonPropertyFilter } from 'lib/comp
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { ExcludedOperators, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { readsFlagCallsFromFlagEvaluations } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -37,6 +37,7 @@ import {
     isRecentPersonFilterUnsupported,
     personOperatorOptionsType,
 } from 'scenes/cohorts/cohortUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -180,7 +181,8 @@ export function CohortTaxonomicField({
     const { onChange } = useActions(logic)
     const { getPropertyDefinition, propertyDefinitionStorage } = useValues(propertyDefinitionsModel)
     // Without the rewrite, the cohorts API refuses every new flag-call criterion, so the event stays hidden.
-    const flagCallsReadFromFlagEvaluations = useFeatureFlag('HOGQL_FLAG_CALLS_FROM_FLAG_EVALUATIONS')
+    const { currentTeam } = useValues(teamLogic)
+    const flagCallsReadFromFlagEvaluations = readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
     const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
     const excludedOperators = useMemo<ExcludedOperators | undefined>(() => {
         if (!hideUnsupportedRecentOperators) {
