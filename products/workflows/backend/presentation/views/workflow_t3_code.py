@@ -6,11 +6,13 @@ from django.db import models
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -103,9 +105,18 @@ class T3CodeErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="What went wrong and what to do about it.")
 
 
-class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings."""
+class SignedInMemberPermission(BasePermission):
+    # The member approves each T3 Code call in the app, so an API token must not answer its own approval.
+    message = "Set up the T3 Code step in the PostHog app."
 
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return isinstance(request.successful_authenticator, SessionAuthentication)
+
+
+class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Set up a workflow's T3 Code step with a T3 Code connection the member can use from MCP servers settings."""
+
+    permission_classes = [SignedInMemberPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["machines", "projects"]
     scope_object_write_actions = ["webhook_tasks"]
@@ -133,7 +144,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def projects(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         outcome = self._call(request.validated_data, "t3_project_list", {"limit": PROJECT_LIST_LIMIT})
         if outcome.status != T3CodeCallStatus.OK:
-            return Response(T3CodeProjectsSerializer(self._approval(outcome)).data)
+            return Response(T3CodeProjectsSerializer(outcome).data)
         projects = [_project(project) for project in _structured(outcome).get("projects") or []]
         return Response(
             T3CodeProjectsSerializer({"status": T3CodeCallStatus.OK, "approval_token": None, "projects": projects}).data
@@ -159,7 +170,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }
         outcome = self._call(data, "schedule_task", arguments)
         if outcome.status != T3CodeCallStatus.OK:
-            return Response(T3CodeWebhookTaskSerializer(self._approval(outcome)).data)
+            return Response(T3CodeWebhookTaskSerializer(outcome).data)
         webhook_url = _structured(outcome).get("webhookUrl")
         if not webhook_url:
             raise exceptions.ValidationError(
@@ -193,9 +204,6 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome.status in (T3CodeCallStatus.OK, T3CodeCallStatus.NEEDS_APPROVAL) and not outcome.is_error:
             return outcome
         raise exceptions.ValidationError({"detail": _error_detail(outcome)})
-
-    def _approval(self, outcome: ConnectorCallOutcome) -> dict[str, Any]:
-        return {"status": T3CodeCallStatus.NEEDS_APPROVAL, "approval_token": outcome.approval_token}
 
 
 def _structured(outcome: ConnectorCallOutcome) -> dict[str, Any]:

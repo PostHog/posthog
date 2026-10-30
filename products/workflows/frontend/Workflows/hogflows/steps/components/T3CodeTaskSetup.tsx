@@ -111,7 +111,13 @@ export function T3CodeTaskSetup({
                                 placeholder={
                                     projects?.length === 0 ? 'This machine has no projects' : 'Choose a project'
                                 }
-                                disabledReason={projects === null ? 'Load the projects first' : undefined}
+                                disabledReason={
+                                    projects !== null || projectsResultLoading
+                                        ? undefined
+                                        : pendingApproval?.kind === 'projects'
+                                          ? "Allow PostHog to read this machine's projects first"
+                                          : "PostHog couldn't load this machine's projects"
+                                }
                                 data-attr="workflow-t3-code-project"
                             />
                         </LemonField.Pure>
@@ -142,7 +148,14 @@ export function T3CodeTaskSetup({
                                   loading: machinesLoading,
                                   'data-attr': 'workflow-t3-code-retry-machines',
                               }
-                            : undefined
+                            : machine && projects === null
+                              ? {
+                                    children: 'Try again',
+                                    onClick: () => loadProjects(),
+                                    loading: projectsResultLoading,
+                                    'data-attr': 'workflow-t3-code-retry-projects',
+                                }
+                              : undefined
                     }
                 >
                     {error}

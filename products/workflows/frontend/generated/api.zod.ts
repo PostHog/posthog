@@ -3626,7 +3626,7 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * Set up a workflow's T3 Code step with a T3 Code connection the member can use from MCP servers settings.
  * @summary List the projects on a T3 Code machine
  */
 export const workflowT3CodeProjectsCreateBodyMachineMax = 253
@@ -3643,7 +3643,7 @@ export const WorkflowT3CodeProjectsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Set up a workflow's T3 Code step with the member's own T3 Code connection from MCP servers settings.
+ * Set up a workflow's T3 Code step with a T3 Code connection the member can use from MCP servers settings.
  * @summary Create a T3 Code task that starts a new thread for each run of the step
  */
 export const workflowT3CodeWebhookTasksCreateBodyMachineMax = 253

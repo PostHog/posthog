@@ -65,6 +65,22 @@ class TestWorkflowT3Code(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch(UPSTREAM_CALL)
+    def test_an_api_key_cannot_approve_its_own_t3_code_calls(self, upstream: MagicMock, _flag: MagicMock) -> None:
+        self._connect("laptop.t3coderelay.com")
+        api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        self.client.logout()
+
+        response = self.client.post(
+            self._url("webhook_tasks"),
+            {"machine": "laptop.t3coderelay.com", "project_id": "project-1", "title": "PostHog: Signups"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        upstream.assert_not_called()
+
+    @patch(UPSTREAM_CALL)
     def test_projects_wait_for_the_members_approval(self, upstream: MagicMock, _flag: MagicMock) -> None:
         self._connect("laptop.t3coderelay.com", approval_state="needs_approval")
         upstream.return_value = {

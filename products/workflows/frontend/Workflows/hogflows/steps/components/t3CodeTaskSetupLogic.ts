@@ -106,27 +106,37 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
         projectsResult: [
             null as T3CodeProjectsApi | null,
             {
-                loadProjects: async (approvalToken?: string) =>
-                    values.machine
-                        ? await workflowT3CodeProjectsCreate(String(values.currentTeamId), {
-                              machine: values.machine,
-                              approval_token: approvalToken,
-                          })
-                        : null,
+                loadProjects: async (approvalToken: string | undefined, breakpoint) => {
+                    const { machine } = values
+                    if (!machine) {
+                        return null
+                    }
+                    const projectsResult = await workflowT3CodeProjectsCreate(String(values.currentTeamId), {
+                        machine,
+                        approval_token: approvalToken,
+                    })
+                    breakpoint()
+                    return values.machine === machine ? projectsResult : null
+                },
             },
         ],
         taskResult: [
             null as T3CodeWebhookTaskApi | null,
             {
-                createTask: async ({ title, approvalToken }: CreateTaskPayload) =>
-                    values.machine && values.project
-                        ? await workflowT3CodeWebhookTasksCreate(String(values.currentTeamId), {
-                              machine: values.machine,
-                              project_id: values.project,
-                              title,
-                              approval_token: approvalToken,
-                          })
-                        : null,
+                createTask: async ({ title, approvalToken }: CreateTaskPayload, breakpoint) => {
+                    const { machine, project } = values
+                    if (!machine || !project) {
+                        return null
+                    }
+                    const taskResult = await workflowT3CodeWebhookTasksCreate(String(values.currentTeamId), {
+                        machine,
+                        project_id: project,
+                        title,
+                        approval_token: approvalToken,
+                    })
+                    breakpoint()
+                    return values.machine === machine && values.project === project ? taskResult : null
+                },
             },
         ],
     })),
@@ -147,6 +157,7 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
             {
                 setMachine: () => null,
                 setProject: () => null,
+                loadMachines: () => null,
                 loadProjects: () => null,
                 createTask: () => null,
                 loadMachinesFailure: (_, { errorObject }) =>
