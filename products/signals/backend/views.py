@@ -1991,9 +1991,12 @@ class SignalReportViewSet(
         instead, so the header cannot borrow someone else's claim.
         """
         attribution = self._request_attribution()
-        if attribution.task_id is not None and not is_token_bound_task(self.request, attribution):
-            return ArtefactAttribution.from_user(self.request.user.id)
-        return attribution
+        if attribution.task_id is None or is_token_bound_task(self.request, attribution):
+            return attribution
+        user_id = self.request.user.id
+        # An anonymous caller is unreachable behind authentication, and `system` holds no claim,
+        # so naming nobody denies the close rather than falling through to the task.
+        return ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
 
     def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
         """Why this request may not dismiss or resolve the report, or None when it may."""
