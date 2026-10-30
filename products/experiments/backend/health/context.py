@@ -268,6 +268,14 @@ class ExposureTotals:
     segments: tuple[ExposureSegment, ...] | None = None
     exposed_without_test_account_filter: int | None = None
 
+    @property
+    def total(self) -> int:
+        return sum(self.total_exposures.values())
+
+    @property
+    def unit(self) -> str:
+        return "group" if self.counts_groups else "user"
+
 
 @frozen
 class MetricEvents:

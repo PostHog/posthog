@@ -15,7 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
 )
 from products.experiments.backend.health import registry
-from products.experiments.backend.health.checks.filtered_exposures import counts_few_exposures_with_test_account_filter
+from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
@@ -315,9 +315,22 @@ class TestEvaluate(TestCase):
 
         status = next(check.status for check in health.checks if check.key == Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES)
         self.assertEqual(
-            (counts_few_exposures_with_test_account_filter(ctx), status),
+            (reads_share_kept_by_test_account_filter(ctx), status),
             (counts, Status.NOT_CHECKED if counts else Status.NOT_APPLICABLE),
         )
+
+    @parameterized.expand([("one_decimal", 40, 1000, "(4.0%)"), ("under_a_tenth", 1, 20_000, "(less than 0.1%)")])
+    def test_test_account_filter_finding_states_the_kept_share(
+        self, _name: str, counted: int, exposed: int, share: str
+    ) -> None:
+        ctx = replace(RUNNING_UNEVEN_SPLIT, exposures=_filtered_totals(counted, exposed))
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        finding = next(
+            f for f in health.findings if f.code == ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES
+        )
+        self.assertIn(share, finding.detail)
 
     @parameterized.expand(
         [

@@ -1935,6 +1935,24 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(cache_key(None), hidden_key)
         self.assertEqual(token_key, hidden_key)
 
+    @parameterized.expand([("filter_on", True, False), ("filter_off", False, True)])
+    def test_cache_key_follows_the_test_account_filters_only_when_the_query_applies_them(
+        self, _name: str, filter_test_accounts: bool, same_key: bool
+    ) -> None:
+        self.experiment.exposure_criteria = {"filterTestAccounts": filter_test_accounts}
+        query = self._running_exposure_query()
+
+        def cache_key() -> str:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).get_cache_key()
+
+        self.team.test_account_filters = [{"key": "$ip", "value": "1.2.3.4", "operator": "is_not", "type": "event"}]
+        self.team.save()
+        before = cache_key()
+        self.team.test_account_filters = [{"key": "$ip", "value": "5.6.7.8", "operator": "is_not", "type": "event"}]
+        self.team.save()
+
+        self.assertEqual(cache_key() == before, same_key)
+
     @parameterized.expand(
         [
             ("first_day", "2024-01-01T23:00:00Z", None, []),
@@ -2010,7 +2028,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 ],
             ),
             (
-                "reader_who_does_not_see_the_findings",
+                "test_accounts_exposed_for_a_reader_who_does_not_see_the_findings",
                 0,
                 2,
                 False,
@@ -2019,8 +2037,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     (
                         ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
                         "calls_not_counted",
-                        "No users exposed, although the feature flag is called",
+                        "No users exposed: the test account filter removes all of them",
+                        2,
+                    )
+                ],
+            ),
+            (
+                "few_users_counted_for_a_reader_who_does_not_see_the_findings",
+                3,
+                100,
+                False,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
                         None,
+                        "The test account filter removes most exposed users",
+                        103,
                     )
                 ],
             ),

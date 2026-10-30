@@ -353,6 +353,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck(
+            'test_account_filter_removes_exposures',
+            ['experiment', 'exposures', 'project'],
+            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
+        ),
+        exposureCheck(
             'srm',
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
@@ -362,11 +367,6 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             'multiple_variants_share',
             ['exposures'],
             'The finding needs more than 5% and at least 5 users or groups in multiple variants, under Exclude only.'
-        ),
-        exposureCheck(
-            'test_account_filter_removes_exposures',
-            ['experiment', 'exposures', 'project'],
-            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
         ),
     ]
 }
