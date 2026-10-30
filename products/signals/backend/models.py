@@ -142,11 +142,12 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
-        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
-        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
-        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
-        # already authored is the opt-in.
-        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
+        # Verification emits these internal signals without a source config. The team's authored
+        # checks supply the opt-in; Monitoring requests also enforce their rollout gate.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type in {
+            SignalSourceType.CHECK_FAILED,
+            SignalSourceType.MONITORING_UNRESOLVED,
+        }:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the

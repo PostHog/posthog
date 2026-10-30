@@ -79,6 +79,7 @@ from products.signals.backend.report_metric_refresh import MetricQueryBudgetExha
 from products.signals.backend.report_metrics import validate_live_metric_query
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 from products.signals.backend.report_monitoring_outcomes import aggregate_due_monitoring_attempts
+from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
 
 logger = structlog.get_logger(__name__)
 
@@ -939,6 +940,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     aggregate_due_monitoring_attempts(deadline=deadline, limit=limit)
+    emit_due_monitoring_research(deadline=deadline, limit=limit)
     counts: dict[str, int] = {
         "observed": 0,
         "passed": 0,

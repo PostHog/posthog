@@ -17,10 +17,17 @@ from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
-from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportMonitoringAttempt,
+    SignalSpend,
+)
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.report_monitoring_signals import emit_monitoring_research
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
@@ -124,6 +131,123 @@ def _build_input(
         embedding=[0.0] * 1536,
         match_result=match_result,
     )
+
+
+async def _monitoring_input(team: Team) -> AssignAndEmitSignalInput:
+    now = timezone.now()
+    report = await SignalReport.objects.acreate(
+        team=team, status="closed", title="Checkout recovery", monitoring_started_at=now
+    )
+    attempt = await SignalReportMonitoringAttempt.objects.for_team(team.id).acreate(
+        team=team, report=report, monitoring_started_at=now, research_requested_at=now
+    )
+    signal = _build_input(
+        team.id, _existing_match(str(report.id)), weight=1.0, source_product=SignalSourceProduct.SIGNALS_CHECK
+    )
+    signal.source_type = SignalSourceType.MONITORING_UNRESOLVED
+    signal.source_id = str(attempt.id)
+    signal.extra = {
+        "report_id": str(report.id),
+        "attempt_id": str(attempt.id),
+        "explanation": "Monitoring could not establish resolution.",
+    }
+    await SignalEmissionRecord.objects.acreate(
+        team=team,
+        source_product=signal.source_product,
+        source_type=signal.source_type,
+        source_id=signal.source_id,
+        emitted_at=now,
+        signal_id=signal.signal_id,
+    )
+    return signal
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("match", ["original", "new", "existing", "researched", "researching"])
+async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, patch_side_effects, match: str) -> None:
+    signal = await _monitoring_input(ateam)
+    if match == "new":
+        signal.match_result = _new_match()
+    elif match in {"existing", "researched", "researching"}:
+        existing = await SignalReport.objects.acreate(
+            team=ateam,
+            status="in_progress" if match == "researching" else "ready",
+            title="Matching checkout investigation",
+            signal_count=4 if match in {"researched", "researching"} else 0,
+            signals_researched=4 if match in {"researched", "researching"} else 0,
+            researching_signal_count=4 if match == "researching" else None,
+        )
+        signal.match_result = _existing_match(str(existing.id))
+    with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+        first = await assign_and_emit_signal_activity(signal)
+        signal.match_result = _new_match("A retry must not create this report")
+        second = await assign_and_emit_signal_activity(signal)
+        with patch(
+            f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        ):
+            paused = await assign_and_emit_signal_activity(signal)
+    assert first.report_id == second.report_id
+    assert paused.report_id == first.report_id and not paused.promoted
+    successor = await SignalReport.objects.aget(team=ateam, id=first.report_id)
+    assert successor.signal_count == (5 if match in {"researched", "researching"} else 1)
+    assert successor.status == ("in_progress" if match == "researching" else "candidate")
+    if match == "researching":
+        assert str(successor.pending_triggering_signal_id) == signal.signal_id
+    assert await SignalReportArtefact.objects.filter(
+        team=ateam, report_id=successor.id, type="report_link", link_target_id=signal.extra["report_id"]
+    ).acount() == (2 if match == "original" else 1)
+    assert await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"], status="closed").aexists()
+    assert patch_side_effects["emit"].call_count == 1
+    receipt = await SignalEmissionRecord.objects.aget(team=ateam, source_id=signal.source_id)
+    assert receipt.report_id == first.report_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("change", ["ready", "resolved", "suppressed", "new_attempt", "disabled", "wrong_report"])
+async def test_stale_monitoring_signal_cannot_attach_to_a_changed_report(ateam: Team, change: str) -> None:
+    signal = await _monitoring_input(ateam)
+    if change == "new_attempt":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(
+            monitoring_started_at=timezone.now() + timedelta(hours=1)
+        )
+    elif change == "wrong_report":
+        signal.extra["report_id"] = str(uuid.uuid4())
+    elif change != "disabled":
+        await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(status=change)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=change != "disabled"
+    ):
+        with pytest.raises(ValueError, match="no longer current"):
+            await assign_and_emit_signal_activity(signal)
+    assert await SignalReport.objects.filter(team=ateam).acount() == 1
+    receipt = await SignalEmissionRecord.objects.aget(team=ateam, source_id=signal.source_id)
+    assert receipt.report_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_dropped_monitoring_delivery_can_retry_without_accepting_the_old_signal(ateam: Team) -> None:
+    signal = await _monitoring_input(ateam)
+    old_signal_id = signal.signal_id
+    await database_sync_to_async(complete_signal_pipeline)(team_id=ateam.id, signal_id=old_signal_id)
+    with (
+        patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+        patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock),
+    ):
+        await database_sync_to_async(emit_monitoring_research)(
+            team_id=ateam.id, report_id=signal.extra["report_id"], attempt_id=signal.source_id
+        )
+        receipt = await SignalEmissionRecord.objects.aget(team=ateam, source_id=signal.source_id)
+        assert receipt.signal_id is not None and receipt.signal_id != old_signal_id
+        with pytest.raises(ValueError, match="delivery has been replaced"):
+            await assign_and_emit_signal_activity(signal)
+        signal.signal_id = receipt.signal_id
+        result = await assign_and_emit_signal_activity(signal)
+    assert result.report_id != signal.extra["report_id"]
+    assert await SignalReport.objects.filter(team=ateam).acount() == 2
 
 
 # ---------------------------------------------------------------------------

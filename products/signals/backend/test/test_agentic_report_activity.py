@@ -2,6 +2,7 @@ import json
 import random
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -34,12 +35,13 @@ from products.signals.backend.artefact_schemas import (
     RelatedTo,
     ReportLink,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalScoutNote,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
@@ -989,7 +991,10 @@ async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam):
+@pytest.mark.parametrize("monitoring", [False, True])
+async def test_run_agentic_report_activity_persists_artefacts(
+    monkeypatch: pytest.MonkeyPatch, ateam: Team, monitoring: bool
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1002,7 +1007,39 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         lambda team_id: 1,
     )
 
-    async def fake_run_multi_turn_research(*args, **kwargs):
+    signals = _build_signals()
+    if monitoring:
+        now = timezone.now()
+        origin = await SignalReport.objects.acreate(
+            team=ateam,
+            status="closed",
+            title="Checkout recovery",
+            summary="Checkout completion remains unverified.",
+            monitoring_started_at=now,
+        )
+        attempt = await SignalReportMonitoringAttempt.objects.for_team(ateam.id).acreate(
+            team=ateam,
+            report=origin,
+            monitoring_started_at=now,
+            research_requested_at=now,
+            aggregation_reason="No final measurement was available.",
+        )
+        signals[0] = replace(
+            signals[0],
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            extra={
+                "report_id": str(origin.id),
+                "attempt_id": str(attempt.id),
+                "explanation": "Monitoring could not establish resolution.",
+            },
+        )
+    captured_signals: list[SignalData] = []
+
+    async def fake_run_multi_turn_research(
+        signals: list[SignalData], *args: object, **kwargs: object
+    ) -> ReportResearchOutput:
+        captured_signals.extend(signals)
         return _build_research_output()
 
     monkeypatch.setattr(
@@ -1018,7 +1055,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             RunAgenticReportInput(
                 team_id=ateam.id,
                 report_id=str(report.id),
-                signals=_build_signals(),
+                signals=signals,
                 repo_selection=RepoSelectionResult(
                     repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
                 ),
@@ -1026,6 +1063,17 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         )
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
+        selection = await SignalReportArtefact.alatest_content(
+            team_id=ateam.id, report_id=str(report.id), model=RepoSelectionResult
+        )
+        assert selection is not None and selection.autostart_eligible is not monitoring
+        if monitoring:
+            assert "Checkout completion remains unverified" in captured_signals[0].content
+            assert "No final measurement was available" in captured_signals[0].content
+            assert captured_signals[0].content != signals[0].content
+            assert await SignalReport.objects.filter(
+                team=ateam, id=signals[0].extra["report_id"], status="closed"
+            ).aexists()
 
         # Scoped to the reviewer events on purpose: patching `capture` on one module patches the
         # shared `posthoganalytics` module, so every other event this activity fires lands in the
@@ -1090,7 +1138,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "reason": "Single repository connected: posthog/posthog",
             "research_context": None,
             "task_id": None,
-            "autostart_eligible": True,
+            "autostart_eligible": not monitoring,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]

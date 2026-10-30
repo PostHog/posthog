@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import transaction
 from django.test import SimpleTestCase
@@ -70,6 +70,9 @@ class TestReportMonitoringAggregation(BaseTest):
         )
         self.close_tracker = self.enterContext(
             patch("products.signals.backend.tracker_issues.close_tracker_issue_for_report", return_value=True)
+        )
+        self.emit_signal = self.enterContext(
+            patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock)
         )
         self.report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, title="Checkout recovery"
@@ -196,6 +199,7 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt.aggregation_state == "failed"
         assert self.attempt.research_requested_at == self.now
         assert self.attempt.assessment_requested_at is None
+        assert self.emit_signal.call_args.kwargs["extra"]["attempt_id"] == str(self.attempt.id)
         self.checks[1].refresh_from_db()
         assert self.checks[1].status == "cancelled"
         assert self._aggregate() == MonitoringAggregation.WAITING

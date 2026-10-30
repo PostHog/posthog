@@ -33,13 +33,15 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import recurrence_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
+from products.signals.backend.report_monitoring_signals import current_research_attempt, monitoring_emission_records
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
@@ -818,7 +820,9 @@ class AssignAndEmitDbResult:
     triggering_signal_id: str | None = None
 
 
-def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
+def _link_check_follow_up(
+    *, team_id: int, report_id: str, source_product: str, extra: dict, required: bool = False
+) -> None:
     """Point a report born from a failed follow-up check at the report that check was written on.
 
     A `metric_threshold` check that fails on a resolved report emits a `signals_check` signal, and
@@ -828,7 +832,7 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
     Distinct from the `recurrence_of` row the resolved-report fork writes: that one says the issue
     came back, this one says a measurement of the fix breached. A report can hold both.
 
-    Best-effort. The signal is already assigned, and losing the edge must not fail the assignment.
+    Legacy signals link best-effort. Monitoring receipts must commit with their follow-up edge.
     """
     if source_product != SignalSourceProduct.SIGNALS_CHECK:
         return
@@ -837,14 +841,21 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         return
     reason = (extra.get("explanation") or "")[:MAX_REPORT_LINK_REASON_LENGTH] or None
     try:
+        content = ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason)
+        if SignalReportArtefact.objects.filter(
+            team_id=team_id, report_id=report_id, type="report_link", content=content.model_dump_json()
+        ).exists():
+            return
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
-            content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason),
+            content=content,
             attribution=ArtefactAttribution.system(),
             write_path=ReportLinkWritePath.PIPELINE,
         )
     except Exception:
+        if required:
+            raise
         logger.exception(
             "signals.report_check.follow_up_link_failed", report_id=report_id, team_id=team_id, origin_id=origin_id
         )
@@ -861,6 +872,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         with transaction.atomic():
             promoted = False
             promotion_suppressed = False
+            monitoring_record = None
+            if (
+                input.source_product == SignalSourceProduct.SIGNALS_CHECK
+                and input.source_type == SignalSourceType.MONITORING_UNRESOLVED
+            ):
+                payload = MonitoringUnresolvedSignalExtra.model_validate(input.extra)
+                attempt = current_research_attempt(
+                    team_id=input.team_id, report_id=payload.report_id, attempt_id=payload.attempt_id, lock=True
+                )
+                if attempt is None or input.source_id != str(attempt.id):
+                    raise ValueError("Monitoring research request is no longer current")
+                monitoring_record = (
+                    monitoring_emission_records(team_id=input.team_id, attempt_id=attempt.id).select_for_update().get()
+                )
+                if monitoring_record.signal_id != input.signal_id:
+                    raise ValueError("Monitoring signal delivery has been replaced")
+                if monitoring_record.report_id:
+                    report = SignalReport.objects.get(team_id=input.team_id, id=monitoring_record.report_id)
+                    return AssignAndEmitDbResult(
+                        report_id=str(report.id),
+                        promoted=report.status == SignalReport.Status.CANDIDATE and not suppress_promotion,
+                        timestamp=input.timestamp or timezone.now(),
+                        run_count=report.run_count,
+                        matched_deleted_report=report.status == SignalReport.Status.DELETED,
+                        reresearch_capped=False,
+                        report_status=report.status,
+                        report_signal_count=report.signal_count,
+                        promotion_suppressed=report.status == SignalReport.Status.CANDIDATE and suppress_promotion,
+                        report_title=report.title,
+                        triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
+                    )
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -992,7 +1034,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             signals_researched = report.researched_signal_count
             bucket = next_research_bucket(signals_researched)
             is_reresearch = report.status == SignalReport.Status.READY
-            source_refresh = isinstance(match_result, ExistingReportMatch) and match_result.source_synced
+            source_refresh = monitoring_record is not None or (
+                isinstance(match_result, ExistingReportMatch) and match_result.source_synced
+            )
             reresearch_capped = (
                 is_reresearch and not source_refresh and (bucket is None or report.signal_count < bucket)
             )
@@ -1050,7 +1094,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 report_id=report_id,
                 source_product=input.source_product,
                 extra=input.extra,
+                required=monitoring_record is not None,
             )
+            if monitoring_record is not None:
+                monitoring_record.report_id = report_id
+                monitoring_record.save(update_fields=["report_id"])
 
             metadata = {
                 "source_product": input.source_product,
