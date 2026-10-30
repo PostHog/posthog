@@ -19,11 +19,6 @@ export interface CdpFilterEntity {
     [key: string]: any
 }
 
-/**
- * The matcher rows of a hog function, mapping, workflow or usage metric filter. The bytecode compiler in
- * `posthog/cdp/filters.py` and the Node runtime read these rows as stored, so a round trip through the
- * picker must give back the same JSON.
- */
 export interface CdpFilterEntities {
     actions: CdpFilterEntity[]
     events: CdpFilterEntity[]
