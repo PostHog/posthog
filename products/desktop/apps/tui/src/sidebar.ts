@@ -190,11 +190,11 @@ export function sidebarRows({
     };
   };
 
-  // Split workspaces come first, each followed by a gap. All tasks follows: new chats, then single tasks the page does not hold, then the list.
+  // Split workspaces come first, each followed by a gap. All tasks follows: new chats, then single tasks the page does not hold,
+  // then the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
   const rows: SidebarRow[] = [{ kind: "heading", label: "Work" }];
   const newChats: SidebarRow[] = [];
   const singlePaneOf = new Map<string, string>();
-  const splitTasks = new Set<string>();
   const unlisted: SidebarRow[] = [];
   layout.workspaces.forEach((workspace, index) => {
     const workspacePanes = panes(workspace.root);
@@ -217,7 +217,6 @@ export function sidebarRows({
       size: workspacePanes.length,
     });
     workspacePanes.forEach((pane, paneIndex) => {
-      if (pane.taskId) splitTasks.add(pane.taskId);
       if (!expanded) return;
       const last = paneIndex === workspacePanes.length - 1;
       rows.push(taskRow(pane.taskId, pane.id, true, pane.title, last));
@@ -234,7 +233,6 @@ export function sidebarRows({
   else if (work.tasks === null) rows.push({ kind: "loading" });
   else if (tasks.length === 0) rows.push({ kind: "empty" });
   for (const task of tasks) {
-    if (splitTasks.has(task.id)) continue;
     rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
   }
   if (work.loadingMore) rows.push({ kind: "loading" });
@@ -287,8 +285,11 @@ export function activateRow(
 // Identifies a row across re-renders, so the cursor follows the task rather than its position.
 export function selectionKey(row: SidebarRow | undefined): string | null {
   switch (row?.kind) {
+    // A split task also has a row under All tasks, so its workspace row goes by its pane.
     case "task":
-      return row.taskId ? `task:${row.taskId}` : `pane:${row.paneId}`;
+      return row.taskId && !row.nested
+        ? `task:${row.taskId}`
+        : `pane:${row.paneId}`;
     case "workspace":
       return `workspace:${row.workspaceId}`;
     case "viewMore":

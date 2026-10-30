@@ -62,7 +62,7 @@ describe("sidebarRows", () => {
     collapsed = new Set<string>(),
   ) => labels(sidebarRows({ layout, work, collapsed, working: new Set() }));
 
-  it("keeps one Work list and moves split tasks into their workspace", () => {
+  it("keeps one Work list, with split tasks in their workspace and in All tasks", () => {
     let layout = openTask(initialLayout(), "a");
     layout = openTask(splitFocused(layout, "row"), "b");
     layout = openTask(layout, "c");
@@ -76,6 +76,8 @@ describe("sidebarRows", () => {
       "  Task b",
       "",
       "## All tasks",
+      "Task a",
+      "Task b",
       "Task c",
     ]);
     const rows = sidebarRows({
@@ -123,6 +125,10 @@ describe("sidebarRows", () => {
       "  Task d",
       "",
       "## All tasks",
+      "Task a",
+      "Task b",
+      "Task c",
+      "Task d",
       "Task e",
     ]);
   });
@@ -264,28 +270,36 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Workspace 1, a, b, gap, All tasks, z, View more
+  // Work, Workspace 1, a, b, gap, All tasks, a, z, View more
 
   it.each([
     ["down", 2, 1, 3],
     ["up past the workspace heading", 2, -1, 2],
     ["down past the gap and All tasks", 3, 1, 6],
-    ["down at the end", 7, 1, 7],
+    ["down at the end", 8, 1, 8],
     ["up past All tasks and the gap", 6, -1, 3],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
 
   it("jumps to an open pane, opens a Work task, and asks for more", () => {
-    const toPane = activateRow(layout, rows[2]);
-    expect(toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId).toBe(
-      rows[2].kind === "task" && rows[2].paneId,
-    );
+    const paneOfA = rows[2].kind === "task" && rows[2].paneId;
+    for (const row of [rows[2], rows[6]]) {
+      const toPane = activateRow(layout, row);
+      expect(
+        toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId,
+      ).toBe(paneOfA);
+    }
 
-    const opened = activateRow(layout, rows[6]);
+    const opened = activateRow(layout, rows[7]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
 
-    expect(activateRow(layout, rows[7])).toBe("viewMore");
+    expect(activateRow(layout, rows[8])).toBe("viewMore");
+  });
+
+  it("tells a split task's two rows apart, so the cursor stays on the one picked", () => {
+    expect(cursorIndex(rows, selectionKey(rows[2]))).toBe(2);
+    expect(cursorIndex(rows, selectionKey(rows[6]))).toBe(6);
   });
 
   it("keeps the cursor on the same task when opening it moves rows around", () => {
