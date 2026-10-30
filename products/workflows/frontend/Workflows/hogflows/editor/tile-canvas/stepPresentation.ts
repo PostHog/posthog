@@ -44,7 +44,7 @@ export type StepPresentation =
     | { kind: 'email'; email: EmailContent }
     | { kind: 'slack'; channel: string; text: string }
     | { kind: 'webhook'; method: string; url?: string; body: Record<string, unknown> }
-    | { kind: 'ai-task'; title?: string; prompt?: string; repository?: string; tools: string[]; writes: string[] }
+    | { kind: 'ai-task'; title?: string; prompt?: string; repositories: string[]; tools: string[]; writes: string[] }
     | { kind: 'scout'; scout?: string; writes: string[] }
     | { kind: 'ticket-message'; message?: string; isNote: boolean }
     | { kind: 'ticket-update'; status?: string; priority?: string; tags: string[] }
@@ -241,7 +241,7 @@ function functionPresentation(action: HogFlowAction): StepPresentation {
                 kind: 'ai-task',
                 title: textInput(action, 'title'),
                 prompt: textInput(action, 'prompt'),
-                repository: textInput(action, 'repository'),
+                repositories: asTextList([inputValue(action, 'repository')].flat()),
                 tools: [...asTextList(inputValue(action, 'connectors')), ...asTextList(inputValue(action, 'skills'))],
                 writes: outputKeys(action),
             }
