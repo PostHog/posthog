@@ -62,6 +62,16 @@ def _has_live_peers(instance: models.Model) -> bool:
     return False
 
 
+def _fix_hint(fetcher: Any, field: str) -> str:
+    if isinstance(fetcher, DeferredAttribute):
+        return f'add "{field}" to only(), or remove it from defer()'
+    # Only a GenericForeignKey has a content type field, and select_related() cannot follow one.
+    # Importing GenericForeignKey here would load the ContentType model before the app registry is ready.
+    if hasattr(fetcher.field, "ct_field"):
+        return f'add prefetch_related("{field}")'
+    return f'add select_related("{field}") or prefetch_related("{field}")'
+
+
 class FetchRaiseOnPeers(FetchRelationPeers):
     """Test-only `FETCH_RELATION_PEERS` that raises when a lazy load would run once per row.
 
@@ -76,14 +86,9 @@ class FetchRaiseOnPeers(FetchRelationPeers):
             label, field = instance._meta.label, fetcher.field.name
             entry = peer_lazy_loads.blocked_entry(label, field)
             if entry is not None:
-                fix = (
-                    f'add "{field}" to only(), or remove it from defer()'
-                    if isinstance(fetcher, DeferredAttribute)
-                    else f'add select_related("{field}") or prefetch_related("{field}")'
-                )
                 raise FieldFetchBlocked(
                     f"Lazy load of {label}.{field} on a row from a multi-row query, which costs one query per row. "
-                    f"Load it with the query: {fix}. Entry: {entry}"
+                    f"Load it with the query: {_fix_hint(fetcher, field)}. Entry: {entry}"
                 ) from None
         super().fetch(fetcher, instance)
 

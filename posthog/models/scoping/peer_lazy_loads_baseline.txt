@@ -4,17 +4,17 @@
 # CI fails when a line no longer happens, so this file only shrinks.
 # Regenerate from CI artifacts: python posthog/models/scoping/peer_lazy_loads.py write <observations dir>
 cdp.HogFunctionRevision.created_by products/cdp/backend/api/test/test_hog_function_drafts.py:TestHogFunctionRevisions.test_first_live_config_change_also_snapshots_the_outgoing_config
-customer_analytics.Account.team posthog/models/utils.py:RootTeamMixin.save
+customer_analytics.Account.team products/customer_analytics/backend/models/account.py:Account.save
 customer_analytics.AccountRelationship.definition products/customer_analytics/backend/management/commands/test/test_seed_customer_analytics_accounts.py:TestSeedCustomerAnalyticsAccounts.test_seeds_accounts_users_and_notes
 customer_analytics.AccountRelationship.user products/customer_analytics/backend/management/commands/test/test_seed_customer_analytics_accounts.py:TestSeedCustomerAnalyticsAccounts.test_seeds_accounts_users_and_notes.<locals>.<genexpr>
-customer_analytics.AnnouncementDelivery.team posthog/models/utils.py:RootTeamMixin.save
-customer_analytics.CustomPropertySyncRun.team posthog/models/utils.py:RootTeamMixin.save
+customer_analytics.AnnouncementDelivery.team products/customer_analytics/backend/models/announcement_delivery.py:AnnouncementDelivery.save
+customer_analytics.CustomPropertySyncRun.team products/customer_analytics/backend/models/custom_property_sync_run.py:CustomPropertySyncRun.save
 customer_analytics.CustomPropertyValue.definition products/customer_analytics/backend/test/test_external.py:TestExternalAccountCustomPropertiesAPI.test_sets_values_by_definition_id
-data_catalog.Metric.created_by products/data_catalog/backend/presentation/views.py:MetricViewSet.list
+data_catalog.Metric.created_by products/data_catalog/backend/presentation/serializers.py:MetricSerializer.to_representation
 data_catalog.Metric.owner products/data_catalog/backend/presentation/serializers.py:MetricOwnerField.get_attribute
-data_catalog.Metric.team posthog/models/utils.py:RootTeamMixin.save
-data_quality.DataQualityCheck.team posthog/models/utils.py:RootTeamMixin.save
-field_notes.FieldNote.created_by posthog/api/routing.py:TeamAndOrgViewSetMixin.dispatch
+data_catalog.Metric.team products/data_catalog/backend/models/metric.py:Metric.save
+data_quality.DataQualityCheck.team products/data_quality/backend/models/check.py:DataQualityCheck.save
+field_notes.FieldNote.created_by products/field_notes/backend/api.py:FieldNoteSerializer.to_representation
 posthog.Tag.team posthog/models/activity_logging/signal_handlers.py:handle_tagged_item_change
 posthog.TaggedItem.tag posthog/models/activity_logging/signal_handlers.py:handle_tagged_item_change
 posthog.TaggedItem.uuid_object posthog/models/tagged_item.py:TaggedItem.content_object
@@ -23,4 +23,4 @@ replay_vision.ReplayObservationMedia.asset products/replay_vision/backend/tests/
 replay_vision.ReplayObservationMedia.small_asset products/replay_vision/backend/tests/test_observation_media.py:TestObservationMedia.test_one_render_links_the_thumbnail_and_each_chapter_frame_the_video_had
 tasks.TaskArtifact.created_by products/tasks/backend/logic/services/living_artifacts.py:_capture_chart_delivery_events
 web_analytics.ContentAutopilotOpportunity.proposal products/web_analytics/backend/content_autopilot/generation.py:_draft_opportunity
-web_analytics.ContentAutopilotOpportunity.team posthog/models/utils.py:RootTeamMixin.save
+web_analytics.ContentAutopilotOpportunity.team products/web_analytics/backend/models/content_autopilot.py:ContentAutopilotOpportunity.save
