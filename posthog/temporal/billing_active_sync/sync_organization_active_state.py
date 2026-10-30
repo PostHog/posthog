@@ -75,19 +75,21 @@ def reconcile_organization_active_state() -> None:
     }
 
     to_deactivate = sorted(inactive - billing_deactivated)
-    # An id this instance does not know (e.g. a deleted org) is not ours to flip back.
-    to_reactivate = sorted(
-        str(pk)
-        for pk in Organization.objects.filter(id__in=billing_deactivated)
-        .exclude(is_active=False)
-        .values_list("id", flat=True)
-    )
+    reactivation_candidates = sorted(billing_deactivated - inactive)
     # Billing caps a batch at 1000 organization ids.
     batch_size = 500
     for batch_start in range(0, len(to_deactivate), batch_size):
         manager.set_organizations_deactivated(to_deactivate[batch_start : batch_start + batch_size], deactivated=True)
-    for batch_start in range(0, len(to_reactivate), batch_size):
-        manager.set_organizations_deactivated(to_reactivate[batch_start : batch_start + batch_size], deactivated=False)
+    for batch_start in range(0, len(reactivation_candidates), batch_size):
+        batch = reactivation_candidates[batch_start : batch_start + batch_size]
+        # Read right before the POST, so an org deleted or blocked during the sweep keeps its flag. An id
+        # this instance does not know (e.g. a deleted org) is not ours to flip back.
+        to_reactivate = sorted(
+            str(pk)
+            for pk in Organization.objects.filter(id__in=batch).exclude(is_active=False).values_list("id", flat=True)
+        )
+        if to_reactivate:
+            manager.set_organizations_deactivated(to_reactivate, deactivated=False)
 
 
 @activity.defn(name="sync-organization-active-state")
