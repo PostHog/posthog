@@ -1,7 +1,8 @@
 """Sends an evaluation's messages to the team-wide receivers whose routes match the alert.
 
 A path beside the alert's own destinations, not part of it. It reads nothing they read and
-raises nothing, so a route can never cost an alert's own destinations their message.
+raises nothing, so a route can never cost an alert's own destinations their message. A busy
+thread is handed back instead, for the caller to retry the delivery as it does for its own.
 """
 
 from collections.abc import Mapping
@@ -10,11 +11,12 @@ from typing import Final
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
-from products.alerts_platform.backend.delivery.thread_store import ThreadStore
+from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -31,6 +33,12 @@ logger = structlog.get_logger(__name__)
 ROUTING_FLAG: Final = "platform-alerts-routing"
 
 
+@frozen
+class RoutedOutcome:
+    sent: int
+    busy: tuple[str, ...]
+
+
 def deliver_routes(
     *,
     request: AlertDeliveryRequest,
@@ -39,14 +47,14 @@ def deliver_routes(
     thread_store: ThreadStore,
     project: MessageLink,
     transports: Mapping[DestinationType, type[DeliveryTransport]],
-) -> int:
-    """How many receivers were sent to. Messages only: an incident manager needs its trigger and
+) -> RoutedOutcome:
+    """What the routed sends did. Messages only: an incident manager needs its trigger and
     resolve paired, which the source decides from the alert's own destinations."""
     if not request.owned_by_platform or not request.sends_messages:
-        return 0
+        return RoutedOutcome(sent=0, busy=())
     try:
         if not team_flag_enabled(ROUTING_FLAG, team):
-            return 0
+            return RoutedOutcome(sent=0, busy=())
         labels = (
             PlatformAlertConfiguration.objects.for_team(request.team_id)
             .filter(id=request.configuration_id)
@@ -56,12 +64,14 @@ def deliver_routes(
         receivers = routed_receivers(team_id=request.team_id, labels=labels or {})
     except Exception:
         logger.warning("alerts_platform_routing_lookup_failed", team_id=request.team_id, exc_info=True)
-        return 0
+        return RoutedOutcome(sent=0, busy=())
 
     sent = 0
+    busy: list[str] = []
     for receiver in receivers:
-        transport_class = transports.get(receiver.data["type"])
-        if transport_class is None or receiver.data["type"] in INCIDENT_DESTINATION_TYPES:
+        destination_type = receiver.data.get("type")
+        transport_class = transports.get(destination_type) if destination_type else None
+        if transport_class is None or destination_type in INCIDENT_DESTINATION_TYPES:
             continue
         transitions = tuple(
             transition
@@ -83,6 +93,8 @@ def deliver_routes(
                 source_alert_url=request.source_alert_url,
                 project=project,
             )
+        except ThreadBusy as error:
+            busy.append(str(error))
         except Exception as error:
             # Named by class only, because an exception's text can carry a credential URL.
             logger.warning(
@@ -93,4 +105,4 @@ def deliver_routes(
             )
         else:
             sent += 1
-    return sent
+    return RoutedOutcome(sent=sent, busy=tuple(busy))

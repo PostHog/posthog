@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from parameterized import parameterized
 from products.alerts_platform.backend.delivery import delivery_paths
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG
+from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -87,7 +89,7 @@ class TestDeliverRoutes(APIBaseTest):
             ("flag_check_fails", {ROUTING_FLAG: RuntimeError("flags down")}, ["C-1"]),
         ]
     )
-    def test_matching_routes_send_beside_the_alert_own_destinations(
+    def test_matching_routes_send_beside_the_alerts_own_destinations(
         self, _name: str, flags: dict[str, Any], expected_channels: list[str]
     ) -> None:
         self._route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
@@ -97,3 +99,17 @@ class TestDeliverRoutes(APIBaseTest):
         self._deliver(flags)
 
         assert [channel for channel, _ in RecordingTransport.sends] == expected_channels
+
+    def test_a_busy_routed_thread_retries_the_delivery_after_the_alerts_own_sends(self) -> None:
+        self._route("C-all", [], 0)
+
+        with (
+            patch(
+                "products.alerts_platform.backend.delivery.routing.deliver",
+                side_effect=ThreadBusy("1 of 1 threads are held by another send"),
+            ),
+            pytest.raises(ThreadBusy),
+        ):
+            self._deliver({ROUTING_FLAG: True})
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]

@@ -311,7 +311,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 failures.append(type(error).__name__)
             else:
                 sent += 1
-    sent += deliver_routes(
+    routed = deliver_routes(
         request=request,
         announced=announced,
         team=team,
@@ -319,6 +319,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         project=project,
         transports=_TRANSPORTS,
     )
+    sent += routed.sent
+    busy.extend(routed.busy)
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
     # in full. A native send that fails also reruns the whole delivery, so the store records the
     # emission, and a rerun does not send every HogFunction message a second time.

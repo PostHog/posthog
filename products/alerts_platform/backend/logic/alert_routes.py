@@ -1,7 +1,7 @@
 """Which team-wide receivers an alert's labels route it to."""
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 import structlog
@@ -58,7 +58,7 @@ def _matches(route: AlertRoute, labels: Mapping[str, str]) -> bool:
     return all(_holds(route, matcher, labels) for matcher in route.matchers)
 
 
-def _holds(route: AlertRoute, matcher: Any, labels: Mapping[str, str]) -> bool:
+def _holds(route: AlertRoute, matcher: object, labels: Mapping[str, str]) -> bool:
     # Only equality for now. A route with any other matcher sends nothing rather than sending
     # everywhere, and the warning makes the gap visible.
     if not isinstance(matcher, dict) or matcher.get("op") != "=":
