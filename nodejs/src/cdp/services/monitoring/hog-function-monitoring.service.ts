@@ -98,7 +98,7 @@ export class HogFunctionMonitoringService {
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
 
-        // Not awaited, so a slow capture-logs cannot hold up the Kafka flush. The producer caps its own requests.
+        // Only starts the sends. Delivery runs in the background, so a slow capture-logs cannot hold up the Kafka flush.
         this.internalLogsProducer?.flush()
 
         await Promise.all([
@@ -166,7 +166,7 @@ export class HogFunctionMonitoringService {
             ...logEntry,
             log_source: source,
         }))
-        // Sorts its input in place and moves equal timestamps apart, which `sourcedLogEntries` then carries.
+        // Sorts its input and moves equal timestamps apart in place, so `sourcedLogEntries` carries the same timestamps as `logs`.
         const logs = fixLogDeduplication(sourcedLogEntries)
 
         logs.forEach((logEntry) => {
