@@ -141,7 +141,7 @@ export function App({
   const [narrowSidebar, setNarrowSidebar] = useState(
     () => loadPrefs().narrowSidebar,
   );
-  const [pinned, setPinned] = useState(() => loadPrefs().pinnedTaskIds);
+  const [pinned, setPinned] = useState(() => loadPrefs().pinnedChats);
   // Bumped when the terminal turns light or dark, so everything draws again in its colours.
   const [, setThemeVersion] = useState(0);
   // Names given with /rename, shown at once and kept until the work list shows them too.
@@ -225,7 +225,7 @@ export function App({
     openTaskIds: [
       ...allPanes(layout).flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
       ...localActive.keys(),
-      ...pinned,
+      ...pinned.map((chat) => chat.id),
     ],
     onRefresh: refreshLocalActive,
   });
@@ -482,6 +482,15 @@ export function App({
   });
 
   const history = useHistory({ layout, setLayout });
+  const titleOf = (pane: PaneNode): string => {
+    if (pane.taskId === null) return pane.today ? "Today" : "New chat";
+    return (
+      titles.get(pane.taskId) ||
+      taskOf(pane.taskId)?.title ||
+      pane.title ||
+      "Untitled"
+    );
+  };
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
     layout,
     setLayout,
@@ -507,18 +516,22 @@ export function App({
     // Pins the chat under the sidebar cursor, or the focused pane's; a new chat has no task to pin yet.
     togglePin: () => {
       const row = sidebar.rows[sidebar.selectedIndex];
-      const taskId = sidebarFocused
-        ? row?.kind === "task"
-          ? row.taskId
+      const pane = findPane(layout, workspace.focusedPaneId);
+      const chat = sidebarFocused
+        ? row?.kind === "task" && row.taskId
+          ? { id: row.taskId, title: row.title }
           : null
-        : (findPane(layout, workspace.focusedPaneId)?.taskId ?? null);
-      if (!taskId) return;
-      const next = pinned.includes(taskId)
-        ? pinned.filter((id) => id !== taskId)
-        : [...pinned, taskId];
-      track("chat pinned", { pinned: !pinned.includes(taskId) });
+        : pane?.taskId
+          ? { id: pane.taskId, title: titleOf(pane) }
+          : null;
+      if (!chat) return;
+      const wasPinned = pinned.some((p) => p.id === chat.id);
+      const next = wasPinned
+        ? pinned.filter((p) => p.id !== chat.id)
+        : [...pinned, chat];
+      track("chat pinned", { pinned: !wasPinned });
       setPinned(next);
-      savePrefs({ pinnedTaskIds: next });
+      savePrefs({ pinnedChats: next });
     },
     repoPickerKey: repoPicker.onKey,
     notice,
@@ -541,16 +554,6 @@ export function App({
     applyBackground(background);
     for (const chat of allChats()) chat.invalidate();
     setThemeVersion((version) => version + 1);
-  };
-
-  const titleOf = (pane: PaneNode): string => {
-    if (pane.taskId === null) return pane.today ? "Today" : "New chat";
-    return (
-      titles.get(pane.taskId) ||
-      taskOf(pane.taskId)?.title ||
-      pane.title ||
-      "Untitled"
-    );
   };
 
   const renderPane = (node: PaneNode): ReactElement => (
