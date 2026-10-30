@@ -318,9 +318,18 @@ class CustomerTaskActivityPageSerializer(serializers.Serializer):
 
 
 class CustomerTaskPagination(FacadeLimitOffsetPagination):
-    # The list query serializers reject a limit outside 1 to 100 with a 400 before the paginator reads it.
-    default_limit = 50
-    max_limit = 100
+    """Pages with the limit and offset that the list query serializers validated.
+
+    The serializers own the bounds and return a 400 for a limit outside 1 to 100. The base class
+    parses the raw query params again, which turns an accepted value such as `limit=5.0` into the
+    default limit.
+    """
+
+    def get_limit(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["limit"]
+
+    def get_offset(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["offset"]
 
 
 class CustomerTaskCanonicalTeamAccessPermission(BasePermission):
