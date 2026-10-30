@@ -16,37 +16,47 @@ export type TranscriptLine =
   | { kind: "tool"; id: string; title: string; status: string }
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" };
 
+export interface Transcript {
+  lines: TranscriptLine[];
+  // The agent is mid-turn: a prompt it has not finished answering.
+  turnOpen: boolean;
+}
+
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
 export function transcriptFrom(
   runtime: AgentRuntime | undefined,
   entries: StoredLogEntry[],
   taskDescription?: string,
-): TranscriptLine[] {
-  const items =
+): Transcript {
+  const built =
     runtime === "pi"
       ? buildAgentConversationItems(
           entries.flatMap((entry): AgentConversationEvent[] =>
             entry.type === "pi_event" && entry.event ? [entry.event] : [],
           ),
           null,
-        ).items
+        )
       : buildConversationItems(
           convertStoredEntriesToEvents(entries, taskDescription),
           null,
-        ).items;
-  const lines = items.flatMap(toLine);
+        );
+  const lines = built.items.flatMap(toLine);
+  const turnOpen = built.lastTurnInfo?.isComplete === false;
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
   if (
     runtime === "pi" &&
     taskDescription &&
     !lines.some((line) => line.kind === "user")
   ) {
-    return [
-      { kind: "user", id: "first-message", text: taskDescription },
-      ...lines,
-    ];
+    return {
+      lines: [
+        { kind: "user", id: "first-message", text: taskDescription },
+        ...lines,
+      ],
+      turnOpen,
+    };
   }
-  return lines;
+  return { lines, turnOpen };
 }
 
 function toLine(item: ConversationItem): TranscriptLine[] {

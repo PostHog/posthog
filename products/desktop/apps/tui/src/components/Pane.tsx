@@ -60,19 +60,20 @@ export function Pane({
   const body = useRef(null);
   const { width, height } = useBoxMetrics(body);
   const { view, loadOlder } = useRunView(runs, task);
-  const lines = useMemo(
+  const transcript = useMemo(
     () =>
-      withPending(
-        task
-          ? transcriptFrom(
-              task.runtime,
-              view.entries,
-              task.description || task.description_preview,
-            )
-          : [],
-        pending,
-      ),
-    [task, view.entries, pending],
+      task
+        ? transcriptFrom(
+            task.runtime,
+            view.entries,
+            task.description || task.description_preview,
+          )
+        : { lines: [], turnOpen: false },
+    [task, view.entries],
+  );
+  const lines = useMemo(
+    () => withPending(transcript.lines, pending),
+    [transcript, pending],
   );
   const hasOlder = view.windowStart > 0;
   // Set before this render draws the chat, so a frame never shows the previous transcript.
@@ -99,7 +100,11 @@ export function Pane({
   const composerLines = width > 0 ? composer.render(width, focused) : [];
   // A new chat shows its message and start-up state before the run even exists.
   const notice = task?.latest_run
-    ? runNotice(withListedRun(view, task.latest_run), lines)
+    ? runNotice(
+        withListedRun(view, task.latest_run),
+        lines,
+        transcript.turnOpen,
+      )
     : pending
       ? ({ text: "Starting cloud run…", tone: "working" } as const)
       : null;

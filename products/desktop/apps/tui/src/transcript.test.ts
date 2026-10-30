@@ -97,7 +97,7 @@ describe("transcriptFrom", () => {
   ] as const)(
     "reads a %s run's log into the same transcript",
     (runtime, entries) => {
-      const lines = transcriptFrom(runtime, entries).map(
+      const lines = transcriptFrom(runtime, entries).lines.map(
         ({ id: _, ...line }) => line,
       );
       expect(lines).toEqual([
@@ -110,14 +110,26 @@ describe("transcriptFrom", () => {
 
   it("shows a new pi chat's first message before the sandbox echoes it, and only once after", () => {
     expect(
-      transcriptFrom("pi", [], "Fix the flaky test").map(
+      transcriptFrom("pi", [], "Fix the flaky test").lines.map(
         ({ id: _, ...line }) => line,
       ),
     ).toEqual([{ kind: "user", text: "Fix the flaky test" }]);
-    const echoed = transcriptFrom("pi", PI_LOG, "Rename the helper").filter(
-      (line) => line.kind === "user",
-    );
+    const echoed = transcriptFrom(
+      "pi",
+      PI_LOG,
+      "Rename the helper",
+    ).lines.filter((line) => line.kind === "user");
     expect(echoed).toHaveLength(1);
+  });
+});
+
+describe("transcriptFrom turn state", () => {
+  it.each([
+    ["mid-turn", PI_LOG.slice(0, -1), true],
+    ["after the turn completed", PI_LOG, false],
+    ["before any turn", [], false],
+  ])("reports whether the agent is %s", (_, entries, open) => {
+    expect(transcriptFrom("pi", entries).turnOpen).toBe(open);
   });
 });
 
