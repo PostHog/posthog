@@ -1,13 +1,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{Duration as ChronoDuration, Utc};
 use sqlx::PgPool;
 
 use property_defs_rs::{
-    batch_ingestion::{process_batch, EventPropertiesBatch, PropertyDefinitionsBatch},
+    batch_ingestion::{
+        process_batch, EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch,
+    },
     config::Config,
-    read_filter::{filter_event_properties, filter_property_definitions},
-    types::{EventProperty, PropertyDefinition, PropertyParentType, PropertyValueType, Update},
+    read_filter::{filter_event_definitions, filter_event_properties, filter_property_definitions},
+    types::{
+        EventDefinition, EventProperty, PropertyDefinition, PropertyParentType, PropertyValueType,
+        Update,
+    },
     update_cache::Cache,
 };
 
@@ -67,6 +73,41 @@ async fn test_filter_drops_existing_event_properties(db: PgPool) {
 
     assert_eq!(batch.len(), 1, "only the unknown row survives the filter");
     assert_eq!(batch.property_names, vec!["fresh".to_string()]);
+}
+
+// A row is dropped only when the stored last_seen_at is already inside the
+// incoming row's floor period; older rows and unknown names still reach the writer.
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_filter_drops_event_definitions_seen_this_period(db: PgPool) {
+    let now = Utc::now();
+    for (name, last_seen) in [("current", now), ("stale", now - ChronoDuration::hours(2))] {
+        sqlx::query(
+            "INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $4)",
+        )
+        .bind(name)
+        .bind(TEAM)
+        .bind(PROJECT)
+        .bind(last_seen)
+        .execute(&db)
+        .await
+        .unwrap();
+    }
+
+    let period_start = now - ChronoDuration::minutes(30);
+    let mut batch = EventDefinitionsBatch::new(10);
+    for name in ["current", "stale", "fresh"] {
+        batch.append(EventDefinition {
+            name: name.to_string(),
+            team_id: TEAM,
+            project_id: PROJECT,
+            last_seen_at: period_start,
+        });
+    }
+
+    filter_event_definitions(&db, &mut batch, BUDGET).await;
+
+    assert_eq!(batch.names, vec!["stale".to_string(), "fresh".to_string()]);
 }
 
 // The filter mirrors the upsert's DO UPDATE guard: an existing row is dropped
