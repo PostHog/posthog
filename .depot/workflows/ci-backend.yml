@@ -3827,8 +3827,8 @@ jobs:
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   .github/scripts/verify-new-snapshots.sh
                   mkdir -p /tmp/patches
-                  # Keep deletions unstaged so git diff includes them in the patch.
-                  git add -N --ignore-removal '*.ambr' || true
+                  # Stage any new/modified .ambr files so they appear in git diff
+                  git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
                     git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
