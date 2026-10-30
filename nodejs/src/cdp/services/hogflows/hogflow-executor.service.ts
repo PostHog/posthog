@@ -1096,9 +1096,15 @@ export class HogFlowExecutorService {
             )
         }
 
-        const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
-            .join(', ')
+        // A protected run keeps its variables out of every stored copy, so the log names them without their values.
+        const storedSummary = result.invocation.state.sensitive
+            ? allStoredKeys.join(', ')
+            : allStoredKeys
+                  .map(
+                      (key) =>
+                          `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`
+                  )
+                  .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 

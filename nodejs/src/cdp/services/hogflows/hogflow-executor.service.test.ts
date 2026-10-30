@@ -2832,6 +2832,32 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.state.variables?.response).toHaveProperty('status', 200)
         })
 
+        it.each([false, true])(
+            'logs stored variable values only for an unprotected run, protected: %s',
+            async (sensitive) => {
+                const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: { ...createHogExecutionGlobals().event, properties: { name: 'Test' } },
+                })
+                invocation.state.sensitive = sensitive || undefined
+                const logs: string[] = []
+                let result = await executor.execute(invocation)
+                logs.push(...result.logs.map((log) => log.message))
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    logs.push(...result.logs.map((log) => log.message))
+                }
+
+                expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+                const stored = logs.find((message) => message.startsWith('Stored action result'))
+                expect(stored).toBe(
+                    sensitive
+                        ? 'Stored action result in variable(s): http_status'
+                        : 'Stored action result in variable(s): http_status = 200'
+                )
+            }
+        )
+
         it('stores extracted value via result_path', async () => {
             const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
             const result = await executeToCompletion(hogFlow)
