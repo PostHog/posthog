@@ -100,6 +100,8 @@ export interface DataTableProps<TData, TValue> {
     data: TData[]
     /** Opens or selects a record when the user clicks a non-interactive part of its row. */
     onRowClick?: (row: TData) => void
+    /** Optional class name for a row, for example to highlight a selected record. */
+    rowClassName?: (row: TData) => string | undefined
     /** Called when the user moves between pages. Page numbers are one-based. */
     onPageChange?: (page: number, nextPage: number) => void
     /** Sizing/scroll classes for the table container (forwarded to the Table primitive). */
@@ -249,6 +251,7 @@ function DataTable<TData, TValue>({
     columns,
     data,
     onRowClick,
+    rowClassName,
     className,
     stickyHeader,
     fullWidth,
@@ -337,11 +340,11 @@ function DataTable<TData, TValue>({
                         <TableRow
                             key={row.id}
                             data-state={row.getIsSelected() ? 'selected' : undefined}
-                            className={
-                                onRowClick
-                                    ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
-                                    : undefined
-                            }
+                            className={cn(
+                                onRowClick &&
+                                    'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+                                rowClassName?.(row.original)
+                            )}
                             tabIndex={onRowClick ? 0 : undefined}
                             onClick={
                                 onRowClick

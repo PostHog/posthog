@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconBook, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
 import {
@@ -40,6 +41,8 @@ export const scene: SceneExport = {
 export function WizardRunsScene(): JSX.Element {
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { user } = useValues(userLogic)
+    const { searchParams } = useValues(router)
+    const highlightedRunId = typeof searchParams.run === 'string' ? searchParams.run : null
     const {
         environment,
         currentProjectId,
@@ -197,6 +200,7 @@ export function WizardRunsScene(): JSX.Element {
             <WizardRunTable
                 runs={filteredRuns}
                 totalRuns={runs.length}
+                highlightedRunId={highlightedRunId}
                 currentUserId={user?.id ?? null}
                 loading={runsInitialLoading}
                 failed={runsFailed}
