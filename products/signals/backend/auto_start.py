@@ -1549,14 +1549,14 @@ async def maybe_autostart_implementation_task(
     )(team_id, repository, priority=EgressPriority.BATCH):
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
-    # Between the team's master switch and the quota gate. A team that opted out of auto-start
-    # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
-    # as quota-held work, because the work was never this report's to do.
     # Dependency lines in the report's GitHub issues become `depends_on` links first, so the link
     # gates below already see them. A dependency issue that no report holds yet holds the report too.
     unresolved_issues = await database_sync_to_async(resolve_issue_dependencies, thread_sensitive=False)(
         team_id=team_id, report_id=report_id, ch_user=ch_user
     )
+    # Between the team's master switch and the quota gate. A team that opted out of auto-start
+    # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
+    # as quota-held work, because the work was never this report's to do.
     link_skip = await database_sync_to_async(_evaluate_link_gates, thread_sensitive=False)(team_id, report_id)
     if link_skip is None and unresolved_issues:
         link_skip = unresolved_dependency_skip(unresolved_issues)
