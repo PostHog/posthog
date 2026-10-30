@@ -258,7 +258,10 @@ function useTimeScale(
             return t
         }
     }, [timezone, labels])
-    const extent = useMemo(() => labelTimeExtent(labels, parse), [labels, parse])
+    const extent = useMemo(
+        (): [number, number] => (enabled && !xDomain ? labelTimeExtent(labels, parse) : [NaN, NaN]),
+        [enabled, xDomain, labels, parse]
+    )
     const [from, to] = xDomain ?? extent
     const configInterval = xAxis?.interval
     const interval = useMemo(

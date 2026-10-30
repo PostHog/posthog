@@ -34,11 +34,15 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
+// A point outside the time domain has no x (NaN), so it never wins.
 function nearestIndex(xs: number[], x: number): number {
     let best = 0
-    for (let i = 1; i < xs.length; i++) {
-        if (Math.abs(xs[i] - x) < Math.abs(xs[best] - x)) {
+    let bestDistance = Infinity
+    for (let i = 0; i < xs.length; i++) {
+        const distance = Math.abs(xs[i] - x)
+        if (distance < bestDistance) {
             best = i
+            bestDistance = distance
         }
     }
     return best
