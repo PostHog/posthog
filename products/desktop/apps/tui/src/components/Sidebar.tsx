@@ -81,12 +81,7 @@ function Row({
         </Text>
       );
     case "section":
-      return (
-        <Text>
-          <Label text={row.label} />
-          {row.label === "Pinned" && <Text color={ORANGE}> ⚲</Text>}
-        </Text>
-      );
+      return <Label text={row.label} />;
     case "today":
       return (
         <Text wrap="truncate-end">
