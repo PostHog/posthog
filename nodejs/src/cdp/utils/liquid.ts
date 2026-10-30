@@ -62,10 +62,15 @@ const decodeEncodedSpaces = (tag: string): string => {
     }
     let out = ''
     let quote = ''
+    let escaped = false
     for (let i = 0; i < tag.length; i++) {
         const char = tag[i]
         if (quote) {
-            if (char === quote) {
+            if (escaped) {
+                escaped = false
+            } else if (char === '\\') {
+                escaped = true
+            } else if (char === quote) {
                 quote = ''
             }
         } else if (char === '"' || char === "'") {

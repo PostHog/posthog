@@ -24,10 +24,11 @@ describe('LiquidRenderer', () => {
         expect(LiquidRenderer.resolves(expression, context)).toBe(expected)
     })
 
-    it('keeps %20 inside a quoted string, where it is part of the value', () => {
-        expect(
-            LiquidRenderer.render('{{%20person.properties.company%20|%20default:%20&quot;a%20b&quot;%20}}', context)
-        ).toBe('a%20b')
+    it.each([
+        ['{{%20person.properties.company%20|%20default:%20&quot;a%20b&quot;%20}}', 'a%20b'],
+        ['{{%20&quot;a\\&quot;b%20c&quot;%20|%20size%20}}', '7'],
+    ])('keeps %%20 inside a quoted string, where it is part of the value: %s', (template, expected) => {
+        expect(LiquidRenderer.render(template, context)).toBe(expected)
     })
 
     it('formats money with the currency filter, like the worker does at send time', () => {

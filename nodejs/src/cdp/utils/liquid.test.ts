@@ -172,6 +172,7 @@ describe('LiquidRenderer', () => {
             ['a link variable', '<a href="/?n={{%20person.name%20|%20url_encode%20}}">', '<a href="/?n=test_person">'],
             ['a quoted string', '{{%20person.missing%20|%20default:%20&quot;a%20b&quot;%20}}', 'a%20b'],
             ['a tag', '{%%20if%201%20&lt;%202%20%}yes{%%20endif%20%}', 'yes'],
+            ['a quoted string with an escaped quote', '{{%20&quot;a\\&quot;b%20c&quot;%20|%20size%20}}', '7'],
         ])('reads spaces the email editor saved as %%20 in %s', (_, template, expected) => {
             expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe(expected)
         })
