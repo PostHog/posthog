@@ -3,13 +3,10 @@ from random import Random
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db import models
-from django.db.models.fetch_modes import FetchMode
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.user import User
 from posthog.models.utils import (
     AMBIGUOUS_CHARS,
     BASE57,
@@ -25,7 +22,6 @@ from posthog.models.utils import (
     hash_key_value,
     int_to_base,
     mask_key_value,
-    strict_fetch,
     uuid7,
     validate_rate_limit,
 )
@@ -60,19 +56,6 @@ class TestValidateRateLimit(SimpleTestCase):
     def test_correct_values(self):
         for v in ["1/s", "2/m", "3/h", "4/d", "5/sec", "6/min", "7/hour", "8/day"]:
             self.assertIsNone(validate_rate_limit(v), f"validate_rate_limit should not raise for {v}")
-
-
-class TestStrictFetch(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("test", True, False, models.FETCH_RAISE),
-            ("local_dev", False, True, models.FETCH_RAISE),
-            ("production", False, False, models.FETCH_PEERS),
-        ]
-    )
-    def test_fetch_mode(self, _name: str, test: bool, debug: bool, expected: FetchMode) -> None:
-        with override_settings(TEST=test, DEBUG=debug):
-            assert strict_fetch(User.objects.all())._fetch_mode is expected  # type: ignore[attr-defined]
 
 
 def test_mask_key_value():
