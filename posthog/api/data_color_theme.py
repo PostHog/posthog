@@ -78,6 +78,8 @@ class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = DataColorThemeSerializer
     permission_classes = [GlobalThemePermission, PaidThemePermission, TeamMemberStrictManagementPermission]
     sharing_enabled_actions = ["retrieve", "list"]
+    # The list returns every theme the team can use as one array, so it has no pages.
+    pagination_class = None
 
     # override the team scope queryset to also include global themes
     def dangerously_get_queryset(self):
