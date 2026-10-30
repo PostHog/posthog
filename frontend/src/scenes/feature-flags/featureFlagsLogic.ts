@@ -630,6 +630,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                     } catch (e: any) {
                         actions.setFeatureFlagUpdating(id, false)
+                        // The global loader toast only covers errors with an HTTP status. A dropped connection has none.
+                        if (e?.status === undefined) {
+                            lemonToast.error("Couldn't restore this feature flag. Try again.")
+                        }
                         throw e
                     }
                 },

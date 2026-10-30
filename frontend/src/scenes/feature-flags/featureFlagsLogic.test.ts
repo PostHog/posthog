@@ -537,7 +537,13 @@ describe('restoreFeatureFlag', () => {
         logic.mount()
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
 
     it('restores the flag and drops it from the deleted view', async () => {
         logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
@@ -553,6 +559,26 @@ describe('restoreFeatureFlag', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
         expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')
+    })
+
+    it.each([
+        // The global loader toast skips errors without a status, so the loader shows its own.
+        ['without an HTTP status', new TypeError('Failed to fetch'), true],
+        ['with an HTTP status', { status: 400, detail: 'This flag uses a deleted cohort.' }, false],
+    ])('handles a failed restore %s', async (_label, error, expectOwnToast) => {
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagFailure'])
+
+        expect(
+            toastError.mock.calls.some(([message]) => message === "Couldn't restore this feature flag. Try again.")
+        ).toBe(expectOwnToast)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
     })
 })
 
