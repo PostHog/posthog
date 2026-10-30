@@ -34,10 +34,11 @@ class BoundedLimitOffsetPagination(LimitOffsetPagination):
 
 
 class BoundedPageNumberPagination(PageNumberPagination):
-    """Numbered pages of at most `max_page_size` rows.
+    """Numbered pages with a cap on the page size that a client chooses.
 
     A subclass that lets clients choose the page size with `page_size_query_param` gets that size
-    cut to `max_page_size`, and the schema states the maximum.
+    cut to `max_page_size`, and the schema states the maximum. A fixed `page_size` on the subclass
+    is not cut.
     """
 
     max_page_size = 1000
