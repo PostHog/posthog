@@ -307,6 +307,9 @@ export function ManagedMigration(): JSX.Element {
                                     onChange={(date) =>
                                         setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss'))
                                     }
+                                    onSelect={(date) =>
+                                        setManagedMigrationValue('start_date', date.format('YYYY-MM-DD HH:mm:ss'))
+                                    }
                                 />
                             </LemonField>
 
@@ -316,6 +319,9 @@ export function ManagedMigration(): JSX.Element {
                                     value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss'))
+                                    }
+                                    onSelect={(date) =>
+                                        setManagedMigrationValue('end_date', date.format('YYYY-MM-DD HH:mm:ss'))
                                     }
                                 />
                             </LemonField>
