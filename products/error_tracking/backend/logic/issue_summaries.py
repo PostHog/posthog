@@ -488,6 +488,14 @@ def _generate_and_report(
     return result
 
 
+def report_worker_busy(team_id: int, issue_id: UUID | str, trigger: IssueSummaryTrigger) -> None:
+    """Count and report a lifecycle attempt skipped because every worker summary slot was busy."""
+    ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.RATE_LIMITED.value, trigger=trigger.value).inc()
+    _report_task(
+        team_id, issue_id, trigger, IssueSummaryOutcome.RATE_LIMITED, has_summary=False, timings=IssueSummaryTimings()
+    )
+
+
 def _report_task(
     team_id: int,
     issue_id: UUID | str,

@@ -14,6 +14,7 @@ from django.db import OperationalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
@@ -536,25 +537,40 @@ class TestIssueSummaryGeneration(BaseTest):
                 "created",
                 issue_created_activities,
                 lambda test: generate_issue_created_summary_activity(test._issue_created_inputs()),
+                "write",
             ),
             (
                 "reopened",
                 issue_reopened_activities,
                 lambda test: generate_issue_reopened_summary_activity(test._issue_reopened_inputs()),
+                "reopen",
             ),
         ]
     )
     def test_lifecycle_summary_activity_skips_while_worker_summary_slots_are_full(
-        self, _name: str, activities: Any, run_activity: Any
+        self, _name: str, activities: Any, run_activity: Any, trigger: str
     ) -> None:
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(activities, "fetch_event_properties", return_value={"$lib": "web"}))
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         slots = threading.BoundedSemaphore(1)
         self.enterContext(patch.object(summary_worker, "ISSUE_SUMMARY_WORKER_SLOTS", slots))
+        counter_labels = {"outcome": IssueSummaryOutcome.RATE_LIMITED.value, "trigger": trigger}
+        skips_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
         slots.acquire()
         assert run_activity(self) == IssueSummaryOutcome.RATE_LIMITED.value
         assert self.llm_calls == 0
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["outcome"], properties["trigger"], properties["has_summary"]) == (
+            IssueSummaryOutcome.RATE_LIMITED.value,
+            trigger,
+            False,
+        )
+        assert REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) == skips_before + 1
 
         slots.release()
         assert run_activity(self) == IssueSummaryOutcome.GENERATED.value
