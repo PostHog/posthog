@@ -16,10 +16,6 @@ const NODE_IDENTITY_KEYS = ['kind', 'version', 'event', 'id', 'nodes']
 /** When the picker holds more than one row, the first row of the earliest type here is the one stored. */
 const RETENTION_ENTITY_TYPES = [EntityTypes.EVENTS, EntityTypes.ACTIONS, EntityTypes.DATA_WAREHOUSE]
 
-/**
- * The picker row for a retention `targetEntity` or `returningEntity`. Only `type`, `id`, `order`
- * and `uuid` translate. Every other field keeps its name and copies through untouched.
- */
 export function retentionEntityToSeries(entity: RetentionEntity | undefined): SeriesNode[] {
     if (!entity) {
         return []

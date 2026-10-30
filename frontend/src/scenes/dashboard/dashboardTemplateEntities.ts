@@ -10,6 +10,7 @@ import {
     SeriesNode,
     isActionsSeriesNode,
     isEventsSeriesNode,
+    isGroupSeriesNode,
     isWarehouseSeriesNode,
     seriesNodeEntityType,
     toActionId,
@@ -193,58 +194,62 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     }
 }
 
-const STEP_IDENTITY_KEYS = ['type', 'id', 'order', 'index', 'uuid']
+const STEP_IDENTITY_KEYS = ['type', 'id', 'order', 'index', 'nestedFilters', 'uuid']
 const NODE_IDENTITY_KEYS = ['kind', 'version', 'event', 'id', 'nodes']
 
 /** When the picker holds more than one row, the first row of the earliest type here is the one stored. */
-const TEMPLATE_STEP_TYPES = [EntityTypes.ACTIONS, EntityTypes.EVENTS, EntityTypes.DATA_WAREHOUSE]
+const TEMPLATE_STEP_TYPES = [EntityTypes.ACTIONS, EntityTypes.EVENTS, EntityTypes.DATA_WAREHOUSE, EntityTypes.GROUPS]
+
+type TemplateStep = TemplateVariableStep & { nestedFilters?: TemplateStep[] }
 
 function omitKeys(source: Record<string, any>, keys: string[]): Record<string, any> {
     return Object.fromEntries(Object.entries(source).filter(([key]) => !keys.includes(key)))
 }
 
-/**
- * The picker row for a template variable's default step. Only the identity keys translate. Every
- * other field, such as `math` or `custom_event`, keeps its name and copies through.
- */
 export function templateVariableStepToSeries(step: TemplateVariableStep | undefined): SeriesNode[] {
-    if (!step) {
-        return []
-    }
+    return step ? [templateStepToSeriesNode(step)] : []
+}
+
+function templateStepToSeriesNode(step: TemplateStep): SeriesNode {
     const shared = omitKeys(step, STEP_IDENTITY_KEYS)
     if (Array.isArray(shared.properties)) {
         shared.properties = convertPropertyGroupToProperties(shared.properties)
     }
 
     if (step.type === EntityTypes.ACTIONS) {
-        return [{ ...shared, kind: NodeKind.ActionsNode, id: toActionId(step.id) } as SeriesNode]
+        return { ...shared, kind: NodeKind.ActionsNode, id: toActionId(step.id) } as SeriesNode
+    }
+    if (step.type === EntityTypes.GROUPS) {
+        return {
+            ...shared,
+            kind: NodeKind.GroupNode,
+            nodes: (step.nestedFilters ?? []).map(templateStepToSeriesNode),
+        } as SeriesNode
     }
     if (step.type === EntityTypes.DATA_WAREHOUSE) {
         // The table name is the node's key, and a step may carry it only as its `id`.
         const tableName = shared.table_name ?? (typeof step.id === 'string' ? step.id : undefined)
-        return [
-            {
-                ...shared,
-                kind: NodeKind.DataWarehouseNode,
-                table_name: tableName,
-                id: tableName ?? step.id,
-            } as SeriesNode,
-        ]
+        return {
+            ...shared,
+            kind: NodeKind.DataWarehouseNode,
+            table_name: tableName,
+            id: tableName ?? step.id,
+        } as SeriesNode
     }
-    return [{ ...shared, kind: NodeKind.EventsNode, event: step.id } as SeriesNode]
+    return { ...shared, kind: NodeKind.EventsNode, event: step.id } as SeriesNode
 }
 
 export function seriesToTemplateVariableStep(series: SeriesNode[]): TemplateVariableStep | undefined {
     for (const type of TEMPLATE_STEP_TYPES) {
         const order = series.findIndex((node) => seriesNodeEntityType(node) === type)
         if (order >= 0) {
-            return seriesNodeToTemplateVariableStep(series[order], order)
+            return seriesNodeToTemplateStep(series[order], order)
         }
     }
     return undefined
 }
 
-function seriesNodeToTemplateVariableStep(node: SeriesNode, order: number): TemplateVariableStep {
+function seriesNodeToTemplateStep(node: SeriesNode, order: number): TemplateStep {
     let id: string | number | null = null
     if (isEventsSeriesNode(node)) {
         id = node.event ?? null
@@ -256,8 +261,11 @@ function seriesNodeToTemplateVariableStep(node: SeriesNode, order: number): Temp
 
     return {
         ...omitKeys(node, NODE_IDENTITY_KEYS),
+        ...(isGroupSeriesNode(node)
+            ? { nestedFilters: node.nodes.map((nested, nestedOrder) => seriesNodeToTemplateStep(nested, nestedOrder)) }
+            : {}),
         id,
         type: seriesNodeEntityType(node),
         order,
-    } as TemplateVariableStep
+    } as TemplateStep
 }

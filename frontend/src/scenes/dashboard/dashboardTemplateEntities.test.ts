@@ -61,6 +61,44 @@ describe('dashboardTemplateEntities', () => {
                 url: 'https://example.com',
             },
         ],
+        [
+            'a group keeps its operator and nested event and action',
+            {
+                type: EntityTypes.GROUPS,
+                name: 'Signed up or purchased',
+                math: BaseMathType.UniqueUsers,
+                operator: 'OR',
+                order: 0,
+                nestedFilters: [
+                    { id: 'signed_up', type: EntityTypes.EVENTS, name: 'signed_up', order: 0 },
+                    {
+                        id: '12',
+                        type: EntityTypes.ACTIONS,
+                        name: 'Purchased',
+                        order: 1,
+                        properties: [currentUrlContainsPricing],
+                    },
+                ],
+            } as TemplateVariableStep,
+            {
+                id: null,
+                type: EntityTypes.GROUPS,
+                name: 'Signed up or purchased',
+                math: BaseMathType.UniqueUsers,
+                operator: 'OR',
+                order: 0,
+                nestedFilters: [
+                    { id: 'signed_up', type: EntityTypes.EVENTS, name: 'signed_up', order: 0 },
+                    {
+                        id: 12,
+                        type: EntityTypes.ACTIONS,
+                        name: 'Purchased',
+                        order: 1,
+                        properties: [currentUrlContainsPricing],
+                    },
+                ],
+            },
+        ],
     ])('%s', (_, stored, expected) => {
         expect(seriesToTemplateVariableStep(templateVariableStepToSeries(stored))).toEqual(expected)
     })
