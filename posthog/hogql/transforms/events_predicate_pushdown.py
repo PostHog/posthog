@@ -80,6 +80,13 @@ def apply_events_predicate_pushdown(
     return node
 
 
+# Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side). This is
+# broader than the all-rows-preserved check (`_all_joins_preserve_every_row`, LEFT only): INNER / CROSS are
+# predicate-safe but can drop an events row, so they pass here yet are rejected when deciding whether to also push
+# the LIMIT (`_safe_inner_limit`).
+PREDICATE_SAFE_JOIN_TYPES = frozenset({"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"})
+
+
 class SelectAliasInliner(CloningVisitor):
     """Inlines SELECT-alias references in a pushed predicate so the full aliased expression is carried into the
     subquery, not the bare name (which would re-bind to the raw column and drop the wrapper)."""
@@ -352,12 +359,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     Runs after logical lowering (so property reads are PropertyAccess) and before the ClickHouse physical passes,
     applying bottom-up so nested `FROM events` subqueries benefit too."""
 
-    # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side). This is
-    # broader than the all-rows-preserved check (`_all_joins_preserve_every_row`, LEFT only): INNER / CROSS are
-    # predicate-safe but can drop an events row, so they pass here yet are rejected when deciding whether to also push
-    # the LIMIT (`_safe_inner_limit`).
-    _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
-
     def __init__(
         self,
         context: HogQLContext,
@@ -596,7 +597,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         join = node.select_from.next_join if node.select_from else None
         while join is not None:
             # A missing join_type is unreachable today but treated as unsafe rather than safe.
-            if join.join_type is None or join.join_type not in self._SAFE_JOIN_TYPES:
+            if join.join_type is None or join.join_type not in PREDICATE_SAFE_JOIN_TYPES:
                 return set()
             if join.alias:
                 aliases.add(join.alias)
