@@ -13,7 +13,7 @@ APIs and export screens change, so check the platform's current docs before rely
 
 ## Notes per platform
 
-- **OneSignal**: email and SMS subscriptions come out in the same export. Keep the push rows only. An unsubscribed push row has a null token, so drop it. `device_type` tells iOS from Android.
+- **OneSignal**: email and SMS subscriptions come out in the same export. Keep the push rows only. Drop unsubscribed rows: `invalid_identifier` is `t`, or `notification_types` is negative. These rows can still carry a token, and an imported token can be sent to again. Also drop rows with a null token. `device_type` tells iOS from Android.
 - **Braze**: a profile can hold several tokens for several apps. Keep the ones for this app and platform. An anonymous profile has no `external_id` and cannot be mapped.
 - **Customer.io**: devices are listed per person, with a platform. A person identified only by email in Customer.io needs that email mapped to the distinct ID the app identifies with.
 - **Airship**: a channel with a null `push_address` or no `named_user_id` cannot be imported. `device_type` is `ios` or `android`.
