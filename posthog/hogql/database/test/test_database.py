@@ -496,6 +496,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
             ("read_mode_with_the_flag_off", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
             param(
+                "read_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
                 "read_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 True,
@@ -521,7 +528,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode_and_the_flag(
+    def test_flag_call_reads_follow_the_read_mode_and_the_flags(
         self,
         _name: str,
         mode: FlagEvaluationsMode,
@@ -530,7 +537,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         reads_forced_to_events: bool = False,
         debug: bool = False,
         include_flag_evaluations_table: bool | None = None,
+        union_flag_enabled: bool = True,
     ) -> None:
+        enabled_flags = {
+            *(["hogql-flag-calls-from-flag-evaluations"] if flag_enabled else []),
+            *(["hogql-flag-calls-union"] if union_flag_enabled else []),
+        }
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
@@ -540,9 +552,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
-                side_effect=lambda key, *args, **kwargs: (
-                    flag_enabled and key == "hogql-flag-calls-from-flag-evaluations"
-                ),
+                side_effect=lambda key, *args, **kwargs: key in enabled_flags,
             ),
         ):
             database = Database.create_for(
@@ -550,6 +560,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         assert database.read_flag_calls_from_flag_evaluations is expected
+        union_expected = expected and union_flag_enabled
+        assert database.read_flag_calls_with_union is union_expected
+        assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)

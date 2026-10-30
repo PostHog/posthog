@@ -12,6 +12,7 @@ reading `events`. On mode 2, a second pass finds the scans those rules miss in t
 import json
 from collections import Counter
 from collections.abc import Callable, Iterator
+from copy import copy
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import cache, partial
 from typing import TYPE_CHECKING, Protocol
@@ -25,7 +26,13 @@ from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
+from posthog.hogql.database.schema.flag_evaluations import (
+    ELEMENT_STAND_INS,
+    FlagEvaluationsTable,
+    flag_evaluations_coverage_start,
+    utc_midnight,
+)
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     event_field_type,
     top_level_conjuncts,
@@ -33,7 +40,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 )
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
-from posthog.hogql.property_metadata import load_property_metadata
+from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.resolver import JoinSources
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -45,12 +52,6 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
-
-# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
-# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
-# lives in posthog/models/flag_evaluations/sql.py, and importing it loads the posthog.models package, which the
-# printer's import path avoids.
-FLAG_EVALUATIONS_COMPLETE_DAYS = 89
 
 _FLAG_KEY_PROPERTY = "$feature_flag"
 
@@ -152,14 +153,15 @@ def can_read_flag_evaluations(
 
 def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve) -> _T_AST:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
-    `posthog.flag_evaluations` instead.
+    `posthog.flag_evaluations` instead. When the flag-call union is on, each other scan that reads flag calls with
+    other events reads `posthog.events_with_flag_calls`, as `read_flag_calls_with_union` decides.
 
-    This returns the swapped query only when it resolves, every name in it binds as it does in the original, and
+    This returns the changed query only when it resolves, every name in it binds as it does in the original, and
     every field in it that starts with `posthog.events` reads a scan.
     Otherwise it returns the resolved original. For an organization whose flag calls are only in
     `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
-    resolves anything when such an organization's query has a scan of only flag calls with a shape that
-    `flag_evaluations` cannot stand in for.
+    resolves anything when such an organization's query has a scan of flag calls with a shape that neither
+    `flag_evaluations` nor the union can stand in for.
 
     While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
     differently:
@@ -177,6 +179,10 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
     A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading `events`.
     Once `events` gets no flag calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
+    # Deferred: flag_calls_union imports this module.
+    from posthog.hogql.transforms.flag_calls_union import refuse_union_table_by_name  # noqa: PLC0415
+
+    refuse_union_table_by_name(node, context)
     database = context.database
     if (
         not context.rewrite_flag_calls_to_flag_evaluations
@@ -202,25 +208,34 @@ def _resolve_with_swaps(
     database: "Database",
     only_in_flag_evaluations: bool,
 ) -> _T_AST:
+    # Deferred: flag_calls_union imports this module.
+    from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
+        read_flag_calls_with_union,
+        union_unreadable_reason,
+    )
+
     if not names_flag_called_event(node):
         return resolve(node)
     if not only_in_flag_evaluations and context.uses_new_events_schema():
         return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
+        # The lookup reads Postgres, so it runs only when a scan pins `$feature_flag`.
+        compares_as_string = cache(partial(_flag_key_compares_as_string, context))
         rewritten = clone_expr(node)
         clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
             now=datetime.now(UTC),
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
-            # The lookup reads Postgres, so it runs only when a scan pins `$feature_flag`.
-            flag_key_compares_as_string=cache(partial(_flag_key_compares_as_string, context)),
+            flag_key_compares_as_string=compares_as_string,
         )
         swapper.visit(rewritten)
-    if swapper.refusals:
+        union = read_flag_calls_with_union(rewritten, context, compares_as_string)
+    refusals = [*swapper.refusals, *union.refusals]
+    if refusals:
         if only_in_flag_evaluations:
-            raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
-        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=swapper.refusals[0])
+            raise _flag_calls_only_in_flag_evaluations_error(refusals[0])
+        logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=refusals[0])
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
     if sources is not None:
@@ -228,7 +243,7 @@ def _resolve_with_swaps(
             refusal = swapper.swap_scans_found_by_type(original, sources, clones)
         if refusal is not None:
             raise _flag_calls_only_in_flag_evaluations_error(refusal)
-    if not swapper.swapped:
+    if not swapper.swapped and not union.renamed:
         return original
     try:
         swapped = resolve(rewritten)
@@ -236,7 +251,10 @@ def _resolve_with_swaps(
         # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
         reason = f"it reads something that table doesn't have: {error}"
     else:
-        if not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
+        unreadable = union_unreadable_reason(swapped, context) if union.renamed else None
+        if unreadable is not None:
+            reason = unreadable
+        elif not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
             reason = "a name in it would read a different column there"
         elif not _posthog_events_qualifiers_read_scans(swapped):
             reason = "a name in it that starts with posthog.events reads another table"
@@ -252,14 +270,20 @@ def _resolve_with_swaps(
 
 
 def _flag_key_compares_as_string(context: HogQLContext) -> bool:
-    """Whether `properties.$feature_flag` compares as a string. The printer converts a property that the team's
-    property definitions type as Boolean, Numeric or DateTime before it compares the value."""
     if context.team_id is None:
         return True
-    metadata = load_property_metadata(
-        context, event_property_names={_FLAG_KEY_PROPERTY}, person_property_names=set(), group_property_names={}
+    return flag_key_typed_as_string(
+        load_property_metadata(
+            context, event_property_names={_FLAG_KEY_PROPERTY}, person_property_names=set(), group_property_names={}
+        )
     )
-    return metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type") in (None, "String")
+
+
+def flag_key_typed_as_string(metadata: PropertyMetadata | None) -> bool:
+    """Whether `properties.$feature_flag` compares as a string under the property types in `metadata`. The printer
+    converts a property that the team's property definitions type as Boolean, Numeric or DateTime before it compares
+    the value."""
+    return metadata is None or metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type") in (None, "String")
 
 
 def _flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
@@ -302,6 +326,16 @@ class EventsScan:
         self.qualifier_shadows: frozenset[str] = frozenset()
 
     @classmethod
+    def of_scan_chains(cls, flag_key_compares_as_string: Callable[[], bool]) -> "EventsScan":
+        """A scan whose reads are unqualified chains, for a predicate already rewritten relative to one scan."""
+        return cls(
+            ast.JoinExpr(table=ast.Field(chain=["events"])),
+            alias="",
+            has_other_sources=False,
+            flag_key_compares_as_string=flag_key_compares_as_string,
+        )
+
+    @classmethod
     def of(
         cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
     ) -> "EventsScan | None":
@@ -327,9 +361,18 @@ class EventsScan:
         # `posthog.events` as the name of a table.
         scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in collector.aliases))
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
+        # `event AS event` also reads the column, because the resolver binds the expression before the alias.
+        only_source = scan.as_only_source()
         scan.shadowed = frozenset(
-            name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
+            name for name, expr in collector.aliases if name in _SCAN_COLUMNS and only_source.column(expr) != [name]
         )
+        return scan
+
+    def as_only_source(self) -> "EventsScan":
+        """A copy that reads an unqualified field as this scan's unless an alias shadows it, as if no other source in
+        FROM had that field."""
+        scan = copy(self)
+        scan.has_other_sources = False
         return scan
 
     def column(self, expr: ast.Expr) -> list[str | int] | None:
@@ -357,7 +400,7 @@ class EventsScan:
         return _below_posthog_events(chain)
 
     def shape_refusal(self, node: ast.SelectQuery) -> str | None:
-        """Why `flag_evaluations` cannot stand in for this scan whatever its filters say, or None."""
+        """Why another table cannot stand in for this scan whatever its filters say, or None."""
         if self.join.table_args is not None or self.join.table_final:
             return "it uses FINAL or table arguments on events"
         if self.join.column_aliases:
@@ -410,7 +453,7 @@ class EventsScan:
         return self.column(expr) == ["properties", _FLAG_KEY_PROPERTY]
 
     def bounds_timestamp(self, conjuncts: list[ast.Expr], now: datetime, timezone: ZoneInfo) -> bool:
-        coverage_start = _utc_midnight(now) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
+        coverage_start = flag_evaluations_coverage_start(now)
         for conjunct in conjuncts:
             bound = self._lower_bound(conjunct)
             if bound is None:
@@ -536,7 +579,8 @@ def point_scan_at(
     """Points `scan` at the table `chain` names, and moves the PREWHERE of `node`, with `condition`, into its WHERE.
 
     The new table can read person columns through a join that the printer adds later, and ClickHouse rejects a
-    PREWHERE that reads a joined column. WHERE selects the same rows.
+    PREWHERE that reads a joined column. A query that reads the union reads a subquery, which cannot have a PREWHERE.
+    WHERE selects the same rows.
     """
     # The old alias keeps qualified reads such as `events.timestamp` resolving.
     scan.join.alias = scan.alias
@@ -580,10 +624,6 @@ def filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
     return _conjuncts(node.where) + _conjuncts(node.prewhere)
 
 
-def _utc_midnight(now: datetime) -> datetime:
-    return start_of_day(now.astimezone(UTC))
-
-
 def names_flag_called_event(node: ast.AST) -> bool:
     """Whether `$feature_flag_called` appears as a constant anywhere in `node`."""
     finder = _FlagCalledConstantFinder()
@@ -615,7 +655,7 @@ def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> date
     if name in ("now", "now64"):
         return now
     if name == "today" and not args:
-        return _utc_midnight(now) - _DAY_IN_ANY_TIMEZONE
+        return utc_midnight(now) - _DAY_IN_ANY_TIMEZONE
     if name == "assumeNotNull" and len(args) == 1:
         return _earliest_instant(args[0], now, timezone)
     if name in ("toDateTime", "toDateTime64") and args:
@@ -1131,10 +1171,10 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
                 json.dumps(join.resolver_params, sort_keys=True, default=str),
                 ".".join(str(part) for part in join.from_field),
             )
-        elif isinstance(current, ast.TableType):
+        elif isinstance(current, (ast.TableType, ast.LazyTableType)):
             return (
                 ("scan",)
-                if isinstance(current.table, (EventsTable, FlagEvaluationsTable))
+                if isinstance(current.table, EVENT_ROW_TABLES)
                 else ("table", current.table.__class__.__name__)
             )
         elif isinstance(current, ast.CTETableType):
