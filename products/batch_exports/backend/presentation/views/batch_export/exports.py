@@ -368,10 +368,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         # TODO: Once these teams are migrated, remove this.
         if model == BatchExportModel.EVENTS and (hogql_query := attrs.get("hogql_query")) is not None:
-            is_grandfathered_team_id = BatchExport.objects.filter(
-                schema__isnull=False, team=self.context["get_team"]()
+            is_grandfathered_organization = BatchExport.objects.filter(
+                schema__isnull=False, team__organization_id=self.context["get_team"]().organization_id
             ).exists()
-            if is_grandfathered_team_id:
+            if is_grandfathered_organization:
                 attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
             else:
                 self._validate_attribute_only_supported_for_model(
