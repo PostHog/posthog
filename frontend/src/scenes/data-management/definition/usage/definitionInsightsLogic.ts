@@ -27,7 +27,7 @@ export interface DefinitionInsightsSummary {
 }
 
 export const DEFINITION_INSIGHTS_PER_PAGE = 10
-const SUMMARY_LIMIT = 500
+const SUMMARY_LIMIT = 100
 const DEFAULT_ORDER = '-last_modified_at'
 
 // The insights list filters on `events` and `properties`, but its OpenAPI schema does not declare

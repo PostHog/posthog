@@ -7,11 +7,14 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.taxonomy.property_definition_api import PropertyDefinitionTypeSerializerMixin
 
 from ee.models.property_definition import EnterprisePropertyDefinition
 
 
-class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class EnterprisePropertyDefinitionSerializer(
+    PropertyDefinitionTypeSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
     is_seen_on_filtered_events = serializers.BooleanField(allow_null=True, read_only=True)
@@ -40,6 +43,8 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified_by",
             "hidden",
             "warehouse_origin",
+            "type",
+            "group_type_index",
         )
         read_only_fields = [
             "id",

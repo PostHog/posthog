@@ -1180,7 +1180,6 @@ export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 type: zod
                     .enum(['event', 'person', 'group', 'session'])
-                    .describe('\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session')
                     .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
                     .describe(
                         'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'

@@ -1,8 +1,16 @@
-import type { PropertyUsageEntryApi } from '~/generated/core/api.schemas'
-import { PropertyDefinition, PropertyDefinitionType } from '~/types'
+import {
+    type EnterprisePropertyDefinitionApi,
+    type PropertyUsageEntryApi,
+    PropertyDefinitionTypeNameEnumApi,
+} from '~/generated/core/api.schemas'
+import { PropertyDefinitionType } from '~/types'
 
-export type PropertyUsageSource = Pick<PropertyDefinition, 'name' | 'type' | 'virtual'> & {
-    group_type_index?: number | null
+export interface PropertyUsageSource {
+    name: EnterprisePropertyDefinitionApi['name']
+    // Definitions built on the frontend, such as virtual ones, carry the wider PropertyDefinitionType.
+    type?: EnterprisePropertyDefinitionApi['type'] | PropertyDefinitionType
+    group_type_index?: EnterprisePropertyDefinitionApi['group_type_index']
+    virtual?: boolean
 }
 
 /** Maps a property definition to the entry the usage metrics endpoint counts, or null when it tracks no usage. */
@@ -12,11 +20,11 @@ export function propertyUsageEntry(definition: PropertyUsageSource): PropertyUsa
         return null
     }
     switch (definition.type) {
-        case PropertyDefinitionType.Event:
-        case PropertyDefinitionType.Person:
-        case PropertyDefinitionType.Session:
+        case PropertyDefinitionTypeNameEnumApi.Event:
+        case PropertyDefinitionTypeNameEnumApi.Person:
+        case PropertyDefinitionTypeNameEnumApi.Session:
             return { type: definition.type, name: definition.name }
-        case PropertyDefinitionType.Group:
+        case PropertyDefinitionTypeNameEnumApi.Group:
             return definition.group_type_index == null
                 ? null
                 : { type: definition.type, name: definition.name, group_type_index: definition.group_type_index }

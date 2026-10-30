@@ -43114,6 +43114,16 @@ export namespace Schemas {
       Duration: 'Duration',
     } as const;
 
+    export type PropertyDefinitionTypeNameEnum = typeof PropertyDefinitionTypeNameEnum[keyof typeof PropertyDefinitionTypeNameEnum];
+
+
+    export const PropertyDefinitionTypeNameEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -43137,6 +43147,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index: number | null;
     }
 
     export interface ErrorDetail {
@@ -87461,6 +87478,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -99496,22 +99520,6 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
-    /**
-     * * `event` - Event
-     * * `person` - Person
-     * * `group` - Group
-     * * `session` - Session
-     */
-    export type PropertyUsageTypeEnum = typeof PropertyUsageTypeEnum[keyof typeof PropertyUsageTypeEnum];
-
-
-    export const PropertyUsageTypeEnum = {
-      Event: 'event',
-      Person: 'person',
-      Group: 'group',
-      Session: 'session',
-    } as const;
-
     export interface PropertyUsageEntry {
       /** Property definition type the name belongs to.
        *
@@ -99519,7 +99527,7 @@ export namespace Schemas {
        * * `person` - Person
        * * `group` - Group
        * * `session` - Session */
-      type?: PropertyUsageTypeEnum;
+      type?: PropertyDefinitionTypeNameEnum;
       /**
          * Property name, for example `$current_url`.
          * @maxLength 400
@@ -99541,7 +99549,7 @@ export namespace Schemas {
        * * `person` - Person
        * * `group` - Group
        * * `session` - Session */
-      type: PropertyUsageTypeEnum;
+      type: PropertyDefinitionTypeNameEnum;
       /** Property name. */
       name: string;
       /**

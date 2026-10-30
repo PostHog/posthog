@@ -11,7 +11,7 @@ from django.db.models import Field, Manager, QuerySet, TextChoices
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
@@ -92,15 +92,33 @@ class SeenTogetherQuerySerializer(serializers.Serializer):
     property_name: serializers.CharField = serializers.CharField(required=True)
 
 
-MAX_USAGE_METRICS_PROPERTIES = 100
-USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
-
-
-class PropertyUsageType(TextChoices):
+class PropertyDefinitionTypeName(TextChoices):
+    # Values match the labels of PropertyDefinition.Type, which stores the type as an integer.
     EVENT = "event"
     PERSON = "person"
     GROUP = "group"
     SESSION = "session"
+
+
+class PropertyDefinitionTypeSerializerMixin(serializers.Serializer):
+    type = serializers.SerializerMethodField(
+        help_text="Kind of property: an event, person, group or session property.",
+    )
+    group_type_index = serializers.SerializerMethodField(
+        help_text="Group type index of a group property, null for every other type.",
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=PropertyDefinitionTypeName.choices))
+    def get_type(self, instance: PropertyDefinition) -> str:
+        return PropertyDefinitionTypeName(PropertyDefinition.Type(instance.type).label).value
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_group_type_index(self, instance: PropertyDefinition) -> int | None:
+        return instance.group_type_index if instance.type == PropertyDefinition.Type.GROUP else None
+
+
+MAX_USAGE_METRICS_PROPERTIES = 100
+USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 @frozen
@@ -153,8 +171,8 @@ def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_Pr
 
 class PropertyUsageEntrySerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=PropertyUsageType.choices,
-        default=PropertyUsageType.EVENT,
+        choices=PropertyDefinitionTypeName.choices,
+        default=PropertyDefinitionTypeName.EVENT,
         help_text="Property definition type the name belongs to.",
     )
     name = serializers.CharField(
@@ -173,7 +191,7 @@ class PropertyUsageEntrySerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         group_type_index = attrs.get("group_type_index")
-        if attrs["type"] == PropertyUsageType.GROUP:
+        if attrs["type"] == PropertyDefinitionTypeName.GROUP:
             if group_type_index is None:
                 raise ValidationError({"group_type_index": "Group properties need a group type index."})
         elif group_type_index is not None:
@@ -197,7 +215,7 @@ class PropertyUsageMetricsRequestSerializer(serializers.Serializer):
 
 class PropertyUsageMetricsItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=PropertyUsageType.choices,
+        choices=PropertyDefinitionTypeName.choices,
         help_text="Property definition type the name belongs to.",
     )
     name = serializers.CharField(help_text="Property name.")
@@ -666,7 +684,9 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 )
 
 
-class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class PropertyDefinitionSerializer(
+    PropertyDefinitionTypeSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+):
     warehouse_origin = serializers.JSONField(
         read_only=True,
         help_text=(
@@ -686,6 +706,8 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
             "warehouse_origin",
+            "type",
+            "group_type_index",
         )
 
     def validate(self, data):
