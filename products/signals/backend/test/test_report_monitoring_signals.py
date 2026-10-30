@@ -24,9 +24,10 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
+    emit_monitoring_research,
     monitoring_research_evidence,
 )
-from products.signals.backend.tasks import emit_monitoring_research_request, sweep_monitoring_research_requests
+from products.signals.backend.tasks import sweep_monitoring_research_requests
 from products.signals.backend.temporal.emitter import SignalEmitterInput
 
 
@@ -62,10 +63,7 @@ class TestMonitoringSignals(BaseTest):
         )
 
     def emit(self) -> None:
-        emit_monitoring_research_request.apply(
-            kwargs={"team_id": self.team.id, "report_id": str(self.report.id), "attempt_id": str(self.attempt.id)},
-            throw=True,
-        )
+        emit_monitoring_research(team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id)
 
     def emitted(self) -> list[SignalEmitterInput]:
         return [
