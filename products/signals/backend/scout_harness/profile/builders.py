@@ -57,13 +57,8 @@ from products.business_knowledge.backend.models.knowledge_source import Knowledg
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-
-# `products.experiments` ships a facade (api.py + contracts.py) but the contract is
-# not yet enforced by CI (no `backend:contract-check` script in package.json). The
-# facade exposes `create_experiment` but no list/query helpers, so the read-only
-# orientation reader here imports the model directly. When experiments isolation is
-# enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import scout as experiments_scout
+from products.experiments.backend.facade.contracts import RecentExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
@@ -541,27 +536,24 @@ def _recent_experiments(team: Team) -> dict[str, Any]:
     the model's own `is_running` property. `feature_flag_key` is the cross-ref the
     agent uses to correlate experiments with the `recent_feature_flags` section.
     """
-    qs = Experiment.objects.filter(team=team).filter(Q(deleted=False) | Q(deleted__isnull=True))
-    total = qs.count()
-    running = qs.filter(archived=False, start_date__isnull=False, end_date__isnull=True).count()
-    recent = qs.select_related("feature_flag").order_by("-updated_at")[:RECENT_ENTITY_LIMIT]
+    orientation = experiments_scout.experiment_orientation(team_id=team.id, recent_limit=RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
-        "running_count": running,
+        "total_count": orientation.total_count,
+        "running_count": orientation.running_count,
         "recent": [
             {
                 "id": exp.id,
                 "name": exp.name,
                 "status": _experiment_status(exp),
-                "feature_flag_key": exp.feature_flag.key if exp.feature_flag_id else None,
-                "updated_at": exp.updated_at.isoformat() if exp.updated_at else None,
+                "feature_flag_key": exp.feature_flag_key,
+                "updated_at": exp.updated_at.isoformat(),
             }
-            for exp in recent
+            for exp in orientation.recent
         ],
     }
 
 
-def _experiment_status(exp: Experiment) -> str:
+def _experiment_status(exp: RecentExperiment) -> str:
     """Derive single-word experiment status from archive/start/end fields."""
     if exp.archived:
         return "archived"
