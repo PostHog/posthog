@@ -4052,6 +4052,17 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
     task_run_id = models.UUIDField(null=True, blank=True, unique=True)
+    trial_grant = models.ForeignKey(
+        "signals.SignalTrialGrant",
+        on_delete=models.PROTECT,
+        db_constraint=False,
+        db_index=False,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    pending_requests = models.JSONField(default=dict, db_default={})
+    finalization_requested_at = models.DateTimeField(null=True, blank=True)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
     spend = models.DecimalField(
         max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
@@ -4063,7 +4074,10 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"

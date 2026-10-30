@@ -177,6 +177,8 @@ class TaskRunSpend:
     complete: bool
     is_terminal: bool
     stage: str
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
 
 
 @dataclass(frozen=True)
