@@ -1085,7 +1085,8 @@ async def test_run_agentic_report_activity_persists_artefacts(
         if monitoring:
             assert "".join(signal.content for signal in safety_inputs[0].signals) == captured_signals[0].content
             assert "Checkout completion remains unverified" in captured_signals[0].content
-            assert "No final measurement was available" in captured_signals[0].content
+            assert str(attempt.id) in captured_signals[0].content
+            assert "No final measurement was available" not in captured_signals[0].content
             assert captured_signals[0].content != signals[0].content
             assert await SignalReport.objects.filter(
                 team=ateam, id=signals[0].extra["report_id"], status="closed"
