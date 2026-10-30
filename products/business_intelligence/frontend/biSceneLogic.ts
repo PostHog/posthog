@@ -438,7 +438,6 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         return values.insight
                     }
                     const dashboard = Number(router.values.searchParams.dashboard)
-                    // A new worksheet opened from a dashboard goes on that dashboard.
                     const dashboardId =
                         !asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0 ? dashboard : null
                     const payload = {

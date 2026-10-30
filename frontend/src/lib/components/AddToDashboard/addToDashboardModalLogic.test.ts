@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -167,6 +168,13 @@ describe('addToDashboardModalLogic', () => {
         const updateSpy = jest.spyOn(api.insights, 'update')
         jest.spyOn(dashboardsApi, 'dashboardsAddInsightCreate').mockResolvedValue({ id: 14, dashboard_id: 4 })
         jest.spyOn(dashboardsApi, 'dashboardsDeleteTile').mockResolvedValue()
+        jest.spyOn(insightsApi, 'getByNumericId').mockResolvedValue({
+            ...MOCK_INSIGHT,
+            dashboard_tiles: expectedDashboards.map((dashboardId) => ({
+                id: 10 + dashboardId,
+                dashboard_id: dashboardId,
+            })),
+        })
         const insightProps = { dashboardItemId: Insight1 }
         const insightLog = insightLogic(insightProps)
         insightLog.mount()

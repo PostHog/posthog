@@ -1,4 +1,4 @@
-import api, { ApiConfig, ApiMethodOptions } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiMethodOptions } from 'lib/api'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { DashboardFilter, HogQLVariable, RefreshType, TileFilters } from '~/queries/schema/schema-general'
@@ -90,16 +90,37 @@ export const insightsApi = {
                 tiles.push(await this.addToDashboard(insightId, dashboardId))
             }
         } catch (error) {
-            await this._perform('update', { deleted: true }, insightId).catch(() => undefined)
+            try {
+                await this._perform('update', { deleted: true }, insightId)
+            } catch {
+                throw new ApiError(
+                    `Could not delete insight ${insightId} after a refused placement`,
+                    undefined,
+                    undefined,
+                    {
+                        detail: "The insight was created, but it couldn't be added to the dashboard. Open it from the insights list to try again.",
+                    }
+                )
+            }
             throw error
         }
         return tiles
     },
-    async removeFromDashboard(insight: Pick<InsightModel, 'dashboard_tiles'>, dashboardId: number): Promise<void> {
+    async removeFromDashboard(
+        insight: { dashboard_tiles?: DashboardTileBasicType[] | null },
+        dashboardId: number
+    ): Promise<void> {
         const tile = insight.dashboard_tiles?.find((tile) => tile.dashboard_id === dashboardId && !tile.deleted)
         if (!tile) {
             return
         }
-        await dashboardsDeleteTile(String(ApiConfig.getCurrentTeamId()), dashboardId, { tile_id: tile.id })
+        try {
+            await dashboardsDeleteTile(String(ApiConfig.getCurrentTeamId()), dashboardId, { tile_id: tile.id })
+        } catch (error) {
+            // A retry after a lost response finds the tile already removed.
+            if (!(error instanceof ApiError && error.status === 404)) {
+                throw error
+            }
+        }
     },
 }

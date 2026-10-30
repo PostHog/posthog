@@ -81,11 +81,15 @@ export async function deleteInsightWithUndo({
             ...insight,
             deleted: !undo,
         })
+        let dashboardsNotRestored = 0
         if (undo) {
-            // Deleting the insight hid its tiles. Adding it back to a dashboard restores the hidden tile.
-            for (const dashboardId of props.dashboardIds ?? liveDashboardIds(props.object.dashboard_tiles)) {
-                await insightsApi.addToDashboard(props.object.id, dashboardId)
-            }
+            // Each add restores a tile the delete hid. One refused dashboard must not skip the updates below.
+            const placements = await Promise.allSettled(
+                (props.dashboardIds ?? liveDashboardIds(props.object.dashboard_tiles)).map((dashboardId) =>
+                    insightsApi.addToDashboard(props.object.id, dashboardId)
+                )
+            )
+            dashboardsNotRestored = placements.filter((placement) => placement.status === 'rejected').length
         }
         props.callback?.(undo, props.object)
         if (props.object.short_id) {
@@ -110,6 +114,11 @@ export async function deleteInsightWithUndo({
                       },
             }
         )
+        if (dashboardsNotRestored > 0) {
+            lemonToast.warning(
+                `The insight is back, but it couldn't be put back on ${dashboardsNotRestored} of its dashboards. Add it to them from the insight page.`
+            )
+        }
     } catch (error: any) {
         // Show error toast with the error message from the API
         const errorMessage = error.detail || error.message || 'Failed to delete'
