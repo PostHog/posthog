@@ -833,6 +833,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
 
     await this.applyPendingContextWindow();
+    this.session.hasTranscript = true;
 
     const hasInFlightTurns =
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
@@ -2345,6 +2346,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.input = newInput;
       session.queryOptions = newOptions;
       session.liveContextKey = contextWindowKey(newOptions);
+      session.hasTranscript = false;
       session.abortController = newAbortController;
       session.contextUsed = undefined;
 
@@ -2622,6 +2624,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const session = this.session;
     if (
       session.querySwap ||
+      session.backgroundTurnActive ||
       session.activeTurn !== null ||
       session.turnQueue.length > 0 ||
       !supports1MContext(session.modelId ?? "") ||
@@ -2634,6 +2637,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.performRefresh(
         session,
         externalMcpServers(session.queryOptions.mcpServers),
+        session.hasTranscript === true,
       ),
     );
   }
@@ -2671,6 +2675,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async performRefresh(
     prev: Session,
     mcpServers: Record<string, McpServerConfig>,
+    resumeTranscript = true,
   ): Promise<void> {
     this.logger.info("Refreshing session with fresh MCP servers", {
       serverCount: Object.keys(mcpServers).length,
@@ -2689,7 +2694,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // identity on `resume` instead of `sessionId`, and give the new Query a
       // fresh AbortController.
       newAbortController = new AbortController();
-      const { sessionId: _drop, ...rest } = prev.queryOptions;
+      const {
+        sessionId: _drop,
+        resume: _dropResume,
+        forkSession: _dropFork,
+        ...rest
+      } = prev.queryOptions;
 
       // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
       // throws "Already connected to a transport" and drops the signed-commit tools.
@@ -2704,8 +2714,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       const newOptions: Options = {
         ...rest,
         mcpServers: { ...mcpServers, ...freshInProcess },
-        resume: prev.sdkSessionId,
-        forkSession: false,
+        ...(resumeTranscript
+          ? { resume: prev.sdkSessionId, forkSession: false }
+          : { sessionId: prev.sdkSessionId }),
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
@@ -2738,6 +2749,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         throw new Error(
           `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
+      }
+      if (prev.effort) {
+        await newQuery.applyFlagSettings(toEffortFlagSettings(prev.effort));
+      }
+      if (prev.fastModeEnabled) {
+        await newQuery.applyFlagSettings({ fastMode: true });
       }
     } catch (error) {
       // The old query is already retired and the new one is unproven, so any
@@ -3382,6 +3399,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       sdkSessionId: sessionId,
       queryOptions: options,
       liveContextKey: contextWindowKey(options),
+      hasTranscript: isResume,
       buildInProcessMcpServers,
       localToolsServerNames,
       input,
