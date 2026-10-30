@@ -260,8 +260,7 @@ def _references_in_batch(batch: Iterable[ExternalDataSource]) -> _BatchReference
     typed_in: list[tuple[ExternalDataSource, str]] = []
     oauth: dict[int, list[tuple[ExternalDataSource, str, str]]] = {}
     for source in batch:
-        if source.source_type == ExternalDataSourceType.CUSTOM:
-            # Custom keeps its OAuth row in another model, so its pointers are not `Integration` ids.
+        if not _pointers_are_integration_ids(str(source.source_type)):
             continue
         try:
             inputs = SourceInputsStore.load_stored(source)
@@ -285,6 +284,20 @@ def _references_in_batch(batch: Iterable[ExternalDataSource]) -> _BatchReference
     return _BatchReferences(
         references=len(typed_in) + sum(len(pointers) for pointers in oauth.values()), dangling=tuple(dangling)
     )
+
+
+def _pointers_are_integration_ids(source_type: str) -> bool:
+    # The registry loads every source, so keep it off this module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415 — heavy import
+        SourceRegistry,
+    )
+
+    try:
+        return SourceRegistry.get_source(
+            ExternalDataSourceType(source_type)
+        ).integration_id_fields_point_at_integrations
+    except ValueError:
+        return True
 
 
 @frozen

@@ -191,22 +191,6 @@ class WarehouseSourceCredentialsStore:
         return pk
 
     @staticmethod
-    def release(source: ExternalDataSource, ref: int | str | None) -> bool:
-        """Note that the source no longer uses the row. Returns True when nothing else uses it.
-
-        The row stays, because a person may reuse it or delete it from the integrations list.
-        """
-        pk = _pk(ref)
-        rows = _accessor_or_none(source)
-        if pk is None or rows is None:
-            return False
-        try:
-            others = _other_usages(rows, source, pk)
-        except IntegrationNotFound:
-            return False
-        return not others
-
-    @staticmethod
     async def aget(source: ExternalDataSource, ref: int | str | None) -> dict[str, Any] | None:
         return await database_sync_to_async_pool(WarehouseSourceCredentialsStore.get)(source, ref)
 

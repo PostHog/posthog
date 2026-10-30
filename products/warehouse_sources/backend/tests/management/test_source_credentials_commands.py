@@ -335,6 +335,17 @@ class TestReconcileWarehouseSourceCredentials(_CredentialsCommandTestCase):
 
         assert "Verified" in self._run("reconcile_warehouse_source_credentials", "--verify")
 
+    def test_a_row_without_an_optional_key_matches_job_inputs_that_hold_it_as_none(self) -> None:
+        # A parsed config writes its unset optional fields as None, and the store does not rewrite the row for that.
+        source = self._source()
+        pk = self._row_for(source, POSTGRES_CONNECTION)
+        ExternalDataSource.objects.filter(pk=source.pk).update(
+            job_inputs={**POSTGRES_INPUTS, "connection_string": None, REF: pk}
+        )
+
+        assert "unchanged=1" in self._run("backfill_warehouse_source_credentials")
+        assert "Verified" in self._run("reconcile_warehouse_source_credentials", "--verify")
+
     def test_invalid_batch_size_is_rejected(self) -> None:
         with self.assertRaises(CommandError):
             self._run("reconcile_warehouse_source_credentials", "--batch-size", "0")
