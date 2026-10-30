@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
+import { getByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
@@ -47,7 +47,7 @@ describe('BulkDeleteResultsModal', () => {
         expect(getByDataAttr(document.body, 'bulk-restore-deleted-flags')).toHaveTextContent('Restore 2 flags')
     })
 
-    it('lists only the flags still deleted after a restore that partly failed', () => {
+    it('lists only the flags still deleted after a restore that partly failed, and offers to retry them', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
         logic.actions.bulkRestoreFlagSucceeded(1)
         logic.actions.bulkRestoreFlagsFinished({
@@ -66,7 +66,7 @@ describe('BulkDeleteResultsModal', () => {
         expect(cleanupPrompt).toContain('- flag-2')
         expect(cleanupPrompt).not.toContain('flag-1')
 
-        expect(queryByDataAttr(document.body, 'bulk-restore-deleted-flags')).not.toBeInTheDocument()
+        expect(getByDataAttr(document.body, 'bulk-restore-deleted-flags')).toHaveTextContent('Restore 1 flag')
     })
 
     it('stays open until the restore finishes', async () => {

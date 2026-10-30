@@ -115,6 +115,25 @@ describe('flagSelectionLogic bulk restore', () => {
         expect(logic.values.bulkRestoredIds).toEqual([1, 2])
     })
 
+    it('retries only the flags a partly failed restore left deleted', async () => {
+        let secondFlagFails = true
+        useRestoreMocks((id) => (id === 2 && secondFlagFails ? [500, { detail: 'Server error' }] : [200, {}]))
+        logic = flagSelectionLogic()
+        logic.mount()
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+
+        logic.actions.bulkRestoreFlags(logic.values.stillDeletedFlags)
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(2)])
+
+        secondFlagFails = false
+        logic.actions.bulkRestoreFlags(logic.values.stillDeletedFlags)
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished', 'hideResultsModal'])
+
+        expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2, 2])
+        expect(logic.values.bulkRestoredIds).toEqual([1, 2])
+    })
+
     it('starts each bulk delete result without the last restore', async () => {
         useRestoreMocks()
         logic = flagSelectionLogic()

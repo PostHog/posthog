@@ -150,7 +150,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
             width={600}
             footer={
                 <>
-                    {stillDeletedFlags.length > 0 && !bulkRestoreResult && (
+                    {stillDeletedFlags.length > 0 && (
                         <LemonButton
                             type="secondary"
                             icon={<IconRewind />}
