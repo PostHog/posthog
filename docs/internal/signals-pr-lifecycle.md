@@ -209,6 +209,10 @@ Reopening implementation clears the measurement anchor so a later Monitoring per
 
 New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
 
+## Pending research refreshes
+
+When a source refresh arrives during research, finishing the current pass schedules another pass even if the next signal-count bucket has not been reached. Ordinary new signals continue to follow the existing bucket thresholds.
+
 ## Research without code
 
 Research without a repository retains the writing rules, attached-image inspection, remediation guidance, report history, intent checks, work-in-flight checks, and per-signal tool budget. The opening prompt states once that no repository is checked out. It uses project data and connected sources to find a concrete engineering starting point. Code-specific instructions are omitted, findings allow empty code and commit evidence, and the output omits pull request planning. Later turns use the same evidence-based verification guidance without repeating access warnings.
