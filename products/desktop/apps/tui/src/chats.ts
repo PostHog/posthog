@@ -1,24 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { Task } from "@posthog/shared";
-
-// Which agent a cloud chat runs: pi on PostHog, or Claude Code on the user's own Claude plan.
-export type CloudHarness = "pi" | "claude";
-
-const CLAUDE_RUN = {
-  adapter: "claude",
-  claudeModelAccess: "own-subscription",
-} as const;
-
-const harnessOf = (task: Task): CloudHarness | null =>
-  task.runtime === "pi"
-    ? "pi"
-    : task.runtime === "acp" &&
-        (task.latest_run as { runtime_adapter?: string } | null)
-          ?.runtime_adapter !== "codex"
-      ? "claude"
-      : null;
-
+import type { CloudHarness } from "./billing";
 import { savedImage } from "./images";
 import type { SentImage } from "./transcript";
 
@@ -28,6 +11,22 @@ export type SendMessage = (
   content: string,
   artifactIds: string[],
 ) => Promise<void>;
+
+const PLAN_RUN: Record<Exclude<CloudHarness, "pi">, object> = {
+  claude: { adapter: "claude", claudeModelAccess: "own-subscription" },
+  codex: { adapter: "codex", codexModelAccess: "own-subscription" },
+};
+
+const runOptions = (harness: CloudHarness): object =>
+  harness === "pi" ? { piRuntime: true } : PLAN_RUN[harness];
+
+const harnessOf = (task: Task): CloudHarness | null => {
+  if (task.runtime === "pi") return "pi";
+  const adapter = (task as { runtime_adapter?: string | null }).runtime_adapter;
+  return task.runtime === "acp" && (adapter === "claude" || adapter === "codex")
+    ? adapter
+    : null;
+};
 
 // Uploads images for a cloud run, as the desktop app does: to the task for a run still to start, or to a live run.
 export interface ImageUploads {
@@ -101,7 +100,7 @@ export class PiChats {
       repository: repositories[0],
       ...(harness === "pi"
         ? { runtime: "pi" }
-        : { runtime: "acp", runtime_adapter: "claude" }),
+        : { runtime: "acp", runtime_adapter: harness }),
       // One repository needs nothing more: the server finds the GitHub connection that reaches it. Several need the
       // list and that connection named; the client's type does not list `repositories` yet.
       ...(repositories.length > 1
@@ -111,7 +110,7 @@ export class PiChats {
     const run = await this.api.createTaskRun(task.id, {
       environment: "cloud",
       mode: "interactive",
-      ...(harness === "pi" ? { piRuntime: true } : CLAUDE_RUN),
+      ...runOptions(harness),
     });
     const artifactIds =
       images.length > 0
@@ -224,7 +223,7 @@ export class PiChats {
   ): Promise<Task> {
     const harness = harnessOf(task);
     if (!harness) {
-      throw new Error("Only pi and Claude chats can be continued here");
+      throw new Error("This chat's agent cannot be continued here");
     }
     const run = task.latest_run;
     if (!run) return this.start(prompt, images);
@@ -268,7 +267,7 @@ export class PiChats {
         ? await this.uploads.toTask(task.id, filesOf(images))
         : [];
     return this.api.runTaskInCloud(task.id, null, {
-      ...(harness === "pi" ? { piRuntime: true } : CLAUDE_RUN),
+      ...runOptions(harness),
       resumeFromRunId: run.id,
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),

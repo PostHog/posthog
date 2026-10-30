@@ -66,6 +66,7 @@ export const SLASH_COMMANDS = [
     name: "compact",
     description: "Summarize older messages to free up context",
   },
+  { name: "billing", description: "Choose who pays for new chats" },
   { name: "new", description: "Start a new chat" },
   { name: "rename", description: "Rename this chat" },
   { name: "rename-workspace", description: "Rename this workspace" },
