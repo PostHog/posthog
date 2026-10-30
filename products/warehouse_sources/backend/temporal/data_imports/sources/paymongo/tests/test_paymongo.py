@@ -162,6 +162,18 @@ def test_refund_fanout_keeps_payment_and_child_cursors() -> None:
     ]
 
 
+def test_refund_parameter_invalid_is_non_retryable() -> None:
+    result = driver().run(
+        "refunds",
+        [
+            ScriptedResponse(json={"data": [row("pay_one")], "has_more": False}),
+            ScriptedResponse(status=400, json={"errors": [{"code": "parameter_invalid"}]}),
+        ],
+    )
+    assert isinstance(result.raised, HTTPError)
+    assert any(pattern in str(result.raised) for pattern in PaymongoSource().get_non_retryable_errors())
+
+
 def test_payout_transaction_fanout_keys_rows_by_payout() -> None:
     result = driver().run(
         "payout_transactions",
