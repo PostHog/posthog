@@ -149,33 +149,54 @@ const CSS_KEYS: [&[u8]; 7] = [
     b"value",
 ];
 
-/// The spans of the JSON strings in `bytes` that hold CSS, in order.
-fn css_string_spans(bytes: &[u8]) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut containers_in_css: Vec<bool> = Vec::new();
-    let mut key: Option<Span> = None;
-    for token in Tokens::new(bytes, (0, bytes.len())) {
-        let in_css = containers_in_css.last() == Some(&true)
-            || key.is_some_and(|key| CSS_KEYS.contains(&&bytes[key.0..key.1]));
-        match token {
-            Token::ObjectStart | Token::ArrayStart => {
-                containers_in_css.push(in_css);
-                key = None;
-            }
-            Token::ObjectEnd | Token::ArrayEnd => {
-                containers_in_css.pop();
-                key = None;
-            }
-            Token::Key { span, escaped } => key = (!escaped).then_some(span),
-            Token::Value(span) => {
-                if in_css && bytes.get(span.0) == Some(&b'"') {
-                    spans.push(span);
-                }
-                key = None;
-            }
+/// The spans of the JSON strings in an event that hold CSS, in order, from one pass over the event.
+struct CssStrings<'b> {
+    bytes: &'b [u8],
+    tokens: Tokens<'b>,
+    containers_in_css: Vec<bool>,
+    key: Option<Span>,
+}
+
+impl<'b> CssStrings<'b> {
+    fn new(bytes: &'b [u8]) -> Self {
+        Self {
+            bytes,
+            tokens: Tokens::new(bytes, (0, bytes.len())),
+            containers_in_css: Vec::new(),
+            key: None,
         }
     }
-    spans
+}
+
+impl Iterator for CssStrings<'_> {
+    type Item = Span;
+
+    fn next(&mut self) -> Option<Span> {
+        for token in self.tokens.by_ref() {
+            let in_css = self.containers_in_css.last() == Some(&true)
+                || self
+                    .key
+                    .is_some_and(|key| CSS_KEYS.contains(&&self.bytes[key.0..key.1]));
+            match token {
+                Token::ObjectStart | Token::ArrayStart => {
+                    self.containers_in_css.push(in_css);
+                    self.key = None;
+                }
+                Token::ObjectEnd | Token::ArrayEnd => {
+                    self.containers_in_css.pop();
+                    self.key = None;
+                }
+                Token::Key { span, escaped } => self.key = (!escaped).then_some(span),
+                Token::Value(span) => {
+                    self.key = None;
+                    if in_css && self.bytes.get(span.0) == Some(&b'"') {
+                        return Some(span);
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 /// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
@@ -486,35 +507,29 @@ impl UrlRewrite {
     /// Rewrites only inside JSON strings that hold CSS, so a class such as `bg-[url(/a.png)]` keeps its text and its rule
     /// still matches. Skips a match that continues a longer name, such as `image-set(` in `-webkit-image-set(`.
     fn rewrite_css<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
-        let Some(matcher) = &self.css_matcher else {
+        let Some(matcher) = self.css_matcher.clone() else {
             return Cow::Borrowed(bytes);
         };
-        let matches: Vec<(usize, usize, usize)> = matcher
-            .find_iter(bytes)
-            .filter(|found| {
-                found.start().checked_sub(1).is_none_or(|before| {
-                    !(bytes[before].is_ascii_alphanumeric() || matches!(bytes[before], b'-' | b'_'))
-                        || ends_with_escape(bytes, found.start())
-                })
-            })
-            .map(|found| (found.start(), found.end(), found.pattern().as_usize()))
-            .collect();
-        if matches.is_empty() {
-            return Cow::Borrowed(bytes);
-        }
-        let css_strings = css_string_spans(bytes);
-        let mut css_strings = css_strings.iter().peekable();
+        let mut css_strings: Option<std::iter::Peekable<CssStrings<'_>>> = None;
         let mut out: Option<Vec<u8>> = None;
         let mut copied_to = 0;
-        for (start, end, index) in matches {
-            while css_strings.next_if(|string| string.1 <= start).is_some() {}
-            if !css_strings
+        for found in matcher.find_iter(bytes) {
+            let (start, end) = (found.start(), found.end());
+            if start.checked_sub(1).is_some_and(|before| {
+                (bytes[before].is_ascii_alphanumeric() || matches!(bytes[before], b'-' | b'_'))
+                    && !ends_with_escape(bytes, start)
+            }) {
+                continue;
+            }
+            let strings = css_strings.get_or_insert_with(|| CssStrings::new(bytes).peekable());
+            while strings.next_if(|string| string.1 <= start).is_some() {}
+            if !strings
                 .peek()
                 .is_some_and(|string| string.0 < start && end < string.1)
             {
                 continue;
             }
-            let target = &mut self.css_targets[index];
+            let target = &mut self.css_targets[found.pattern().as_usize()];
             target.found = true;
             for &url in &target.covers {
                 self.targets[url].found = true;
