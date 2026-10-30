@@ -186,7 +186,7 @@ describe("CloudRuns", () => {
 });
 
 describe("runNotice", () => {
-  const user = { kind: "user" as const, id: "u", text: "hi" };
+  const user = { kind: "user" as const, id: "pending", text: "hi" };
   const reply = { kind: "assistant" as const, id: "a", text: "hello" };
 
   it.each([
@@ -305,19 +305,23 @@ describe("runNotice after a finished turn", () => {
     expect(notice?.text).toMatch(/^Worked for 2m 30s · done 5:06/);
   });
 
-  it("gives way once a new message is waiting", () => {
-    const waiting = [
-      ...lines,
-      { kind: "user" as const, id: "u2", text: "more" },
-    ];
+  it.each([
+    ["gives way once a new message is waiting", "pending", done, "Thinking…"],
+    [
+      "says a turn failed when it ended on an error without a reply",
+      "u2",
+      { ...done, stopReason: "error" },
+      "The agent stopped on an error. Send a message to try again.",
+    ],
+  ])("%s", (_, id, lastTurn, expected) => {
     expect(
       runNotice(
-        { ...emptyRunView, loaded: true, status: "in_progress" },
-        waiting,
+        { ...emptyRunView, loaded: true, status: "in_progress", local: true },
+        [...lines, { kind: "user" as const, id, text: "more" }],
         false,
-        done,
+        lastTurn,
       )?.text,
-    ).toBe("Thinking…");
+    ).toBe(expected);
   });
 });
 
