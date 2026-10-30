@@ -6,7 +6,6 @@ import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import {
     ScenePanel,
@@ -19,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowSuggestionsPanelToggle } from './suggestions/WorkflowSuggestionsPanelToggle'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
+import { canEditWorkflow } from './workflowAccess'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 
@@ -29,14 +29,7 @@ export function WorkflowScenePanel(props: WorkflowSceneLogicProps): JSX.Element 
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const { showSaveAsTemplateModal } = useActions(workflowTemplateLogic({ ...props, editTemplateId }))
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
-    const canEdit =
-        workflow.status !== 'archived' &&
-        (!workflowUserAccessLevel ||
-            accessLevelSatisfied(
-                AccessControlResourceType.Workflow,
-                workflowUserAccessLevel,
-                AccessControlLevel.Editor
-            ))
+    const canEdit = canEditWorkflow(workflow, workflowUserAccessLevel)
 
     return (
         <ScenePanel>

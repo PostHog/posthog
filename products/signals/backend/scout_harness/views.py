@@ -72,9 +72,11 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
@@ -84,7 +86,9 @@ from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
+from products.signals.backend.report_check_final_agents import MonitoringScoutResult, submit_monitoring_scout_result
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
+from products.signals.backend.report_monitoring_results import InvalidMonitoringResult, MonitoringResultConflict
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerWriteError
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.create_access import can_create_scout
@@ -176,6 +180,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutPrecheckTestSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    SubmitMonitoringResultRequestSerializer,
+    SubmitMonitoringResultResponseSerializer,
     validate_scout_repositories,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -631,6 +637,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
 
+    def get_serializer_context(self) -> dict[str, object]:
+        context = super().get_serializer_context()
+        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        return context
+
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         team_id = _canonical_team_id(self)
@@ -724,7 +735,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_version=skill_version,
                 limit=limit,
             )
-        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        return Response(
+            SignalScoutRunSummarySerializer(
+                [row.as_dict() for row in rows], many=True, context=self.get_serializer_context()
+            ).data
+        )
 
     @validated_request(
         query_serializer=RecentRunsPerScoutQuerySerializer,
@@ -766,6 +781,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def recent_per_scout(self, request: Request, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
+        serializer_context = self.get_serializer_context()
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
@@ -788,17 +804,26 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
-            return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            return Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         # The inbox polls this every minute. A browser revalidates a `no-cache` body with
         # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
-        etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
+        report_access = int(bool(serializer_context["may_read_reports"]))
+        etag = f'"{report_access}:{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
         conditional = get_conditional_response(request._request, etag=etag)
         if conditional is not None:
             # 304 for a matching If-None-Match, 412 for a failed If-Match.
             response = Response(status=conditional.status_code)
         else:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
-            response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            response = Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         response["ETag"] = etag
         response["Cache-Control"] = "private, no-cache"
         return response
@@ -854,7 +879,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if saved is not None:
             for row in saved.context.recent_runs:
                 if row.get("run_id") == str(run_id):
-                    return Response(SignalScoutRunDetailSerializer(row).data)
+                    return Response(SignalScoutRunDetailSerializer(row, context=self.get_serializer_context()).data)
         detail = get_run(team_id=_canonical_team_id(self), run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
@@ -864,7 +889,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reports = private.reports()
             body["emitted_report_ids"] = [report.id for report in reports if report.source_report_id is None]
             body["edited_report_ids"] = [report.id for report in reports if report.source_report_id is not None]
-        return Response(SignalScoutRunDetailSerializer(body).data)
+        return Response(SignalScoutRunDetailSerializer(body, context=self.get_serializer_context()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -1362,6 +1387,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 suggested_prompts=data.get("suggested_prompts"),
                 links=_to_report_links(data.get("links")),
                 idempotency_key=data.get("idempotency_key"),
+                tags=data.get("tags"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1400,7 +1426,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "named did not land. "
             "Set `actionability` and/or `priority` (each with its explanation) when new evidence changed "
             "your judgment: each replaces the report's decision and re-runs autostart, without changing "
-            "the report's inbox status. "
+            "the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
             "predecessor PRs close only after the replacement completes with verified open PRs."
@@ -1425,7 +1451,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 proposal = ReviewerProposal(
                     expected_state=ReviewerState.model_validate(data["expected_reviewers"]),
                     source="scout_edit",
-                    outcome=data["reviewer_outcome"],
+                    outcome=data.get("reviewer_outcome", "selected"),
                     retry_reason=data.get("reviewer_retry_reason"),
                 )
             result = edit_report_sync(
@@ -1451,6 +1477,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 already_addressed=data.get("already_addressed"),
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
+                tags=data.get("tags"),
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1468,6 +1495,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "charts_set": result.charts_set,
                     "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
+                    "tags_set": result.tags_set,
                     "is_content_revision": result.is_content_revision,
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,
@@ -1977,6 +2005,56 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data,
             status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=SubmitMonitoringResultRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=SubmitMonitoringResultResponseSerializer),
+            400: OpenApiResponse(description="Invalid result or an assignment that is no longer eligible."),
+            404: OpenApiResponse(description="The caller does not own this Monitoring run."),
+            409: OpenApiResponse(description="A different result was already submitted for this assignment."),
+        },
+        summary="Submit the result of an authored Monitoring check",
+        description=(
+            "Submit the assigned Monitoring check's evidence and verdict while the scout is running. "
+            "Only the owning Monitoring scout can call this endpoint. The server derives the check, "
+            "attempt, definition, and fixed window from the run. Validation errors record nothing: "
+            "correct the fields and retry in the same run. An identical accepted submission is idempotent. "
+            "This records an evaluation and leaves the report in Monitoring."
+        ),
+        operation_id="signals_scout_submit_monitoring_result",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="monitoring_result",
+        required_scopes=["signal_scout_monitoring:write"],
+        pagination_class=None,
+    )
+    def monitoring_result(self, request: Request, **kwargs: object) -> Response:
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is None:
+            raise exceptions.NotFound()
+        run = (
+            SignalScoutRun.objects.for_team(_canonical_team_id(self))
+            .select_related("task_run")
+            .filter(id=_parse_run_id_or_404(kwargs), task_run__task_id=bound_task_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        try:
+            result = submit_monitoring_scout_result(run, MonitoringScoutResult.model_validate(request.validated_data))
+        except MonitoringResultConflict as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        except (InvalidMonitoringResult, SignalReportCheck.DoesNotExist) as error:
+            raise exceptions.ValidationError({"detail": str(error)}) from error
+        return Response(
+            SubmitMonitoringResultResponseSerializer(
+                {"accepted": True, "result_id": result.id, "outcome": result.outcome}
+            ).data
         )
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
@@ -2688,8 +2766,8 @@ def _upsert_scout_config(
         skill_name=skill_name,
         defaults={
             **defaults,
-            "created_by": request.user,
-            "enabled_by": request.user if tunables.get("enabled", True) else None,
+            "created_by": cast(User, request.user),
+            "enabled_by": cast(User, request.user) if tunables.get("enabled", True) else None,
         },
     )
     if created or not tunables:
@@ -3758,6 +3836,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         if config is None:
             raise exceptions.NotFound()
         skill_name = config.skill_name
+        if skill_name in SYSTEM_SCOUT_NAMES:
+            raise exceptions.ValidationError("This scout runs once during onboarding.")
         # A withheld scout is invisible across the whole config API (it's excluded from list), so a
         # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
         # against the canonical team, matching `list`/`sync`.

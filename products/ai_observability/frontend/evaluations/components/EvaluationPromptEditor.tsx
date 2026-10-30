@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -26,7 +26,7 @@ export function EvaluationPromptEditor(): JSX.Element {
                         onChange={setEvaluationPrompt}
                         placeholder={
                             evaluation.output_type === 'categorical'
-                                ? 'Describe when each category applies. Return the matching category keys.'
+                                ? 'Describe when each category applies.'
                                 : evaluation.output_type === 'numeric'
                                   ? 'Describe how to score the response. Return a numeric score within the configured bounds.'
                                   : allowsNA
@@ -41,54 +41,8 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         className="font-mono text-sm"
                         maxLength={2000}
                     />
-                    <div className="flex flex-wrap gap-2 justify-between items-center text-sm text-muted">
-                        <div>{prompt.length}/2000 characters</div>
-                        <div className="flex items-center gap-2">
-                            <span>Expected output:</span>
-                            <LemonTag type="completion">
-                                {evaluation.output_type === 'categorical'
-                                    ? allowsNA
-                                        ? 'Category keys or N/A'
-                                        : 'Category keys'
-                                    : evaluation.output_type === 'numeric'
-                                      ? allowsNA
-                                          ? 'Number or N/A'
-                                          : 'Number'
-                                      : allowsNA
-                                        ? 'Boolean (true/false/NA)'
-                                        : 'Boolean (true/false)'}
-                            </LemonTag>
-                        </div>
-                    </div>
                 </div>
             </LemonField.Pure>
-
-            {prompt.length > 0 && (
-                <div className="bg-bg-light border rounded p-3">
-                    <h4 className="text-sm font-semibold mb-2">Prompt guidelines:</h4>
-                    <ul className="text-sm text-muted space-y-1 list-disc list-inside">
-                        <li>Be specific about what you want to evaluate</li>
-                        <li>
-                            {evaluation.output_type === 'categorical' ? (
-                                <span>Explain what each category means and when to select it</span>
-                            ) : evaluation.output_type === 'numeric' ? (
-                                <span>Describe the scoring scale and what each score means</span>
-                            ) : allowsNA ? (
-                                <>
-                                    Clearly instruct to return <code>true</code>, <code>false</code>, or{' '}
-                                    <code>N/A</code> when criteria doesn't apply
-                                </>
-                            ) : (
-                                <>
-                                    Clearly instruct to return <code>true</code> or <code>false</code>
-                                </>
-                            )}
-                        </li>
-                        <li>Consider the context: input prompt, model output</li>
-                        <li>Keep it concise but comprehensive</li>
-                    </ul>
-                </div>
-            )}
         </div>
     )
 }

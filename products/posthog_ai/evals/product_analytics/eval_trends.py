@@ -14,7 +14,7 @@ from posthog.schema import (
     TrendsFormulaNode,
 )
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
@@ -300,7 +300,7 @@ async def eval_trends(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-trends",
         offline_suite=offline_suite(
             "product_analytics/eval_trends::eval_trends",

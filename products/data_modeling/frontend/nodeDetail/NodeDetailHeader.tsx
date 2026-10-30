@@ -59,7 +59,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.
                     node && savedQuery ? (
-                        <NodeDetailActions node={node} savedQuery={savedQuery} />
+                        <NodeDetailActions id={id} node={node} savedQuery={savedQuery} />
                     ) : node?.saved_query_id && !savedQueryError ? (
                         todayRailNav ? (
                             <Skeleton className="h-8 w-56" />

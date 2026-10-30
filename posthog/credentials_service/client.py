@@ -15,18 +15,19 @@ Three behaviours are load-bearing:
 
 2. **A failure is a failure.** With no cache there is no last known good, so an
    unreachable service raises rather than quietly serving something stale. The service
-   needs an availability SLO before the environment variables come out.
+   needs an availability SLO before the environment variables come out. The one exception
+   is a transport blip: a dropped connection or a gateway status gets a fresh attempt
+   first, because the request is a read and repeating it changes nothing.
 
 3. **Environment fallback only when the client is off.** Flag disabled, a flag check that
-   errored, or NEITHER variable configured means "read `os.environ` as before". That covers
-   self-hosted deployments, local development, and the rollout window. It is not an outage
-   path: once the client is on and the service is down, the call fails.
+   errored, or the deployment not fully configured means "read `os.environ` as before". That
+   covers self-hosted deployments, local development, and the rollout window. It is not an
+   outage path: once the client is on and the service is down, the call fails.
 
-   Half-configured is the exception, and it raises. A URL without a signing key (or the
-   reverse) reads as "not configured" and quietly serves credentials from the pod's own
-   environment — which looks like success for every key still mounted there and fails only
-   for the ones that have actually moved to the service. That is the shape of a rollout that
-   appears to work and hasn't started.
+   Half-configured (a URL without a signing key, or the reverse) also reads the environment,
+   because a deploy that adds one variable before the other must not take down every credential
+   read in the pod. It is still a mistake, so it is loud: a warning once per process naming the
+   variable to set, and its own `half_configured` reason on the environment fallback counter.
 
 The token carries the request. `keys` is the exact set this call needs, so a token lifted
 from a log unlocks those fields for five minutes rather than everything the deployment
@@ -35,6 +36,7 @@ may read. There is deliberately no request body.
 
 import os
 import time
+import functools
 from dataclasses import field
 from datetime import timedelta
 from typing import Any
@@ -45,7 +47,7 @@ from django.conf import settings
 import requests
 import structlog
 import posthoganalytics
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -53,18 +55,23 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import CredentialsCaller
-from .errors import (
-    CredentialsServiceMisconfiguredError,
-    CredentialsServiceUnreachableError,
-    SecretInRecoveryError,
-    SecretMissingError,
-)
+from .errors import CredentialsServiceUnreachableError, SecretInRecoveryError, SecretMissingError
 
 logger = structlog.get_logger(__name__)
 
 RESOLVE_PATH = "/v1/secrets/resolve"
 TOKEN_TTL = timedelta(minutes=5)
 REQUEST_TIMEOUT_SECONDS = 5
+
+# The service is a Node server with the default 5 second keep-alive timeout, and the pooled
+# `requests` connection has no idle limit of its own. A request sent on a connection the server
+# is closing at that moment fails with `RemoteDisconnected`. urllib3 drops the broken connection,
+# so the next attempt opens a new one. The request is a read, so a repeat is safe even when the
+# service saw the first attempt. A read timeout is not retried: the service answered nothing in
+# 5 seconds, and two more waits of the same length would only delay the failure.
+REQUEST_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.1
+RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
 
 # Rollout gate. Evaluated per call, so it can be turned off without a deploy if the
 # service misbehaves. posthoganalytics evaluates locally when a personal API key is
@@ -79,10 +86,26 @@ CREDENTIALS_SERVICE_FETCH_COUNTER = Counter(
     labelnames=["outcome"],
 )
 
+CREDENTIALS_SERVICE_RETRY_COUNTER = Counter(
+    "posthog_credentials_service_retry_total",
+    "Credentials service requests sent again after a dropped connection or a gateway status",
+    labelnames=["reason"],
+)
+
 CREDENTIALS_SERVICE_ENV_FALLBACK_COUNTER = Counter(
     "posthog_credentials_service_env_fallback_total",
     "Credential reads served from the local environment instead of the credentials service",
     labelnames=["reason"],
+)
+
+# End to end from the caller's side: signing the token, the round trip, and parsing the body.
+# The service's own histogram starts when the request arrives, so it misses connection setup and
+# anything slow inside the calling pod.
+CREDENTIALS_SERVICE_REQUEST_DURATION = Histogram(
+    "posthog_credentials_service_request_duration_seconds",
+    "Time a caller spends on one credentials service request, from signing the token to a parsed body",
+    labelnames=["caller", "result"],
+    buckets=(0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
 
 
@@ -135,16 +158,29 @@ def _missing_config() -> str | None:
     return "CREDENTIALS_SERVICE_JWT_SECRET" if has_url else "CREDENTIALS_SERVICE_URL"
 
 
+@functools.cache
+def _warn_half_configured(missing: str) -> None:
+    logger.warning(
+        "credentials_service.half_configured_reading_environment",
+        missing=missing,
+        detail="Set both CREDENTIALS_SERVICE_URL and CREDENTIALS_SERVICE_JWT_SECRET, or neither.",
+    )
+
+
 def _disabled_reason() -> str | None:
     """Why the environment fallback is in use, or None when the service should be called.
 
     The flag fails closed: closed means the old environment-variable path, because a flag
-    service blip must not take out credential reads. The three reasons matter separately
+    service blip must not take out credential reads. The four reasons matter separately
     during the rollout — "flag_error" is the fail-closed path that quietly keeps a pod on
     environment variables while the flag service is unhealthy, and it must not look like
     a deliberate opt-out.
     """
-    if not settings.CREDENTIALS_SERVICE_URL or not credentials_service_signing_keys():
+    missing = _missing_config()
+    if missing is not None:
+        _warn_half_configured(missing)
+        return "half_configured"
+    if not settings.CREDENTIALS_SERVICE_URL:
         return "unconfigured"
     try:
         enabled = bool(posthoganalytics.feature_enabled(CREDENTIALS_SERVICE_FLAG, CREDENTIALS_SERVICE_FLAG_DISTINCT_ID))
@@ -159,6 +195,16 @@ def credentials_service_enabled() -> bool:
     return _disabled_reason() is None
 
 
+def _retry_reason(error: BaseException) -> str | None:
+    """The retry counter label for a failure worth another attempt, or None to fail now."""
+    if isinstance(error, requests.ConnectionError):
+        return "connection_error"
+    status_code = getattr(getattr(error, "response", None), "status_code", None)
+    if status_code in RETRYABLE_STATUS_CODES:
+        return str(status_code)
+    return None
+
+
 def _log_resolve(
     url: str,
     keys: list[str],
@@ -168,6 +214,7 @@ def _log_resolve(
     response: Any = None,
     body: dict[str, Any] | None = None,
     error: BaseException | None = None,
+    attempt: int = 1,
 ) -> None:
     """One structured line per credential request. Never raises.
 
@@ -209,6 +256,7 @@ def _log_resolve(
             "states": states,
             "version_ids": versions,
             "missing": missing,
+            "attempt": attempt,
         }
 
         if error is not None or (status_code is not None and status_code >= 400):
@@ -269,9 +317,6 @@ class CredentialsServiceClient:
         return RotatingSecret(current=secret.value, incoming=secret.incoming)
 
     def _resolve(self, keys: list[str], caller: CredentialsCaller) -> dict[str, SecretValue]:
-        missing = _missing_config()
-        if missing is not None:
-            raise CredentialsServiceMisconfiguredError(missing)
         reason = _disabled_reason()
         if reason is not None:
             CREDENTIALS_SERVICE_ENV_FALLBACK_COUNTER.labels(reason=reason).inc()
@@ -312,24 +357,40 @@ class CredentialsServiceClient:
         # Minted outside the try: signing is local work, and a failure there is a bug in this
         # process, not the service being unreachable. Catching it here would file it under the
         # one label nobody investigates.
+        started = time.monotonic()
         headers = self._auth_headers(keys, caller)
         url = f"{settings.CREDENTIALS_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}"
-        started = time.monotonic()
-        try:
-            response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            # ValueError covers a body that is not JSON. Modern `requests` raises its own
-            # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
-            # surfaces on older paths, and nothing else in this block raises one.
-            body: dict[str, Any] = response.json()
-        except (requests.RequestException, ValueError) as e:
-            CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="unreachable").inc()
-            _log_resolve(url, keys, caller, started, response=getattr(e, "response", None), error=e)
-            raise CredentialsServiceUnreachableError(
-                f"The credentials service did not answer a credential request: {e}"
-            ) from e
-        _log_resolve(url, keys, caller, started, response=response, body=body)
-        return body
+        attempt = 1
+        while True:
+            try:
+                response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+                response.raise_for_status()
+                # ValueError covers a body that is not JSON. Modern `requests` raises its own
+                # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
+                # surfaces on older paths, and nothing else in this block raises one.
+                body: dict[str, Any] = response.json()
+            except (requests.RequestException, ValueError) as e:
+                error_response = getattr(e, "response", None)
+                retry_reason = _retry_reason(e)
+                if retry_reason is not None and attempt < REQUEST_ATTEMPTS:
+                    CREDENTIALS_SERVICE_RETRY_COUNTER.labels(reason=retry_reason).inc()
+                    _log_resolve(url, keys, caller, started, response=error_response, error=e, attempt=attempt)
+                    time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+                    attempt += 1
+                    continue
+                CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="unreachable").inc()
+                CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="error").observe(
+                    time.monotonic() - started
+                )
+                _log_resolve(url, keys, caller, started, response=error_response, error=e, attempt=attempt)
+                raise CredentialsServiceUnreachableError(
+                    f"The credentials service did not answer a credential request after {attempt} attempt(s): {e}"
+                ) from e
+            CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="ok").observe(
+                time.monotonic() - started
+            )
+            _log_resolve(url, keys, caller, started, response=response, body=body, attempt=attempt)
+            return body
 
     def _auth_headers(self, keys: list[str], caller: CredentialsCaller) -> dict[str, str]:
         token = encode_jwt(

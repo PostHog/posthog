@@ -11,6 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import { ConversionGoalRecommendations } from './ConversionGoalRecommendations'
 import { DashboardConversionRecommendations } from './DashboardConversionRecommendations'
 import { DashboardSetupPrompt } from './DashboardSetupPrompt'
@@ -67,22 +69,49 @@ describe('conversion setup feature flag', () => {
     })
 
     it.each([
-        [false, false, false, false],
-        [false, false, true, false],
-        [true, false, false, false],
-        [true, false, true, true],
-        [false, true, false, false],
-        [false, true, true, true],
-    ])('gates dashboard recommendations with setup=%s, new dashboard=%s, AI=%s', (setup, dashboard, ai, visible) => {
+        [false, false, false],
+        [false, true, false],
+        [true, false, false],
+        [true, true, true],
+    ])('gates dashboard recommendations with setup=%s, AI=%s', (setup, ai, visible) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: setup,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: dashboard,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]: ai,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true,
         })
+        sourcesDataLogic.mount()
+        sourcesDataLogic.actions.loadSourcesSuccess({ count: 0, next: null, previous: null, results: [] })
         render(<DashboardConversionRecommendations />)
         expect(!!screen.queryByText('Review recommendations')).toBe(visible)
         expect(!!jest.mocked(ConversionGoalRecommendations).mock.calls.length).toBe(visible)
+    })
+
+    it('waits for sources and project settings before mounting the dashboard scan', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]: true,
+        })
+        sourcesDataLogic.mount()
+        const currentTeam = teamLogic.values.currentTeam!
+        const { rerender } = render(<DashboardConversionRecommendations />)
+        expect(ConversionGoalRecommendations).not.toHaveBeenCalled()
+
+        act(() => sourcesDataLogic.actions.loadSourcesFailure('Could not load sources'))
+        expect(screen.queryByText('Review recommendations')).not.toBeInTheDocument()
+
+        act(() => {
+            teamLogic.actions.loadCurrentTeam()
+            sourcesDataLogic.actions.loadSourcesSuccess({ count: 0, next: null, previous: null, results: [] })
+        })
+        expect(ConversionGoalRecommendations).not.toHaveBeenCalled()
+
+        act(() => teamLogic.actions.loadCurrentTeamSuccess(currentTeam))
+        expect(screen.getByText('Review recommendations')).toBeVisible()
+
+        jest.clearAllMocks()
+        act(() => sourcesDataLogic.actions.loadSources())
+        rerender(<DashboardConversionRecommendations />)
+        expect(screen.getByText('Review recommendations')).toBeVisible()
     })
 
     it('keeps dismissed sources accessible without Setup and restores them from Setup', () => {

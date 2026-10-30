@@ -753,6 +753,98 @@
             "label": "AI web search price (LLM)",
             "type": "Numeric"
         },
+        "$anomaly_breakdown_value": {
+            "description": "Breakdown value of the series. Empty when the insight has no breakdown.",
+            "label": "Anomaly breakdown value",
+            "type": "String"
+        },
+        "$anomaly_bucket_start": {
+            "description": "Start of the scored bucket, with the project timezone offset.",
+            "examples": ["2026-10-22T00:00:00+01:00"],
+            "label": "Anomaly bucket start",
+            "type": "String"
+        },
+        "$anomaly_details": {
+            "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
+            "label": "Anomaly details",
+            "type": "String"
+        },
+        "$anomaly_detector": {
+            "description": "Detector type of the scoring profile.",
+            "examples": ["zscore", "ensemble"],
+            "label": "Anomaly detector",
+            "type": "String"
+        },
+        "$anomaly_detector_version": {
+            "description": "Hash of the scoring settings for the interval. A change to the settings starts a new version.",
+            "label": "Anomaly detector version",
+            "type": "String"
+        },
+        "$anomaly_flag": {
+            "description": "1 when the bucket is anomalous, 0 when it is not, and empty while the series warms up. Average it for an anomaly rate, and sum it for an anomaly count.",
+            "examples": [0, 1],
+            "label": "Anomaly flag",
+            "type": "Numeric"
+        },
+        "$anomaly_insight_id": {
+            "description": "ID of the saved insight that holds the series. It joins to `system.insights.id` and `system.dashboard_tiles.insight_id`. Empty for default series.",
+            "label": "Anomaly insight ID",
+            "type": "Numeric"
+        },
+        "$anomaly_interval": {
+            "description": "Interval of the scored series. Filter on one interval before you average flags across series, because an hourly series writes 24 events for each event a daily series writes.",
+            "examples": ["hour", "day", "week", "month"],
+            "label": "Anomaly interval",
+            "type": "String"
+        },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
+        "$anomaly_profile": {
+            "description": "Name of the scoring profile that produced the score.",
+            "examples": ["default-v1"],
+            "label": "Anomaly scoring profile",
+            "type": "String"
+        },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
+            "type": "String"
+        },
+        "$anomaly_score": {
+            "description": "Score from 0 to 1. It ranks buckets within one series only, so never compare or average it across series. Empty while the series warms up.",
+            "label": "Anomaly score",
+            "type": "Numeric"
+        },
+        "$anomaly_scored_at": {
+            "description": "When the bucket was scored. If a bucket was scored more than once, keep the latest result.",
+            "label": "Anomaly scored at",
+            "type": "String"
+        },
+        "$anomaly_series_key": {
+            "description": "Stable ID of the scored series. Use it with Anomaly bucket start to keep the latest result for each bucket.",
+            "label": "Anomaly series key",
+            "type": "String"
+        },
+        "$anomaly_series_label": {
+            "description": "Name of the series as the chart shows it.",
+            "label": "Anomaly series label",
+            "type": "String"
+        },
+        "$anomaly_source": {
+            "description": "Where the series comes from. `insight` is a saved insight, and `default` is a series PostHog scores without a saved insight.",
+            "examples": ["insight", "default"],
+            "label": "Anomaly source",
+            "type": "String"
+        },
+        "$anomaly_value": {
+            "description": "The series value that was scored, as it was at scoring time. It can differ from the chart later, when late events arrive.",
+            "label": "Anomaly scored value",
+            "type": "Numeric"
+        },
         "$anon_distinct_id": {
             "description": "If the user was previously anonymous, their anonymous ID will be set here.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
@@ -3180,6 +3272,16 @@
             "label": "AI trace (LLM)",
             "primary_property": "$ai_span_name"
         },
+        "$anomaly_score": {
+            "description": "Self-driving scored one completed bucket of one series for anomalies. Emitted once per series and bucket. The timestamp is the bucket start, so a trends insight on this event lines up with the source chart. The `$anomaly_*` properties hold the result.",
+            "label": "Anomaly score",
+            "primary_property": "$anomaly_series_label"
+        },
+        "$anomaly_score_shadow": {
+            "description": "Same shape as Anomaly score, but scored by a profile under comparison. Use it to compare profiles. Never count it in anomaly rates.",
+            "label": "Anomaly score (shadow)",
+            "primary_property": "$anomaly_series_label"
+        },
         "$autocapture": {
             "description": "User interactions that were automatically captured.",
             "examples": ["clicked button"],
@@ -4602,6 +4704,98 @@
             "description": "The price per web search performed by the LLM provider.",
             "examples": [0.01],
             "label": "AI web search price (LLM)",
+            "type": "Numeric"
+        },
+        "$anomaly_breakdown_value": {
+            "description": "Breakdown value of the series. Empty when the insight has no breakdown.",
+            "label": "Anomaly breakdown value",
+            "type": "String"
+        },
+        "$anomaly_bucket_start": {
+            "description": "Start of the scored bucket, with the project timezone offset.",
+            "examples": ["2026-10-22T00:00:00+01:00"],
+            "label": "Anomaly bucket start",
+            "type": "String"
+        },
+        "$anomaly_details": {
+            "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
+            "label": "Anomaly details",
+            "type": "String"
+        },
+        "$anomaly_detector": {
+            "description": "Detector type of the scoring profile.",
+            "examples": ["zscore", "ensemble"],
+            "label": "Anomaly detector",
+            "type": "String"
+        },
+        "$anomaly_detector_version": {
+            "description": "Hash of the scoring settings for the interval. A change to the settings starts a new version.",
+            "label": "Anomaly detector version",
+            "type": "String"
+        },
+        "$anomaly_flag": {
+            "description": "1 when the bucket is anomalous, 0 when it is not, and empty while the series warms up. Average it for an anomaly rate, and sum it for an anomaly count.",
+            "examples": [0, 1],
+            "label": "Anomaly flag",
+            "type": "Numeric"
+        },
+        "$anomaly_insight_id": {
+            "description": "ID of the saved insight that holds the series. It joins to `system.insights.id` and `system.dashboard_tiles.insight_id`. Empty for default series.",
+            "label": "Anomaly insight ID",
+            "type": "Numeric"
+        },
+        "$anomaly_interval": {
+            "description": "Interval of the scored series. Filter on one interval before you average flags across series, because an hourly series writes 24 events for each event a daily series writes.",
+            "examples": ["hour", "day", "week", "month"],
+            "label": "Anomaly interval",
+            "type": "String"
+        },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
+        "$anomaly_profile": {
+            "description": "Name of the scoring profile that produced the score.",
+            "examples": ["default-v1"],
+            "label": "Anomaly scoring profile",
+            "type": "String"
+        },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
+            "type": "String"
+        },
+        "$anomaly_score": {
+            "description": "Score from 0 to 1. It ranks buckets within one series only, so never compare or average it across series. Empty while the series warms up.",
+            "label": "Anomaly score",
+            "type": "Numeric"
+        },
+        "$anomaly_scored_at": {
+            "description": "When the bucket was scored. If a bucket was scored more than once, keep the latest result.",
+            "label": "Anomaly scored at",
+            "type": "String"
+        },
+        "$anomaly_series_key": {
+            "description": "Stable ID of the scored series. Use it with Anomaly bucket start to keep the latest result for each bucket.",
+            "label": "Anomaly series key",
+            "type": "String"
+        },
+        "$anomaly_series_label": {
+            "description": "Name of the series as the chart shows it.",
+            "label": "Anomaly series label",
+            "type": "String"
+        },
+        "$anomaly_source": {
+            "description": "Where the series comes from. `insight` is a saved insight, and `default` is a series PostHog scores without a saved insight.",
+            "examples": ["insight", "default"],
+            "label": "Anomaly source",
+            "type": "String"
+        },
+        "$anomaly_value": {
+            "description": "The series value that was scored, as it was at scoring time. It can differ from the chart later, when late events arrive.",
+            "label": "Anomaly scored value",
             "type": "Numeric"
         },
         "$anon_distinct_id": {

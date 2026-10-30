@@ -1,6 +1,6 @@
 # Conversion recommendations in Marketing analytics
 
-Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
+Conversion recommendations read a project's event catalog and existing actions and suggest up to three business outcomes to measure.
 They appear in the existing Marketing analytics Setup, under Suggestions and Conversion goals.
 With source onboarding enabled, the dashboard also shows the same conversion recommendations beside source setup.
 Dashboard suggestions have a dismiss button in their header when the Setup tab is available.
@@ -13,7 +13,11 @@ The existing Marketing analytics setup flag must also be enabled.
 ## Analysis lifecycle
 
 The first visit to Setup or the source onboarding dashboard starts an analysis once, after loading the saved state and checking permission to generate.
-Analyses cover 30 days until one completes successfully; later analyses cover 14 days and require an explicit **Scan again** action.
+The dashboard waits for the project settings and source connections to load successfully before mounting recommendations or starting the first scan.
+Background source refreshes keep the recommendations visible while the last successful source response remains available.
+Analyses use a 30-day catalog recency cutoff until one completes successfully; later analyses use 14 days and require an explicit **Scan again** action.
+The cutoff uses the catalog’s last-seen timestamp when available; it does not query or count events in that period.
+Definitions with no last-seen timestamp remain eligible.
 Runs and completed results are stored per project, so returning to Setup does not start another analysis.
 After a successful scan, a project waits one hour from its completion before starting another scan.
 Failed scans can be retried immediately with **Scan again**, including after an interrupted run expires.
@@ -33,7 +37,7 @@ Each row has **Dismiss**. Dismissed source references and names persist per user
 Restoring makes a source eligible to appear again; it appears immediately when the latest scan still recommends it and no goal for that event or action is configured.
 Earlier suggestions remain listed after a scan, without treating their old evidence as current results.
 **Scan details** contains the analysis period and discovery limits.
-**Scan again** scans recent events and actions and generates updated suggestions.
+**Scan again** reads the catalog again and generates updated suggestions.
 A revenue suggestion must reference a numeric property observed in the source metadata.
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
@@ -61,22 +65,32 @@ Without AI recommendations enabled, users configure goals manually; capability r
 
 ## Discovery and access
 
-Discovery reads aggregate counts for up to 20 custom events in the selected window and metadata for up to 20 existing actions.
-It excludes system events, applies the project's test-account filters, and respects event/action access controls.
+Discovery reads PostgreSQL event definitions, event-property associations, and numeric property definitions instead of aggregating the ClickHouse events table.
+It reads at most 1,000 non-system event definitions in indexed name order and 50 recently updated accessible actions.
+It excludes hidden events, definitions last seen before the analysis cutoff, and sources already configured as goals.
+The initial catalog has a 60,000-character JSON budget, including event names and descriptions but no property values.
+Larger catalogs may omit useful sources; the scan is not exhaustive.
+For more than ten candidates, an AI call selects up to ten source references before property metadata is loaded.
+The shortlist uses existing goals as context, and the backend rejects unknown references and removes duplicates.
+Each selected event receives at most 50 property names and their numeric status, with restricted property names removed.
+A second call uses the existing recommendation schema to propose up to three goals; catalogs of ten candidates or fewer skip shortlisting.
+The schema queries use the catalog’s project index and a five-second statement timeout.
+Discovery does not evaluate event counts, distinct users, or test-account filters. Missing counts remain null.
 Action candidates retain their identity and existing filters; their volume is not evaluated during discovery.
 The scan does not inspect warehouse tables or create views.
 
 Starting analysis requires project admin access, AI data-processing consent, the feature flag, and `marketing_analytics:write` for scoped API keys.
 The worker rechecks access, consent, and the flag before reading source data.
 Read-only MCP sessions cannot start analysis.
-Runs belong to the requested environment, matching its events and configured goals.
-Discovery, goal context, locking, and generation permissions use that same environment; parent and child scans remain separate.
-The model receives aggregate evidence, source metadata, and summaries of existing goals, including goals absent from the recent candidate catalog.
+Runs, configured goals, actions, locking, and generation permissions belong to the requested environment; parent and child scans remain separate.
+Event and property definitions follow the project-shared taxonomy scope, including its legacy rows.
+Catalog membership does not prove that an event occurred in the requesting environment or during the analysis period.
+The model receives source metadata and summaries of existing goals, including goals absent from the selected catalog.
 Summaries include source identity, name, measurement, revenue/customer flags, and whether filters apply; they omit filter values, individual event payloads, and person records.
 Configured action summaries respect action access controls.
 Selection prioritizes distinct business outcomes not already measured, and can return no suggestions when only weaker steps from an already measured journey remain.
 The backend also drops suggestions for sources marked as already configured.
-Generation uses the Go AI gateway and the production prompt and tool schema.
+Both selection and recommendation calls use the Go AI gateway, with access, consent, and feature-flag checks before each call.
 When the organization enables AI privacy mode, the request includes the gateway privacy header so prompts and responses are not recorded in AI telemetry.
 The synthetic evaluation runner always requests that privacy mode.
 
@@ -97,7 +111,8 @@ The start endpoint is limited to five requests per hour per user.
 The static IDOR coverage check verifies that recommendation runs appear in the generated environment-scoped model list.
 After changing model scope, regenerate that list with `python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models`, then run the same command without the regeneration flag.
 
-Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
+Backend tests cover run reuse, refresh windows, permissions, consent, catalog scoping, hidden and stale definitions, shortlist validation, property filtering, and goal preservation.
+The catalog tests mock the provider boundary and do not require event ingestion or ClickHouse queries.
 Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
 Draft tests cover event and action mapping, explicit saves, duplicate-click prevention, and retries after failed saves.
 They also cover reviewing existing goals and avoiding duplicate saves from stale drafts.

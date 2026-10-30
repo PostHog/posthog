@@ -240,6 +240,9 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
         return False
     if credential.expires <= timezone.now():
         return False
+    # Staff impersonation mints tokens as the customer. Gateway spend must not go to a user who did not authorize it.
+    if credential.impersonated_by_id is not None:
+        return False
 
     # scoped_* narrows below the user's membership. team_id is the gateway's canonical
     # (project-root) team, so a token scoped only to a child env fails closed here.
@@ -336,8 +339,9 @@ def _team_tier_overrides() -> dict[str, str]:
 
 def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool:
     """Whether an OAuth credential is still authorized for team right now: the user
-    is active, a member, and still has project access. Callers outside the
-    projection need it because a token's scoped_teams is frozen at consent.
+    is active, a member, and still has project access, and no staff impersonation
+    minted the token. Callers outside the projection need it because a token's
+    scoped_teams is frozen at consent.
     """
     return _oauth_authorization_ok(credential, team, team.id, None)
 

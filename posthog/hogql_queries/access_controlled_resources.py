@@ -186,10 +186,10 @@ def queried_access_controlled_resources(
     otherwise a denied user could be served an allowed user's cached rows on a cache hit (the hit
     short-circuits the schema strip that would otherwise raise "You don't have access to table").
 
-    `bypassed_scopes` are the scopes whose access control the principal bypasses. The parent such a
-    scope falls back to through `RESOURCE_FALLBACK_MAP` is left out, because the principal never
-    reaches the parent's rules; the parent still partitions the cache when a table carries that
-    scope directly.
+    `bypassed_scopes` are the scopes whose access control the principal bypasses on warehouse objects.
+    A bypassed scope is left out, and so is the parent it falls back to through `RESOURCE_FALLBACK_MAP`,
+    because the principal never reaches those rules. A system table that carries a bypassed scope keeps
+    it: system tables gate such a principal on its readable scopes, not on warehouse access control.
 
     `_catalog` carries the warehouse reads and the saved views already walked into nested calls. Each
     view is walked once per fingerprint: its scopes join the top-level result the first time, so a
@@ -240,6 +240,7 @@ def queried_access_controlled_resources(
         table_names = set(get_table_names(select))
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
+        scopes_from_system_tables = set(scopes)
 
         # Cache partitioning runs before lazy joins resolve, so their resource scopes do not appear as table names yet.
         if "system.accounts" in table_names and any(
@@ -319,12 +320,14 @@ def queried_access_controlled_resources(
                 if nested is None:
                     return None
                 scopes |= nested
+                # A nested result keeps a bypassed scope only when a system table carries it.
+                scopes_from_system_tables |= nested & bypassed_scopes
 
-        return _with_fallback_parents(scopes, bypassed_scopes)
+        return _with_fallback_parents(scopes, bypassed_scopes) - (bypassed_scopes - scopes_from_system_tables)
 
     # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     return (
-        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes)
+        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes) - bypassed_scopes
         if _references_data_warehouse(query)
         else set()
     )

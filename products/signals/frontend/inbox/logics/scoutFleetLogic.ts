@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
@@ -913,7 +914,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // The 60s poll refetches all configs every cycle. Reconcile against the previous
                         // list so an unchanged fleet keeps the same references — otherwise the whole
                         // roster re-renders on every poll even when nothing changed.
-                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                        return reconcileById(
+                            values.scoutConfigs ?? [],
+                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            (config) => config.id
+                        )
                     } catch (error) {
                         // A stale project id left in the URL by a project switch, or a member without
                         // access, are expected — degrade to the same null the no-team guard returns
@@ -943,7 +948,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // Same unmount race as `loadScoutConfigs`: break before reading `values`.
                         breakpoint()
                         actions.setScoutFleetSyncOutcome('synced')
-                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                        return reconcileById(
+                            values.scoutConfigs ?? [],
+                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            (config) => config.id
+                        )
                     } catch (error) {
                         // Materializing is a write, so a member without write access gets a 403 —
                         // as does a stale project id (404). Keep whatever the list read returned
@@ -1040,7 +1049,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // run's identity and needlessly re-render the memoized run/emission rows. Live
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
                     // that must keep advancing with each poll.
-                    return reconcileById(values.scoutRuns, nextRuns, (run) => run.run_id, isSettledRun)
+                    return reconcileById(
+                        values.scoutRuns,
+                        nextRuns.filter((run) => values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                        (run) => run.run_id,
+                        isSettledRun
+                    )
                 },
                 // One scout's runs, merged over that scout's slice of the window. A scout page loads
                 // this first, so it does not wait on the probes of every other scout in the fleet.
@@ -1234,7 +1248,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         for (const run of pageRuns) {
                             // `date_to` is exclusive, so a boundary row can reappear on the next
                             // page — dedupe by run_id to be safe.
-                            if (!seen.has(run.run_id)) {
+                            if (
+                                !seen.has(run.run_id) &&
+                                (values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME)
+                            ) {
                                 seen.add(run.run_id)
                                 runs.push(run)
                             }
@@ -1300,8 +1317,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
+        // visit opens the roster as the user left it. Search does not persist, the same as the report list.
         selectedScoutTags: [
             [] as string[],
+            { persist: true },
             {
                 setScoutTagFilter: (_, { tags }) => tags,
                 hydrateRosterFilters: (_, { tags }) => tags,
@@ -1316,6 +1336,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
+            { persist: true },
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
                 hydrateRosterFilters: (_, { filter }) => filter,
@@ -1334,6 +1355,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutOwner: [
             null as string | null,
+            { persist: true },
             {
                 setScoutOwnerFilter: (_, { owner }) => owner,
                 hydrateRosterFilters: (_, { owner }) => owner,
@@ -1341,6 +1363,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
+            { persist: true },
             {
                 setScoutRosterSort: (_, { sort }) => sort,
             },
@@ -2160,7 +2183,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             _: unknown,
             searchParams: Record<string, any>,
             __: unknown,
-            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+            { method, initial }: { method: 'PUSH' | 'REPLACE' | 'POP'; initial?: boolean }
         ): void => {
             const hasRosterParams =
                 'scoutSearch' in searchParams ||
@@ -2171,7 +2194,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
                 // the filters and leave the URL bare so a second Back can still reach the entries
                 // beneath it. Reflecting the persisted filters back here would undo the navigation.
-                if (method === 'POP') {
+                // kea-router also reports the location at mount as a POP, flagged `initial`. That is a
+                // fresh visit, not a Back, so it keeps the persisted filters.
+                if (method === 'POP' && !initial) {
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
@@ -2187,7 +2212,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // replaces the bare URL to restore its own params while a Back is still being
                 // handled, and writing the roster filters there would leave the URL filtered after
                 // that Back resets the controls.
-                if (method !== 'PUSH') {
+                if (method !== 'PUSH' && !initial) {
                     return
                 }
                 const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))

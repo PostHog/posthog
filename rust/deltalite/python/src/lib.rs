@@ -14,7 +14,7 @@ use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
-use deltalite_core::limits::ProcessLimits;
+use deltalite_core::limits::{Budget, ProcessLimits};
 use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
 use deltalite_core::table::{open_table, table_exists, MultipartConfig};
@@ -31,6 +31,7 @@ create_exception!(deltalite, DeltaLiteSchemaMismatchError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteTableNotFoundError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteUnsupportedTableError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteSourceTooLargeError, DeltaLiteError);
+create_exception!(deltalite, DeltaLiteTimeoutError, DeltaLiteError);
 
 /// Map a core error onto the matching Python exception class.
 fn to_py_err(e: Error) -> PyErr {
@@ -41,6 +42,7 @@ fn to_py_err(e: Error) -> PyErr {
         Error::Unsupported(_) => DeltaLiteUnsupportedTableError::new_err(msg),
         Error::Conflict(_) => DeltaLiteCommitConflictError::new_err(msg),
         Error::SourceTooLarge(_) => DeltaLiteSourceTooLargeError::new_err(msg),
+        Error::Timeout(_) => DeltaLiteTimeoutError::new_err(msg),
         Error::Generic(_) => DeltaLiteError::new_err(msg),
     }
 }
@@ -386,7 +388,15 @@ impl DeltaLiteTable {
     /// `max_source_bytes` guards against oversized batches (resident source + estimated
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
-    /// multipart upload of output files (`0` threshold disables).
+    /// multipart upload of output files (`0` threshold disables), and
+    /// `multipart_concurrency` sets how many parts upload at once. A ranged read of a
+    /// data file larger than `range_get_part_size` is split into requests of that size,
+    /// `range_get_concurrency` at once. A concurrency of `1` turns either off; see the
+    /// README for the defaults and environment variables.
+    ///
+    /// `read_ahead_row_groups=True` reads the next row group of a file while the
+    /// current one decodes. A reader then holds up to two row groups from the fetch
+    /// budget. Off by default.
     ///
     /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
     /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
@@ -423,6 +433,10 @@ impl DeltaLiteTable {
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
         use_probe_cache = true,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -448,6 +462,10 @@ impl DeltaLiteTable {
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
         use_probe_cache: bool,
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
@@ -476,6 +494,7 @@ impl DeltaLiteTable {
             max_parallel_files,
             max_buffered_bytes,
             max_fetch_bytes,
+            read_ahead_row_groups,
             commit_max_retries,
             read_batch_size,
             target_file_size,
@@ -487,7 +506,13 @@ impl DeltaLiteTable {
             limits: ProcessLimits::global().clone(),
             probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
 
         // Conflict retries, snapshot refreshes and the post-commit reload all live in
         // `TableHandle::upsert` (shared with the Rust benchmarks); the handle refreshes
@@ -538,6 +563,9 @@ impl DeltaLiteTable {
         dry_run = false,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn compact(
@@ -561,6 +589,9 @@ impl DeltaLiteTable {
         dry_run: bool,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
     ) -> PyResult<Py<PyAny>> {
         let opts = deltalite_core::CompactOptions {
             target_file_size,
@@ -585,7 +616,13 @@ impl DeltaLiteTable {
             dry_run,
             limits: ProcessLimits::global().clone(),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
         let handle = &mut self.handle;
         let s = py
             .detach(|| runtime().block_on(handle.compact(opts, multipart)))
@@ -702,12 +739,38 @@ fn probe_cache_stats(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(d.into_any().unbind())
 }
 
+/// Free and total permits of each process-wide budget that every upsert and compaction
+/// of this process shares, and the acquisitions that wait for each:
+/// `{"partitions": {"available": .., "total": .., "waiters": ..}, "files": {..},
+/// "buffer_kb": {..}, "fetch_kb": {..}}`. The byte budgets count KiB. It takes no
+/// lock and does no I/O, so a caller can read it while a call of this process hangs.
+#[pyfunction]
+fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProcessLimits::global().snapshot();
+    let d = PyDict::new(py);
+    for budget in [
+        Budget::Partitions,
+        Budget::Files,
+        Budget::Buffer,
+        Budget::Fetch,
+    ] {
+        let b = s.get(budget);
+        let entry = PyDict::new(py);
+        entry.set_item("available", b.available)?;
+        entry.set_item("total", b.total)?;
+        entry.set_item("waiters", b.waiters)?;
+        d.set_item(budget.name(), entry)?;
+    }
+    Ok(d.into_any().unbind())
+}
+
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
     m.add_function(wrap_pyfunction!(set_probe_cache_max_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
     m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(limits_snapshot, m)?)?;
     m.add_class::<UpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
     m.add(
@@ -729,6 +792,10 @@ fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "DeltaLiteSourceTooLargeError",
         m.py().get_type::<DeltaLiteSourceTooLargeError>(),
+    )?;
+    m.add(
+        "DeltaLiteTimeoutError",
+        m.py().get_type::<DeltaLiteTimeoutError>(),
     )?;
     Ok(())
 }

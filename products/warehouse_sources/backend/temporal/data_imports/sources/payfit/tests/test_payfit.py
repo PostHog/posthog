@@ -1,6 +1,9 @@
+import datetime
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -10,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
@@ -76,6 +80,126 @@ class TestGetRows:
         assert result.raised is None
         assert result.rows == [{"id": "5"}]
         assert result.params("nextPageToken") == [None, "tok-99"]
+
+    def test_company_object_is_one_row(self) -> None:
+        company = {"id": COMPANY_ID, "name": "Example company", "country": "FR", "nbActiveContracts": 3}
+        result = _driver().run("company", [_introspection_response(), ScriptedResponse(json=company)])
+
+        assert result.raised is None
+        assert result.items == [[company]]
+        assert result.paths == ["/introspect", f"/companies/{COMPANY_ID}"]
+
+
+class TestGetMonthlyRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_today(self) -> Iterator[None]:
+        with time_machine.travel(datetime.datetime(2026, 3, 15, 12, tzinfo=datetime.UTC), tick=False):
+            yield
+
+    def test_walks_pay_periods_paging_within_each_month(self) -> None:
+        result = _driver().run(
+            "contracts_worked_time",
+            [
+                _introspection_response(),
+                ScriptedResponse(json={"contracts": [{"contractId": "c1"}], "meta": {"nextPageToken": "tok-2"}}),
+                ScriptedResponse(json={"contracts": [{"contractId": "c2"}], "meta": {"nextPageToken": None}}),
+                # A pay period PayFit holds nothing for answers 404 and is skipped.
+                ScriptedResponse(status=404, json={"error": "Ressource not found"}),
+                ScriptedResponse(json={"contracts": [{"contractId": "c1"}], "meta": {}}),
+            ],
+            history_start=datetime.datetime(2026, 1, 10, tzinfo=datetime.UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [
+            [{"contractId": "c1", "month": datetime.date(2026, 1, 1)}],
+            [{"contractId": "c2", "month": datetime.date(2026, 1, 1)}],
+            [{"contractId": "c1", "month": datetime.date(2026, 3, 1)}],
+        ]
+        assert result.params("date") == [None, "202601", "202601", "202602", "202603"]
+        assert result.params("nextPageToken") == [None, None, "tok-2", None, None]
+        assert result.saved_states == [
+            PayFitResumeConfig(next_page_token="tok-2", month="202601"),
+            PayFitResumeConfig(month="202602"),
+            PayFitResumeConfig(month="202603"),
+            PayFitResumeConfig(month="202604"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "payroll_status_object",
+                "payroll_status",
+                {"status": "completed", "executionEndDate": "2026-03-10T11:56:24.221Z"},
+                [{"status": "completed", "executionEndDate": "2026-03-10T11:56:24.221Z"}],
+            ),
+            (
+                "accounting_array_numbers_rows",
+                "accounting_entries",
+                [{"accountId": "6411000", "debit": 10}, {"accountId": "6411000", "debit": 10}],
+                [
+                    {"accountId": "6411000", "debit": 10, "lineNumber": 0},
+                    {"accountId": "6411000", "debit": 10, "lineNumber": 1},
+                ],
+            ),
+        ]
+    )
+    def test_unpaginated_bodies_become_rows(
+        self, _name: str, endpoint: str, body: Any, expected: list[dict[str, Any]]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_introspection_response(), ScriptedResponse(json=body)],
+            history_start=datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**row, "month": datetime.date(2026, 3, 1)} for row in expected]
+        assert result.params("maxResults") == [None, None]
+
+    @parameterized.expand(
+        [
+            ("history_start", {"history_start": datetime.datetime(2026, 1, 20, tzinfo=datetime.UTC)}, "202601"),
+            ("no_history_start_uses_lookback", {}, "202303"),
+            (
+                "incremental_rereads_months_before_watermark",
+                {
+                    "history_start": datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
+                    "incremental_field": "month",
+                    "db_incremental_field_last_value": datetime.date(2026, 2, 1),
+                },
+                "202511",
+            ),
+        ]
+    )
+    def test_first_requested_pay_period(self, _name: str, inputs: dict[str, Any], expected_first: str) -> None:
+        result = _driver().run(
+            "payroll_status",
+            route({"/introspect": [_introspection_response()], "/payroll-status": [ScriptedResponse(status=404)] * 40}),
+            **inputs,
+        )
+
+        assert result.raised is None
+        dates = result.params("date")[1:]
+        assert dates[0] == expected_first
+        assert dates[-1] == "202603"
+
+    def test_resumes_from_saved_month_and_page_token(self) -> None:
+        result = _driver().run(
+            "contracts_worked_time",
+            [
+                _introspection_response(),
+                ScriptedResponse(json={"contracts": [{"contractId": "c9"}], "meta": {}}),
+                ScriptedResponse(json={"contracts": [], "meta": {}}),
+            ],
+            resume_state=PayFitResumeConfig(next_page_token="tok-9", month="202602"),
+            history_start=datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"contractId": "c9", "month": datetime.date(2026, 2, 1)}]
+        assert result.params("date") == [None, "202602", "202603"]
+        assert result.params("nextPageToken") == [None, "tok-9", None]
 
 
 class TestGetPayslipRows:
@@ -292,6 +416,14 @@ class TestCheckSchemaAccess:
         # Payslip paths need a collaborator id, so the scope probe targets the collaborators list.
         assert network.requests_log[1].url == f"{PAYFIT_BASE_URL}/companies/{COMPANY_ID}/collaborators?maxResults=1"
 
+    @time_machine.travel(datetime.datetime(2026, 3, 15, tzinfo=datetime.UTC), tick=False)
+    def test_monthly_probe_accepts_empty_pay_period(self) -> None:
+        with scripted_network([_introspection_response(), ScriptedResponse(status=404, json={})]) as network:
+            valid, _message = check_schema_access("payfit-key", "accounting_entries")
+
+        assert valid is True
+        assert network.requests_log[1].url == f"{PAYFIT_BASE_URL}/companies/{COMPANY_ID}/accounting-v2?date=202603"
+
     def test_inactive_token_fails_before_probing(self) -> None:
         with scripted_network([ScriptedResponse(json={"active": False})]) as network:
             valid, message = check_schema_access("payfit-key", "contracts")
@@ -302,13 +434,11 @@ class TestCheckSchemaAccess:
 
 
 class TestPayFitSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in ENDPOINTS if not PAYFIT_ENDPOINTS[e].monthly])
     def test_source_response_shape(self, endpoint: str) -> None:
         data_key = "collaborators" if endpoint == "payslips" else PAYFIT_ENDPOINTS[endpoint].data_key
-        result = _driver().run(
-            endpoint,
-            [_introspection_response(), ScriptedResponse(json={data_key: [], "meta": {}})],
-        )
+        body: dict[str, Any] = {data_key: [], "meta": {}} if data_key else {"id": COMPANY_ID}
+        result = _driver().run(endpoint, [_introspection_response(), ScriptedResponse(json=body)])
 
         assert result.raised is None
         response = result.response

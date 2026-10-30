@@ -2,10 +2,13 @@
 # Wrapper script for mcp-grafana that connects to PostHog Grafana via Tailscale.
 #
 # PostHog's Grafana instances are reachable over Tailscale at plain HTTP hostnames
-# (grafana-prod-us, grafana-prod-eu, grafana-dev, grafana-internal). This wrapper looks up a service
+# (grafana-prod-us, grafana-prod-eu, grafana-dev, grafana-internal, grafana-mw-dev,
+# grafana-mw-prod-us, grafana-mw-prod-eu, grafana-infra-dev, grafana-infra-dev-wl). This wrapper looks up a service
 # account token from macOS Keychain and hands both the URL and token to mcp-grafana.
 #
-# Supports switching between prod-us, prod-eu, dev, and internal via GRAFANA_REGION env var
+# Supports switching between prod-us, prod-eu, dev, internal, mw-dev, mw-prod-us, mw-prod-eu,
+# infra-dev, and infra-dev-wl
+# via GRAFANA_REGION env var
 # or ~/.grafana-region file (env var takes precedence). Use `grafana-region <region>`
 # to switch, then restart your MCP client.
 #
@@ -22,7 +25,7 @@ DEFAULT_REGION="us"
 
 # Read current region (default to us if file missing or empty)
 if [ -f "$REGION_FILE" ] && [ -s "$REGION_FILE" ]; then
-    CURRENT_REGION=$(head -n1 "$REGION_FILE" | tr -cd '[:alnum:]')
+    CURRENT_REGION=$(head -n1 "$REGION_FILE" | tr -cd '[:alnum:]-')
 else
     CURRENT_REGION="$DEFAULT_REGION"
 fi
@@ -32,12 +35,6 @@ REGION_SOURCE="$REGION_FILE"
 if [ -n "${GRAFANA_REGION:-}" ]; then
     CURRENT_REGION="$GRAFANA_REGION"
     REGION_SOURCE="GRAFANA_REGION env var"
-fi
-
-# Validate region
-if [[ "$CURRENT_REGION" != "us" && "$CURRENT_REGION" != "eu" && "$CURRENT_REGION" != "dev" && "$CURRENT_REGION" != "internal" ]]; then
-    echo "Error: Invalid region '$CURRENT_REGION' from $REGION_SOURCE. Must be 'us', 'eu', 'dev', or 'internal'." >&2
-    exit 1
 fi
 
 # Region-specific configuration
@@ -57,6 +54,14 @@ case "$CURRENT_REGION" in
     internal)
         GRAFANA_HOST="grafana-internal"
         KEYCHAIN_SERVICE="grafana-service-account-token-internal"
+        ;;
+    mw-dev|mw-prod-us|mw-prod-eu|infra-dev|infra-dev-wl)
+        GRAFANA_HOST="grafana-$CURRENT_REGION"
+        KEYCHAIN_SERVICE="grafana-service-account-token-$CURRENT_REGION"
+        ;;
+    *)
+        echo "Error: Invalid region '$CURRENT_REGION' from $REGION_SOURCE. Must be 'us', 'eu', 'dev', 'internal', 'mw-dev', 'mw-prod-us', 'mw-prod-eu', 'infra-dev', or 'infra-dev-wl'." >&2
+        exit 1
         ;;
 esac
 

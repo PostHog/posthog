@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -156,6 +157,8 @@ describe('scoutFleetLogic', () => {
     let logic: ReturnType<typeof scoutFleetLogic.build>
 
     beforeEach(async () => {
+        // The roster filters persist to localStorage, which jsdom keeps between tests.
+        localStorage.clear()
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
@@ -178,6 +181,20 @@ describe('scoutFleetLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it.each([false, true])('keeps the first-report scout out of the normal UI unless staff=%s', async (isStaff) => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+        const firstReport = { ...BASE_CONFIG, id: 'first-report', skill_name: FIRST_REPORT_SCOUT_NAME }
+        const configs = [BASE_CONFIG, firstReport]
+        mockSignalsScoutConfigList.mockResolvedValue(configs)
+        mockSignalsScoutConfigSync.mockResolvedValue(configs)
+        const expected = isStaff ? configs : [BASE_CONFIG]
+
+        await expectLogic(logic, () => logic.actions.loadScoutConfigs()).toFinishAllListeners()
+        expect(logic.values.scoutConfigs).toEqual(expected)
+        await expectLogic(logic, () => logic.actions.syncScoutFleet()).toFinishAllListeners()
+        expect(logic.values.scoutConfigs).toEqual(expected)
     })
 
     it('queues updates for a scout while its previous update is in flight', async () => {
@@ -871,6 +888,34 @@ describe('scoutFleetLogic', () => {
         // The filter persists and is written back so the restored view stays shareable.
         expect(logic.values.scoutEnabledFilter).toEqual('enabled')
         expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
+    it('restores the persisted roster filters and sort on a fresh visit to the bare roster URL', async () => {
+        logic.actions.setScoutEnabledFilter('enabled')
+        logic.actions.setScoutTagFilter(['revenue'])
+        logic.actions.setScoutOwnerFilter(OWNER.uuid)
+        logic.actions.setScoutRosterSort('last_run')
+        logic.actions.setScoutSearch('rev')
+        logic.unmount()
+
+        // A new tab: a fresh store mounts the roster on the bare URL, which kea-router reports as a POP.
+        initKeaTests()
+        router.actions.push(urls.inbox('scouts'))
+        logic = scoutFleetLogic()
+        logic.mount()
+
+        expect(logic.values).toMatchObject({
+            scoutEnabledFilter: 'enabled',
+            selectedScoutTags: ['revenue'],
+            selectedScoutOwner: OWNER.uuid,
+            scoutRosterSort: 'last_run',
+            scoutSearch: '',
+        })
+        expect(router.values.searchParams).toEqual({
+            scoutEnabled: 'enabled',
+            scoutTags: 'revenue',
+            scoutOwner: OWNER.uuid,
+        })
     })
 
     it('drops a typed search that a URL hydration has already replaced', async () => {

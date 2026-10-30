@@ -526,18 +526,18 @@ class TestQuarantineRender(TestCase):
 class TestQuarantineRequest(BaseTest):
     def _install(self, github: mock.Mock, *, has_integration: bool = True, connected: bool = True) -> mock.Mock:
         gh_patch = mock.patch(f"{_Q}.GitHubIntegration", return_value=github)
-        integration_patch = mock.patch(f"{_Q}.Integration")
+        integration_patch = mock.patch(f"{_Q}.IntegrationManager")
         # The explicit repo override is authorized against the team's connected GitHub sources;
         # mock that list so the real _repo_is_connected runs against a matching source (or none).
         sources = [SimpleNamespace(repo="PostHog/posthog")] if connected else []
         sources_patch = mock.patch(f"{_Q}.list_github_sources", return_value=sources)
         gh_patch.start()
-        integration_cls = integration_patch.start()
+        manager = integration_patch.start()
         sources_patch.start()
         self.addCleanup(gh_patch.stop)
         self.addCleanup(integration_patch.stop)
         self.addCleanup(sources_patch.stop)
-        integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
+        manager.github.oauth.find.return_value = object() if has_integration else None
         return github
 
     @time_machine.travel("2026-06-12", tick=False)
@@ -791,6 +791,9 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        return True
+
     def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
         self.sql = sql
         return SimpleNamespace(results=self._rows)
@@ -805,9 +808,9 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
                 f"test_{index}",
                 f"products/a/test_{index}.py",
                 "",
-                "quarantined",
-                "always",
+                "flaky",
                 f"case-{index}",
+                f"https://app.trunk.io/example/tests/case-{index}",
                 datetime(2026, 1, 1, tzinfo=UTC),
             )
             for index in range(count)

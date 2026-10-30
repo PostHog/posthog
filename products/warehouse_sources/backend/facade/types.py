@@ -270,6 +270,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     INCIDENTIO = "IncidentIo", "IncidentIo"
     PINGDOM = "Pingdom", "Pingdom"
     CLOUDFLARE = "Cloudflare", "Cloudflare"
+    CLOUDFLARED1 = "CloudflareD1", "CloudflareD1"
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
@@ -987,6 +988,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     AWSCOSTANDUSAGEREPORT = "AwsCostAndUsageReport", "AwsCostAndUsageReport"
     AWSCOSTANOMALYDETECTION = "AwsCostAnomalyDetection", "AwsCostAnomalyDetection"
     AWSCOSTEXPLORER = "AwsCostExplorer", "AwsCostExplorer"
+    AWSDOCUMENTDB = "AwsDocumentDB", "AwsDocumentDB"
     AWSGLUEDATACATALOG = "AwsGlueDataCatalog", "AwsGlueDataCatalog"
     AWSGUARDDUTY = "AwsGuardduty", "AwsGuardduty"
     AWSHEALTH = "AwsHealth", "AwsHealth"
@@ -1476,6 +1478,14 @@ class ExternalDataSourceType(LabeledStrEnum):
     CONECTOCRM = "ConectoCRM", "ConectoCRM"
     CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
     PARTICLE = "Particle", "Particle"
+    FILEUPLOAD = "FileUpload", "FileUpload"
+    DRIPIFY = "Dripify", "Dripify"
+    AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
+    NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
@@ -1497,6 +1507,12 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.TRINO: "trino",
     ExternalDataSourceType.BIGQUERY: "bigquery",
 }
+
+
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
 
 
 class ManagedWarehouseSQLMode(StrEnum):
@@ -1610,3 +1626,11 @@ class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class UploadedFileFormat(LabeledStrEnum):
+    """How an uploaded file is read: CSV with a header row, JSON one object per line, or Parquet."""
+
+    CSV = "csv", "csv"
+    JSON = "json", "json"
+    PARQUET = "parquet", "parquet"

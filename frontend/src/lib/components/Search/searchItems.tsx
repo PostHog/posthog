@@ -33,6 +33,7 @@ export interface SearchItem {
      * other than navigation (e.g. logging out). Consumers should prefer `onSelect` over `href`. */
     onSelect?: () => void
     icon?: React.ReactNode
+    keybinding?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null
@@ -42,6 +43,15 @@ export interface SearchItem {
     parentName?: string
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
+    rankKey?: number[]
+    createdByName?: string
+    searchMatch?: {
+        matchedAllWords: boolean
+        matchedWords: string[]
+        typeCount: number
+        countsCapped: boolean
+        withTypos: boolean
+    }
     /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
      * (e.g. the user has no access to the product or resource). */
     disabledReason?: string

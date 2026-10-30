@@ -1,5 +1,8 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -7,11 +10,19 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceTimelineRowApi } from '../../generated/api.schemas'
-import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './adapter/testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
+    makeNodeDetail,
+    makeTraceResource,
+} from './adapter/testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
     id: 'expired-1',
     kind: 'span',
@@ -69,6 +80,7 @@ describe('traceViewLogic', () => {
                     requestedPath = url.pathname
                     return [200, makeTraceResource({ name: null })]
                 },
+                [EVALUATIONS_URL]: () => [200, makeEvaluationResults()],
             },
         })
         initKeaTests()
@@ -127,6 +139,45 @@ describe('traceViewLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ status: 'error', errorMessage: expectedMessage })
     })
+
+    it.each([
+        ['answers', 200, { evaluationResults: answered, evaluationResultsFailed: false }, false],
+        ['fails', 500, { evaluationResults: null, evaluationResultsFailed: true }, true],
+    ] as const)(
+        'reads the evaluation results alongside the trace and keeps the trace ready, without a toast, when that read %s',
+        async (_description, statusCode, expected, reported) => {
+            const toast = jest.spyOn(lemonToast, 'error')
+            const report = jest.spyOn(posthog, 'captureException')
+            const traceAnswer = deferred()
+            let traceAnswered = false
+            let evaluationsReadBeforeTrace = false
+            useMocks({
+                get: {
+                    [TRACE_URL]: async () => {
+                        await traceAnswer.promise
+                        traceAnswered = true
+                        return [200, makeTraceResource()]
+                    },
+                    [EVALUATIONS_URL]: () => {
+                        evaluationsReadBeforeTrace = !traceAnswered
+                        return statusCode === 200 ? [200, answered] : [statusCode, { detail: 'nope' }]
+                    },
+                },
+            })
+            const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+            logic.mount()
+
+            await waitFor(() => expect(logic.values.evaluationResultsLoading).toBe(false))
+            expect(evaluationsReadBeforeTrace).toBe(true)
+            traceAnswer.resolve()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ ...expected, status: 'ready' })
+            expect(toast).not.toHaveBeenCalled()
+            expect(report).toHaveBeenCalledTimes(reported ? 1 : 0)
+        }
+    )
 
     it('loads the thread nodes once the trace arrives', async () => {
         const logic = await mountedLogic()

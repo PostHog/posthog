@@ -9,10 +9,11 @@ import pytest
 from openai import APIConnectionError
 from parameterized import parameterized
 
+from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.prompt import (
-    MAX_PRODUCT_CHARS,
+    MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
-    MAX_TOPIC_CHARS,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
     summary_text,
@@ -32,6 +33,7 @@ from products.signals.backend.activity_summary.render import (
     ActivityItem,
     Drop,
     Parent,
+    Product,
     RenderLimits,
     TaskItem,
     Unit,
@@ -44,6 +46,7 @@ from products.signals.backend.activity_summary.render import (
     sampling_seed,
     task_units,
     view_units,
+    without_products,
 )
 from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
@@ -67,9 +70,19 @@ def _change(
     days_ago: float = 1,
     intent: str | None = None,
     item_id: str | None = None,
+    credential_type: str | None = None,
+    short_id: str | None = None,
 ) -> ActivityItem:
     return ActivityItem(
-        at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent, item_id=item_id
+        at=_at(days_ago),
+        scope=scope,
+        activity=activity,
+        name=name,
+        client=client,
+        intent=intent,
+        item_id=item_id,
+        credential_type=credential_type,
+        short_id=short_id,
     )
 
 
@@ -120,6 +133,29 @@ def test_task_units(_name: str, task: TaskItem, expected: str | None, expected_d
     assert dict(drops) == expected_drops
 
 
+@parameterized.expand(
+    [
+        ("a goal on a few days is kept on each day", 3, 3, {}),
+        ("a goal on most days is a scheduled job", 4, 1, {Drop.REPEATED_TASK: 3}),
+    ]
+)
+def test_a_goal_repeated_on_many_days_collapses_to_one_line(
+    _name: str, days: int, expected_lines: int, expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    tasks = [
+        _task("digest", summary=f"Goal: post the digest of {10 + day} new signups.", days_ago=1 + day)
+        for day in range(days)
+    ]
+
+    units = task_units(tasks, drops)
+
+    assert len(units) == expected_lines
+    if expected_drops:
+        assert units[0].text == f"- 2026-10-18 post the digest of 10 new signups. (x{days})"
+    assert dict(drops) == expected_drops
+
+
 def test_templated_task_titles_collapse_to_one_line_with_a_count() -> None:
     tasks = [_task(f"Fix failing CI checks in PR #{number}", days_ago=number) for number in (1, 2, 3)]
     units = task_units(tasks, Counter())
@@ -150,6 +186,113 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
         Drop.AUTO_NAMED_OBJECT: 1,
         Drop.UNNAMED_OBJECT: 1,
     }
+
+
+def _bulk(count: int, spacing_days: float, intent: str | None = None) -> list[ActivityItem]:
+    return [
+        _change(
+            "KnowledgeSource",
+            "updated",
+            f"Account {n} docs",
+            days_ago=1 - n * spacing_days,
+            item_id=str(n),
+            intent=intent if n == count - 1 else None,
+        )
+        for n in range(count)
+    ]
+
+
+@parameterized.expand(
+    [
+        (
+            "a scout config that onboarding created is dropped",
+            [_change("SignalScoutConfig", "created", "signals-scout-error-tracking")],
+            [],
+            {Drop.ONBOARDING_SCOUT_CONFIG: 1},
+        ),
+        (
+            "a scout config the person named is kept",
+            [_change("SignalScoutConfig", "created", "checkout-watch")],
+            ['- 2026-10-18 created SignalScoutConfig "checkout-watch"'],
+            {},
+        ),
+        (
+            "a personal API key change is dropped",
+            [_change("PersonalAPIKey", "created", "CI deploy key")],
+            [],
+            {Drop.API_KEY_CHANGE: 1},
+        ),
+        (
+            "an integration with a key-like name is kept",
+            [_change("Integration", "created", "CI deploy key")],
+            ['- 2026-10-18 created Integration "CI deploy key"'],
+            {},
+        ),
+        (
+            "an annotation written through a personal API key is dropped",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="personal_api_key")],
+            [],
+            {Drop.API_KEY_ANNOTATION: 1},
+        ),
+        (
+            "an annotation written in the app is kept",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="session")],
+            ['- 2026-10-18 created Annotation "Deploy v1.4.2"'],
+            {},
+        ),
+        (
+            "repeated team settings updates without an intent are dropped",
+            [
+                _change("Team", "updated", "Default project", days_ago=1),
+                _change("Team", "updated", "Default project", days_ago=2),
+            ],
+            [],
+            {Drop.TEAM_SETTINGS: 2},
+        ),
+        (
+            "one team settings update is kept",
+            [_change("Team", "updated", "Default project")],
+            ['- 2026-10-18 updated Team "Default project"'],
+            {},
+        ),
+        (
+            "a bulk update with no intent is dropped",
+            _bulk(12, 0.001),
+            [],
+            {Drop.BULK_SAME_TYPE: 12},
+        ),
+        (
+            "a bulk update with an intent collapses to one line",
+            _bulk(12, 0.001, intent="Sync the account docs"),
+            ["- 2026-10-18 updated 12 knowledge sources (agent: Sync the account docs)"],
+            {Drop.BULK_SAME_TYPE: 11},
+        ),
+        (
+            "updates spread over the day are kept one per object",
+            _bulk(10, 0.05),
+            [f'- 2026-10-1{8 if n < 10 else 9} updated KnowledgeSource "Account {n} docs"' for n in range(10)],
+            {},
+        ),
+        (
+            "a ticket burst collapses to one line with a count",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(3)],
+            ["- 2026-10-18 updated 3 support tickets"],
+            {Drop.TICKET_BURST: 2},
+        ),
+        (
+            "two ticket updates are kept one per ticket",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(2)],
+            ['- 2026-10-18 updated Ticket "Ticket #0"', '- 2026-10-18 updated Ticket "Ticket #1"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_drop_automated_activity(
+    _name: str, items: list[ActivityItem], expected: list[str], expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    assert [unit.text for unit in activity_units(items, drops)] == expected
+    assert dict(drops) == expected_drops
 
 
 @parameterized.expand(
@@ -285,6 +428,20 @@ def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, 
     assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
 
 
+def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
+    drops: Counter[str] = Counter()
+    activity, views = without_products(
+        [_change("SignalReport", "updated", "Weekly digest"), _change("Insight", "created", "Signup funnel")],
+        [_view("scene", "Inbox"), _view("scene", "Dashboards"), _view("insight", "abc", "Signup funnel")],
+        frozenset({Product.INBOX}),
+        drops,
+    )
+
+    assert [item.scope for item in activity] == ["Insight"]
+    assert [view.ref for view in views] == ["Dashboards", "abc"]
+    assert drops == {Drop.EXCLUDED_PRODUCT: 2}
+
+
 def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
     drops: Counter[str] = Counter()
     units = [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)]
@@ -404,6 +561,89 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
     assert dict(drops) == {Drop.GENERIC_SCENE: 2, Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
 
 
+def test_compute_fields_split_owned_watched_and_visited() -> None:
+    activity = (
+        [_change("FeatureFlag", "updated", "new-checkout", days_ago=day, item_id="7") for day in (1, 2, 3)]
+        + [
+            _change("Dashboard", "created", "Growth overview", days_ago=2, item_id="9"),
+            _change("Insight", "updated", "Signup funnel", client="scout:product-analytics", item_id="1"),
+            _change("PersonalAPIKey", "created", "CI deploy key", item_id="k1"),
+            _change("Insight", "updated", "Weekly signups", item_id="42", short_id="abc"),
+        ]
+        + [_change("Ticket", "updated", f"Ticket #{n}", item_id=f"t{n}") for n in (1, 2, 3)]
+    )
+    views = [
+        _view("insight", "abc", "Weekly signups", days=4, not_theirs=True),
+        _view("insight", "def", "Churn by plan", days=2),
+        _view("scene", "Replay", days=1),
+    ]
+    tasks = [_task("why", summary="Goal: find why signups dropped.", tags=("Product analytics",))]
+
+    computed = compute_fields(tasks, activity, views).as_json()
+
+    assert computed == {
+        "schema_version": 1,
+        "owned": [
+            {
+                "ref": "o1",
+                "type": "feature_flag",
+                "id": "7",
+                "name": "new-checkout",
+                "edit_days": 3,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            {
+                "ref": "o2",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "edit_days": 1,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            *(
+                {
+                    "ref": f"o{n + 2}",
+                    "type": "ticket",
+                    "id": f"t{n}",
+                    "name": f"Ticket #{n}",
+                    "edit_days": 1,
+                    "last_at": "2026-10-18",
+                    "created": False,
+                }
+                for n in (1, 2, 3)
+            ),
+            {
+                "ref": "o6",
+                "type": "dashboard",
+                "id": "9",
+                "name": "Growth overview",
+                "edit_days": 1,
+                "last_at": "2026-10-17",
+                "created": True,
+            },
+        ],
+        "watched": [
+            {
+                "ref": "o2",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "open_days": 4,
+                "last_at": "2026-10-18",
+                "not_theirs": True,
+            }
+        ],
+        "pages": [{"ref": "p1", "product": "session_replay", "open_days": 1, "last_at": "2026-10-18"}],
+        "products": {
+            "works_in": ["feature_flags", "product_analytics", "dashboards", "support"],
+            "visits": ["session_replay"],
+        },
+        "task_count": 1,
+    }
+
+
 @parameterized.expand(
     [
         ("default limits", DEFAULT_LIMITS),
@@ -423,7 +663,7 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
 def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str, limits: RenderLimits) -> None:
     runaway = "word " * 2000
     tasks = [
-        _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
+        _task(runaway, summary=f"{'x' * day}{'y' * n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
         for day in range(28)
         for n in range(20)
     ]
@@ -453,28 +693,97 @@ def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() 
     assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
 
 
-PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
+PREVIOUS = {
+    "profile": "## Funnels\n- Builds the signup funnel.",
+    "headline": "Builds the signup funnel.",
+    "themes": [
+        {"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o9"], "last_seen": "2026-10-16"}
+    ],
+    "modes": ["building"],
+    "recent_shift": "Moved from flags to funnels.",
+}
+COMPUTED = {
+    "schema_version": 1,
+    "owned": [
+        {
+            "ref": "o1",
+            "type": "insight",
+            "id": "12",
+            "name": "Signup funnel",
+            "edit_days": 3,
+            "last_at": "2026-10-16",
+            "created": True,
+        }
+    ],
+    "watched": [
+        {
+            "ref": "o2",
+            "type": "dashboard",
+            "id": "34",
+            "name": "Growth overview",
+            "open_days": 4,
+            "last_at": "2026-10-17",
+            "not_theirs": True,
+        }
+    ],
+    "pages": [{"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-18"}],
+    "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
+    "task_count": 0,
+}
+PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
 
 
-@parameterized.expand([("with a previous summary", PREVIOUS), ("cold start", None)])
+@parameterized.expand(
+    [
+        (
+            "with a previous summary",
+            PREVIOUS,
+            ["## Funnels\\n- Builds the signup funnel.", "Builds the signup funnel.", '"label": "Signup funnel"'],
+        ),
+        ("with a summary from before profiles", PREVIOUS_BEFORE_PROFILES, ['"headline": "Builds the signup funnel."']),
+        ("cold start", None, ["Previous summary:\nNone"]),
+    ]
+)
 def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
-    _name: str, previous: dict[str, Any] | None
+    _name: str, previous: dict[str, Any] | None, expected: list[str]
 ) -> None:
     message = user_message("- 2026-10-17 Build a funnel", previous, datetime.date(2026, 10, 18))
     assert message.startswith("Today is 2026-10-18.")
-    assert message.endswith("Recent activity:\n- 2026-10-17 Build a funnel")
-    if previous:
-        assert json.dumps(PREVIOUS["summary"]) in message
-    else:
-        assert "Previous summary:\nNone" in message
+    assert message.endswith("Objects and pages:\nNone\n\nRecent activity:\n- 2026-10-17 Build a funnel")
+    assert all(text in message for text in expected)
+    assert "Moved from flags" not in message
+    assert "o9" not in message
+
+
+def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> None:
+    message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=COMPUTED)
+    assert (
+        "Objects and pages:\n"
+        "Products they work in: Product analytics\n"
+        "Products they only visit: Session replay\n"
+        '- o1 insight "Signup funnel": edited on 3 days, last 2026-10-16, created\n'
+        '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
+        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n\n"
+    ) in message
+
+
+def _theme(label: str | None = "Signup funnel", refs: list[Any] | None = None, **overrides: Any) -> dict[str, Any]:
+    return {
+        "label": label,
+        "mode": "building",
+        "strength": "high",
+        "refs": ["o1"] if refs is None else refs,
+        **overrides,
+    }
 
 
 def _answer(**overrides: Any) -> str:
     return json.dumps(
         {
-            "summary": "Builds the signup funnel.",
-            "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-17"}],
-            "products": ["product_analytics"],
+            "profile": "## Funnels\n- Builds the signup funnel.",
+            "headline": "Builds the signup funnel.",
+            "themes": [_theme()],
+            "modes": ["building"],
             "recent_shift": "Moved from flags to funnels.",
             **overrides,
         }
@@ -493,81 +802,87 @@ def _answer(**overrides: Any) -> str:
         ("a 'None' recent_shift becomes null", _answer(recent_shift="None"), True, {"recent_shift": None}),
         ("a 'null' recent_shift becomes null", _answer(recent_shift=" null "), True, {"recent_shift": None}),
         (
-            "the summary is cut to the word cap",
-            _answer(summary="word " * 80),
+            "a long profile keeps its line breaks and is cut at a word boundary",
+            _answer(profile="## Funnels\n" + "word " * 2000),
             False,
-            {"summary": " ".join(["word"] * 60)},
+            {"profile": "## Funnels\n" + " ".join(["word"] * 1197) + "…"},
         ),
         (
-            "at most six focus areas, an unknown strength is low and a bad date is null",
-            _answer(focus_areas=[{"topic": f"t{i}", "strength": "huge", "last_seen": "soon"} for i in range(8)]),
+            "a theme keeps only known refs, once each, and its last_seen is the last day of its refs",
+            _answer(themes=[_theme(refs=["o1", "o7", "p1", "o1", 3])]),
             False,
-            {"focus_areas": [{"topic": f"t{i}", "strength": "low", "last_seen": None} for i in range(6)]},
+            {"themes": [{**_theme(refs=["o1", "p1"]), "last_seen": "2026-10-18"}]},
         ),
         (
-            "a focus area without a topic is dropped",
-            _answer(focus_areas=[{"strength": "high"}]),
+            "a theme with no known ref or no label is dropped",
+            _answer(themes=[_theme("Unknown", refs=["o7"]), _theme("No refs", refs=[]), _theme(None)]),
             False,
-            {"focus_areas": []},
+            {"themes": []},
         ),
         (
-            "topic, product and recent_shift are cut at a word boundary inside their caps",
-            _answer(
-                focus_areas=[{"topic": "adoption " * 50, "strength": "high", "last_seen": "2026-10-17"}],
-                products=["analytics " * 50],
-                recent_shift="shift " * 400,
-            ),
-            True,
+            "at most six themes, an unknown mode is null and an unknown strength is low",
+            _answer(themes=[_theme(f"t{i}", mode="leading", strength="huge") for i in range(8)]),
+            False,
             {
-                "focus_areas": [
-                    {
-                        "topic": " ".join(["adoption"] * ((MAX_TOPIC_CHARS - 1) // 9)) + "…",
-                        "strength": "high",
-                        "last_seen": "2026-10-17",
-                    }
-                ],
-                "products": [" ".join(["analytics"] * ((MAX_PRODUCT_CHARS - 1) // 10)) + "…"],
-                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
+                "themes": [
+                    {"label": f"t{i}", "mode": None, "strength": "low", "refs": ["o1"], "last_seen": "2026-10-16"}
+                    for i in range(6)
+                ]
             },
         ),
         (
-            "one long word is cut and marked",
-            _answer(products=["p" * 500]),
+            "modes keep only known modes, once each",
+            _answer(modes=["Building", "leading", "building", "monitoring"]),
             False,
-            {"products": ["p" * (MAX_PRODUCT_CHARS - 1) + "…"]},
+            {"modes": ["building", "monitoring"]},
+        ),
+        (
+            "label and recent_shift are cut at a word boundary inside their caps",
+            _answer(themes=[_theme("adoption " * 50)], recent_shift="shift " * 400),
+            True,
+            {
+                "themes": [
+                    {
+                        **_theme(" ".join(["adoption"] * ((MAX_LABEL_CHARS - 1) // 9)) + "…"),
+                        "last_seen": "2026-10-16",
+                    }
+                ],
+                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
+            },
         ),
     ]
 )
 def test_normalize_summary(_name: str, content: str, had_previous: bool, expected: dict[str, Any]) -> None:
-    assert normalize_summary(content, had_previous_summary=had_previous).items() >= expected.items()
+    summary = normalize_summary(content, had_previous_summary=had_previous, computed=COMPUTED)
+    assert summary.items() >= expected.items()
+    assert "products" not in summary
 
 
 @parameterized.expand(
     [
-        ("empty", None),
-        ("not JSON", "Here is the summary: ..."),
-        ("not an object", "[1, 2]"),
-        ("no summary", _answer(summary="  ")),
+        ("empty", None, False, MalformedSummaryError),
+        ("not JSON", "Here is the summary: ...", False, MalformedSummaryError),
+        ("not an object", "[1, 2]", False, MalformedSummaryError),
+        ("no profile on a first summary", _answer(profile="  "), False, EmptyProfileError),
+        ("no profile with a previous summary", _answer(profile="  "), True, MalformedSummaryError),
+        ("no headline", _answer(headline=None), False, MalformedSummaryError),
+        ("no headline and no profile", _answer(headline=None, profile=""), False, MalformedSummaryError),
     ]
 )
-def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
-    with pytest.raises(MalformedSummaryError):
-        normalize_summary(content, had_previous_summary=False)
+def test_normalize_summary_rejects_a_malformed_answer(
+    _name: str, content: str | None, had_previous: bool, error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        normalize_summary(content, had_previous_summary=had_previous)
 
 
-def test_summary_text_is_deterministic_and_keeps_the_focus_order() -> None:
+def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
     summary = normalize_summary(
-        _answer(
-            focus_areas=[
-                {"topic": "b", "strength": "high", "last_seen": ""},
-                {"topic": "a", "strength": "low", "last_seen": ""},
-            ]
-        ),
-        had_previous_summary=False,
+        _answer(themes=[_theme("b"), _theme("a", refs=["o2"])]), had_previous_summary=False, computed=COMPUTED
     )
     reloaded = json.loads(json.dumps(summary, sort_keys=True))
-    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nFocus areas: b; a"
-    assert summary_text({**summary, "focus_areas": []}) == "Builds the signup funnel."
+    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nThemes: b; a"
+    assert summary_text({**summary, "themes": []}) == "Builds the signup funnel."
 
 
 _PRICES = SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5)
@@ -645,6 +960,7 @@ _CONNECTION_ERROR = APIConnectionError(request=SimpleNamespace())  # type: ignor
             "api_error: APIConnectionError",
             (None, None),
         ),
+        ("an empty first profile is not retried", [_answer(profile="")], False, 1, None, (100, 20)),
     ]
 )
 def test_summarize_retries_a_malformed_or_truncated_answer_once(
@@ -668,6 +984,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert {req["user"] for req in llm.requests} == {PIPELINE_DISTINCT_ID}
     assert {req["max_completion_tokens"] for req in llm.requests} == {MAX_COMPLETION_TOKENS}
     assert (outcome.summary is not None, outcome.error) == (succeeds, error)
+    assert outcome.empty_profile == (not succeeds and error is None)
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 
@@ -681,3 +998,23 @@ def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     )
     assert outcome.summary is not None
     assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+
+
+def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
+    stored_profile = "## Funnels\n" + "Builds the signup funnel. " * 230
+    assert len(stored_profile) > 5000
+    llm = FakeLLM([_answer()])
+
+    summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary={**PREVIOUS, "profile": stored_profile},
+        model="gpt-6-luna",
+        as_of=datetime.date(2026, 10, 18),
+        profile_max_chars=500,
+    )
+
+    user_turn = llm.requests[0]["messages"][1]["content"]
+    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nObjects and pages:", 1)[0])
+    assert len(previous["profile"]) <= 500
+    assert previous["profile"].startswith("## Funnels\nBuilds the signup funnel.")

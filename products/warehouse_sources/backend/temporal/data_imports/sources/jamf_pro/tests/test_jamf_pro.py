@@ -237,6 +237,8 @@ class TestValidateCredentials:
                 "/api/v2/mdm/commands",
                 "page=0&page-size=1&filter=dateSent%3E%3D%221970-01-01T00%3A00%3A00.000Z%22",
             ),
+            ("device_enrollment_devices", "/api/v1/device-enrollments", "page=0&page-size=1"),
+            ("script_history", "/api/v1/scripts", "page=0&page-size=1"),
         ],
     )
     def test_scoped_probe_targets_an_addressable_url(self, schema_name, expected_path, expected_query):
@@ -384,6 +386,79 @@ class TestGetRows:
         assert "/patch-policies/200/logs?" in urls[-1]
         assert len(result.rows) == 201
         assert result.rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+        assert result.raised is None
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, child_path, parent_id_field",
+        [
+            ("building_history", "/api/v1/buildings", "/api/v1/buildings/5/history", "buildingId"),
+            ("category_history", "/api/v1/categories", "/api/v1/categories/5/history", "categoryId"),
+            ("department_history", "/api/v1/departments", "/api/v1/departments/5/history", "departmentId"),
+            ("package_history", "/api/v1/packages", "/api/v1/packages/5/history", "packageId"),
+            ("script_history", "/api/v1/scripts", "/api/v1/scripts/5/history", "scriptId"),
+            (
+                "volume_purchasing_content",
+                "/api/v1/volume-purchasing-locations",
+                "/api/v1/volume-purchasing-locations/5/content",
+                "volumePurchasingLocationId",
+            ),
+        ],
+    )
+    def test_paginated_fan_out_children_page_each_parent(self, endpoint, parent_path, child_path, parent_id_field):
+        parents = ScriptedResponse(json={"totalCount": 1, "results": [{"id": "5"}]})
+        child_page_0 = ScriptedResponse(json={"totalCount": 201, "results": [{"id": 1}] * 200})
+        child_page_1 = ScriptedResponse(json={"totalCount": 201, "results": [{"id": 2}]})
+        result = self._drive([parents, child_page_0, child_page_1], endpoint=endpoint)
+
+        assert result.paths[1:] == [parent_path, child_path, child_path]
+        assert result.params("page")[2:] == ["0", "1"]
+        assert result.params("sort")[2:] == [JAMF_PRO_ENDPOINTS[endpoint].sort] * 2
+        assert len(result.rows) == 201
+        assert result.rows[-1] == {"id": 2, parent_id_field: "5"}
+        assert result.raised is None
+
+    def test_unpaginated_fan_out_child_reads_results_wrapper(self):
+        instances = ScriptedResponse(json={"totalCount": 2, "results": [{"id": "1"}, {"id": "2"}]})
+        roster_1 = ScriptedResponse(
+            json={
+                "totalCount": 2,
+                "results": [
+                    {"id": "10", "serialNumber": "SERIAL0001", "deviceEnrollmentProgramInstanceId": "1"},
+                    {"id": "11", "serialNumber": "SERIAL0002"},
+                ],
+            }
+        )
+        roster_2 = ScriptedResponse(json={"totalCount": 0, "results": []})
+        result = self._drive([instances, roster_1, roster_2], endpoint="device_enrollment_devices")
+
+        # The roster endpoint takes no paging or sort parameters.
+        assert result.urls[2:] == [
+            "https://example.jamfcloud.com/api/v1/device-enrollments/1/devices",
+            "https://example.jamfcloud.com/api/v1/device-enrollments/2/devices",
+        ]
+        assert result.rows == [
+            {"id": "10", "serialNumber": "SERIAL0001", "deviceEnrollmentProgramInstanceId": "1"},
+            {"id": "11", "serialNumber": "SERIAL0002", "deviceEnrollmentProgramInstanceId": "1"},
+        ]
+        assert result.raised is None
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_capture",
+        [
+            ("computer_extension_attributes", False),
+            ("script_history", False),
+            ("mobile_device_extension_attributes", True),
+            ("building_history", True),
+        ],
+    )
+    def test_data_session_sample_capture(self, endpoint, expected_capture):
+        # Script bodies can embed credentials that the name-based scrubbers cannot see.
+        config = JAMF_PRO_ENDPOINTS[endpoint]
+        fetched_config = JAMF_PRO_ENDPOINTS[config.parent] if config.parent else config
+        payload = {"results": []} if fetched_config.paginated else []
+        result = self._drive([ScriptedResponse(json=payload)], endpoint=endpoint)
+
+        assert result.session_options[-1] == {"capture": expected_capture}
         assert result.raised is None
 
     def test_fan_out_refuses_an_unbounded_parent_list(self):

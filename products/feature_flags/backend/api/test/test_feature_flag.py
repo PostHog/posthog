@@ -63,10 +63,12 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import experiment_flag_ids
+from products.experiments.backend.facade.testing import create_experiment, update_experiment
 from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_VIOLATION_COUNTER,
     FLAG_FILTERS_WRITE_COUNTER,
+    V2_CONDITIONS_UNAVAILABLE_REASON,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
     _flag_write_source,
@@ -529,6 +531,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
+    def test_cant_create_flag_with_unsupported_operator_for_cohort_properties(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+        count = FeatureFlag.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Cohort feature exact",
+                "key": "cohort-feature-exact",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort.pk,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "cross_field.cohort_requires_in_or_not_in",
+                "detail": "groups[0].properties[0].operator: Cohort properties must use the 'in' or 'not_in' operator, not 'exact'.",
+                "attr": "filters",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
 
     def test_saving_flag_strips_legacy_holdout_groups(self):
         flag = FeatureFlag.objects.create(
@@ -4054,11 +4094,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response_invalid_token.status_code, 401)
 
     def test_soft_delete_flag_renames_key_and_allows_reuse(self):
-        # Create flag and experiment, then soft-delete experiment
+        # Create a flag with a soft-deleted experiment
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag1")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         # Soft-delete flag: should rename key
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 200
@@ -4088,9 +4126,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_soft_delete_undo_restores_renamed_key(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 200
@@ -4105,9 +4141,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         # Soft-delete renames the key to free it up
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
@@ -4129,9 +4163,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         """The unique constraint covers all rows including soft-deleted ones,
         so restoring a flag must check against soft-deleted flags too."""
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         # Soft-delete renames the key
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
@@ -4177,10 +4209,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_soft_delete_flag_blocked_with_running_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
-        exp = Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
-            feature_flag=flag,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
             name="My experiment",
             start_date=now(),
         )
@@ -4188,7 +4220,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f'Cannot delete a feature flag that is linked to running experiment(s): "My experiment" (ID: {exp.id}). Please stop the experiment(s) before deleting the flag.'
+            == f'Cannot delete a feature flag that is linked to running experiment(s): "My experiment" (ID: {experiment_id}). Please stop the experiment(s) before deleting the flag.'
         )
 
     @parameterized.expand(
@@ -4201,10 +4233,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Draft and stopped experiments may keep the flag so their history is preserved;
         # deletion is allowed and the original key is freed up via the tombstone suffix.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-exp-flag")
-        Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
-            feature_flag=flag,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
             start_date=start_date,
             end_date=end_date,
         )
@@ -4228,8 +4260,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="exp-variants-flag", filters=self.EXPERIMENT_FLAG_FILTERS
         )
-        exp = Experiment.objects.create(
-            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
+            name="My experiment",
+            start_date=now(),
         )
         # The flag editor serializes a boolean flag as "multivariate": null.
         response = self.client.patch(
@@ -4239,7 +4275,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot remove variant(s) 'control', 'test' from a feature flag that is linked to running experiment(s): \"My experiment\" (ID: {exp.id}). Please stop the experiment(s) before removing variants."
+            == f"Cannot remove variant(s) 'control', 'test' from a feature flag that is linked to running experiment(s): \"My experiment\" (ID: {experiment_id}). Please stop the experiment(s) before removing variants."
         )
         flag.refresh_from_db()
         assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
@@ -4249,8 +4285,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="exp-rename-flag", filters=self.EXPERIMENT_FLAG_FILTERS
         )
-        Experiment.objects.create(
-            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
+            name="My experiment",
+            start_date=now(),
         )
         renamed = {
             **self.EXPERIMENT_FLAG_FILTERS,
@@ -4271,8 +4311,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="exp-rollout-flag", filters=self.EXPERIMENT_FLAG_FILTERS
         )
-        Experiment.objects.create(
-            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
+            name="My experiment",
+            start_date=now(),
         )
         reshaped = {
             **self.EXPERIMENT_FLAG_FILTERS,
@@ -4300,8 +4344,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key=f"{_name}-variants-flag",
             filters=self.EXPERIMENT_FLAG_FILTERS,
         )
-        Experiment.objects.create(
-            team=self.team, created_by=self.user, feature_flag=flag, start_date=start_date, end_date=end_date
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
+            start_date=start_date,
+            end_date=end_date,
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
@@ -4317,8 +4365,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="exp-partial-flag", filters=self.EXPERIMENT_FLAG_FILTERS
         )
-        Experiment.objects.create(
-            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
+            name="My experiment",
+            start_date=now(),
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
@@ -4856,6 +4908,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # shouldn't add to local eval requests
         self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+        self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4869,6 +4922,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response = self.client.get(f"/api/feature_flag/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+            self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
@@ -4879,6 +4933,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"1"},
             )
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"1")
 
             for _ in range(4):
                 response = self.client.get(
@@ -4891,6 +4946,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"5"},
             )
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"5")
 
     @parameterized.expand(
         [
@@ -5968,6 +6024,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "detail": "groups[0].properties[0]: Group properties must match the condition set's group type.",
                 "attr": "filters",
             },
+            "services/mcp/src/tools/featureFlags/updateFeatureFlagHooks.ts matches this code (GROUP_TYPE_MISMATCH) "
+            "and the `groups[i].properties[j]: ` prefix (PROPERTY_REJECTION) to add a recovery step to the "
+            "update-feature-flag error. If either changes, update that hook and "
+            "services/mcp/tests/unit/update-feature-flag-preserving-groups.test.ts, then this assertion.",
         )
 
         person_request = self._create_flag_with_properties(
@@ -6550,11 +6610,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
-        Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Experiment 1",
-            feature_flag_id=feature_flag.id,
+        create_experiment(
+            team_id=self.team.id, feature_flag_id=feature_flag.id, created_by_id=self.user.id, name="Experiment 1"
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -6597,11 +6654,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag_with_experiment = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="experiment_flag", active=True
         )
-        Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag_with_experiment.id,
+            created_by_id=self.user.id,
             name="unique_experiment_name",
-            feature_flag=flag_with_experiment,
             deleted=False,
         )
 
@@ -6617,11 +6674,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="deleted_experiment_flag",
             active=True,
         )
-        Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=deleted_flag.id,
+            created_by_id=self.user.id,
             name="deleted_unique_experiment",
-            feature_flag=deleted_flag,
             deleted=True,
         )
 
@@ -7568,38 +7625,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.json()["experiment_set"] == []
 
         # Create an active experiment linked to the flag
-        experiment = Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=feature_flag.id,
+            created_by_id=self.user.id,
             name="Test Experiment",
-            feature_flag=feature_flag,
             start_date=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         # experiment_set should now include the experiment ID
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment.id]
+        assert response.json()["experiment_set"] == [experiment_id]
 
         # Create a deleted experiment - should not be included
-        experiment2 = Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
+        experiment2_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=feature_flag.id,
+            created_by_id=self.user.id,
             name="Another Experiment",
-            feature_flag=feature_flag,
             start_date=datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC),
         )
 
         # experiment_set should include both experiments
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment.id, experiment2.id]
+        assert response.json()["experiment_set"] == [experiment_id, experiment2_id]
 
         # Delete the active experiments
-        experiment.deleted = True
-        experiment.save()
-        experiment2.deleted = True
-        experiment2.save()
+        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        update_experiment(team_id=self.team.id, experiment_id=experiment2_id, deleted=True)
 
         # experiment_set should now be empty again
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
@@ -7613,24 +7668,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="metadata-flag",
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        running = Experiment.objects.create(
-            team=self.team, created_by=self.user, name="Running", feature_flag=flag, start_date=now()
+        running_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, name="Running", start_date=now()
         )
-        stopped = Experiment.objects.create(
-            team=self.team,
-            created_by=self.user,
+        stopped_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            created_by_id=self.user.id,
             name="Stopped",
-            feature_flag=flag,
             start_date=now() - timedelta(days=1),
             end_date=now(),
         )
-        draft = Experiment.objects.create(team=self.team, created_by=self.user, name="Draft", feature_flag=flag)
+        draft_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, name="Draft"
+        )
 
         response = self.client.get(f"/api/projects/@current/feature_flags/{flag.id}")
         assert response.status_code == 200
         # Only a running experiment is flagged as such; the frontend uses this to gate flag deletion
         running_by_id = {exp["id"]: exp["is_running"] for exp in response.json()["experiment_set_metadata"]}
-        assert running_by_id == {running.id: True, stopped.id: False, draft.id: False}
+        assert running_by_id == {running_id: True, stopped_id: False, draft_id: False}
 
     def test_bulk_keys_valid_ids(self):
         """Test that valid IDs return correct key mapping"""
@@ -7948,9 +8005,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # blocking hard-delete. Reusing the key should rename the tombstone,
         # not raise the old "delete the experiment" error.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="ghost-key")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(
+            team_id=self.team.id, feature_flag_id=legacy_flag.id, created_by_id=self.user.id, deleted=True
+        )
         # Bypass API so soft-delete rename doesn't fire — mimics historical data.
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
 
@@ -7975,8 +8032,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         legacy_flag = FeatureFlag.objects_including_soft_deleted.get(pk=legacy_flag.pk)
         assert legacy_flag.deleted is True
         assert legacy_flag.key == f"ghost-key:deleted:{legacy_flag.id}"
-        exp.refresh_from_db()
-        assert exp.feature_flag_id == legacy_flag.id
+        assert experiment_flag_ids([self.team.id], include_deleted=True) == {legacy_flag.id}
 
     @parameterized.expand(
         [
@@ -7990,7 +8046,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # A team gating replay on the tombstone must not change that: the replay relink
         # takes the rename path, which would otherwise skip this check.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
+        experiment_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=legacy_flag.id, created_by_id=self.user.id
+        )
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
         self.team.session_recording_linked_flag = {"id": legacy_flag.id, "key": "inconsistent-key"}
         self.team.save()
@@ -8008,7 +8066,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         assert response.status_code == 400
-        assert f"active experiment(s) with ID(s): {exp.id}" in response.json()["detail"]
+        assert f"active experiment(s) with ID(s): {experiment_id}" in response.json()["detail"]
         assert "inconsistent-key" in response.json()["detail"]
 
         # Tombstone was not mutated.
@@ -13548,11 +13606,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="experiment_flag",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Test Experiment",
-            feature_flag=flag,
-            created_by=self.user,
+            created_by_id=self.user.id,
             start_date=now(),
         )
 
@@ -13583,11 +13641,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="stopped_experiment_flag",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Stopped Experiment",
-            feature_flag=flag,
-            created_by=self.user,
+            created_by_id=self.user.id,
             start_date=now(),
             end_date=now(),
         )
@@ -14001,9 +14059,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="flag_with_deleted_exp",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -14145,9 +14201,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="flag_with_deleted_exp",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag_with_deleted_exp)
-        exp.deleted = True
-        exp.save()
+        create_experiment(
+            team_id=self.team.id, feature_flag_id=flag_with_deleted_exp.id, created_by_id=self.user.id, deleted=True
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -14543,6 +14599,10 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
 
+_V1_ON = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+_V2_OFF = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+
+
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
@@ -14599,6 +14659,115 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["evaluation_distinct_id"], "test-user")
         self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "test-user")
         self.assertEqual(mock_get_flags.call_args.kwargs["max_retries"], 1)
+        self.assertNotIn("conditions_unavailable_reason", data)
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_explains_missing_conditions_for_v2_flag(self, mock_get_flags):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="rules-flag",
+            filters={
+                "version": 2,
+                "return_type": "string",
+                "default_value": "off",
+                "rules": [
+                    {
+                        "id": "rule-a",
+                        "rule_type": "targeted_release",
+                        "targeting": {"properties": []},
+                        "value": "on",
+                    }
+                ],
+            },
+        )
+        create_person(team=self.team, distinct_ids=["test-user"])
+        mock_get_flags.return_value = {
+            "flags": {
+                "rules-flag": {
+                    "enabled": True,
+                    "variant": "on",
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual((data["result"], data["condition_index"], data["conditions"]), ("on", 0, []))
+        self.assertEqual(data["conditions_unavailable_reason"], V2_CONDITIONS_UNAVAILABLE_REASON)
+
+    @parameterized.expand(
+        [
+            ("v2_before_v1", _V2_OFF, _V1_ON, True),
+            ("v1_before_v2", _V1_ON, _V2_OFF, False),
+            ("v2_before_v2", _V2_OFF, {**_V2_OFF, "default_value": True}, True),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_at_timestamp_reads_the_historical_config_format(
+        self, _name, historical_filters, current_filters, explains_conditions, mock_get_flags, _mock_build_props
+    ):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        flag = FeatureFlag.objects.create(team=self.team, key="format-flag", filters=historical_filters, version=1)
+        flag.filters = current_filters
+        flag.version = 2
+        flag.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                name=flag.key,
+                changes=[
+                    Change(type="FeatureFlag", action="changed", field="version", before=1, after=2),
+                    Change(
+                        type="FeatureFlag",
+                        action="changed",
+                        field="filters",
+                        before=historical_filters,
+                        after=current_filters,
+                    ),
+                ],
+            ),
+        )
+        mock_get_flags.return_value = {
+            "flags": {
+                "format-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match", "condition_index": None},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        sent = mock_get_flags.call_args.kwargs["override_flags_definitions"]["format-flag"]
+        self.assertEqual(sent["filters"], historical_filters)
+        self.assertEqual("conditions_unavailable_reason" in response.json(), explains_conditions)
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")

@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -72,6 +76,24 @@ Preserve API errors with `throw result.error` or `wrapError(message, result.erro
 Copying only the message loses the HTTP status and retry guidance.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
+
+## Project and organization context
+
+Resolve tool targets through `context.stateManager.getProjectId()` or `getOrgID()`. The Hono server snapshots the active selection for each request and stores it per credential and MCP transport session. Separate sessions can use the same credential concurrently in different organizations and projects, with or without URL pins. Unpinned sessions initialize from the user's active selection within the credential's allowed scope; later website changes do not retarget an existing session. Organization switches clear the previous project, and project switches keep the organization consistent with the selected project.
+
+The shared token cache holds credential and entity metadata. Its `orgId` and `projectId` selection keys remain only for requests without a session or conversation identity. Session-aware tools must use the state manager instead of reading those keys directly. Session selections expire after 24 hours without requests.
+
+For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection. Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
+
+Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.
+
+State managers share credential, user, and entity lookups within one HTTP request, including when a new conversation handle requires another resolution. Lookup keys include the credential cache scope and entity ID. Each call retains its own state manager, selection, flags, and API client. Redis TTLs still govern freshness, and rejected lookup promises are removed so later attempts can retry.
+
+Remote flag evaluations share the same request-local cache when the credential, distinct ID, groups, and requested flag keys match. Flag values and payloads stay separate across different evaluation contexts. Request overrides are applied after the shared evaluation, and failed evaluations remain retryable.
+
+Session defaults are saved once with `SET NX` and kept separate from explicit selections. Lazy organization and project resolution updates only the request snapshot, so a delayed read cannot replace a newer switch in the same session.
+
+An org-only default does not freeze a failed project lookup. Project discovery retries within the saved organization and records the first successful result separately with `SET NX`. Organization-scoped discovery establishes project ownership without a second global metadata lookup. Organization switches can retain a selected project using the destination organization's team list when project metadata is unavailable.
 
 ## SQL-first data retrieval
 
@@ -110,7 +132,9 @@ Start with a release condition matching one authenticated user's distinct ID; do
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
 Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
-Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
@@ -285,6 +309,22 @@ before retrying, because a write may already have succeeded. Replies on earlier 
 after ten minutes and are bound to the authenticated user, PostHog instance, invitation, and original
 token. They remain valid after project changes or flag changes because they cannot execute a tool.
 Duplicate, expired, and mismatched replies do not update suppression or emit response events.
+
+## MCP UI hosts
+
+In CLI mode, MCP Apps UI hosts receive a separate `render-ui` tool beside `exec`.
+A client declares UI support with the `extensions["io.modelcontextprotocol/ui"]` capability.
+The client supports `render-ui` when that capability lists `text/html;profile=mcp-app` in `mimeTypes`.
+If the client sends the capability, the server uses it, and it overrides name detection in both directions.
+If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, and the exact `openai-mcp` client name or user agent product.
+The OpenAI match is exact, so Codex CLI (`codex-mcp-client`) does not receive `render-ui` without a declaration.
+Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
+Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
+An explicit request declaration takes precedence over stored session support.
+The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
+The schema stays the same across accounts; execution checks the tools available to the current account.
+The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
 
@@ -617,7 +657,11 @@ Product teams own their definitions and control which operations are exposed as 
    The two overrides above reshape a generated tool's schema.
    Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
-   `inject_body` supplies static values; `rename_params` only renames.
+   `inject_body` supplies static values; `rename_params` renames body or query parameters.
+   Query aliases retain the original HTTP parameter name. For example, `dashboard-insights-run` exposes
+   `dashboard_tile_ids` as an integer array and sends it as the API's comma-separated `tile_ids` parameter.
+   The tool also accepts `tile_ids` as a legacy alias, with either an array or a comma-separated string.
+   Its `id` parameter accepts `dashboard_id` and `dashboardId` aliases.
 
    When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
    The value is a module path relative to `src/tools/`, without the extension:
@@ -643,7 +687,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 

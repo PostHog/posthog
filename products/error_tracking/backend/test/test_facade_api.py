@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DataError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -10,7 +11,10 @@ import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, IntegrationManager
 from posthog.models import Team
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
@@ -252,6 +256,33 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             )
 
         assert not ErrorTrackingExternalReference.objects.exists()
+
+    @parameterized.expand(
+        [
+            ("unsupported_kind", "slack", {}, "Provider not supported"),
+            ("source_row", "github", {SOURCE_MARKER_CONFIG_KEY: "Github"}, "Integration does not belong to this team."),
+            ("other_auth_type", "github", None, "Integration does not belong to this team."),
+        ]
+    )
+    def test_link_external_reference_integration_lookup_errors(self, _name, kind, config, expected_message):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        if config is None:
+            integration, _ = IntegrationManager.github.token.upsert(
+                self.team.id, "token-row", config={}, sensitive_config={"access_token": "token"}
+            )
+        else:
+            integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as raised:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                external_context={"key": "ENG-1"},
+                distinct_id=self.user.id,
+            )
+
+        assert str(raised.exception) == expected_message
 
     @parameterized.expand(
         [
@@ -615,6 +646,26 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         api.update_settings(self.team.id, {"project_rate_limit_value": 42})
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    @parameterized.expand([("project", False), ("environment", True)])
+    def test_exception_ingestion_switch_writes_the_environment_pipeline_override(self, _name, via_environment):
+        team_id = self.team.id
+        if via_environment:
+            team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team, name="Environment"
+            ).id
+        assert api.get_settings(team_id).ingestion_enabled is True
+
+        for enabled in (False, True):
+            assert api.update_settings(team_id, {"ingestion_enabled": enabled}).ingestion_enabled is enabled
+            overrides = EventFilterPipelineOverride.objects.unscoped().values_list(
+                "team_id", "pipeline", "drop_all_events"
+            )
+            assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
+
+        with self.assertRaises(DataError):
+            api.update_settings(team_id, {"ingestion_enabled": False, "project_rate_limit_value": 2**31})
+        assert api.get_settings(team_id).ingestion_enabled is True
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)

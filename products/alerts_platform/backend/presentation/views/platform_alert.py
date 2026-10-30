@@ -19,9 +19,12 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
 from posthog.permissions import (
+    FEATURE_FLAG_REQUIRED_ERROR_CODE,
     PostHogFeatureFlagPermission,
+    get_authenticator_client,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    posthog_feature_flag_enabled,
 )
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
@@ -53,6 +56,17 @@ from products.alerts_platform.backend.facade.enums import (
 )
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
+
+RULE_LABELS_HELP = (
+    'Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
+    "Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. "
+    "Values cannot use templates."
+)
+RULE_ANNOTATIONS_HELP = (
+    'Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use '
+    "{{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation "
+    "whose name ends in _url must start with https://."
+)
 
 
 class PlatformAlertSerializer(serializers.Serializer):
@@ -219,6 +233,16 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         read_only=True,
         help_text="Runtime state for each result group of this configuration.",
     )
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=RULE_LABELS_HELP,
+    )
+    annotations = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=RULE_ANNOTATIONS_HELP,
+    )
 
 
 class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
@@ -232,6 +256,9 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
 # also needs read access to that product. `alert:read` alone must not reveal it.
 SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
+    PlatformAlertConfigurationSourceKind.WAREHOUSE_SOURCE.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -272,13 +299,25 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         max_value=MAX_STORED_INTEGER,
         help_text="Minimum minutes between notifications for the same alert.",
     )
+    # Optional, so a full update that leaves them out keeps what is stored.
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=RULE_LABELS_HELP,
+    )
+    annotations = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False),
+        required=False,
+        help_text=RULE_ANNOTATIONS_HELP,
+    )
 
 
 def _typed_edit_serializer(
     source: SourceKind, spec: SourceConfigSpec
 ) -> type[PlatformAlertConfigurationEditSerializer]:
     """The edit serializer for one source kind, whose `source_config` is described by the source's model."""
-    prefix = source.value.capitalize()
+    # Pascal case, so a kind like `warehouse_source` names its schema component `WarehouseSource...`.
+    prefix = "".join(part.capitalize() for part in source.value.split("_"))
     source_config_field = extend_schema_field(spec.model)(  # type: ignore[arg-type]
         type(f"{prefix}PlatformAlertSourceConfigField", (serializers.JSONField,), {})
     )
@@ -345,8 +384,8 @@ def _typed_create_serializer(
 
 @cache
 def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSerializer]]:
-    """One create serializer per kind whose source registered a create hook."""
-    creatable = {source.value for source, spec in editable_source_configs().items() if spec.create is not None}
+    """One create serializer per kind the API can create."""
+    creatable = {source.value for source, spec in editable_source_configs().items() if spec.creatable}
     return {
         source_kind: _typed_create_serializer(serializer)
         for source_kind, serializer in edit_serializers().items()
@@ -517,6 +556,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # rather than through `required_scopes`.
         if source_kind not in self._source_kinds_with("editor", "write"):
             raise PermissionDenied(f"You cannot create {source_kind} alerts.")
+        self._check_rollout_flag(SourceKind(source_kind))
 
         serializer = create_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -538,6 +578,22 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(lambda: self._track("created", created), robust=True)
         return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    def _check_rollout_flag(self, source_kind: SourceKind) -> None:
+        spec = editable_source_configs().get(source_kind)
+        if spec is None or spec.rollout_flag is None:
+            return
+        if not posthog_feature_flag_enabled(
+            spec.rollout_flag,
+            str(cast(User, self.request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
+        ):
+            raise PermissionDenied(
+                f"{source_kind.value.capitalize()} alerts are not available for this project yet.",
+                code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
+            )
 
     def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
         report_user_action(

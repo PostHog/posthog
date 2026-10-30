@@ -8,19 +8,24 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
 from products.signals.backend.report_check_agent import FALLBACK_CHECK_SKILL_NAME
+from products.signals.backend.startup_failure import ResearchStartupFailure
 from products.signals.backend.temporal.summary import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
     MarkReportPendingInput,
     MarkReportReadyInput,
+    NotifyResearchStartupFailureInput,
     ResetReportToPotentialInput,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
+    notify_research_startup_failure_activity,
     reset_report_to_potential_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.models import Task, TaskRun
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
 
@@ -29,6 +34,55 @@ CHART_PAYLOAD = {
     "title": "Daily signups",
     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
 }
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_startup_failure_is_durable_when_notification_delivery_fails(ateam):
+    task = await Task.objects.acreate(team=ateam, title="Example research", repository="example/research")
+    run = await TaskRun.objects.acreate(team=ateam, task=task, status=TaskRun.Status.FAILED)
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=1,
+        total_weight=1,
+    )
+    failure = ResearchStartupFailure(
+        failure=AgentStartupFailure(provider="claude", phase="sdk_initialization", reason=None, retryability="unknown"),
+        task_id=task.id,
+        run_id=run.id,
+        repository="example/research",
+    )
+    with (
+        patch(
+            f"{PIPELINE_MODULE_PATH}.notify_research_startup_failure", side_effect=RuntimeError("delivery unavailable")
+        ),
+        patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+    ):
+        for _ in range(2):
+            await mark_report_failed_activity(
+                MarkReportFailedInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    error="SECRET raw provider output",
+                    startup_failure=failure,
+                )
+            )
+            with pytest.raises(RuntimeError, match="delivery unavailable"):
+                await notify_research_startup_failure_activity(
+                    NotifyResearchStartupFailureInput(team_id=ateam.id, report_id=str(report.id), failure=failure)
+                )
+    await report.arefresh_from_db()
+    assert report.status == SignalReport.Status.FAILED
+    assert report.startup_failure is not None
+    assert report.error is not None
+    assert report.startup_failure["run_id"] == str(failure.run_id)
+    assert report.startup_failure["retryability"] == "unknown"
+    assert report.error == report.startup_failure["message"]
+    assert "SECRET" not in report.error
+    artefact = await SignalReportArtefact.objects.aget(report=report, type="task_run")
+    assert artefact.task_id == task.id
+    assert str(run.id) in artefact.content
 
 
 @pytest.mark.asyncio

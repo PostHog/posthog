@@ -29,9 +29,10 @@ from products.feature_flags.backend.variant_rollout import format_variant_rollou
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
-    from posthog.models.activity_logging.activity_log import Trigger
+    from posthog.models.activity_logging.activity_log import ActivityContextBase, Trigger
     from posthog.models.team import Team
 
+    from products.experiments.backend.facade.contracts import LinkedExperiment
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
 
@@ -154,6 +155,9 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # (for example the experiment exposure freeze) sets this before the gated write; the
     # activity-log receiver reads it so the entry does not render as a manual edit.
     _activity_trigger: "Trigger | None" = None
+    # Never persisted. The update serializer sets this before the write when the request carries a rollback reason,
+    # so the reason lands on the activity log entry of the same edit.
+    _activity_context: "ActivityContextBase | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -237,6 +241,10 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # Cache projection: whether the flag backs an experiment. Annotated via a bulk
     # Exists query (or read from cache) to avoid a per-flag experiment lookup.
     _has_experiment: Optional[bool] = None
+
+    # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one
+    # query. When it is not set, the serializer queries the experiments of each flag.
+    _active_experiments: tuple["LinkedExperiment", ...]
 
     last_called_at = models.DateTimeField(
         null=True,

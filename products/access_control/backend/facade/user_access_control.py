@@ -5,6 +5,7 @@ from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from uuid import UUID
 
 from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
@@ -32,6 +33,7 @@ else:
 
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
 from .contracts import ObjectAccessRef
 from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
@@ -452,6 +454,60 @@ class UserAccessControl:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
+
+    @classmethod
+    def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
+        memberships = list(
+            OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, user_id__in=set(user_ids)
+            ).select_related("user", "organization")
+        )
+        if not memberships:
+            return {}
+
+        roles_by_user: dict[int, list[UUID]] = defaultdict(list)
+        if memberships[0].organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            for user_id, role_id in (
+                RoleMembership.objects.filter(
+                    user_id__in=[member.user_id for member in memberships], role__organization_id=team.organization_id
+                )
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                roles_by_user[user_id].append(role_id)
+
+        default_rules: list[AccessControl] = []
+        rules_by_member: dict[UUID, list[AccessControl]] = defaultdict(list)
+        rules_by_role: dict[UUID, list[AccessControl]] = defaultdict(list)
+        if EE_AVAILABLE and memberships[0].organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            for rule in AccessControl.objects.filter(team_id=team.id).filter(
+                Q(organization_member__isnull=True, role__isnull=True)
+                | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
+                | Q(
+                    organization_member__isnull=True,
+                    role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
+                )
+            ):
+                if rule.organization_member_id is not None:
+                    rules_by_member[rule.organization_member_id].append(rule)
+                elif rule.role_id is not None:
+                    rules_by_role[rule.role_id].append(rule)
+                else:
+                    default_rules.append(rule)
+
+        access_by_user: dict[int, UserAccessControl] = {}
+        for member in memberships:
+            access = cls(user=member.user, team=team)
+            role_ids = roles_by_user[member.user_id]
+            access.__dict__["_organization_membership"] = member
+            access.__dict__["_user_role_ids"] = role_ids
+            access.__dict__["_cached_access_controls"] = [
+                *default_rules,
+                *rules_by_member.get(member.id, []),
+                *(rule for role_id in role_ids for rule in rules_by_role.get(role_id, [])),
+            ]
+            access_by_user[member.user_id] = access
+        return access_by_user
 
     def allowed_object_ids(
         self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
@@ -984,6 +1040,17 @@ class UserAccessControl:
             )
 
         return project_admin_check
+
+    def check_can_modify_access_levels_for_ref(self, ref: ObjectAccessRef) -> bool:
+        """`check_can_modify_access_levels_for_object` for an object held only as a reference."""
+        self._target_for_ref(ref)  # validates the team and parent before the creator shortcut
+        if ref.resource == "project":
+            return self.check_can_modify_access_levels_for_object(cast(Team, self._team))
+        return (
+            self._is_creator_id(ref.created_by_id)
+            or self.check_access_level_for_object(cast(Team, self._team), required_level="admin", explicit=True)
+            or self.check_access_level_for_ref(ref, required_level="manager", explicit=True)
+        )
 
     def get_access_source_for_object(
         self, obj: Model, resource: Optional[APIScopeObject] = None
@@ -1750,13 +1817,18 @@ class UserAccessControl:
 
     def _target_for_ref(self, ref: ObjectAccessRef) -> _ObjectAccessTarget:
         parent = RESOURCE_FALLBACK_MAP.get(ref.resource)
-        if parent:
-            # The parent id comes from the model's foreign key, which a reference does not carry.
-            # Resolution without it skips the parent's rules, so it can return the wrong level.
+        if parent and ref.fallback_parent is None:
+            # The parent id comes from the model's foreign key. Resolution without it skips the
+            # parent's rules, so it can return the wrong level.
             raise ValueError(
-                f"An ObjectAccessRef cannot resolve `{ref.resource}`, which inherits access from "
-                f"`{parent}`. Check access on the model instance instead."
+                f"An ObjectAccessRef for `{ref.resource}`, which inherits access from `{parent}`, needs "
+                "`fallback_parent`. Set it, or check access on the model instance instead."
             )
+        if not parent and ref.fallback_parent is not None:
+            raise ValueError(f"`{ref.resource}` has no fallback parent, so `fallback_parent` must stay unset.")
+        # A stated type keeps a changed map from reading the parent id as another type's id.
+        if parent and ref.fallback_parent is not None and ref.fallback_parent.resource != parent:
+            raise ValueError(f"`{ref.resource}` falls back to `{parent}`, not `{ref.fallback_parent.resource}`.")
         # The rule lookups are scoped to self._team, so a reference checked without a team, or against
         # another team, would resolve against the wrong rules.
         if self._team is None:
@@ -1767,7 +1839,7 @@ class UserAccessControl:
             resource=ref.resource,
             object_id=ref.id,
             created_by_id=ref.created_by_id,
-            fallback_parent_id=None,
+            fallback_parent_id=ref.fallback_parent.id if ref.fallback_parent else None,
         )
 
     def _resolved_access_for_target(
@@ -1824,9 +1896,11 @@ class UserAccessControl:
         """`get_user_access_level` for an object the caller holds only as a reference."""
         return self._access_level_for_target(self._target_for_ref(ref), explicit=explicit)
 
-    def check_access_level_for_ref(self, ref: ObjectAccessRef, required_level: AccessControlLevel) -> bool:
+    def check_access_level_for_ref(
+        self, ref: ObjectAccessRef, required_level: AccessControlLevel, explicit: bool = False
+    ) -> bool:
         """`check_access_level_for_object` for an object the caller holds only as a reference."""
-        access_level = self.access_level_for_ref(ref)
+        access_level = self.access_level_for_ref(ref, explicit=explicit)
         if not access_level:
             return False
         return access_level_satisfied_for_resource(ref.resource, access_level, required_level)

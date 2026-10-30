@@ -1,16 +1,28 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from typing import TYPE_CHECKING
+
+import pytest
 from posthog.test.base import APIBaseTest
 
+from django.db import connection, connections
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
+from posthog.models import Organization, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -287,7 +299,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         response = self.client.get(self._url(str(config.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_update_other_teams_config_forbidden(self):
+    @parameterized.expand([({"enabled": False},), ({"config_set": {"steering": "Example"}},)])
+    def test_update_other_teams_config_forbidden(self, body: dict[str, object]) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         config = SignalSourceConfig.objects.create(
             team=other_team,
@@ -297,7 +310,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         response = self.client.patch(
             self._url(str(config.id)),
-            data={"enabled": False},
+            data=body,
             format="json",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -327,7 +340,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
             team=self.team,
             source_product="session_replay",
             source_type="session_analysis_cluster",
-            config={},
+            config={"steering": "Original guidance", "hogql_filter": "false"},
             created_by=self.user,
         )
         response = self.client.patch(
@@ -337,6 +350,87 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["config"] == {"recording_filters": {"duration_min": 30}}
+
+    def test_config_key_updates_preserve_unrelated_settings(self) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="linear",
+            source_type="issue",
+            config={"hogql_filter": "false", "default_not_actionable": True, "nested": {"keep": True}},
+        )
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {
+                "config_set": {"steering": "Prioritize documentation tasks"},
+                "config_remove": ["default_not_actionable", "missing"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {"config_set": {"linear_team_ids": [" team-example "], "nested": {"replace": True}, "nullable": None}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.config == {
+            "hogql_filter": "false",
+            "nested": {"replace": True},
+            "nullable": None,
+            "steering": "Prioritize documentation tasks",
+            "linear_team_ids": ["team-example"],
+        }
+        assert response.json()["config"] == config.config
+        assert "config_set" not in response.json()
+        assert "config_remove" not in response.json()
+
+    def test_invalid_merged_config_does_not_write_other_fields(self) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="linear",
+            source_type="issue",
+            enabled=False,
+            config={"linear_team_ids": "invalid", "default_not_actionable": True},
+        )
+        updated_at = config.updated_at
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {
+                "enabled": True,
+                "config_set": {"steering": "Review API documentation"},
+                "config_remove": ["default_not_actionable"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.enabled is False
+        assert config.config == {"linear_team_ids": "invalid", "default_not_actionable": True}
+        assert config.updated_at == updated_at
+        response = self.client.patch(self._url(str(config.id)), {"config_remove": ["linear_team_ids"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"] == {"default_not_actionable": True}
+
+    def test_config_keys_require_write_scope(self) -> None:
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["task:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {"config_set": {"steering": "Review API documentation"}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.config == {}
 
     def test_update_config_recording_filters_not_dict_rejected(self):
         config = SignalSourceConfig.objects.create(
@@ -417,6 +511,30 @@ class TestSignalSourceConfigAPI(APIBaseTest):
 
 
 class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"config_set": []},),
+            ({"config_set": None},),
+            ({"config_remove": "steering"},),
+            ({"config_set": {"steering": "new"}, "config_remove": ["steering"]},),
+            ({"config": {}, "config_set": {}},),
+            ({"config": {}, "config_remove": []},),
+            ({"config_set": {"steering": None}},),
+            ({"config_set": {"linear_team_ids": "invalid"}},),
+        ]
+    )
+    def test_invalid_config_key_updates(self, data: dict[str, object]) -> None:
+        instance = SignalSourceConfig(source_product="linear", source_type="issue", config={"steering": "original"})
+        serializer = SignalSourceConfigSerializer(instance, data=data, partial=True)
+        assert not serializer.is_valid()
+        assert instance.config == {"steering": "original"}
+
+    def test_config_key_updates_are_rejected_on_create(self) -> None:
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": "linear", "source_type": "issue", "config_set": {}}
+        )
+        assert not serializer.is_valid()
+
     @parameterized.expand(
         [
             ("valid", {"linear_team_ids": ["team-1", "team-2"]}, True),
@@ -655,3 +773,60 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("status_lookup_fails", [False, True])
+def test_concurrent_config_key_updates_preserve_both_edits(status_lookup_fails: bool) -> None:
+    organization = Organization.objects.create(name="Config concurrency test")
+    team = Team.objects.create(organization=organization)
+    user = User.objects.create(email="config-editor@example.com")
+    organization.members.add(user)
+    config = SignalSourceConfig.objects.create(
+        team=team,
+        source_product="linear",
+        source_type="issue",
+        enabled=False,
+        config={"hogql_filter": "false", "default_not_actionable": True},
+    )
+    barrier = Barrier(2)
+
+    def update_config(body: dict[str, object]) -> int:
+        failed_status_reads: list[str] = []
+
+        def fail_status_read(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: dict[str, object]
+        ) -> object:
+            if status_lookup_fails and ExternalDataSchema._meta.db_table in sql:
+                failed_status_reads.append(sql)
+                return execute("SELECT 1 / 0", None, many, context)
+            return execute(sql, params, many, context)
+
+        try:
+            client = APIClient()
+            client.force_authenticate(user)
+            barrier.wait(timeout=10)
+            with connection.execute_wrapper(fail_status_read):
+                response = client.patch(
+                    f"/api/projects/{team.id}/signals/source_configs/{config.id}/", body, format="json"
+                )
+            assert bool(failed_status_reads) is status_lookup_fails
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return response.status_code
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        updates: list[dict[str, object]] = [
+            {"config_set": {"steering": "Prioritize documentation tasks"}, "config_remove": ["default_not_actionable"]},
+            {"config_set": {"linear_team_ids": ["team-example"]}},
+        ]
+        futures = [pool.submit(update_config, body) for body in updates]
+        for future in futures:
+            future.result(timeout=20)
+    config.refresh_from_db()
+    assert config.config == {
+        "hogql_filter": "false",
+        "steering": "Prioritize documentation tasks",
+        "linear_team_ids": ["team-example"],
+    }

@@ -3,20 +3,23 @@
 import re
 from typing import Any
 
-from django.db.models import BigIntegerField, F
+from django.db.models import BigIntegerField, F, IntegerField
 from django.db.models.functions import Coalesce
 
-from posthog.models import EventProperty, Team
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
+from posthog.models import EventProperty, PropertyDefinition, Team
 
+from products.access_control.backend.facade.api import person_property_names_with_access_rules
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.data_suggestions.builder import EmailSender
+from products.workflows.backend.services.data_suggestions.event_volume import person_property_values
 from products.workflows.backend.services.data_suggestions.planner import Channel
 
 _TEMPLATES_LIMIT = 20
 _EVENT_PROPERTIES_LIMIT = 15
+_PERSON_PROPERTIES_LIMIT = 30
 # Only plain names, so the email's Liquid variable needs no quoting.
 _PLAIN_PROPERTY_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
@@ -59,7 +62,7 @@ def _with_filled_secrets(action: dict[str, Any], keys: set[str]) -> dict[str, An
 
 
 def channels(team: Team) -> frozenset[Channel]:
-    kinds = set(Integration.objects.filter(team_id=team.id).values_list("kind", flat=True))
+    kinds = {row.kind for row in IntegrationManager.kinds("twilio", "apns", "firebase").list(team.id)}
     connected: set[Channel] = set()
     if "twilio" in kinds:
         connected.add("sms")
@@ -68,13 +71,13 @@ def channels(team: Team) -> frozenset[Channel]:
     return frozenset(connected)
 
 
+def push_integration_ids(team: Team) -> tuple[int, ...]:
+    return tuple(row.id for row in IntegrationManager.kinds("apns", "firebase").list(team.id))
+
+
 def slack_integration_id(team: Team) -> int | None:
-    return (
-        Integration.objects.filter(team_id=team.id, kind="slack")
-        .order_by("created_at")
-        .values_list("id", flat=True)
-        .first()
-    )
+    row = IntegrationManager.slack.oauth.find(team.id)
+    return row.id if row is not None else None
 
 
 def email_sender(team: Team) -> EmailSender | None:
@@ -99,7 +102,7 @@ def has_verified_email_sender(team: Team) -> bool:
 def _verified_senders(team: Team) -> list[EmailSender]:
     return [
         EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
-        for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at")
+        for integration in IntegrationManager.email.credentials.list(team.id)
         if (config := integration.config or {}).get("verified") is True and config.get("email")
     ]
 
@@ -122,3 +125,29 @@ def event_property_names(team: Team, event: str) -> tuple[str, ...]:
         .values_list("property", flat=True)[:100]
     )
     return tuple(name for name in names if _PLAIN_PROPERTY_NAME.match(name))[:_EVENT_PROPERTIES_LIMIT]
+
+
+def person_properties(team: Team) -> dict[str, tuple[str, ...]]:
+    """The project's own person properties that a branch can split on, like a plan or a status, with their values."""
+    names = (
+        # Both expressions match the leading columns of `index_property_def_query_proj`, so the ordering reads the index.
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField()),
+            group_type_index_key=Coalesce(F("group_type_index"), -1, output_field=IntegerField()),
+        )
+        .filter(
+            effective_project_id=team.project_id,
+            type=PropertyDefinition.Type.PERSON,
+            group_type_index_key=-1,
+            property_type__in=("String", "Boolean"),
+        )
+        .exclude(name__startswith="$")
+        .order_by(F("query_usage_30_day").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[:100]
+    )
+    # Built ideas are shared across the team, so a property that any member may not read is left out.
+    restricted = person_property_names_with_access_rules(team_id=team.id)
+    plain = [name for name in names if _PLAIN_PROPERTY_NAME.match(name) and name not in restricted][
+        :_PERSON_PROPERTIES_LIMIT
+    ]
+    return person_property_values(team, plain)

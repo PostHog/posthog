@@ -69,7 +69,7 @@ class CutoverSkip(StrEnum):
     ALREADY_MOVED = "already_moved"
     # Platform rows live on the project's root team, so an alert in a child environment stays.
     ENVIRONMENT = "environment"
-    # The platform does not evaluate it in parallel, such as a detector or a real-time alert.
+    # The platform evaluates it only in parallel, such as a real-time alert.
     NOT_ON_PLATFORM = "not_on_platform"
     # The investigation agent reads and writes the insight stack's checks, which the platform does not keep.
     INVESTIGATION = "investigation"
@@ -114,9 +114,9 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
     )
 
 
-def _is_threshold_alert(alert: AlertConfiguration) -> bool:
-    """The platform evaluates detector and real-time alerts in parallel, but cannot own them yet."""
-    return not alert.detector_config and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+def _is_scheduled(alert: AlertConfiguration) -> bool:
+    """The platform evaluates real-time alerts in parallel, but cannot own them yet."""
+    return alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
 def delivers_as_it_does_today(alert: AlertConfiguration) -> bool:
@@ -167,10 +167,9 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 
 def can_move(alert: AlertConfiguration) -> bool:
-    """Whether the platform can own the alert: a threshold alert it evaluates, which no investigation agent reads."""
-    return (
-        platform_upsert_of(alert) is not None and _is_threshold_alert(alert) and not alert.investigation_agent_enabled
-    )
+    """Whether the platform can own the alert: a scheduled alert it evaluates, with a threshold or a
+    detector, which no investigation agent reads."""
+    return platform_upsert_of(alert) is not None and _is_scheduled(alert) and not alert.investigation_agent_enabled
 
 
 def has_begun_cutover(team_id: int) -> bool:
@@ -186,7 +185,7 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
     """
     upsert = platform_upsert_of(alert)
     assert upsert is not None
-    savepoint = transaction.savepoint()
+    savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
     taken = take_ownership(
         PlatformOwnershipHandover(

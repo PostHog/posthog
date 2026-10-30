@@ -8,6 +8,7 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
 use tokio::net::TcpListener;
+use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -84,6 +85,13 @@ async fn async_main(config: Config) -> Result<()> {
         .checkpoint_enabled
         .then(|| config.checkpoint_lineage())
         .transpose()?;
+    // `kill -USR1 1` uploads a checkpoint ahead of a planned stop, such as a reshard, because the
+    // final checkpoint stays local. The handler goes in before the restore, so a request made
+    // during boot waits for the checkpoint loop: without a handler, PID 1 discards the signal.
+    let upload_requests = lineage
+        .map(|_| signal(SignalKind::user_defined1()))
+        .transpose()
+        .context("installing the SIGUSR1 handler")?;
 
     // Covers the 45 s follower windows, then the checkpoint component's 60 s. The pod's termination
     // grace period must exceed it plus the chart's 5 s preStop sleep, so above 115 s, or Kubernetes
@@ -588,9 +596,9 @@ async fn async_main(config: Config) -> Result<()> {
     ));
 
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
-    // The loop waits for boot: a capture before the events rewind would record the broker's old
-    // offsets of a pending restore.
-    if let Some(checkpoint_handle) = checkpoint_handle {
+    // The task waits for boot: a capture before the events rewind would record the broker's old
+    // offsets of a pending restore. Its first checkpoint then waits for the pod to be ready.
+    if let Some((checkpoint_handle, mut upload_requests)) = checkpoint_handle.zip(upload_requests) {
         let sweeper = Arc::new(CheckpointSweeper::new(
             store_for_checkpoint,
             dispatcher.clone(),
@@ -603,6 +611,20 @@ async fn async_main(config: Config) -> Result<()> {
             ),
             consumer_handle.shutdown_token(),
         ));
+        let requests_stop = consumer_handle.shutdown_token();
+        let requested = sweeper.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = requests_stop.cancelled() => break,
+                    Some(()) = upload_requests.recv() => {
+                        info!("checkpoint upload requested (SIGUSR1)");
+                        requested.request_upload();
+                    }
+                }
+            }
+        });
         let stop = consumer_handle.shutdown_token();
         let interval = config.checkpoint_interval();
         let checkpoint_readiness = boot_readiness.clone();
@@ -612,7 +634,8 @@ async fn async_main(config: Config) -> Result<()> {
                 // Boot never ended, so there are no settled positions to checkpoint.
                 _ = stop.cancelled() => checkpoint_handle.work_completed(),
                 _ = checkpoint_readiness.wait_until_dispatchable() => {
-                    run_checkpoints(sweeper, interval, checkpoint_handle).await;
+                    run_checkpoints(sweeper, &checkpoint_readiness, interval, checkpoint_handle)
+                        .await;
                 }
             }
         });

@@ -205,6 +205,7 @@ export function ScoutDetailHeader({
                 <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
+                <LeaveScoutNoteButton skillName={config.skill_name} />
                 <LemonButton
                     type="secondary"
                     size="small"

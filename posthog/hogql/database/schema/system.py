@@ -40,6 +40,8 @@ from posthog.scopes import APIScopeObject
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from products.aeo.backend.facade.hogql import aeo_citation_checks
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
@@ -774,6 +776,8 @@ data_warehouse_sources: PostgresTable = PostgresTable(
 data_modeling_views: PostgresTable = PostgresTable(
     name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
+    access_scope="warehouse_view",
+    access_control_creator_id_field="created_by_id",
     description="Saved queries / data-modeling views built on top of warehouse data; one row per view, optionally materialized.",
     fields={
         "id": StringDatabaseField(name="id", description="View UUID."),
@@ -802,14 +806,33 @@ data_modeling_views: PostgresTable = PostgresTable(
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the view was deleted; NULL if not deleted."
         ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the view."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the view was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the view was last updated."),
     },
 )
 
-data_warehouse_tables: PostgresTable = PostgresTable(
+
+class _DataWarehouseTablesTable(PostgresTable):
+    def blocked_object_ids(self, user_access_control: "UserAccessControl", team_id: Optional[int]) -> frozenset[str]:
+        # A table resolves its access through its source, so a rule on a source denies tables that
+        # no rule names. Only the per-table resolution finds them.
+        from products.warehouse_sources.backend.facade.api import (
+            denied_table_ids,  # noqa: PLC0415 — keeps the ORM off this module's import path
+        )
+
+        if team_id is None:
+            raise ValueError("system.data_warehouse_tables needs a team to resolve table access")
+        return frozenset(str(table_id) for table_id in denied_table_ids(team_id, user_access_control))
+
+
+data_warehouse_tables: _DataWarehouseTablesTable = _DataWarehouseTablesTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
+    access_scope="warehouse_table",
+    access_control_creator_id_field="created_by_id",
     description="Tables belonging to a data warehouse source; one row per table. A row whose source is a "
     "direct connection is not queryable by name from this catalog — query it through that connection "
     "instead, using the source id as the query's connection id.",
@@ -822,6 +845,9 @@ data_warehouse_tables: PostgresTable = PostgresTable(
         "external_data_source_id": StringDatabaseField(
             name="external_data_source_id",
             description="Source that produced this table; joins to data_warehouse_sources.id.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the table."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the table was first synced."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the table metadata was last updated."),
@@ -1048,6 +1074,16 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum training iterations the agent loop may spend."
         ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model override for the training agent (NULL uses the autoresearch default model).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort override for the training agent (NULL uses the autoresearch default).",
+        ),
         "iteration_budget_remaining": IntegerDatabaseField(
             name="iteration_budget_remaining",
             nullable=True,
@@ -1083,6 +1119,26 @@ autoresearch_training_runs: PostgresTable = PostgresTable(
             name="task_run_id", nullable=True, description="Task run of the agent sandbox; joins to task_runs.id."
         ),
         "status": StringDatabaseField(name="status", description="One of pending, running, completed, failed."),
+        "kickoff_reason": StringDatabaseField(
+            name="kickoff_reason",
+            nullable=True,
+            description="Why the run started: explore, scheduled, rescue, or manual (NULL for older runs).",
+        ),
+        "agent_runtime_adapter": StringDatabaseField(
+            name="agent_runtime_adapter",
+            nullable=True,
+            description="Agent runtime the run was dispatched with, for example claude or codex (NULL for older runs).",
+        ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model the training agent ran on, for example claude-opus-5-5 (NULL for older runs).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort the training agent ran with (NULL for older runs or when the model has none).",
+        ),
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum iterations the run may record."
         ),
@@ -1993,9 +2049,28 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
-data_modeling_jobs: PostgresTable = PostgresTable(
+
+class _DataModelingJobsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        # The creator of a view keeps it under a deny rule, so they keep the jobs that ran for it.
+        from products.data_modeling.backend.facade.api import (
+            saved_query_ids_created_by,  # noqa: PLC0415 — keeps the ORM off this module's import path
+        )
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_jobs needs a team to resolve view access")
+        owned = saved_query_ids_created_by(team_id, user_access_control.user.pk, ids=candidate_ids)
+        return frozenset(str(view_id) for view_id in owned)
+
+
+data_modeling_jobs: _DataModelingJobsTable = _DataModelingJobsTable(
     name="data_modeling_jobs",
     postgres_table_name="posthog_datamodelingjob",
+    access_scope="warehouse_view",
+    # Child of warehouse_view: object-level access control applies to the view the job ran for.
+    access_control_id_field="saved_query_id",
     description="Materialization job runs for data-modeling views; one row per run that materializes a view.",
     fields={
         "id": StringDatabaseField(name="id", description="Job UUID."),
@@ -2003,6 +2078,8 @@ data_modeling_jobs: PostgresTable = PostgresTable(
         "data_modeling_view_id": StringDatabaseField(
             name="saved_query_id", description="View being materialized; joins to data_modeling_views.id."
         ),
+        # The access control guard reads the column under its own name.
+        "saved_query_id": StringDatabaseField(name="saved_query_id", hidden=True),
         "status": StringDatabaseField(name="status", description="Job status, e.g. Running, Completed, Failed."),
         "rows_materialized": IntegerDatabaseField(
             name="rows_materialized", description="Number of rows written so far."
