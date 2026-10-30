@@ -106,6 +106,35 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_renaming_a_sender_does_not_restore_the_domains_old_mail_from_subdomain(
+        self, mock_create_email_domain, mock_update_mail_from
+    ):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        first = EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "provider": "ses", "mail_from_subdomain": "bounces"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        second = EmailIntegration.create_native_integration(
+            {"email": "second@successdomain.com", "name": "Second", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        EmailIntegration(first).update_native_integration({"mail_from_subdomain": "returns"}, team_id=self.team.id)
+
+        # `second` still holds the copy read before the move, the way a request that loaded the
+        # sender and is now renaming it would.
+        EmailIntegration(second).update_native_integration({"name": "Renamed"}, team_id=self.team.id)
+
+        second.refresh_from_db()
+        assert second.config["mail_from_subdomain"] == "returns"
+        assert second.config["name"] == "Renamed"
+
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_editing_mail_from_subdomain_leaves_another_organizations_sender_alone(
         self, mock_create_email_domain, mock_update_mail_from
     ):

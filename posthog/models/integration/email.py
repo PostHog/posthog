@@ -141,7 +141,6 @@ class EmailIntegration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name, mail_from_subdomain, reply_to and setup_method can be updated
-        name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
         )
@@ -160,13 +159,15 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        changes: dict[str, str] = {
-            "name": name,
-            "mail_from_subdomain": mail_from_subdomain,
-            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-        }
+        # Only what the caller sent is written back. Filling the rest in from the copy of the row
+        # read before the lock would let an edit undo a field another request changed meanwhile.
+        changes: dict[str, str] = {key: config[key] for key in ("name", "reply_to") if key in config}
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
+        if mail_from_changed:
+            # Written back only when the call above really repointed the domain, so an edit that
+            # leaves it out cannot restore a subdomain SES has stopped using.
+            changes["mail_from_subdomain"] = mail_from_subdomain
         siblings_by_team: dict[int, list[int]] = {}
         with transaction.atomic():
             to_lock = model.Integration.objects.filter(id=self.integration.id)
