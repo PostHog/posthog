@@ -1482,14 +1482,23 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
         assert all(item["is_default_owner"] is False for item in reviewers)
 
-    def test_posting_reviewers_keeps_the_stored_default_owner_flag(self):
+    @parameterized.expand(
+        [
+            ("by_uuid", False),
+            # An API caller can name the same member by login alone, the way the merge resolves it a
+            # step later. Dropping the flag here would teach the scouts a correction on removal.
+            ("by_login", True),
+        ]
+    )
+    def test_posting_reviewers_keeps_the_stored_default_owner_flag(self, _name: str, by_login: bool):
         report = self._create_report()
-        owner = self._create_org_member("owner@example.com")
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
         self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+        entry = {"github_login": "owner-login"} if by_login else {"user_uuid": str(owner.uuid)}
 
         response = self.client.post(
             self._list_url(str(report.id)),
-            {"artefact_type": "suggested_reviewers", "content": [{"user_uuid": str(owner.uuid)}]},
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
             format="json",
         )
 

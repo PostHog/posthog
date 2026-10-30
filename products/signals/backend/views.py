@@ -5855,7 +5855,7 @@ def _stored_reviewer_entry(entry: dict) -> dict:
 
 
 def _with_carried_default_owner(
-    content: SuggestedReviewers, prior: Sequence[SuggestedReviewerEntry]
+    content: SuggestedReviewers, prior: Sequence[SuggestedReviewerEntry], *, team_id: int
 ) -> SuggestedReviewers:
     """`is_default_owner` taken from the stored entry rather than from the request.
 
@@ -5866,20 +5866,31 @@ def _with_carried_default_owner(
 
     Matched on `user_uuid` alone, unlike the rest of the reviewer merge: the fallback only ever
     writes an entry that names a user, so there is no login-only entry to recognize, while a login
-    match would carry the flag onto whoever a caller pairs with the stored owner's login.
+    match would carry the flag onto whoever a caller pairs with the stored owner's login. An entry
+    that names its person by login alone is resolved to that member first, the way the merge itself
+    resolves it a step later, so naming the stored owner by login does not drop the flag.
     """
     stored_owners = {
         normalized
         for entry in prior
         if entry.is_default_owner and (normalized := _normalized_reviewer_user_uuid(entry.user_uuid))
     }
+    logins_to_resolve = (
+        {entry.github_login for entry in content.root if entry.github_login and not entry.user_uuid}
+        if stored_owners
+        else set()
+    )
+    login_to_org_user = resolve_org_github_login_to_users(team_id, logins_to_resolve) if logins_to_resolve else {}
+
+    def carried(entry: SuggestedReviewerEntry) -> bool:
+        user_uuid = _normalized_reviewer_user_uuid(entry.user_uuid)
+        if user_uuid is None and entry.github_login:
+            member = login_to_org_user.get(entry.github_login.strip().lower())
+            user_uuid = str(member.uuid) if member is not None else None
+        return user_uuid is not None and user_uuid in stored_owners
+
     return SuggestedReviewers(
-        root=[
-            entry.model_copy(
-                update={"is_default_owner": _normalized_reviewer_user_uuid(entry.user_uuid) in stored_owners}
-            )
-            for entry in content.root
-        ]
+        root=[entry.model_copy(update={"is_default_owner": carried(entry)}) for entry in content.root]
     )
 
 
@@ -6587,7 +6598,9 @@ class SignalReportArtefactViewSet(
                     SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
                     snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=report_id)
                     previous = snapshot.state.reviewers_id
-                    parsed_content = _with_carried_default_owner(parsed_content, snapshot.reviewers)
+                    parsed_content = _with_carried_default_owner(
+                        parsed_content, snapshot.reviewers, team_id=self.team.id
+                    )
                     artefact = SignalReportArtefact.append_status(
                         team_id=self.team.id,
                         report_id=report_id,
