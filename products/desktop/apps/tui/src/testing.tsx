@@ -29,6 +29,8 @@ export function renderInTerminal(element: ReactElement): {
     exitOnCtrlC: false,
     patchConsole: false,
     kittyKeyboard: { mode: "enabled" },
+    // Ink treats CI as a non-interactive terminal and writes only the final frame, which these tests never see.
+    interactive: true,
   });
   return {
     instance,
