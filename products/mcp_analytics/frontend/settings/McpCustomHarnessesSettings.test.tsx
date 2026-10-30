@@ -84,7 +84,9 @@ describe('McpCustomHarnessesSettings', () => {
         await userEvent.click(screen.getByPlaceholderText('data:image/png;base64,...'))
         await userEvent.paste(icon)
 
-        expect(screen.queryByAltText('Icon preview') !== null).toBe(showsPreview)
+        for (const background of ['light', 'dark']) {
+            expect(screen.queryByLabelText(`Icon preview on a ${background} background`) !== null).toBe(showsPreview)
+        }
     })
 
     it('blocks opening another form while a save is pending', async () => {

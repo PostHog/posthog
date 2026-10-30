@@ -33,7 +33,7 @@ export const McpAnalyticsCustomHarnessesCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe(
-            'Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon.'
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
         ),
 })
 
@@ -61,7 +61,7 @@ export const McpAnalyticsCustomHarnessesUpdateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe(
-            'Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon.'
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
         ),
 })
 
@@ -91,7 +91,7 @@ export const McpAnalyticsCustomHarnessesPartialUpdateBody = /* @__PURE__ */ zod.
         .string()
         .optional()
         .describe(
-            'Optional icon shown next to the harness name. A base64 data URI of a PNG, JPEG, GIF or WebP image, 16 KB or smaller and at most 256 by 256 pixels. An empty string means no icon.'
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
         ),
 })
 

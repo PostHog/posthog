@@ -92,7 +92,19 @@ describe('mcpCustomHarnessesLogic', () => {
         [{ name: 'Acme', match_pattern: '' }, { match_pattern: 'Enter the text to match' }],
         [
             { name: 'Acme', match_pattern: 'acme', icon: 'https://example.com/icon.png' },
-            { icon: 'Paste a PNG, JPEG, GIF or WebP image as a data URI.' },
+            { icon: 'Paste a PNG, GIF or WebP image as a data URI.' },
+        ],
+        [
+            { name: 'Acme', match_pattern: 'acme', icon: 'data:image/jpeg;base64,/9j/4AAQ' },
+            { icon: 'Paste a PNG, GIF or WebP image as a data URI.' },
+        ],
+        [
+            {
+                name: 'Acme',
+                match_pattern: 'acme',
+                icon: 'data:image/png;base64,iVBORw0KGgo="), url("https://example.com/track.png',
+            },
+            { icon: 'Paste a PNG, GIF or WebP image as a data URI.' },
         ],
         [
             { name: 'Acme', match_pattern: 'acme', icon: `data:image/png;base64,${'A'.repeat(30_000)}` },

@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
 
-import { cn } from 'lib/utils/css-classes'
-
 import { mcpCustomHarnessesLogic } from '../settings/mcpCustomHarnessesLogic'
 import { BrandMark } from './BrandMark'
+import { HarnessIconMask } from './HarnessIconMask'
 
 /** The icon a team set for one of its custom harnesses, or the generic harness mark when it set none. */
 export function CustomHarnessIcon({
@@ -20,12 +19,5 @@ export function CustomHarnessIcon({
     if (!icon) {
         return <BrandMark name="Other harnesses" label={label} className={className} />
     }
-    return (
-        <img
-            src={icon}
-            alt={label ?? ''}
-            aria-hidden={label ? undefined : true}
-            className={cn('shrink-0 object-contain', className)}
-        />
-    )
+    return <HarnessIconMask src={icon} label={label} className={className} />
 }
