@@ -412,7 +412,10 @@ export function createCloud(
           engine.designateRelayedMcpServers(runId, servers),
       },
     ),
-    control: (taskId, runId) => piControl(sendPi, taskId, runId),
+    control: (taskId, runId) =>
+      piControl(sendPi, taskId, runId, () =>
+        api.cancelTaskRun(taskId, runId, "Stopped from the TUI"),
+      ),
     today: new TodayClient(authenticatedFetch(auth), auth.apiHost, async () => {
       const user = await api.getCurrentUser();
       return {
