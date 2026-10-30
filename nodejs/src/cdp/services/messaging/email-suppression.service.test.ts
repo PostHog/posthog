@@ -358,69 +358,6 @@ describe('EmailSuppressionService', () => {
         })
     })
 
-    describe('transactional email to an address that hard-bounced long ago', () => {
-        it.each([
-            ['a hard bounce 29 days ago blocks it', 'hard_bounced_at', 'test row', 29, true],
-            ['a hard bounce 31 days ago lets it through', 'hard_bounced_at', 'test row', 31, false],
-            [
-                'a Customer.io bounce imported 31 days ago lets it through',
-                'hard_bounced_at',
-                'Imported from Customer.io (bounced)',
-                31,
-                false,
-            ],
-            [
-                'a legacy hard bounce 29 days ago blocks it',
-                'last_bounce_at',
-                'Auto-suppressed after a hard bounce',
-                29,
-                true,
-            ],
-            [
-                'a legacy hard bounce 31 days ago lets it through',
-                'last_bounce_at',
-                'Auto-suppressed after a hard bounce',
-                31,
-                false,
-            ],
-        ] as const)('%s', async (_label, dateColumn, reason, daysAgo, blocked) => {
-            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'old-bounce@example.com'
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_messagesuppression
-                    (id, team_id, identifier, source, reason, transient_bounce_count,
-                     suppressed, suppressed_at, deleted, created_at, updated_at, ${dateColumn})
-                 VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', $3, 0,
-                     true, NOW() - make_interval(days => $4), false, NOW(), NOW(), NOW() - make_interval(days => $4))`,
-                [team.id, email, reason, daysAgo],
-                'test-insert-old-hard-bounce'
-            )
-
-            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(blocked)
-            expect(await svc.isSuppressed(team.id, email)).toBe(true)
-        })
-
-        it('a new hard bounce after the block expired blocks it again', async () => {
-            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'bounced-again@example.com'
-            await svc.recordHardBounces(team.id, [email], 'smtp; 550 5.1.1 user unknown')
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_messagesuppression SET hard_bounced_at = NOW() - interval '31 days'
-                 WHERE team_id = $1 AND identifier = $2`,
-                [team.id, email],
-                'test-age-hard-bounce'
-            )
-            svc.clear()
-            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(false)
-
-            await svc.recordHardBounces(team.id, [email], 'smtp; 550 5.1.1 user unknown')
-
-            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(true)
-        })
-    })
-
     describe('cache invalidation', () => {
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()

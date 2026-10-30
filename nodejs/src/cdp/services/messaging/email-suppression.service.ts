@@ -33,17 +33,12 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
 }
 
 export type SuppressionCheckOptions = {
-    // Transactional email (invoices, login codes, password resets) is blocked only by a recent hard bounce, because
+    // Transactional email (invoices, login codes, password resets) is blocked only by a hard bounce, because
     // only then is the address proven dead. A complaint, a manual entry or a full inbox (soft bounces) lets it through.
     transactional?: boolean
 }
 
-// How long a hard bounce blocks transactional email. A mailbox can come back, and a blocked login code or password
-// reset locks the user out of their account. After this time one email goes through. If it bounces again, the new
-// hard bounce blocks the address for this long again.
-const TRANSACTIONAL_HARD_BOUNCE_BLOCK_DAYS = 30
-
-// An active suppression. It blocks transactional email only when the address hard-bounced recently.
+// An active suppression. It blocks transactional email only when the address hard-bounced.
 type SuppressionEntry = { blocksTransactional: boolean }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
@@ -419,27 +414,20 @@ export class EmailSuppressionService {
 
         const entries = new Map<string, SuppressionEntry>()
         for (const [teamId, identifiers] of byTeam) {
-            // The reason check covers rows that hard-bounced before `hard_bounced_at` existed. Those rows date the
-            // bounce with the last bounce or, failing that, the suppression.
+            // The reason check covers rows that hard-bounced before `hard_bounced_at` existed.
             const result = await this.postgres.query<{ identifier: string; blocks_transactional: boolean }>(
                 PostgresUse.COMMON_READ,
                 `SELECT identifier,
                         -- A soft-bounce row carries no reason until it crosses the threshold, and
                         -- NULL = ANY(...) is NULL, so COALESCE keeps the column a real boolean.
-                        COALESCE(
-                            COALESCE(
-                                hard_bounced_at,
-                                CASE WHEN source = 'BOUNCE' AND reason = ANY($3)
-                                     THEN COALESCE(last_bounce_at, suppressed_at) END
-                            ) > NOW() - make_interval(days => $4),
-                            false
-                        ) AS blocks_transactional
+                        COALESCE(hard_bounced_at IS NOT NULL OR (source = 'BOUNCE' AND reason = ANY($3)), false)
+                            AS blocks_transactional
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
                    AND suppressed = true
                    AND deleted = false`,
-                [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS, TRANSACTIONAL_HARD_BOUNCE_BLOCK_DAYS],
+                [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS],
                 'loadSuppressed'
             )
             for (const row of result.rows) {
