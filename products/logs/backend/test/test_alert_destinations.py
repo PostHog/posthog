@@ -7,10 +7,9 @@ from parameterized import parameterized
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     destination_handles_event_kind,
+    unrevised_hold_backs,
     validate_destination_data,
 )
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
-from products.alerts.backend.logic.destination_eligibility import LOGS_STOCK_INPUT_VALUES
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -102,22 +101,15 @@ class TestRenderedDestinationContent(SimpleTestCase):
     def test_every_default_message_is_in_the_stock_list_native_delivery_reads(
         self, _name: str, kind: EventKind, data: AlertDestinationData
     ) -> None:
+        spec = EVENT_KIND_CONFIG[kind]
         config = build_alert_destination_config(
-            spec=EVENT_KIND_CONFIG[kind],
+            spec=spec,
             alert_id="alert-1",
             alert_name="Checkout errors",
             data=data,
             slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
-        ).payload
-        template_id = config["template_id"]
-        stock = LOGS_STOCK_INPUT_VALUES[template_id]
-        missing = {
-            key: entry["value"]
-            for key, entry in config["inputs"].items()
-            if key not in SPEC_BY_TEMPLATE_ID[template_id].address_input_keys
-            and entry["value"] not in stock.get(key, [])
-        }
-        assert missing == {}
+        )
+        assert unrevised_hold_backs(config, allowed_event_ids=[spec.event_id]) == ()
 
     @parameterized.expand([(kind,) for kind in MESSAGE_KINDS])
     def test_slack_body_puts_every_detail_on_its_own_line(self, kind: EventKind) -> None:

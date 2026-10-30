@@ -195,6 +195,15 @@ def _template_stock(source_stock: StockInputValues | None, template_id: str | No
     return source_stock.get(template_id or "", {})
 
 
+def unrevised_hold_backs(
+    template_id: str, inputs: dict[str, Any], allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    stock = _template_stock(_source_stock_input_values(allowed_event_ids), template_id)
+    if stock is None:
+        return ()
+    return tuple(dict.fromkeys(_stock_hold_backs(template_id, inputs, stock)))
+
+
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
     buckets = {_BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs}
