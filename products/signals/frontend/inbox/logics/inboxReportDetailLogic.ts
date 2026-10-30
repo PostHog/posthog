@@ -88,7 +88,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { REPORT_AI_PANEL, ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
-import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
+import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -390,6 +390,7 @@ export interface inboxReportDetailLogicValues {
     reportChecksError: string | null
     reportChecksLoading: boolean
     reportClaimant: _UserApi | null
+    teammateClaimHolder: _UserApi | null
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -819,12 +820,12 @@ export interface inboxReportDetailLogicMeta {
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
-        isReportClaimable: (report: SignalReport | null) => boolean
+        teammateClaimHolder: (report: SignalReport | null, user: null | import('~/types').UserType) => _UserApi | null
+        isReportClaimable: (report: SignalReport | null, user: null | import('~/types').UserType) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
-            reportClaimant: _UserApi | null,
-            isClaimedByMe: boolean
+            teammateClaimHolder: _UserApi | null
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
@@ -1633,9 +1634,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (claimant: _UserApi | null, user: { uuid: string } | null): boolean =>
                 !!claimant && !!user && claimant.uuid === user.uuid,
         ],
+        teammateClaimHolder: [
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): _UserApi | null =>
+                report ? teammateClaimHolder(report, user?.uuid ?? null) : null,
+        ],
         isReportClaimable: [
-            (s) => [s.report],
-            (report: SignalReport | null): boolean => (report ? isReportClaimable(report) : false),
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): boolean =>
+                report ? isReportClaimable(report, user?.uuid ?? null) : false,
         ],
         implementationSlotClaim: [
             (s) => [s.reportTasks],
@@ -1643,16 +1650,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 implementationSlotClaim(reportTasks),
         ],
         implementationDisabledReason: [
-            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
-            (
-                slotClaim: ImplementationSlotClaim | null,
-                claimant: _UserApi | null,
-                isClaimedByMe: boolean
-            ): string | null =>
+            (s) => [s.implementationSlotClaim, s.teammateClaimHolder],
+            (slotClaim: ImplementationSlotClaim | null, holder: _UserApi | null): string | null =>
                 slotClaim
                     ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
-                    : claimant && !isClaimedByMe
-                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                    : holder
+                      ? `${fullNameOrEmail(holder)} is working on this report. Right-click it in the list to take it over.`
                       : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
@@ -1778,7 +1781,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const outcome = await requestReportClaim(
                 String(teamId),
                 { id: props.reportId, assignee: currentReport.assignee },
-                claimed
+                claimed,
+                { currentUserUuid: userLogic.values.user?.uuid ?? null }
             )
             if (!outcome.ok) {
                 if (inboxReportDetailLogic.isMounted(props)) {

@@ -2831,7 +2831,7 @@ export interface SignalReportClaimApi {
     pull_requests?: string[]
     /** Explicitly end another actor's claim and take ownership. */
     takeover?: boolean
-    /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. */
+    /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. Required to take over a claim that another person holds, directly or through their agent. That person is notified. */
     takeover_claim_id?: string
     /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
     pr_url?: string

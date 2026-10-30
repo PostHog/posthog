@@ -2818,7 +2818,12 @@ class SignalReportViewSet(
         responses={
             200: OpenApiResponse(response=SignalReportSerializer, description="Current report and assignment."),
             400: OpenApiResponse(description="The pull request URL or request shape is invalid."),
-            409: OpenApiResponse(description="The report cannot be claimed or released in its current state."),
+            409: OpenApiResponse(
+                description=(
+                    "The report cannot be claimed or released in its current state, or another person holds the "
+                    "claim and the takeover has no takeover_claim_id."
+                )
+            ),
         },
         summary="Claim or release a signal report",
         description=(

@@ -372,11 +372,14 @@ tools:
         title: Update work on an inbox report
         description: >
             Start, resume, or release work on an inbox report. Returns `assignee.claim_id` for the work attempt; pass it
-            on later updates. For internal task agents, claiming records the task association automatically. Add
-            pull_requests (GitHub PR URLs) in the same call, including when you start work. A report resolves when every
-            linked PR is closed or merged and at least one merged, and it is suppressed when all closed without merging.
-            Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub integration keep
-            unknown PR state, so resolve those reports with inbox-reports-set-state.
+            on later updates. For internal task agents, claiming records the task association automatically. Another
+            actor's active claim requires explicit takeover=true. When another person holds the claim, directly or
+            through their agent, do not take it over on your own: tell your user who holds it and since when, and ask
+            first. That takeover also needs takeover_claim_id, and the person is notified. Add pull_requests (GitHub PR
+            URLs) in the same call, including when you start work. A report resolves when every linked PR is closed or
+            merged and at least one merged, and it is suppressed when all closed without merging. Open, draft, unknown,
+            or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so
+            resolve those reports with inbox-reports-set-state.
         param_overrides:
             id:
                 aliases:
@@ -461,8 +464,10 @@ tools:
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
-            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
-            from another actor requires `takeover=true`.
+            identified in the report, call inbox-reports-claim to record that you are working on it, before you change
+            any code. If the report's `assignee` shows that another person or their agent is working on it, tell your
+            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and
+            from another person also `takeover_claim_id`.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
             `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
@@ -551,8 +556,10 @@ tools:
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
-            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
-            from another actor requires `takeover=true`.
+            identified in the report, call inbox-reports-claim to record that you are working on it, before you change
+            any code. If the report's `assignee` shows that another person or their agent is working on it, tell your
+            user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and
+            from another person also `takeover_claim_id`.
 
             Before work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current
             state before work and the outcome after the chosen resolution.
