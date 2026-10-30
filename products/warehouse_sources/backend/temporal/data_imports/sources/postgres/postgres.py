@@ -437,6 +437,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
 # could be a permanent pooler/protocol failure that should surface immediately, not be retried.
 #
+# ":einval" is the same shape with a different Erlang reason: gen_tcp returns it (POSIX EINVAL,
+# "invalid argument") when a socket operation is attempted on a connection the port has already
+# torn down — the same dead-backend-socket condition as ":closed", just raised on whichever side of
+# the race loses after the peer closes. A fresh reconnect recovers the same way.
+#
 # Neon's own compute-side WAL relay ("walsender") surfaces the same generic XX000 InternalError_
 # when it loses connectivity to a safekeeper — the storage-tier peer that actually holds the WAL,
 # since a Neon compute doesn't keep it locally: "[walsender] Failed to read WAL (...): failed to
@@ -449,6 +454,7 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "echeckoutretries",
     "echeckouttimeout",
     "internal error (authenticated): :closed",
+    "internal error (authenticated): :einval",
     "failed to connect to safekeeper",
 )
 

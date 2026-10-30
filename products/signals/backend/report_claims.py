@@ -151,6 +151,15 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
     )
 
 
+def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
+    return actor_owns_claim(claim, actor) or (
+        actor.kind == "user"
+        and actor.user_id is not None
+        and claim.actor_kind == "agent"
+        and claim.actor_user_id == actor.user_id
+    )
+
+
 def is_user_claim_of(claim: ReportClaim, user_id: int | None) -> bool:
     """Whether a person holds the claim directly, not through an agent or an internal task."""
     return claim.actor_kind == "user" and user_id is not None and claim.actor_user_id == user_id
