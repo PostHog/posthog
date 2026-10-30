@@ -52,12 +52,14 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -298,6 +300,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
                                 {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <SuppressSimilarIssuesDialog />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -327,10 +330,12 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -359,6 +364,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

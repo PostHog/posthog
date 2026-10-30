@@ -231,6 +231,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.REPLAY_OBSERVATION]: { singular: 'Observation', plural: 'Observations' },
     [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 

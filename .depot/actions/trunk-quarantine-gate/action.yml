@@ -39,9 +39,6 @@ runs:
           id: upload
           continue-on-error: true
           uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-          env:
-              # Link to the repo view: a new collection has no history yet.
-              TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
           with:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc
@@ -68,8 +65,6 @@ runs:
           if: ${{ steps.upload.outcome == 'failure' && inputs.previous-step-outcome == 'success' }}
           continue-on-error: true
           uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-          env:
-              TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
           with:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc

@@ -73,7 +73,7 @@ Hence the explicit separation between the data and view layers.
   - Before adding a test, make sure it earns its place and sits as low on the test pyramid as it can — the value/cost rubric in [Backend coding conventions › Testing](backend-coding#testing) is language-agnostic.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
-  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally.
+  - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally. The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers running it, writing stories, and mocking data.
   - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
   - A story must render the same picture on every run. See [Deterministic stories](#deterministic-stories).
 

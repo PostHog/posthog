@@ -30,6 +30,7 @@ import type { IncrementalEligibilityApi } from 'products/data_warehouse/frontend
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
@@ -56,6 +57,10 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export interface SuggestionGroup {
+    kind: string
+    suggestions: WarehouseSuggestionApi[]
+}
 
 export interface WarehouseSuggestionsLogicProps {
     surface: SuggestionSurface
@@ -100,6 +105,10 @@ function dismissedMessage(reason: DismissWarehouseSuggestionApi['reason'], kind:
     return reason === 'not_now' ? `Dismissed. ${notNowCondition(kind)}` : NOT_SUGGESTED_AGAIN
 }
 
+function assignedMessage({ assignee }: WarehouseSuggestionApi): string {
+    return assignee ? `Assigned to ${assignee.first_name || assignee.email}.` : 'Unassigned.'
+}
+
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
     const saving = monthlySaving(suggestion.payload)
     if (!saving) {
@@ -112,6 +121,14 @@ function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi
     const [groupA, valueA] = suggestionWorth(a)
     const [groupB, valueB] = suggestionWorth(b)
     return groupA - groupB || valueA - valueB
+}
+
+function groupedByKind(suggestions: WarehouseSuggestionApi[]): SuggestionGroup[] {
+    const kindsByBestSuggestion = [...new Set(suggestions.map((suggestion) => suggestion.kind))]
+    return kindsByBestSuggestion.map((kind) => ({
+        kind,
+        suggestions: suggestions.filter((suggestion) => suggestion.kind === kind),
+    }))
 }
 
 function proposedRefreshDraft(payload: WarehouseSuggestionMaterializePayloadApi): IncrementalConfigDraft {
@@ -197,6 +214,7 @@ export interface warehouseSuggestionsLogicValues {
     status: WarehouseSuggestionStatusApi | null
     statusLoading: boolean
     stripState: StripState
+    suggestionGroups: SuggestionGroup[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]
@@ -212,6 +230,13 @@ export interface warehouseSuggestionsLogicActions {
         options: AcceptWarehouseSuggestionApi | undefined
     }
     acceptSuggestionFailed: (id: string) => {
+        id: string
+    }
+    assignSuggestion: (
+        id: string,
+        assigneeId: number | null
+    ) => {
+        assigneeId: number | null
         id: string
     }
     closeAcceptConfirm: () => {
@@ -347,6 +372,9 @@ export interface warehouseSuggestionsLogicActions {
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
+    suggestionUpdated: (suggestion: WarehouseSuggestionApi) => {
+        suggestion: WarehouseSuggestionApi
+    }
     undoDismiss: (id: string) => {
         id: string
     }
@@ -361,6 +389,7 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             surface: SuggestionSurface
         ) => WarehouseSuggestionApi[]
+        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
@@ -422,6 +451,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             restoreSuggestion: (id: string) => ({ id }),
             undoDismiss: (id: string) => ({ id }),
             suggestionResumed: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            assignSuggestion: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
+            suggestionUpdated: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             openReview: true,
             closeReview: true,
             openMaterializeModal: (id: string) => ({ id }),
@@ -468,6 +499,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     ...(state ?? []).filter((existing) => existing.id !== suggestion.id),
                     suggestion,
                 ],
+                suggestionUpdated: (state: WarehouseSuggestionApi[] | null, { suggestion }) =>
+                    (state ?? []).map((existing) => (existing.id === suggestion.id ? suggestion : existing)),
             },
             actionsInFlight: [
                 {} as Record<string, boolean>,
@@ -570,15 +603,21 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     suggestions: WarehouseSuggestionApi[] | null,
                     hiddenIds: string[],
                     surface: SuggestionSurface
-                ): WarehouseSuggestionApi[] =>
-                    (suggestions ?? [])
+                ): WarehouseSuggestionApi[] => {
+                    const byWorth = (suggestions ?? [])
                         .filter(
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
                                 SURFACE_KINDS[surface].includes(suggestion.kind)
                         )
-                        .sort(compareSuggestions),
+                        .sort(compareSuggestions)
+                    return groupedByKind(byWorth).flatMap((group) => group.suggestions)
+                },
+            ],
+            suggestionGroups: [
+                (s) => [s.listedSuggestions],
+                (listed: WarehouseSuggestionApi[]): SuggestionGroup[] => groupedByKind(listed),
             ],
             surfaceSuggestions: [
                 (s) => [s.listedSuggestions, s.leavingSuggestionIds],
@@ -847,6 +886,28 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     } catch (error) {
                         actions.restoreSuggestion(id)
                         reportFailure(error, 'Could not dismiss the suggestion.')
+                        if (isStale(error)) {
+                            actions.loadSuggestions()
+                        }
+                    } finally {
+                        actions.setActionInFlight(id, false)
+                    }
+                },
+                assignSuggestion: async ({ id, assigneeId }) => {
+                    if (values.actionsInFlight[id]) {
+                        return
+                    }
+                    actions.setActionInFlight(id, true)
+                    try {
+                        const updated = await warehouseSuggestionsAssignCreate(projectId(), id, {
+                            assignee_id: assigneeId,
+                        })
+                        actions.suggestionUpdated(updated)
+                        lemonToast.success(assignedMessage(updated), {
+                            toastId: `warehouse-suggestion-assigned-${id}`,
+                        })
+                    } catch (error) {
+                        reportFailure(error, 'Could not assign the suggestion.')
                         if (isStale(error)) {
                             actions.loadSuggestions()
                         }

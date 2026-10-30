@@ -14,7 +14,7 @@ from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import PROJECT_VECTORS_TABLE
 from products.signals.dags.inbox_ranking.tests.test_training import _AppObjectStore, _ModelStoreS3, _patch_capture
 from products.signals.dags.inbox_ranking.training.dag import METADATA_FILE, model_object_key, served_object_key
-from products.signals.dags.inbox_ranking.training.families import ModelFamily
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promote import PromoteConfig, inbox_ranking_promote
 from products.signals.dags.inbox_ranking.training.telemetry import MODEL_PROMOTED_EVENT
@@ -25,6 +25,7 @@ OLDER_VERSION = "2026-10-01"
 # A retired XGBoost family. A rollback can still serve one of its saved versions.
 XGBOOST_MODEL_NAME = "report_embeddings_v2"
 EXPERIMENT_MODEL_NAME = "report_embeddings_experiment"
+PAIR_EXPERIMENT_MODEL_NAME = "report_embeddings_pair_experiment"
 
 
 class _WritableS3(_ModelStoreS3):
@@ -77,6 +78,7 @@ def _dataset() -> _WritableS3:
     _add_model(objects, "2026-09-02", all_heads[:1])
     # Every head and every file: only being an experiment keeps it from serving.
     _add_model(objects, SERVED_VERSION, all_heads, model_name=EXPERIMENT_MODEL_NAME)
+    _add_model(objects, SERVED_VERSION, all_heads, model_name=PAIR_EXPERIMENT_MODEL_NAME)
     return _WritableS3(objects)
 
 
@@ -94,6 +96,15 @@ def _promote(monkeypatch: pytest.MonkeyPatch, client: _WritableS3, store: _AppOb
                 experiment=True,
                 baseline=XGBOOST_MODEL_NAME,
                 expires=datetime.date(2026, 12, 31),
+            ),
+            ModelFamily(
+                name=PAIR_EXPERIMENT_MODEL_NAME,
+                feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
+                experiment=True,
+                expires=datetime.date(2026, 12, 31),
+                grain=PAIR_GRAIN,
+                heads=("open", "action"),
+                reference=XGBOOST_MODEL_NAME,
             ),
         ),
     )
@@ -130,8 +141,9 @@ def test_a_rollback_to_an_older_version_rewrites_the_pointer_and_publishes_it(mo
         (f"{XGBOOST_MODEL_NAME}@2026-09-01", "missing model files"),
         (f"{XGBOOST_MODEL_NAME}@2026-09-02", "has no model for the heads"),
         (f"{EXPERIMENT_MODEL_NAME}@{SERVED_VERSION}", "is an experiment family, and an experiment never serves"),
+        (f"{PAIR_EXPERIMENT_MODEL_NAME}@{SERVED_VERSION}", "is an experiment family, and an experiment never serves"),
     ],
-    ids=["malformed_key", "missing_file", "missing_head", "experiment"],
+    ids=["malformed_key", "missing_file", "missing_head", "experiment", "pair_experiment"],
 )
 def test_a_model_the_sweep_could_not_serve_is_refused_and_nothing_is_written(monkeypatch, model_key, message):
     client, store = _dataset(), _AppObjectStore()

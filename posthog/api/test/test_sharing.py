@@ -101,6 +101,15 @@ def mock_exporter_template(test_func):
     return wrapper
 
 
+def _exported_data(response: HttpResponse) -> dict:
+    html = response.content.decode()
+    marker = '<script id="posthog-exported-data" type="application/json">'
+    start = html.index(marker) + len(marker)
+    end = html.index("</script>", start)
+    encoded_data = json.loads(html[start:end])
+    return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
+
+
 @parameterized.expand(
     [
         ["http://localhost:8000/something", "http://localhost:8000/something.png"],
@@ -1599,6 +1608,8 @@ class TestExportCacheKeyFlow(APIBaseTest):
             "results": [{"count": 42, "note": marker}],
             "last_refresh": "2024-01-01T00:00:00Z",
             "timezone": "UTC",
+            "resolved_date_range": {"date_from": "2023-12-25T00:00:00Z", "date_to": "2023-12-31T23:59:59Z"},
+            "resolved_compare_date_range": {"date_from": "2023-12-18T00:00:00Z", "date_to": "2023-12-24T23:59:59Z"},
         }
         mock_query_cache_cls.return_value.lookup.return_value.entry = mock_entry
 
@@ -1614,6 +1625,24 @@ class TestExportCacheKeyFlow(APIBaseTest):
             timezone="UTC",
         )
 
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_threshold_snapshot_is_only_used_by_the_export_renderer(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        self.insight.query = {"kind": "BIVisualizationNode"}
+        self.insight.save(update_fields=["query"])
+        self.exported_asset.export_context = {"reference_lines": [{"label": "Threshold snapshot", "value": 250}]}
+        self.exported_asset.save(update_fields=["export_context"])
+        self._calculated_result(mock_calculate)
+        url = self._render_url("") if is_renderer else f"/shared/{self.sharing_config.access_token}"
+        response = self.client.get(url)
+        assert response.status_code == 200
+        assert (b"Threshold snapshot" in response.content) is is_renderer
+        self.insight.refresh_from_db()
+        assert "chartSettings" not in self.insight.query
+
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
@@ -1628,6 +1657,16 @@ class TestExportCacheKeyFlow(APIBaseTest):
 
         assert response.status_code == 200
         assert b"warmed-by-the-exporter" in response.content
+        exported_insight = _exported_data(response)["insight"]
+        assert exported_insight["is_cached"] is True
+        assert exported_insight["resolved_date_range"] == {
+            "date_from": "2023-12-25T00:00:00Z",
+            "date_to": "2023-12-31T23:59:59Z",
+        }
+        assert exported_insight["resolved_compare_date_range"] == {
+            "date_from": "2023-12-18T00:00:00Z",
+            "date_to": "2023-12-24T23:59:59Z",
+        }
         mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
         mock_calculate.assert_not_called()
 
@@ -1755,15 +1794,6 @@ class TestSharedAdhocQueryExport(APIBaseTest):
 
 
 class TestExportRendererTokenFlow(APIBaseTest):
-    @staticmethod
-    def _exported_data(response: HttpResponse) -> dict:
-        html = response.content.decode()
-        marker = '<script id="posthog-exported-data" type="application/json">'
-        start = html.index(marker) + len(marker)
-        end = html.index("</script>", start)
-        encoded_data = json.loads(html[start:end])
-        return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
-
     @parameterized.expand(
         [
             ("exact", "https://example.com", "url_exact", "https://example.com"),
@@ -1804,7 +1834,7 @@ class TestExportRendererTokenFlow(APIBaseTest):
             response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
 
         assert response.status_code == status.HTTP_200_OK
-        renderer_token = self._exported_data(response)["exportToken"]
+        renderer_token = _exported_data(response)["exportToken"]
         claims = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)
         assert claims["id"] == self.user.id
         assert claims["team_id"] == self.team.id

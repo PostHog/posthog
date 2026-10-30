@@ -1084,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
+- beacons
 - bexio
 - billit
 - bitly
@@ -1176,6 +1177,7 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - faros_ai
 - fastbill
+- fathom
 - fauna
 - feishu
 - fieldwire
@@ -1348,6 +1350,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan
@@ -1489,6 +1492,7 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
+- soniox
 - spacelift
 - spotify_ads
 - sprinklr
@@ -1569,6 +1573,7 @@ doesn't conflict with concurrent PRs.
 - wistia
 - wiz
 - wompi
+- woopayments
 - workato
 - workflowmax
 - workramp

@@ -447,7 +447,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
-            Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
+            Q(last_error_at__lte=timezone.now() - backoff_duration)
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]

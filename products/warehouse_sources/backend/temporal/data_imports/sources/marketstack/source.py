@@ -178,6 +178,7 @@ Note: Marketstack pricing is a monthly request quota tied to your plan. Some tab
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -186,6 +187,7 @@ Note: Marketstack pricing is a monthly request quota tied to your plan. Some tab
                     ),
                     SourceFieldInputConfig(
                         name="cik_codes",
+                        sync_setting=True,
                         label="CIK codes",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

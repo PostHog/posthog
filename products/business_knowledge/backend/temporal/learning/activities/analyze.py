@@ -111,6 +111,16 @@ class LearningAnalysisError(RuntimeError):
         self.code = code
 
 
+class LearningOutputTruncated(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_output_truncated")
+
+
+class LearningConflictingOutput(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_conflicting_output")
+
+
 class _SupersessionUnavailable(Exception):
     """The conflicting source is not one this job may replace, so the candidate must not be published."""
 
@@ -197,12 +207,19 @@ def _log_model_failure(team: Team, stage: str, trace_id: str, error: Exception, 
     )
 
 
-def _parse_tool_result(content: object, output_model: type[ModelOutput], stage: str) -> ModelOutput:
+def _parse_tool_result(
+    content: object, output_model: type[ModelOutput], stage: str, *, first_call_wins: bool
+) -> ModelOutput:
     tool_name = output_model.__name__
     blocks = content if isinstance(content, list) else []
     tool_results = [block for block in blocks if isinstance(block, ToolUseBlock) and block.name == tool_name]
-    if len(tool_results) != 1:
+    if not tool_results:
         raise LearningAnalysisError(f"invalid_{stage}_output")
+    if len(tool_results) > 1:
+        # The request disables parallel tool use. Several calls can still arrive.
+        logger.warning("business_knowledge.learning.multiple_tool_calls", stage=stage, count=len(tool_results))
+        if not first_call_wins and any(block.input != tool_results[0].input for block in tool_results[1:]):
+            raise LearningConflictingOutput(stage)
     return output_model.model_validate(tool_results[0].input)
 
 
@@ -215,6 +232,7 @@ def _invoke_structured_model(
     payload: dict[str, object],
     output_model: type[ModelOutput],
     max_tokens: int = LEARNING_MAX_TOKENS,
+    first_call_wins: bool = False,
 ) -> ModelOutput:
     try:
         client = build_ai_gateway_anthropic_client(
@@ -245,10 +263,34 @@ def _invoke_structured_model(
                         "input_schema": output_model.model_json_schema(),
                     }
                 ],
-                tool_choice={"type": "tool", "name": tool_name},
+                tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True},
                 extra_headers={"X-PostHog-Privacy-Mode": "true"},
             )
-        return _parse_tool_result(response.content, output_model, stage)
+        try:
+            return _parse_tool_result(response.content, output_model, stage, first_call_wins=first_call_wins)
+        except LearningConflictingOutput:
+            raise
+        except (LearningAnalysisError, ValidationError) as error:
+            if response.stop_reason == "max_tokens":
+                logger.warning(
+                    "business_knowledge.learning.output_truncated",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    max_tokens=max_tokens,
+                )
+                raise LearningOutputTruncated(stage) from None
+            if isinstance(error, LearningAnalysisError):
+                content = response.content if isinstance(response.content, list) else []
+                logger.error(  # noqa: TRY400 — the error is re-raised, so Temporal records its traceback
+                    "business_knowledge.learning.invalid_output",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    stop_reason=response.stop_reason,
+                    block_types=[getattr(block, "type", type(block).__name__) for block in content],
+                )
+            raise
     except LearningAnalysisError:
         raise
     except Exception as error:
@@ -265,6 +307,8 @@ def _extract_candidate(team: Team, bundle: EvidenceBundle, trace_id: str) -> Ext
         system_prompt=_EXTRACTION_SYSTEM_PROMPT,
         payload={"public_human_replies": list(bundle.replies)},
         output_model=ExtractedKnowledge,
+        # Every later gate checks the candidate this stage returns, so any one of several candidates is safe to keep.
+        first_call_wins=True,
     )
 
 
@@ -525,6 +569,7 @@ def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
         provider=run.provider,
         evidence_key=run.evidence_key,
         error_type=type(error).__name__,
+        error_code=error.code if isinstance(error, LearningAnalysisError) else None,
     )
 
 
@@ -545,6 +590,7 @@ def _finish_without_knowledge(
         "low_confidence": "rejected_not_useful",
         "learned_cap_reached": "rejected_learned_cap",
         "stale_candidate": "rejected_stale_candidate",
+        "output_truncated": "rejected_output_truncated",
     }.get(rejection_code, "rejected_not_useful")
     _increment_counter(metric_outcome)
     logger.info(
@@ -698,13 +744,21 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
 
     _resolve_learning_user(run.team)
     trace_id = str(run.id)
-    extracted = _extract_candidate(run.team, bundle, trace_id)
+    try:
+        extracted = _extract_candidate(run.team, bundle, trace_id)
+    except LearningOutputTruncated:
+        # Sampling runs at temperature 0, so a retry truncates again. A reply this long is not concise knowledge.
+        return _finish_without_knowledge(run, rejection_code="output_truncated")
     rejection_code = _extraction_rejection(extracted)
     if rejection_code != "none":
         return _finish_without_knowledge(run, rejection_code=rejection_code)
 
     generated_text = f"{extracted.canonical_topic}\n{extracted.canonical_answer}"
-    if _model_pii_verdict(run.team, extracted, trace_id).verdict != "safe":
+    try:
+        pii_verdict = _model_pii_verdict(run.team, extracted, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="pii")
+    if pii_verdict.verdict != "safe":
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
@@ -712,10 +766,16 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)
-    decision = _promotion_decision(run.team, bundle, extracted, retrieved, trace_id)
+    try:
+        decision = _promotion_decision(run.team, bundle, extracted, retrieved, trace_id)
+    except LearningConflictingOutput:
+        return _finish_without_knowledge(run, rejection_code="low_confidence")
     conflicting = _conflicting_search_result(decision, results, len(retrieved))
     if conflicting is not None:
-        confirmation = _confirm_contradiction(run.team, extracted, conflicting, trace_id)
+        try:
+            confirmation = _confirm_contradiction(run.team, extracted, conflicting, trace_id)
+        except LearningConflictingOutput:
+            return _finish_without_knowledge(run, rejection_code="already_known")
         if _is_confirmed_contradiction(confirmation):
             if not conflicting.is_generated:
                 # Learning may retire what it wrote. A source a person wrote stays until a person changes it.

@@ -103,6 +103,12 @@ def validate_portal_host(value: str, team_id: int) -> tuple[bool, str | None]:
     return ValidateDatabaseHostMixin().is_database_host_valid(urlsplit(url).hostname or "", team_id)
 
 
+def audit_log_start(inputs: SourceInputs) -> int:
+    if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+        return int(inputs.db_incremental_field_last_value)
+    return 0
+
+
 class AlertWindowTooLarge(Exception):
     pass
 
@@ -220,6 +226,10 @@ class LogicMonitorClient:
             if is_alerts:
                 params["filter"] = f'cleared:"*",startEpoch>:{state.window_start},startEpoch<{state.window_end}'
                 params["sort"] = "startEpoch"
+            elif inputs.schema_name == "audit_logs":
+                # The upper bound keeps entries written during the sync from shifting the offset pages.
+                params["filter"] = f"happenedOn>:{audit_log_start(inputs)},happenedOn<{state.sync_end}"
+                params["sort"] = "happenedOn"
             paginator_class = AlertPaginator if is_alerts else OffsetPaginator
             config: RESTAPIConfig = {
                 "client": self.client_config(paginator_class(limit=PAGE_SIZE, limit_param="size", total_path="total")),

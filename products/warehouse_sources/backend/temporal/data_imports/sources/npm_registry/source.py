@@ -68,6 +68,7 @@ Daily download counts only go back to 2015-01-10 and are fetched in windows, so 
                 [
                     SourceFieldInputConfig(
                         name="package_names",
+                        sync_setting=True,
                         label="Package names",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

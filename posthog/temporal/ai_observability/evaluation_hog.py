@@ -48,6 +48,10 @@ logger = structlog.get_logger(__name__)
 #   Such a source fails on every unit, and `finalize_hog_eval_result` makes that a terminal
 #   hog_error which disables the evaluation. Neither error may count as an input error, or the
 #   broken source would skip every unit silently and blame the customer's data.
+#
+# The VM does raise IndexError for one source shape: a `throw` after a function returned from
+# inside `try`. The VM keeps the returned frame's handler and jumps into a frame that no longer
+# exists. `execute_hog_eval_bytecode` treats that IndexError as a broken source, like HogVMException.
 HOG_INPUT_ERROR_TYPES: tuple[type[Exception], ...] = (
     TypeError,
     AttributeError,
@@ -182,6 +186,8 @@ def execute_hog_eval_bytecode(
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
+    except IndexError as e:
+        return {"verdict": None, "reasoning": "", "error": f"Runtime error: {type(e).__name__}: {e}"}
     except HOG_INPUT_ERROR_TYPES as e:
         return {
             "verdict": None,

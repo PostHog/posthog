@@ -1,15 +1,17 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class OpenFDAEndpointConfig:
     name: str
     # Path under https://api.fda.gov, e.g. "/drug/enforcement.json".
     path: str
-    primary_keys: list[str]
+    # None when the dataset has no unique record key; such endpoints must stay full refresh only.
+    primary_keys: Optional[list[str]]
     # Server-side date field used both for incremental filtering (search=<field>:[low TO high]) and for
     # ascending sort. None means the endpoint has no reliable date cursor, so it ships full refresh only.
     incremental_field: Optional[str] = None
@@ -33,9 +35,9 @@ class OpenFDAEndpointConfig:
 
 # openFDA exposes one endpoint per dataset, each with its own schema and date field. We surface the
 # datasets a user is most likely to want across the drug, device, and food domains. Adverse-event and
-# enforcement (recall) endpoints carry a genuine server-side date filter, so they sync incrementally;
-# the NDC directory and drug labeling endpoints have no reliable row-level date cursor, so they ship
-# full refresh only.
+# enforcement (recall) endpoints and the UDI registry carry a genuine server-side date filter, so they
+# sync incrementally; the reference datasets (NDC directory, drug labeling, Drugs@FDA, device
+# classification, drug shortages) have no reliable row-level date cursor, so they ship full refresh only.
 OPENFDA_ENDPOINTS: dict[str, OpenFDAEndpointConfig] = {
     "drug_events": OpenFDAEndpointConfig(
         name="drug_events",
@@ -62,6 +64,25 @@ OPENFDA_ENDPOINTS: dict[str, OpenFDAEndpointConfig] = {
         incremental_field=None,
         partition_key=None,
     ),
+    "drug_applications": OpenFDAEndpointConfig(
+        name="drug_applications",
+        path="/drug/drugsfda.json",
+        primary_keys=["application_number"],
+        # Submission dates live inside the nested `submissions` list, so there's no top-level date
+        # to filter on — full refresh only.
+        incremental_field=None,
+        partition_key=None,
+    ),
+    "drug_shortages": OpenFDAEndpointConfig(
+        name="drug_shortages",
+        path="/drug/shortages.json",
+        # One NDC can carry several shortage records, and the dataset contains exact duplicate rows,
+        # so no field combination is unique.
+        primary_keys=None,
+        # Dates arrive as MM/DD/YYYY, which the YYYYMMDD search filter can't match — full refresh only.
+        incremental_field=None,
+        partition_key=None,
+    ),
     "drug_enforcement": OpenFDAEndpointConfig(
         name="drug_enforcement",
         path="/drug/enforcement.json",
@@ -82,6 +103,25 @@ OPENFDA_ENDPOINTS: dict[str, OpenFDAEndpointConfig] = {
         primary_keys=["k_number"],
         incremental_field="decision_date",
         partition_key="decision_date",
+    ),
+    "device_classification": OpenFDAEndpointConfig(
+        name="device_classification",
+        path="/device/classification.json",
+        primary_keys=["product_code"],
+        # A small reference list with no per-record date — full refresh only.
+        incremental_field=None,
+        partition_key=None,
+    ),
+    "device_udi": OpenFDAEndpointConfig(
+        name="device_udi",
+        path="/device/udi.json",
+        primary_keys=["public_device_record_key"],
+        # `public_version_date` moves forward whenever a record is republished, so it picks up edits;
+        # `publish_date` is fixed at first publication, so it partitions.
+        incremental_field="public_version_date",
+        partition_key="publish_date",
+        # Millions of rows — opt-in so a new source doesn't spend the unauthenticated daily quota on it.
+        should_sync_default=False,
     ),
     "device_enforcement": OpenFDAEndpointConfig(
         name="device_enforcement",

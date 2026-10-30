@@ -50,7 +50,7 @@ from posthog.types import AnyPropertyFilter
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 if TYPE_CHECKING:
-    from products.experiments.backend.facade.replay import ExperimentExposureLinkage
+    from products.experiments.backend.facade.contracts import ExperimentExposureLinkage
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -279,7 +279,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # with its status, machine code, and narrow-your-filters guidance, is honest for
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
-        in_session_narrowed = linkage is not None and linkage.session_exposure is not None
+        in_session_narrowed = linkage is not None and linkage.in_session
         if in_session_narrowed:
             # Under a "break" timeout profile a timed-out evidence subquery would return a partial
             # session set, silently listing fewer in-session recordings. A partial result is worse

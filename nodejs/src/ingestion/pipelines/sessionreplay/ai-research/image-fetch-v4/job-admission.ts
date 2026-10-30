@@ -136,10 +136,16 @@ export class V4JobAdmission {
                 budget
             )
         } catch (error) {
-            if (budget.aborted) {
+            // A key read that timed out is as transient as a spent budget. Thrown, it fails the whole batch and restarts the pod.
+            if (budget.aborted || isTimeout(error)) {
                 return DEFERRED
             }
             throw error
         }
     }
+}
+
+/** The AWS SDK rejects a call whose own timeout fired with an `AbortError`, and `AbortSignal.timeout` with a `TimeoutError`. */
+function isTimeout(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
 }

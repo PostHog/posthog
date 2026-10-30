@@ -197,6 +197,7 @@ class KafkaSource(SimpleSource[KafkaSourceConfig], CursorSource[KafkaCursor]):
                     ),
                     SourceFieldSelectConfig(
                         name="value_format",
+                        sync_setting=True,
                         label="Message format",
                         required=True,
                         defaultValue="json",

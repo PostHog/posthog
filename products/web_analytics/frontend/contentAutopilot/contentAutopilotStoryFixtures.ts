@@ -348,6 +348,8 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     top_cited_domains: ['analytics-review.example.com', 'example.com', 'community.example.org'],
     search_queries: ['best open source product analytics', 'self-hosted product analytics for startups'],
     prompt_version: 2,
+    brand_sentiment: 'positive',
+    brand_sentiment_score: 0.86,
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
@@ -367,6 +369,8 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         target_best_position: null,
         top_cited_domains: ['analytics-review.example.com'],
         search_queries: ['open source product analytics startup'],
+        brand_sentiment: null,
+        brand_sentiment_score: null,
         answer_text: 'Most startups begin with a hosted tool.\nCompare pricing tiers before you commit.',
     },
     {
@@ -383,23 +387,27 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         target_best_position: null,
         top_cited_domains: [],
         search_queries: [],
+        brand_sentiment: null,
+        brand_sentiment_score: null,
         answer_text: null,
     },
 ]
 
-const EXAMPLE_ENGINE_DAYS: Record<string, ('cited' | 'not_cited' | 'failed' | null)[]> = {
-    'claude-web-search': ['cited', 'cited', null, 'not_cited', 'cited', 'cited', 'cited', 'failed', 'cited', 'cited'],
+type ExampleDay = 'cited' | 'mentioned' | 'not_cited' | 'failed' | null
+
+const EXAMPLE_ENGINE_DAYS: Record<string, ExampleDay[]> = {
+    'claude-web-search': ['cited', 'cited', null, 'mentioned', 'cited', 'cited', 'cited', 'failed', 'cited', 'cited'],
     'openai-web-search': [
         'not_cited',
-        'not_cited',
+        'mentioned',
         null,
         'cited',
         'not_cited',
-        'not_cited',
+        'mentioned',
         null,
         'not_cited',
         'cited',
-        'not_cited',
+        'mentioned',
     ],
     'exa-answer': ['cited', 'failed', null, 'cited', 'cited', 'not_cited', 'cited', 'cited', 'failed', 'cited'],
 }
@@ -413,29 +421,62 @@ const EXAMPLE_PROMPT_DAILY: AEOPromptStatsApi['daily'] = Object.entries(EXAMPLE_
                 engine,
                 checks: 1,
                 cited: status === 'cited' ? 1 : 0,
+                mentioned: status === 'cited' || status === 'mentioned' ? 1 : 0,
                 failed: status === 'failed' ? 1 : 0,
             }))
 )
 
 const exampleEngineStats = (engine: string): AEOPromptStatsApi['engines'][number] => {
     const days = EXAMPLE_PROMPT_DAILY.filter((row) => row.engine === engine)
-    const sum = (key: 'checks' | 'cited' | 'failed'): number => days.reduce((total, row) => total + row[key], 0)
+    const sum = (key: 'checks' | 'cited' | 'mentioned' | 'failed'): number =>
+        days.reduce((total, row) => total + row[key], 0)
     const answered = sum('checks') - sum('failed')
     return {
         engine,
         checks: sum('checks'),
         cited: sum('cited'),
+        mentioned: sum('mentioned'),
         failed: sum('failed'),
         citation_rate: answered ? sum('cited') / answered : null,
+        mention_rate: answered ? sum('mentioned') / answered : null,
         first_checked_at: `${days[0].date}T09:00:00Z`,
         last_checked_at: `${days[days.length - 1].date}T09:00:00Z`,
     }
 }
 
+const EXAMPLE_CONSENSUS_DOMAINS = [
+    'analytics-review.example.com',
+    'example.com',
+    'community.example.org',
+    'rival.example.net',
+    'docs.rival.example.net',
+]
+
 export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
     total_checks: EXAMPLE_PROMPT_DAILY.length,
+    brand_names: ['example'],
     daily_from: '2026-09-01',
     daily_to: '2026-09-30',
     engines: Object.keys(EXAMPLE_ENGINE_DAYS).map(exampleEngineStats),
     daily: EXAMPLE_PROMPT_DAILY,
+    consensus: Object.keys(EXAMPLE_ENGINE_DAYS).flatMap((engine, engineIndex) =>
+        EXAMPLE_CONSENSUS_DOMAINS.map((domain, domainIndex) => ({
+            engine,
+            domain,
+            checks: 24,
+            checks_citing: Math.max(0, 22 - domainIndex * 5 - engineIndex * 3),
+        }))
+    ),
+    sentiment: [
+        { engine: 'claude-web-search', positive: 14, neutral: 6, negative: 1, unscored: 2 },
+        { engine: 'openai-web-search', positive: 5, neutral: 9, negative: 3, unscored: 0 },
+        { engine: 'exa-answer', positive: 0, neutral: 0, negative: 0, unscored: 18 },
+    ],
+    top_words: [
+        { word: 'analytics', count: 41 },
+        { word: 'product', count: 38 },
+        { word: 'open', count: 22 },
+        { word: 'source', count: 22 },
+        { word: 'startups', count: 11 },
+    ],
 }

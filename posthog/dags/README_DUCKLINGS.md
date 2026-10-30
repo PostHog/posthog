@@ -22,6 +22,27 @@ Duckling RDS Catalog (PostgreSQL)
 - **ClickHouse EC2 role**: Allowed in duckling bucket policy for direct S3 writes
 - **Dagster IRSA role**: Can assume duckling cross-account roles for DuckDB registration
 
+### Warehouses without duckgres
+
+Organizations with the `managed-warehouse-trino-import-registration` flag have no duckgres, so the events, persons, and groups backfills register through the organization's Trino catalog instead.
+The ClickHouse export is the same, except that it casts each column to the Parquet type that DuckLake writes for its Trino column, because `add_files` refuses any type conversion.
+An export-only run (`skip_ducklake_registration: true`) writes the same types, so `add_files` can register its files later.
+ClickHouse lists the files it exported, because nothing else on the path can list the duckling bucket.
+Each export writes under a new file prefix, so a retry never overwrites a file that DuckLake has already registered.
+
+One `add_files` call registers the files of an export and removes the rows they replace in a single DuckLake snapshot:
+
+- A daily export replaces the rows of its UTC day, by `timestamp` for events and by `_timestamp` for persons and groups.
+- A full persons or groups export replaces the whole table.
+- An export with no files deletes the rows it would replace.
+- With `cleanup_existing_partition_data: false`, the files are added and no rows are removed.
+
+The call has an import ID, so a retry after a lost response adds nothing.
+A statement that fails for a transient reason, such as a DuckLake commit conflict, a lost coordinator, or a cluster fault, runs again up to four times.
+Readers never see a day without rows or with two copies of it, so this path needs no delete-then-register replay.
+Day and table replacements remove rows without a team filter, so the Trino path refuses to replace rows in the shared `events`, `persons`, and `groups` tables, or to drop them with `delete_tables: true`.
+Trino-created tables have no year/month/day partitioning, because Trino cannot partition a timestamp with time zone by those transforms. Each file holds one day, so file statistics still prune reads.
+
 ## Jobs and Sensors
 
 ### Events Backfill

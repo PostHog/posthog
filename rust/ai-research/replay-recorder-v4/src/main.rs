@@ -175,7 +175,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .then(|| config.kafka_topic.clone()),
     };
     let writer = if let Some((producer_handle, index_producer_handle)) = producer_handles {
+        // The SDK's default HTTP client reads HTTPS_PROXY, which would send every S3, KMS and DynamoDB call through the
+        // egress proxy. A client built here reads no proxy settings, so only these AWS clients connect directly. Every
+        // other HTTP path in the process still uses the proxy.
+        let aws_http_client = aws_smithy_http_client::Builder::new()
+            .tls_provider(aws_smithy_http_client::tls::Provider::Rustls(
+                aws_smithy_http_client::tls::rustls_provider::CryptoMode::AwsLc,
+            ))
+            .build_https();
         let aws = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .http_client(aws_http_client)
             .load()
             .await;
         // The cache lifetimes are v3's: a session row's lifetime bounds how late a deletion is seen.

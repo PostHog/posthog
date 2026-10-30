@@ -3,6 +3,12 @@ from posthog.settings.utils import get_from_env, str_to_bool
 PERSONHOG_ADDR = get_from_env("PERSONHOG_ADDR", "")
 PERSONHOG_TIMEOUT_MS = get_from_env("PERSONHOG_TIMEOUT_MS", 5000, type_cast=int)
 
+# A router with the identity proxy enabled; empty means the lifecycle path is unavailable here.
+PERSONHOG_LIFECYCLE_ADDR = get_from_env("PERSONHOG_LIFECYCLE_ADDR", "")
+# Above the identity server's own execute timeout (30 s by default), after which it answers
+# UNAVAILABLE itself; a shorter client deadline would abandon calls the server was about to answer.
+PERSONHOG_LIFECYCLE_TIMEOUT_MS = get_from_env("PERSONHOG_LIFECYCLE_TIMEOUT_MS", 45_000, type_cast=int)
+
 # gRPC channel options
 PERSONHOG_KEEPALIVE_TIME_MS = get_from_env("PERSONHOG_KEEPALIVE_TIME_MS", 30_000, type_cast=int)
 PERSONHOG_KEEPALIVE_TIMEOUT_MS = get_from_env("PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000, type_cast=int)
@@ -12,6 +18,11 @@ PERSONHOG_INITIAL_RECONNECT_BACKOFF_MS = get_from_env("PERSONHOG_INITIAL_RECONNE
 PERSONHOG_MAX_SEND_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024, type_cast=int)
 PERSONHOG_MAX_RECV_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024, type_cast=int)
 PERSONHOG_CLIENT_IDLE_TIMEOUT_MS = get_from_env("PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0, type_cast=int)
+
+# Where person writes go: "replica" writes Postgres directly, "leader" goes through the personhog leader.
+PERSONHOG_WRITE_PATH = get_from_env("PERSONHOG_WRITE_PATH", "replica")
+if PERSONHOG_WRITE_PATH not in ("replica", "leader"):
+    raise ValueError(f"PERSONHOG_WRITE_PATH must be 'replica' or 'leader', got {PERSONHOG_WRITE_PATH!r}")
 
 # Retry settings for transient gRPC errors
 PERSONHOG_MAX_RETRIES = get_from_env("PERSONHOG_MAX_RETRIES", 2, type_cast=int)

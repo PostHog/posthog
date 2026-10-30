@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PagerDutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+    ANALYTICS_PERSONAL_KEY_ERROR,
+    ANALYTICS_READ_ONLY_KEY_ERROR,
     PAGE_SIZE,
     PagerDutyResumeConfig,
     _format_incremental_value,
@@ -64,6 +66,31 @@ class TestPagination:
         assert offsets[-1] == "9900"
         assert "10000" not in offsets
 
+    @pytest.mark.parametrize(
+        "endpoint,expected_filter",
+        [
+            # Without filter=all the table could miss past or future maintenance windows.
+            ("maintenance_windows", ["all", "all"]),
+            ("business_services", [None, None]),
+        ],
+    )
+    def test_walks_pages_and_sends_static_params_on_every_page(
+        self, endpoint: str, expected_filter: list[str | None]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={endpoint: [{"id": "R1"}], "more": True}),
+                ScriptedResponse(json={endpoint: [{"id": "R2"}], "more": False}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/{endpoint}", f"/{endpoint}"]
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.params("filter") == expected_filter
+        assert [row["id"] for row in result.rows] == ["R1", "R2"]
+
 
 class TestResume:
     def test_resumes_from_saved_offset(self) -> None:
@@ -102,6 +129,7 @@ class TestFanOut:
         [
             ("incident_alerts", "/incidents", "incidents", "alerts", "incident_id", None),
             ("team_members", "/teams", "teams", "members", "team_id", "U1"),
+            ("incident_notes", "/incidents", "incidents", "notes", "incident_id", "U1"),
         ],
     )
     def test_reads_each_parents_children_and_tags_the_parent_id(
@@ -142,6 +170,54 @@ class TestFanOut:
         assert [row[parent_column] for row in result.rows] == ["P2", "P2"]
         assert all(f"_{parent_envelope}_id" not in row for row in result.rows)
         assert [row.get("user_id") for row in result.rows] == [expected_user_id, expected_user_id]
+
+
+class TestIncidentAnalytics:
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,last_value,expected_filters",
+        [
+            (False, None, None),
+            # The first incremental sync has no watermark yet, so it reads the full default window.
+            (True, None, None),
+            (True, datetime(2026, 1, 1, tzinfo=UTC), {"updated_after": "2026-01-01T00:00:00+00:00"}),
+        ],
+    )
+    def test_walks_body_cursor_pages_until_more_is_false(
+        self, should_use_incremental_field: bool, last_value: datetime | None, expected_filters: Any
+    ) -> None:
+        result = _driver().run(
+            "incident_analytics",
+            [
+                ScriptedResponse(json={"data": [{"id": "I1"}, {"id": "I2"}], "last": "c2", "more": True}),
+                # The final page still carries its `last` cursor.
+                ScriptedResponse(json={"data": [{"id": "I3"}], "last": "c3", "more": False}),
+            ],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert [request.method for request in result.requests] == ["POST", "POST"]
+        assert result.paths == ["/analytics/raw/incidents", "/analytics/raw/incidents"]
+        bodies = [request.json() for request in result.requests]
+        assert [body.get("starting_after") for body in bodies] == [None, "c2"]
+        assert all(body["order"] == "asc" and body["order_by"] == "created_at" for body in bodies)
+        assert [body.get("filters") for body in bodies] == [expected_filters, expected_filters]
+        assert [row["id"] for row in result.rows] == ["I1", "I2", "I3"]
+        assert result.saved_states == [PagerDutyResumeConfig(cursor="c2")]
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "incident_analytics",
+            [ScriptedResponse(json={"data": [{"id": "I3"}], "last": "c3", "more": False})],
+            resume_state=PagerDutyResumeConfig(cursor="c2"),
+        )
+
+        assert result.raised is None
+        assert [request.json().get("starting_after") for request in result.requests] == ["c2"]
+        assert [row["id"] for row in result.rows] == ["I3"]
 
 
 class TestOncalls:
@@ -225,6 +301,7 @@ class TestValidateCredentials:
             # A fan-out child path carries an `{id}` placeholder, so the probe reads the parent list.
             ("incident_alerts", "/incidents"),
             ("team_members", "/teams"),
+            ("incident_notes", "/incidents"),
         ],
     )
     def test_probe_path(self, endpoint: str, expected_path: str) -> None:
@@ -233,6 +310,26 @@ class TestValidateCredentials:
 
         assert ok is True
         assert [request.path for request in network.requests_log] == [expected_path]
+
+    @pytest.mark.parametrize(
+        "status_code,expected_ok,expected_error",
+        [
+            (200, True, None),
+            # PagerDuty restricts read-only keys to GET requests.
+            (403, False, ANALYTICS_READ_ONLY_KEY_ERROR),
+            # Personal keys must send a team_ids or service_ids filter.
+            (400, False, ANALYTICS_PERSONAL_KEY_ERROR),
+        ],
+    )
+    def test_analytics_probe_posts_to_the_analytics_endpoint(
+        self, status_code: int, expected_ok: bool, expected_error: str | None
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            ok, status, error = validate_credentials("tok", "incident_analytics")
+
+        assert (ok, status, error) == (expected_ok, status_code, expected_error)
+        [request] = network.requests_log
+        assert (request.method, request.path) == ("POST", "/analytics/raw/incidents")
 
     def test_transport_failure_returns_zero_status(self) -> None:
         with scripted_network(always(ConnectionError("no network"))) as network:

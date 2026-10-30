@@ -20,13 +20,24 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import ActivityLog, FileSystemViewLog, Organization, Team, User
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_view_log import log_file_system_view
 
 from products.signals.backend.activity_summary import (
     schedule as tick_schedule,
     tick,
 )
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
+from products.signals.backend.activity_summary.prompt import (
+    MAX_HEADLINE_CHARS,
+    MAX_LABEL_CHARS,
+    MAX_THEMES,
+    MODES,
+    PROMPT_VERSION,
+    system_prompt,
+    user_message,
+)
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     ActivitySummaryTierStats,
@@ -37,12 +48,19 @@ from products.signals.backend.activity_summary.queue import (
     feed_queue,
     is_team_enrolled_for_generation,
     is_team_enrolled_for_read,
+    max_input_chars,
     max_update_cost_usd,
     organization_rollout_bucket,
     seed_queue,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RENDER_VERSION, RenderLimits
+from products.signals.backend.activity_summary.render import (
+    DEFAULT_LIMITS,
+    MAX_LIMITS,
+    RENDER_VERSION,
+    Product,
+    RenderLimits,
+)
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -73,11 +91,12 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
@@ -106,6 +125,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
+            "source_weights": {"activity": -1, "tasks": 11, "new_views": True, "scene_views": "1"},
+            "min_score": 0,
+            "view_update_interval_hours": -5,
+            "cold_start_min_active_days": 2.5,
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -130,6 +153,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 0.3,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
+            "source_weights": {"new_views": 1, "repeat_view_days": 0.25},
+            "min_score": 4.5,
+            "view_update_interval_hours": 72,
+            "cold_start_min_active_days": 5,
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -145,6 +172,10 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_org_share=0.3,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
+            source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25),
+            min_score=4.5,
+            view_update_interval_hours=72.0,
+            cold_start_min_active_days=5,
         ),
     ),
     (
@@ -265,7 +296,7 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(user, units, days_ago=0.5)
         self._changes(cold, 3, days_ago=0.5)
 
-        assert self._select(self._config(min_units=1, max_org_share=1.0)) == [
+        assert self._select(self._config(min_score=1, max_org_share=1.0)) == [
             (self.team.id, cold.id),
             (self.team.id, recent_busy.id),
             (self.team.id, old_quiet.id),
@@ -614,6 +645,14 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
             ),
             ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+            (
+                "an empty first profile",
+                3,
+                {"return_value": FakeLLM([EMPTY_PROFILE_ANSWER])},
+                False,
+                "skipped_empty_profile",
+                True,
+            ),
         ]
     )
     def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
@@ -629,7 +668,7 @@ class TestActivitySummaryQueue(BaseTest):
             capture_events=True,
         )
         # The queue picks a pair with fewer rows than the update's `min_units`, so the update skips it.
-        config = self._config(min_units=1)
+        config = self._config(min_score=1)
         assert self._select(config) == [(self.team.id, self.user.id)]
 
         with (
@@ -676,18 +715,79 @@ class TestActivitySummaryQueue(BaseTest):
         assert self._select(seed=False) == []
         assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
-    @parameterized.expand([("counted", True, 1), ("not counted", False, 0)])
-    def test_viewed_objects_make_a_pair_due_when_views_count(self, _name: str, count_views: bool, due: int) -> None:
-        for index in range(3):
-            FileSystemViewLog.objects.create(
-                team=self.team,
-                user=self.user,
-                type="insight",
-                ref=str(index),
-                viewed_at=NOW - datetime.timedelta(hours=index + 1),
-            )
+    def _view(self, ref: str, *days_ago: int, view_type: str = "insight") -> None:
+        days = sorted({(NOW - datetime.timedelta(days=ago)).date() for ago in days_ago})
+        FileSystemViewLog.objects.create(
+            team=self.team,
+            user=self.user,
+            type=view_type,
+            ref=ref,
+            viewed_at=NOW - datetime.timedelta(days=min(days_ago), hours=1),
+            view_days=days,
+        )
 
-        assert self._select(self._config(count_views=count_views)) == [(self.team.id, self.user.id)][:due]
+    @parameterized.expand(
+        [
+            ("known objects reopened every day", True, True, [("a", [5, 2, 1, 0]), ("b", [5, 2, 1, 0])], None),
+            ("known scenes reopened every day", True, True, [("scene:a", [5, 2, 1, 0])], None),
+            ("too few new objects", True, True, [(str(index), [1]) for index in range(5)], None),
+            ("enough new objects", True, True, [(str(index), [1]) for index in range(6)], "views"),
+            ("new objects when views do not count", False, True, [(str(index), [1]) for index in range(6)], None),
+            (
+                "no summary and views on three days",
+                True,
+                False,
+                [("a", [3]), ("b", [2]), ("c", [1])],
+                "cold_start_views",
+            ),
+            ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
+            ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+        ]
+    )
+    def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
+        self,
+        _name: str,
+        count_views: bool,
+        summarized: bool,
+        views: list[tuple[str, list[int]]],
+        trigger: str | None,
+    ) -> None:
+        if summarized:
+            watermark = NOW - datetime.timedelta(days=4)
+            self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        for ref, days_ago in views:
+            name = ref.removeprefix("scene:")
+            self._view(name, *days_ago, view_type="scene" if ref.startswith("scene:") else "insight")
+        config = self._config(count_views=count_views)
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 10)
+
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
+        assert selection.due_by_trigger == {
+            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale")
+        }
+
+    def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
+        watermark = NOW - datetime.timedelta(days=2)
+        self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        insight = FileSystemRepresentation(
+            base_folder="Unfiled/Insights", type="insight", ref="1", name="Funnel", href="/insights/1", meta={}
+        )
+        log_file_system_view(
+            user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(days=3)
+        )
+        config = self._config(count_views=True, source_weights=SourceWeights(repeat_view_days=1.0))
+        feed_queue(config, NOW - datetime.timedelta(hours=3))
+        for hours_ago in (2.5, 2, 1.5, 1):
+            log_file_system_view(
+                user=self.user, obj=insight, team_id=self.team.id, viewed_at=NOW - datetime.timedelta(hours=hours_ago)
+            )
+            with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]):
+                feed_queue(config, NOW - datetime.timedelta(hours=hours_ago) + datetime.timedelta(minutes=10))
+
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert (state.pending_score, state.pending_view_score, state.view_active_days) == (1.0, 1.0, 2)
 
     def test_the_feed_reads_each_row_once_and_an_ok_update_clears_the_pending_units(self) -> None:
         config = self._config()
@@ -724,7 +824,10 @@ class TestActivitySummaryQueue(BaseTest):
             feed_queue(config, later)
         assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
 
-    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
+    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
+        self, trigger: str | None, wait_hours: int
+    ) -> None:
         self._changes(self.user, 3)
         capture = MagicMock()
         with (
@@ -740,14 +843,19 @@ class TestActivitySummaryQueue(BaseTest):
                     min_update_interval_hours=24,
                     emit_embeddings=True,
                     capture_events=True,
+                    trigger=trigger,
+                    view_update_interval_hours=168,
                 )
             )
 
         assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
+        stored = UserActivitySummary.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert stored.next_eligible_at == NOW + datetime.timedelta(hours=wait_hours)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
-        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nThemes: Signup funnel"
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
+        assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
 
 
@@ -774,7 +882,7 @@ async def test_an_update_keeps_an_operator_pause() -> None:
 def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
     fields: dict[str, Any] = {
         "enabled": True,
-        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id) for user_id in range(pairs)],
+        "pairs": [ActivitySummaryPair(team_id=1, user_id=user_id, trigger="views") for user_id in range(pairs)],
         "candidates": pairs,
         "updates_left": 100,
         "cost_left_usd": 100.0,
@@ -788,6 +896,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "max_error_rate": 0.5,
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
+        "due_by_trigger": {"activity": 1, "views": pairs - 1},
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -795,9 +904,10 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
 
 async def _run_tick(
     plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str = "ok"
-) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult]]:
+) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult], list[ActivitySummaryPairInput]]:
     running = peak = 0
     captured: list[ActivitySummaryTickResult] = []
+    pair_inputs: list[ActivitySummaryPairInput] = []
 
     @activity.defn(name="plan_activity_summary_tick_activity")
     async def fake_plan(input: ActivitySummaryTickInput) -> ActivitySummaryTickPlan:
@@ -806,6 +916,7 @@ async def _run_tick(
     @activity.defn(name="update_activity_summary_pair_activity")
     async def fake_pair(input: ActivitySummaryPairInput) -> ActivitySummaryPairResult:
         nonlocal running, peak
+        pair_inputs.append(input)
         running += 1
         peak = max(peak, running)
         await asyncio.sleep(0.01)
@@ -832,7 +943,7 @@ async def _run_tick(
                 id=f"activity-summary-tick-{uuid.uuid4()}",
                 task_queue="activity-summary-tick-test",
             )
-    return result, peak, captured
+    return result, peak, captured, pair_inputs
 
 
 @pytest.mark.asyncio
@@ -845,6 +956,7 @@ async def _run_tick(
         (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
         (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
+        (_plan(20), 0.01, "skipped_empty_profile", 20, None, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
@@ -855,9 +967,11 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     stop_reason: str | None,
     builds: tuple[int, int],
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
+    result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
+    assert {(pair.trigger, pair.view_update_interval_hours) for pair in pair_inputs} == {("views", 168.0)}
+    assert result.due_by_trigger == plan.due_by_trigger
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds
@@ -867,7 +981,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
 
 @pytest.mark.asyncio
 async def test_a_disabled_tick_runs_no_pair() -> None:
-    result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
+    result, peak, captured, _ = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
 
@@ -899,3 +1013,49 @@ def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limit
 
     assert decoded == build()
     assert decoded.limits == DEFAULT_LIMITS
+
+
+def _longest_computed() -> dict[str, Any]:
+    long_text = "x" * 500
+    products = [str(product) for product in Product]
+    owned = {"type": long_text, "id": long_text, "name": long_text, "edit_days": 28, "last_at": "2026-10-18"}
+    watched = {"type": long_text, "id": long_text, "name": long_text, "open_days": 28, "last_at": "2026-10-18"}
+    return {
+        "schema_version": 1,
+        "owned": [{"ref": f"o{index}", **owned, "created": True} for index in range(1, MAX_OWNED + 1)],
+        "watched": [{"ref": f"o{index}", **watched, "not_theirs": True} for index in range(1, MAX_WATCHED + 1)],
+        "pages": [
+            {"ref": f"p{index}", "product": product, "open_days": 28, "last_at": "2026-10-18"}
+            for index, product in enumerate(products, start=1)
+        ],
+        "products": {"works_in": products, "visits": products},
+        "task_count": 200,
+    }
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS),
+        ("reduced limits", RenderLimits(sections_max_chars=500, profile_max_chars=500)),
+        ("largest limits", MAX_LIMITS),
+    ]
+)
+def test_the_cost_bound_covers_the_longest_input(_name: str, limits: RenderLimits) -> None:
+    previous = {
+        "headline": "h" * MAX_HEADLINE_CHARS,
+        "profile": "p" * limits.profile_max_chars,
+        "themes": [
+            {"label": "l" * MAX_LABEL_CHARS, "mode": "investigating", "strength": "medium", "last_seen": "2026-10-18"}
+        ]
+        * MAX_THEMES,
+        "modes": list(MODES),
+    }
+    message = user_message(
+        "r" * limits.sections_max_chars,
+        previous,
+        datetime.date(2026, 10, 18),
+        limits.profile_max_chars,
+        _longest_computed(),
+    )
+
+    assert len(system_prompt(limits.profile_max_chars)) + len(message) <= max_input_chars(limits)

@@ -75,6 +75,7 @@ Request a free API key at [fred.stlouisfed.org/docs/api/api_key.html](https://fr
                     ),
                     SourceFieldInputConfig(
                         name="series_ids",
+                        sync_setting=True,
                         label="Series IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

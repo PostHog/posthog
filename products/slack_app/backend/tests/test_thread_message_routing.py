@@ -160,12 +160,11 @@ class TestRouteThreadMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("an untagged question", {}, True, None, False, True),
-            ("a private channel", {"channel_type": "group"}, True, None, False, True),
+            ("an untagged question", {}, None, False, True),
+            ("a private channel", {"channel_type": "group"}, None, False, True),
             (
                 "a request without a question word",
                 {"text": "need signups by country from PostHog for last month"},
-                True,
                 None,
                 False,
                 True,
@@ -173,29 +172,20 @@ class TestRouteThreadMessage(TestCase):
             (
                 "a question that does not name PostHog",
                 {"text": "How many people signed up last week?"},
-                True,
                 None,
                 False,
                 True,
             ),
-            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, True),
-            (
-                "a question that tags the app",
-                {"text": "<@U0BOT> how many signups last week?"},
-                True,
-                None,
-                False,
-                False,
-            ),
-            ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
-            ("the flag is off", {}, False, None, False, False),
-            ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
-            ("an author without a PostHog account", {"user": "U_UNKNOWN"}, True, None, False, False),
-            ("an externally shared channel", {}, True, None, True, False),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, None, False, True),
+            ("a question that tags the app", {"text": "<@U0BOT> how many signups last week?"}, None, False, False),
+            ("a group DM", {"channel_type": "mpim"}, None, False, False),
+            ("the author picks up only tagged messages", {}, UntaggedFollowupMode.NEVER, False, False),
+            ("an author without a PostHog account", {"user": "U_UNKNOWN"}, None, False, False),
+            ("an externally shared channel", {}, None, True, False),
         ]
     )
     def test_top_level_question_starts_the_untagged_question_workflow(
-        self, _name, overrides, flag_on, author_mode, ext_shared, expect_dispatch
+        self, _name, overrides, author_mode, ext_shared, expect_dispatch
     ):
         if author_mode is not None:
             SlackSettings.objects.create(
@@ -203,7 +193,6 @@ class TestRouteThreadMessage(TestCase):
             )
         event = self._make_question_event(**overrides)
         with (
-            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
             patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,

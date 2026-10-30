@@ -28,7 +28,6 @@ const node = (config: BIConfig): BIVisualizationNode => ({
 
 describe('BI visualization data reuse', () => {
     test.each([
-        ChartDisplayType.ActionsTable,
         ChartDisplayType.ScatterPlot,
         ChartDisplayType.ActionsLineGraph,
         ChartDisplayType.ActionsBarValue,
@@ -68,23 +67,24 @@ describe('BI visualization data reuse', () => {
         expect((getBIVisualizationResponse(query, cached) as HogQLQueryResponse).columns).toEqual(expected)
     })
 
-    it('keeps data changes and pivot queries distinct, and preserves source execution options', () => {
-        const query = node(config)
-        const source = getBIVisualizationSource(query)
-        expect(
-            getBIVisualizationSource(node({ ...config, chartType: ChartDisplayType.TwoDimensionalHeatmap }))
-        ).not.toEqual(source)
-        expect(
-            getBIVisualizationSource(
-                node({ ...config, filters: [{ field: config.rows[0], operator: 'equals', value: 'east' }] })
-            )
-        ).not.toEqual(source)
-        expect(getBIVisualizationSource(node({ ...config, limit: 10000 }))).not.toEqual(source)
-        query.source.connectionId = 'example-connection'
-        query.source.variables = { example: { variableId: 'example', code_name: 'threshold', value: 3 } }
-        expect(getBIVisualizationSource(query)).toMatchObject({
-            connectionId: 'example-connection',
-            variables: query.source.variables,
-        })
-    })
+    it.each([ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap])(
+        'keeps data changes and %s pivot queries distinct, and preserves source execution options',
+        (chartType) => {
+            const query = node(config)
+            const source = getBIVisualizationSource(query)
+            expect(getBIVisualizationSource(node({ ...config, chartType }))).not.toEqual(source)
+            expect(
+                getBIVisualizationSource(
+                    node({ ...config, filters: [{ field: config.rows[0], operator: 'equals', value: 'east' }] })
+                )
+            ).not.toEqual(source)
+            expect(getBIVisualizationSource(node({ ...config, limit: 10000 }))).not.toEqual(source)
+            query.source.connectionId = 'example-connection'
+            query.source.variables = { example: { variableId: 'example', code_name: 'threshold', value: 3 } }
+            expect(getBIVisualizationSource(query)).toMatchObject({
+                connectionId: 'example-connection',
+                variables: query.source.variables,
+            })
+        }
+    )
 })

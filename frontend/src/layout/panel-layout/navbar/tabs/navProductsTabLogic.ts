@@ -8,10 +8,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -79,11 +79,13 @@ export interface navProductsTabLogicActions {
         payload?:
             | {
                   id: string
+                  successMessage: string | undefined
               }
             | undefined
     ) => {
         payload?: {
             id: string
+            successMessage: string | undefined
         }
         shortcutData: FileSystemEntry[]
     } // projectTreeDataLogic

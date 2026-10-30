@@ -160,6 +160,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     onBlur?: () => void
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
+    /** Set on the inner input, so that a label with a matching `htmlFor` names it. */
+    id?: string
     'data-attr'?: string
     className?: string
     popoverClassName?: string
@@ -201,6 +203,7 @@ export function LemonInputSelect<T = string>({
     autoFocus = false,
     className,
     popoverClassName,
+    id,
     'data-attr': dataAttr,
     size = 'medium',
     transparentBackground,
@@ -1058,6 +1061,7 @@ export function LemonInputSelect<T = string>({
             }
         >
             <LemonInput
+                id={id}
                 inputRef={inputRef}
                 placeholder={
                     displayMode === 'count'

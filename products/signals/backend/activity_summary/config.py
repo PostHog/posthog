@@ -19,6 +19,7 @@ from products.signals.backend.activity_summary.logic import (
     MAX_VERSIONS,
     MIN_UNITS,
     MIN_UPDATE_INTERVAL,
+    VIEW_UPDATE_INTERVAL,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
@@ -28,6 +29,23 @@ logger = structlog.get_logger(__name__)
 ACTIVITY_SUMMARY_FLAG = "activity-summary"
 # Not a person: the flag must serve its payload to this id.
 ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
+# One unit of a source never adds more than this to the pending score.
+MAX_SOURCE_WEIGHT = 10.0
+
+
+@frozen
+class SourceWeights:
+    """The pending score that one unit of each queue source adds."""
+
+    # An activity log row that passes the filters of `inputs.user_activity`.
+    activity: float = 1.0
+    tasks: float = 1.0
+    # An object first opened after the pair's watermark: it has no view day on or before the watermark day.
+    new_views: float = 0.5
+    # A new day of opening an object that the pair also opened on or before the watermark day.
+    repeat_view_days: float = 0.0
+    # A new day of opening a product scene.
+    scene_views: float = 0.0
 
 
 @frozen
@@ -52,8 +70,15 @@ class ActivitySummaryConfig:
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
     capture_events: bool = True
-    # Count viewed objects in the queue. Turn it on only when the update reads views as an input.
+    # Count viewed objects in the queue. When off, the view weights and the view cold start do not apply.
     count_views: bool = False
+    source_weights: SourceWeights = SourceWeights()
+    # A pair with a current summary is due when its pending score reaches this.
+    min_score: float = 3.0
+    # The wait after an update that views led, in place of `min_update_interval_hours`.
+    view_update_interval_hours: float = VIEW_UPDATE_INTERVAL.total_seconds() / 3600
+    # A pair with no summary is due when it opened objects or scenes on this many days in the window.
+    cold_start_min_active_days: int = 3
     # The summary age each tier aims for. A pair's staleness is its summary age over this interval.
     target_interval_days_paying: float = 3.0
     target_interval_days_free: float = 5.0
@@ -102,6 +127,25 @@ def _percentage(value: Any, default: float) -> float:
 
 def _bool(value: Any, default: bool) -> bool:
     return value if isinstance(value, bool) else default
+
+
+def _weight(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= MAX_SOURCE_WEIGHT:
+        return default
+    return float(value)
+
+
+def parse_source_weights(payload: Any) -> SourceWeights:
+    """The `source_weights` object of the payload. A weight can be zero, so that source adds nothing."""
+    defaults = SourceWeights()
+    if not isinstance(payload, dict):
+        return defaults
+    return SourceWeights(
+        **{
+            field.name: _weight(payload.get(field.name), getattr(defaults, field.name))
+            for field in dataclasses.fields(SourceWeights)
+        }
+    )
 
 
 def _team_ids(value: Any) -> tuple[int, ...]:
@@ -166,6 +210,14 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
+        source_weights=parse_source_weights(payload.get("source_weights")),
+        min_score=_positive_number(payload.get("min_score"), defaults.min_score),
+        view_update_interval_hours=_positive_number(
+            payload.get("view_update_interval_hours"), defaults.view_update_interval_hours
+        ),
+        cold_start_min_active_days=_positive_int(
+            payload.get("cold_start_min_active_days"), defaults.cold_start_min_active_days
+        ),
         target_interval_days_paying=_positive_number(
             payload.get("target_interval_days_paying"), defaults.target_interval_days_paying
         ),

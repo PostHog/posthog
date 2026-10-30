@@ -11,6 +11,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -20,11 +21,12 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -47,6 +49,7 @@ from products.experiments.backend.temporal.recalculation_activities import calcu
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
+    _capacity_retry_delay_seconds,
     _discover_experiment_metrics_sync,
     _record_metric_out_of_time_failure_sync,
     _update_recalculation_progress_sync,
@@ -56,7 +59,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
-_calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 _record_out_of_time_raw = _record_metric_out_of_time_failure_sync.func  # type: ignore[attr-defined]
 
@@ -92,7 +94,9 @@ def _calculate(
     attempt: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt)
+        return _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -966,7 +970,7 @@ class TestCalculateActivity(BaseTest):
     def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
         # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
         # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
-        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # (overriding the retry policy's 5s schedule with the capacity backoff band), must never
         # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
         # persist nothing before the final attempt.
         exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
@@ -1077,6 +1081,7 @@ class TestCalculateActivity(BaseTest):
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+        assert kwargs["workload"] == Workload.OFFLINE
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
@@ -1384,6 +1389,25 @@ class TestCalculateActivity(BaseTest):
         )
 
 
+class TestCapacityRetryDelay(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_attempt", 1, 10, 20),
+            ("third_attempt", 3, 40, 80),
+            ("beyond_the_cap", 7, 300, 300),
+        ]
+    )
+    def test_band_doubles_per_attempt_up_to_the_cap(self, name: str, attempt: int, low: float, high: float):
+        # The first retry must stay fast and the band must grow, or a brief contention costs minutes again
+        # and a sustained one is polled constantly. The cap keeps the sum of the waits inside the metric's
+        # schedule_to_close budget.
+        with patch(
+            "products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=low
+        ) as uniform:
+            assert _capacity_retry_delay_seconds(attempt) == low
+        uniform.assert_called_once_with(low, high)
+
+
 @pytest.mark.django_db(transaction=True)
 class TestMissingRecalcRow:
     # All three activities go through _get_recalc_state at the top. A missing row is deterministic
@@ -1423,6 +1447,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
                 body,
             ),
+            patch("products.experiments.backend.temporal.recalculation_activities.on_asyncify_pool", lambda fn: fn),
             patch(
                 "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync", cancel_query
             ),
@@ -1572,6 +1597,36 @@ class TestCalculateActivityCancellation:
             calculations_running.set()
 
         assert killed == ["experiment_metric_recalc_r1_m1_attempt01"]
+
+    async def test_calculation_runs_while_the_default_executor_is_full(self) -> None:
+        # The default executor has node CPUs + 4 threads, so calculations there run fewer at once than the worker's slots.
+        default_executor_full = threading.Event()
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(default_executor_full.wait)
+        try:
+            with (
+                restored_asyncify_executor() as configure_asyncify_executor,
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync",
+                    AsyncMock(),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS",
+                    0,
+                ),
+            ):
+                configure_asyncify_executor(1)
+                with pytest.raises(ApplicationError, match="not a valid ISO datetime"):
+                    await asyncio.wait_for(
+                        ActivityEnvironment().run(
+                            calculate_experiment_metric_for_recalculation, 1, "m1", "r1", "not-a-date"
+                        ),
+                        timeout=5,
+                    )
+        finally:
+            default_executor_full.set()
 
     async def test_heartbeats_while_the_body_runs_and_stops_after(self) -> None:
         # Temporal delivers a cancellation only in a heartbeat response, so without heartbeats the drain above

@@ -24,7 +24,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Survey } from '~/types'
 
 import { EventSelector } from './quick-create/components/EventSelector'
-import { ExceptionFilters } from './quick-create/components/ExceptionFilters'
 import { FunnelSequence } from './quick-create/components/FunnelSequence'
 import { URLInput } from './quick-create/components/URLInput'
 import { VariantSelector } from './quick-create/components/VariantSelector'
@@ -208,8 +207,6 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
                             <URLInput />
                         </>
                     )}
-
-                    {context.type === QuickSurveyType.ERROR_TRACKING && <URLInput />}
                 </div>
 
                 <div>
@@ -218,8 +215,6 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
                     </div>
                 </div>
             </div>
-
-            {context.type === QuickSurveyType.ERROR_TRACKING && <ExceptionFilters />}
 
             <div className="flex flex-col gap-3 mt-4">
                 <SdkVersionWarnings warnings={warnings} />

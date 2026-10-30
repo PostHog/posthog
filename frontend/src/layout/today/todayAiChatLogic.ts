@@ -3,24 +3,29 @@ import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { mainFocusUrl } from 'scenes/max/mainFocusUrl'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    MAX_SIDE_PANEL_ID,
+    REPORT_AI_PANEL,
+    SCOUT_AI_PANEL,
+    SIDE_PANEL_PANEL_ID,
+    type PhaiViewMode,
+} from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/types/contextTypes'
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 import { TodayPanelChatTask, runnerCreationFor } from './todayPanelChat'
+import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { todayShellLogic } from './todayShellLogic'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkGroup, TodayWorkItem, groupByDay, sessionReadRequest } from './todayWorkItems'
@@ -99,6 +104,9 @@ export interface todayAiChatLogicActions {
     setFloatingTab: (tab: SidePanelTab) => {
         tab: SidePanelTab
     } // todayContextPanelLogic
+    queuePreviousChatsHint: () => {
+        value: true
+    } // todayPanelChatSessionLogic
     markSessionRead: (
         marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
         activityIds: string[]
@@ -120,6 +128,9 @@ export interface todayAiChatLogicActions {
         item: TodayWorkItem
     }
     startNewChat: () => {
+        value: true
+    }
+    startNewChatForTool: () => {
         value: true
     }
 }
@@ -217,11 +228,14 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             ['setActiveCreation', 'clearActiveCreation', 'setHistoryExpanded'],
             attachedContextLogic,
             ['registerContext', 'deregisterContext'],
+            todayPanelChatSessionLogic,
+            ['queuePreviousChatsHint'],
         ],
     })),
     actions({
         openRecentItem: (item: TodayWorkItem) => ({ item }),
         startNewChat: true,
+        startNewChatForTool: true,
         carryContextToFullScreen: true,
         moveChatToPanel: (mode: 'floating' | 'docked', chat: TodayPanelChatTask | null) => ({ mode, chat }),
     }),
@@ -283,6 +297,20 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
                 actions.setHistoryExpanded(false)
             } else {
                 actions.startNewConversation()
+            }
+        },
+        // An AI tool button always starts a new chat. If that replaces an open chat, a hint shows where it went.
+        startNewChatForTool: () => {
+            const replacedChat = values.activeItemId !== null || (values.onTaskRunner && values.activeCreation !== null)
+            // pinned: analytics event name
+            posthog.capture('today ai tool chat started', { replaced_chat: replacedChat })
+            // A report or scout panel attaches its own entity's context, so it must not stay on the new chat.
+            if (values.selectedTabOptions) {
+                actions.setSidePanelOptions(null)
+            }
+            actions.startNewChat()
+            if (replacedChat) {
+                actions.queuePreviousChatsHint()
             }
         },
         openRecentItem: ({ item }) => {

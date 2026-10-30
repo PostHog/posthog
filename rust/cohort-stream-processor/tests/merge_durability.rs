@@ -1164,10 +1164,10 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         // The followers resume past the merge on P_old's partition and the transfer on P_new's.
         let merge_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.merges.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.merges.as_str()));
         let transfer_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.transfers.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.transfers.as_str()));
         assert!(
             merge_resume.get(&part(p_old)).map(|offset| offset.get()) >= Some(1),
             "the merge follower resumes past the merge on P_old's partition: {merge_resume:?}",

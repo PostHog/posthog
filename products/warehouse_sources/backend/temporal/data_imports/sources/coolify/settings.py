@@ -153,6 +153,24 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
             child_response_actions=_IGNORE_404,
         ),
     ),
+    # Pull request preview environments per application, newest pull request first. Older
+    # instances that predate this endpoint answer 404 per application, which leaves the table empty.
+    "preview_deployments": CoolifyEndpointConfig(
+        name="preview_deployments",
+        path="/applications/{application_uuid}/previews",
+        partition_key="created_at",
+        # The applications listing this walks through carries webhook secrets, so keep it out of
+        # HTTP samples.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="applications",
+            resolve_param="application_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            parent_field_renames={"uuid": "application_uuid"},
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
     # Newest first by (created_at, id). Only team admins and owners can read the log, so a
     # token created by any other member gets 403 on this endpoint alone.
     "audit_events": CoolifyEndpointConfig(
@@ -194,6 +212,25 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
                 "uuid": "task_uuid",
                 "name": "task_name",
                 "_applications_uuid": "application_uuid",
+            },
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    # The same walk for services: services -> scheduled tasks -> executions.
+    "service_task_executions": CoolifyEndpointConfig(
+        name="service_task_executions",
+        path="/services/{service_uuid}/scheduled-tasks/{task_uuid}/executions",
+        partition_key="created_at",
+        sensitive_fields=frozenset({"message"}),
+        fanout=DependentEndpointConfig(
+            parent_name="service_scheduled_tasks",
+            resolve_param="task_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid", "name", "_services_uuid"],
+            parent_field_renames={
+                "uuid": "task_uuid",
+                "name": "task_name",
+                "_services_uuid": "service_uuid",
             },
             child_response_actions=_IGNORE_404,
         ),
@@ -246,6 +283,37 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
         partition_key="created_at",
         sensitive_fields=frozenset({"docker_compose", "docker_compose_raw"}),
     ),
+    # The containers and databases a service's compose file defines, one listing per service.
+    # The services listing these walk through carries the raw compose file, so keep it out of
+    # HTTP samples.
+    "service_applications": CoolifyEndpointConfig(
+        name="service_applications",
+        path="/services/{service_uuid}/applications",
+        partition_key="created_at",
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="services",
+            resolve_param="service_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            parent_field_renames={"uuid": "service_uuid"},
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    "service_databases": CoolifyEndpointConfig(
+        name="service_databases",
+        path="/services/{service_uuid}/databases",
+        partition_key="created_at",
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="services",
+            resolve_param="service_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            parent_field_renames={"uuid": "service_uuid"},
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
     "teams": CoolifyEndpointConfig(
         name="teams",
         path="/teams",
@@ -268,6 +336,17 @@ COOLIFY_FANOUT_PARENTS: dict[str, CoolifyEndpointConfig] = {
         fanout=DependentEndpointConfig(
             parent_name="applications",
             resolve_param="application_uuid",
+            resolve_field="uuid",
+            include_from_parent=["uuid"],
+            child_response_actions=_IGNORE_404,
+        ),
+    ),
+    "service_scheduled_tasks": CoolifyEndpointConfig(
+        name="service_scheduled_tasks",
+        path="/services/{service_uuid}/scheduled-tasks",
+        fanout=DependentEndpointConfig(
+            parent_name="services",
+            resolve_param="service_uuid",
             resolve_field="uuid",
             include_from_parent=["uuid"],
             child_response_actions=_IGNORE_404,

@@ -235,7 +235,7 @@ class DeletePersonsProfileTests(BaseTest):
             for i, width in enumerate(widths)
         ]
         with (
-            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", budget),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_IDS_PER_RPC", budget),
             patch(
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 wraps=tombstone_persons_in_postgres,
@@ -530,11 +530,12 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         rpc.assert_not_called()
 
     def test_runs_the_steps_per_batch_once_the_distinct_id_cap_is_reached(self):
-        p1 = create_person(team=self.team, distinct_ids=["a1", "a2", "a3"], properties={})
-        p2 = create_person(team=self.team, distinct_ids=["b1", "b2", "b3"], properties={})
+        p1 = create_person(team=self.team, distinct_ids=["a1", "a2"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b1", "b2"], properties={})
         p3 = create_person(team=self.team, distinct_ids=["c1"], properties={})
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 4),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_IDS_PER_RPC", 3),
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
             _rpc() as rpc,
             _no_publish(),
@@ -550,10 +551,11 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 3
         assert result.failures == []
-        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch.
-        assert sorted(u for call in rpc.call_args_list for u in call.args[1]) == sorted([p1.uuid, p2.uuid, p3.uuid])
+        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch,
+        # while the tombstone RPC has its own smaller cap and splits the first batch.
+        assert [call.args[1] for call in rpc.call_args_list] == [[p1.uuid], [p2.uuid], [p3.uuid]]
         assert [sorted(call.args[1]) for call in training.call_args_list] == [
-            ["a1", "a2", "a3", "b1", "b2", "b3"],
+            ["a1", "a2", "b1", "b2"],
             ["c1"],
         ]
 

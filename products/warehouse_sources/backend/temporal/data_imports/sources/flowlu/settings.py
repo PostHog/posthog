@@ -28,12 +28,15 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
     # Resolves `closing_status_id` on closed-lost opportunities.
     "loss_reasons": FlowluEndpointConfig(name="loss_reasons", path="/crm/loss_reason/list"),
     "tasks": FlowluEndpointConfig(name="tasks", path="/task/tasks/list"),
+    # The task workflow status, resolving `workflow_stage_id` on tasks.
+    "task_stages": FlowluEndpointConfig(name="task_stages", path="/task/stages/list"),
     "projects": FlowluEndpointConfig(name="projects", path="/st/projects/list"),
     # Flowlu has three separate stage entities; this one is the project stage (`/st/`).
     "project_stages": FlowluEndpointConfig(name="project_stages", path="/st/stages/list"),
     "invoices": FlowluEndpointConfig(name="invoices", path="/fin/invoice/list"),
     "invoice_items": FlowluEndpointConfig(name="invoice_items", path="/fin/invoice_item/list"),
     "estimates": FlowluEndpointConfig(name="estimates", path="/fin/estimate/list"),
+    "estimate_items": FlowluEndpointConfig(name="estimate_items", path="/fin/estimate_item/list"),
     "customer_payments": FlowluEndpointConfig(name="customer_payments", path="/fin/customer_payment/list"),
     "transactions": FlowluEndpointConfig(name="transactions", path="/fin/transaction/list"),
     # The account's own billing entities, resolving `org_id` on invoices, estimates, and transactions.
@@ -42,6 +45,8 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
     "agile_sprints": FlowluEndpointConfig(name="agile_sprints", path="/agile/sprints/list"),
     # The agile workflow stage, resolving `workflow_stage_id` on agile issues.
     "agile_stages": FlowluEndpointConfig(name="agile_stages", path="/agile/stages/list"),
+    # Resolves `type_id` on agile issues.
+    "agile_issue_types": FlowluEndpointConfig(name="agile_issue_types", path="/agile/issue_type/list"),
     "timesheets": FlowluEndpointConfig(name="timesheets", path="/timetracker/timesheets/list"),
     "timelogs": FlowluEndpointConfig(name="timelogs", path="/timetracker/timelogs/list"),
     "products": FlowluEndpointConfig(name="products", path="/products/product/list"),
