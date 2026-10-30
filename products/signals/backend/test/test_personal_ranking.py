@@ -5,7 +5,7 @@ from io import StringIO
 from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
@@ -15,6 +15,10 @@ from django.utils import timezone
 import httpx
 from openai import APITimeoutError
 from parameterized import parameterized
+
+from posthog.models import User
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.signals.backend.activity_summary.read import (
     ActivitySummaryStatus,
@@ -452,3 +456,104 @@ class TestBuildPersonalRanking(BaseTest):
         assert "status: ok" in output
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())
+
+
+class TestForMeEndpoint(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        self.payload: dict[str, Any] = {"build_burst": 10}
+        self.flag_enabled = True
+        for target, value in (
+            (
+                "products.signals.backend.personal_ranking.config.read_flag_payload",
+                MagicMock(side_effect=lambda *_: self.payload),
+            ),
+            (
+                "products.signals.backend.ranking.access.feature_enabled_or_false",
+                MagicMock(side_effect=lambda *_args, **_kwargs: self.flag_enabled),
+            ),
+            (
+                "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
+                MagicMock(return_value={}),
+            ),
+            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", MagicMock()),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _url(self, **params: Any) -> str:
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"/api/projects/{self.team.id}/signals/reports/for_me/" + (f"?{query}" if query else "")
+
+    def _claimed_report(self, title: str) -> SignalReport:
+        report = SignalReport.objects.create(
+            team=self.team, title=title, summary=title, signal_count=1, total_weight=1.0, status="ready"
+        )
+        SignalReportAssignment.all_teams.create(team=self.team, report=report, actor_kind="user", actor_user=self.user)
+        return report
+
+    def _rows(self) -> int:
+        return PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).count()
+
+    def _get(self, **params: Any) -> dict[str, Any]:
+        response = self.client.get(self._url(**params))
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def test_reuses_a_current_list_and_builds_when_inputs_change(self) -> None:
+        first = self._claimed_report("First")
+        body = self._get()
+        assert (body["cached"], body["fallback_reason"], self._rows()) == (False, "ai_not_approved", 1)
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        assert body["results"][0]["matched"]["needs_you"] == ["claimed"]
+
+        assert (self._get()["cached"], self._rows()) == (True, 1)
+        assert (self._get(refresh="true")["cached"], self._rows()) == (False, 2)
+
+        second = self._claimed_report("Second")
+        body = self._get()
+        assert (body["cached"], self._rows()) == (False, 3)
+        assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
+
+        assert (self._get(focus="checkout")["cached"], self._rows()) == (False, 4)
+        assert (self._get()["cached"], self._rows()) == (False, 5)
+
+    def test_throttled_build_returns_the_stored_list_or_429(self) -> None:
+        self.payload = {"build_burst": 1, "builds_per_hour": 1}
+        first = self._claimed_report("First")
+        self._get()
+
+        assert (self._get(refresh="true")["cached"], self._rows()) == (True, 1)
+        self._claimed_report("Second")
+        body = self._get()
+        assert (body["cached"], body["stale"], self._rows()) == (True, True, 1)
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+
+        PersonalInboxRanking.objects.for_team(self.team.id).all().delete()
+        assert self.client.get(self._url()).status_code == 429
+
+    def test_another_user_never_reads_your_list(self) -> None:
+        self._get()
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        self.client.force_login(other)
+
+        body = self._get()
+
+        assert body["cached"] is False
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
+
+    @parameterized.expand([("flag_off", {"enabled": True}, False), ("kill_switch", {"enabled": False}, True)])
+    def test_unavailable(self, _name: str, payload: dict[str, Any], flag_enabled: bool) -> None:
+        self.payload, self.flag_enabled = payload, flag_enabled
+        response = self.client.get(self._url())
+        if flag_enabled:
+            assert response.status_code == 200
+            assert (response.json()["status"], response.json()["results"]) == ("unavailable", [])
+        else:
+            assert response.status_code == 404
+        assert self._rows() == 0
