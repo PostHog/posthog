@@ -1451,22 +1451,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
-        qs = self._filter_by_access_control(qs)
-
-        total_count = qs.count()
-        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
-        serializer = self.get_serializer(preview_entries, many=True)
-
-        return Response(
-            {
-                "count": total_count,
-                "entries": serializer.data,
-                "has_more": total_count > len(preview_entries),
-            },
-            status=status.HTTP_200_OK,
-        )
+        return self._folder_count_response(instance.path)
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     @disallow_if_impersonated(message="Impersonated sessions cannot log file system views.", allowed_methods=["GET"])
@@ -1524,7 +1509,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
+        return self._folder_count_response(path_param)
+
+    def _folder_count_response(self, folder_path: str) -> Response:
+        qs = (
+            FileSystem.objects.filter(path__startswith=f"{folder_path}/")
+            .select_related("created_by")
+            .order_by("depth", "path")
+        )
         qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 
