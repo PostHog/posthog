@@ -62,8 +62,7 @@ class CanvasStateReader:
             queryset = queryset.filter(key=key)
         if key_prefix:
             queryset = queryset.filter(key__startswith=key_prefix)
-        # The count is of the whole selection, so it stays the same on every page of one read.
-        count = queryset.count()
+        selection = queryset
         if cursor is not None:
             after = StateCursor.decode(cursor)
             queryset = queryset.filter(Q(scope__gt=after.scope) | Q(scope=after.scope, key__gt=after.key))
@@ -76,6 +75,12 @@ class CanvasStateReader:
         rows = list(selected[offset : offset + limit + 1] if limit is not None else selected[offset:])
         has_more = limit is not None and len(rows) > limit
         page = rows[:limit] if limit is not None else rows
+        # The count is of the whole selection, so it stays the same on every page of one read.
+        # A last page reached by offset already gives it, which spares canvas apps that poll a COUNT.
+        if cursor is None and not has_more and (page or offset == 0):
+            count = offset + len(page)
+        else:
+            count = selection.count()
         return {
             "entries": page,
             "count": count,
