@@ -10,6 +10,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import type { PhaiViewMode } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
@@ -22,7 +23,14 @@ import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
 import type { InsightLogicProps } from '~/types'
 
-import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    getToolOutputRecord,
+    resolveToolCall,
+    runStreamLogic,
+    runnerPanelLogic,
+    toolStreamEventsLogic,
+} from 'products/posthog_ai/frontend/api/logics'
+import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -51,6 +59,7 @@ export interface explainChartLogicValues {
     formatValue: (value: number) => string
     investigating: boolean
     investigationPrompt: string
+    investigationStreamKey: string | null
     story: ExplainChartData | null
     storySeriesKey: string | null
     storyShown: boolean
@@ -71,6 +80,9 @@ export interface explainChartLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    setActiveCreation: (creation: ActiveCreation) => {
+        creation: ActiveCreation
+    } // runnerPanelLogic
     approveConsent: () => {
         value: true
     }
@@ -85,9 +97,11 @@ export interface explainChartLogicActions {
         value: true
     }
     explainChartToolCompleted: (
+        toolCallId: string,
         input: Record<string, unknown> | null,
         output: Record<string, unknown> | null
     ) => {
+        toolCallId: string
         input: Record<string, unknown> | null
         output: Record<string, unknown> | null
     }
@@ -111,6 +125,9 @@ export interface explainChartLogicActions {
     }
     setFollowUpContext: (item: AttachedContextItem) => {
         item: AttachedContextItem
+    }
+    setInvestigationStream: (streamKey: string) => {
+        streamKey: string
     }
     showStory: () => {
         value: true
@@ -174,6 +191,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             ['openSidePanel', 'closeSidePanel'],
             insightLogic(props),
             ['saveInsightSuccess'],
+            runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
+            ['setActiveCreation'],
         ],
     })),
     actions({
@@ -183,10 +202,12 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         dismissConsent: true,
         startInvestigation: true,
         investigationEnded: true,
-        explainChartToolCompleted: (input: Record<string, unknown> | null, output: Record<string, unknown> | null) => ({
-            input,
-            output,
-        }),
+        explainChartToolCompleted: (
+            toolCallId: string,
+            input: Record<string, unknown> | null,
+            output: Record<string, unknown> | null
+        ) => ({ toolCallId, input, output }),
+        setInvestigationStream: (streamKey: string) => ({ streamKey }),
         receiveStory: (story: ExplainChartData) => ({ story }),
         showStory: true,
         hideStory: true,
@@ -210,6 +231,13 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 investigationEnded: () => false,
                 receiveStory: () => false,
                 forgetStory: () => false,
+            },
+        ],
+        investigationStreamKey: [
+            null as string | null,
+            {
+                startInvestigation: () => null,
+                setInvestigationStream: (_, { streamKey }) => streamKey,
             },
         ],
         story: [
@@ -298,34 +326,69 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         },
         startInvestigation: () => {
             posthog.capture('explain chart investigation started')
-            cache.disposables.add(() => {
-                const listenerId = `explain-chart-turn-end-${values.insight.short_id}`
-                let runStreamKey: string | null = null
-                const endIfOurs = ({ streamKey }: { streamKey: string }): void => {
-                    if (runStreamKey === null || streamKey === runStreamKey) {
-                        actions.investigationEnded()
+            cache.disposables.add(
+                () => {
+                    const listenerId = `explain-chart-investigation-${values.insight.short_id}`
+                    const endIfOurs = ({ streamKey }: { streamKey: string }): void => {
+                        if (values.investigationStreamKey === null || streamKey === values.investigationStreamKey) {
+                            actions.investigationEnded()
+                        }
                     }
-                }
-                toolStreamEventsLogic.actions.registerToolListener(listenerId, {
-                    tools: '*',
-                    onEvent: ({ streamKey }) => {
-                        runStreamKey ??= streamKey
-                    },
-                    onTurnComplete: endIfOurs,
-                    onRunTerminal: endIfOurs,
-                })
-                return () => toolStreamEventsLogic.actions.deregisterToolListener(listenerId)
-            }, 'turnEnd')
+                    toolStreamEventsLogic.actions.registerToolListener(listenerId, {
+                        tools: '*',
+                        onEvent: (event) => {
+                            if (values.investigationStreamKey === null) {
+                                actions.setInvestigationStream(event.streamKey)
+                            }
+                            if (
+                                event.streamKey === values.investigationStreamKey &&
+                                event.toolName === 'explain-chart' &&
+                                event.phase === 'completed'
+                            ) {
+                                actions.explainChartToolCompleted(
+                                    event.toolCallId,
+                                    resolveToolCall(event.invocation).innerInput ?? null,
+                                    getToolOutputRecord({
+                                        rawOutput: event.invocation.output,
+                                        status: event.invocation.status,
+                                    })
+                                )
+                            }
+                        },
+                        onTurnComplete: endIfOurs,
+                        onRunTerminal: endIfOurs,
+                    })
+                    return () => toolStreamEventsLogic.actions.deregisterToolListener(listenerId)
+                },
+                'investigation',
+                { pauseOnPageHidden: false }
+            )
             actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(values.investigationPrompt))
         },
-        investigationEnded: () => {
-            cache.disposables.dispose('turnEnd')
+        setActiveCreation: ({ creation }) => {
+            if (values.investigating && values.investigationStreamKey === null) {
+                actions.setInvestigationStream(creation.streamKey)
+            }
         },
-        explainChartToolCompleted: ({ input, output }) => {
+        setInvestigationStream: ({ streamKey }) => {
+            cache.disposables.add(() => runStreamLogic({ streamKey }).mount(), 'investigationStream', {
+                pauseOnPageHidden: false,
+            })
+        },
+        investigationEnded: () => {
+            cache.disposables.dispose('investigation')
+            cache.disposables.dispose('investigationStream')
+        },
+        explainChartToolCompleted: ({ toolCallId, input, output }) => {
+            cache.appliedToolCallIds ??= new Set<string>()
+            if (cache.appliedToolCallIds.has(toolCallId)) {
+                return
+            }
             const story = explainChartStoryFor(values.insight, input, output)
             if (!story) {
                 return
             }
+            cache.appliedToolCallIds.add(toolCallId)
             const startedHere = values.investigating
             actions.receiveStory(story)
             if (startedHere) {
