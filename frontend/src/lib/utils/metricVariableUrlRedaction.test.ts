@@ -37,6 +37,10 @@ describe('redactMetricVariableUrl', () => {
         ['an uppercase login link', '/LOGIN?next=%2Freset%2Fsecret', '/LOGIN'],
         ['a protocol-relative login link', '//us.posthog.com/login?next=secret', '//us.posthog.com/login'],
         ['a login link inside text', 'Continue at https://us.posthog.com/login?next=secret to proceed', ''],
+        ['a password reset link', 'https://us.posthog.com/reset/user-uuid/secret', 'https://us.posthog.com/reset'],
+        ['a two-factor reset link', '/reset_2fa/user-uuid/secret?next=x', '/reset_2fa'],
+        ['an email verification link', '/verify_email/user-uuid/secret', '/verify_email'],
+        ['a reset link element chain', 'a:attr__href="/reset/user-uuid/secret"', ''],
     ])('keeps only the path of %s', (_name, text, expected) => {
         expect(redactMetricVariableUrl(text)).toBe(expected)
     })
@@ -111,6 +115,9 @@ describe('redactMetricVariableUrl', () => {
         ['a login path in a query', 'https://us.posthog.com/dashboard?next=/login?visible'],
         ['many quoted login paths without a query', '"/login/'.repeat(100_000)],
         ['many bracketed login paths without a query', '(/login/'.repeat(100_000)],
+        ['a verify email page without a token', '/verify_email/user-uuid'],
+        ['a reset path that is not the first segment', '/dashboard/reset/a/b'],
+        ['many quoted reset paths without a token', '"/reset/'.repeat(100_000)],
     ])('leaves a non-login URL unchanged: %s', (_name, url) => {
         expect(redactMetricVariableUrl(url)).toBe(url)
     })

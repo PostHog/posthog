@@ -2,7 +2,13 @@ import type { BeforeSendFn } from 'posthog-js'
 
 const MARKERS = ['metricVariables', 'bi_filter']
 // The host and path stop at every character that can start a match, so a long string of repeated links is scanned in linear time.
-const LOGIN_URL_WITH_PARAMS = /(?:^|[\s"'(])(?:(?:https?:)?\/\/[^/?#\s"'<>(]+)?\/login(?:\/[^?#\s"'<>(]*)?[?#]/i
+const URL_START = String.raw`(?:^|[\s"'(])`
+const URL_HOST = String.raw`(?:(?:https?:)?\/\/[^/?#\s"'<>(]+)?`
+const LOGIN_URL_WITH_PARAMS = new RegExp(URL_START + URL_HOST + String.raw`\/login(?:\/[^?#\s"'<>(]*)?[?#]`, 'i')
+const TOKEN_URL = new RegExp(
+    URL_START + `(${URL_HOST}` + String.raw`\/(?:reset|reset_2fa|verify_email))\/[^/?#\s"'<>(]+\/[^?#\s"'<>(]+`,
+    'i'
+)
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 const NETWORK_PLUGIN = 'rrweb/network@1'
@@ -12,13 +18,14 @@ function holdsFilterData(text: string): boolean {
 }
 
 /** A URL that holds login data, metric variables or BI selections keeps only its path, so the queries, options and
- * selected values of the variables stay out of analytics. Other text that holds them is dropped. */
+ * selected values of the variables stay out of analytics. A URL with a one-time token in its path also loses the
+ * token. Other text that holds them is dropped. */
 export function redactMetricVariableUrl(text: string): string {
-    if (!holdsFilterData(text) && !LOGIN_URL_WITH_PARAMS.test(text)) {
+    if (!holdsFilterData(text) && !LOGIN_URL_WITH_PARAMS.test(text) && !TOKEN_URL.test(text)) {
         return text
     }
     if (text.startsWith('/') || /^https?:\/\/\S+$/.test(text)) {
-        return text.split(/[?#]/)[0]
+        return text.split(/[?#]/)[0].replace(TOKEN_URL, '$1')
     }
     return ''
 }
