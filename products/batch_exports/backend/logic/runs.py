@@ -10,10 +10,11 @@ from django.db.models import QuerySet
 
 import structlog
 
+from posthog.api.pagination import select_cursor_page
+from posthog.paging import CursorPageRequest, Page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts
-from products.batch_exports.backend.logic.pagination import select_page
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import backfill_export, cancel_running_batch_export_run
 
@@ -56,8 +57,8 @@ def _get_run(team_id: int, export_id: UUID, run_id: UUID) -> BatchExportRun:
 
 
 def list_runs(
-    team_id: int, export_id: UUID, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
-) -> list[contracts.BatchExportRunDetail]:
+    team_id: int, export_id: UUID, filters: contracts.BatchExportRunFilters, page: CursorPageRequest
+) -> Page[contracts.BatchExportRunDetail]:
     runs = _query_export_runs(team_id, export_id)
     if filters.created is not None:
         runs = runs.filter(created_at__range=(filters.created.start, filters.created.end))
@@ -67,10 +68,7 @@ def list_runs(
         )
     if filters.statuses:
         runs = runs.filter(status__in=filters.statuses)
-    return [
-        to_run_detail(run)
-        for run in select_page(runs, page, ordering_fields=contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS)
-    ]
+    return select_cursor_page(runs, page, ordering_fields=contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS).map(to_run_detail)
 
 
 def get_run(team_id: int, export_id: UUID, run_id: UUID) -> contracts.BatchExportRunDetail:

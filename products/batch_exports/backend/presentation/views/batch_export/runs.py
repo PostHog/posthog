@@ -11,6 +11,7 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.pagination import FacadeCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.utils import relative_date_parse
@@ -20,7 +21,6 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
-from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
 from products.batch_exports.backend.presentation.views.utils import (
     BIG_INTEGER_MAX,
     BIG_INTEGER_MIN,

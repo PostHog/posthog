@@ -15,7 +15,9 @@ from django.db.models import QuerySet
 import structlog
 import posthoganalytics
 
+from posthog.api.pagination import select_cursor_page
 from posthog.models import Team
+from posthog.paging import CursorPageRequest, Page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts
@@ -26,7 +28,6 @@ from products.batch_exports.backend.hogql_source import (
     parse_hogql_select_for_batch_export,
 )
 from products.batch_exports.backend.logic.exports import load_batch_export
-from products.batch_exports.backend.logic.pagination import select_page
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
 from products.batch_exports.backend.service import (
     BatchExportWithNoEndNotAllowedError,
@@ -163,15 +164,12 @@ def _get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> BatchExpo
         raise contracts.BatchExportBackfillNotFoundError() from e
 
 
-def list_backfills(
-    team_id: int, export_id: UUID, page: contracts.ListPage
-) -> list[contracts.BatchExportBackfillDetail]:
-    backfills = select_page(
+def list_backfills(team_id: int, export_id: UUID, page: CursorPageRequest) -> Page[contracts.BatchExportBackfillDetail]:
+    return select_cursor_page(
         _query_export_backfills(team_id, export_id),
         page,
         ordering_fields=contracts.BATCH_EXPORT_BACKFILL_ORDERING_FIELDS,
-    )
-    return [_to_backfill_detail(backfill) for backfill in backfills]
+    ).map(_to_backfill_detail)
 
 
 def get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> contracts.BatchExportBackfillDetail:

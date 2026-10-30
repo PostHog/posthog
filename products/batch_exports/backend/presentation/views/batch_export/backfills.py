@@ -11,6 +11,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
+from posthog.api.pagination import FacadeCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
@@ -21,7 +22,6 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
-from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
 from products.batch_exports.backend.presentation.views.utils import BIG_INTEGER_MAX, BIG_INTEGER_MIN, parse_path_uuid
 
 logger = structlog.get_logger(__name__)

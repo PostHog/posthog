@@ -22,7 +22,9 @@ from botocore.exceptions import ClientError
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.pagination import select_page
 from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts
@@ -116,9 +118,8 @@ def _to_file_download_run(batch_export_run: BatchExportRun) -> contracts.FileDow
     )
 
 
-def list_file_download_runs(team_id: int, *, offset: int, limit: int) -> tuple[list[BatchExportRun], int]:
-    runs = _file_download_runs(team_id)
-    return list(runs[offset : offset + limit]), runs.count()
+def list_file_download_runs(team_id: int, *, page: PageRequest) -> Page[BatchExportRun]:
+    return select_page(_file_download_runs(team_id), page)
 
 
 def get_file_download_run(team_id: int, run_id: UUID) -> contracts.FileDownloadRun:

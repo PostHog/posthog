@@ -10,9 +10,9 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.integrations import IntegrationRecord
@@ -44,7 +44,6 @@ from products.batch_exports.backend.presentation.views.utils import (
     HogQLModifiersField,
     check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
-    fetch_facade_page,
     parse_path_uuid,
 )
 
@@ -677,6 +676,7 @@ BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     serializer_class = BatchExportSerializer
+    pagination_class = FacadeLimitOffsetPagination
     log_source = "batch_exports"
 
     def dangerously_get_object(self) -> contracts.BatchExportConfiguration:
@@ -695,13 +695,11 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         return batch_export
 
     def list(self, request: request.Request, *args: typing.Any, **kwargs: typing.Any) -> response.Response:
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        batch_exports = fetch_facade_page(
-            paginator,
+        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
             request,
-            lambda offset, limit: batch_exports_api.list_batch_exports(self.team_id, offset=offset, limit=limit),
+            self,
+            lambda page: batch_exports_api.list_batch_exports(self.team_id, page=page),
         )
-        return paginator.get_paginated_response(self.get_serializer(batch_exports, many=True).data)
 
     @extend_schema(request=None, parameters=[BATCH_EXPORT_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
