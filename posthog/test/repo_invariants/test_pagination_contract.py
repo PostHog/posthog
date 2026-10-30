@@ -126,6 +126,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
+    # Forwards limit and offset to the support widget's ticket list, which orders by created_at and id.
+    "products.conversations.backend.api.posthog_support.PostHogSupportTicketViewSet",
     "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
