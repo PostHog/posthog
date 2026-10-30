@@ -42,7 +42,6 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HOG_INVOCATION_RERUN_MAX_COUNT,
     RERUN_MAX_WINDOW_DAYS,
 )
-from products.workflows.backend.facade.workflows import get_workflow_replay_targets
 
 logger = structlog.get_logger(__name__)
 
@@ -566,6 +565,9 @@ def _destination_targets(criteria: ReplayCriteria, candidates: list[tuple[int, s
 
 
 def _workflow_targets(criteria: ReplayCriteria, candidates: list[tuple[int, str]]) -> list[_Target]:
+    # Celery imports this module at startup, and the workflows facade pulls in posthog.schema.
+    from products.workflows.backend.facade.workflows import get_workflow_replay_targets  # noqa: PLC0415
+
     workflows = get_workflow_replay_targets(
         team_ids=sorted({team_id for team_id, _ in candidates}),
         workflow_ids=[workflow_id for _, workflow_id in candidates],
