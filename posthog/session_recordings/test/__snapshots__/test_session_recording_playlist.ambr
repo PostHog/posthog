@@ -1263,7 +1263,14 @@
          "posthog_propertydefinition"."warehouse_origin",
          "posthog_propertydefinition"."property_type_format",
          "posthog_propertydefinition"."volume_30_day",
-         "posthog_propertydefinition"."query_usage_30_day"
+         "posthog_propertydefinition"."query_usage_30_day",
+         "posthog_propertydefinition"."description",
+         "posthog_propertydefinition"."updated_at",
+         "posthog_propertydefinition"."updated_by_id",
+         "posthog_propertydefinition"."verified",
+         "posthog_propertydefinition"."verified_at",
+         "posthog_propertydefinition"."verified_by_id",
+         "posthog_propertydefinition"."hidden"
   FROM "posthog_propertydefinition"
   WHERE (COALESCE("posthog_propertydefinition"."project_id", "posthog_propertydefinition"."team_id") = 99999
          AND "posthog_propertydefinition"."name" IN ('$session_id')
