@@ -90,20 +90,26 @@ def _row_columns(rollup: type[DailyRollup]) -> tuple[str, ...]:
     return (rollup.columns[0], *rollup.columns[2:])
 
 
-def _string_limits(rollup: type[DailyRollup]) -> list[tuple[int, int]]:
-    """(row position, max_length) of every length-limited column."""
+@frozen
+class _StringLimit:
+    position: int
+    max_length: int
+
+
+def _string_limits(rollup: type[DailyRollup]) -> list[_StringLimit]:
+    """The row position and max_length of every length-limited column."""
     limits = []
     for position, column in enumerate(_row_columns(rollup)):
         max_length = getattr(rollup.model._meta.get_field(column), "max_length", None)
         if max_length is not None:
-            limits.append((position, max_length))
+            limits.append(_StringLimit(position=position, max_length=max_length))
     return limits
 
 
-def _storable(row: Sequence[Any], string_limits: list[tuple[int, int]]) -> bool:
-    for position, max_length in string_limits:
-        value = row[position]
-        if isinstance(value, str) and (len(value) > max_length or "\x00" in value):
+def _storable(row: Sequence[Any], string_limits: list[_StringLimit]) -> bool:
+    for limit in string_limits:
+        value = row[limit.position]
+        if isinstance(value, str) and (len(value) > limit.max_length or "\x00" in value):
             return False
     return True
 
