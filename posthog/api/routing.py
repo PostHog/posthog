@@ -1,3 +1,4 @@
+import re
 import sys
 from collections.abc import Sequence
 from functools import cached_property, lru_cache
@@ -63,6 +64,21 @@ PathParameterType = type[UUID] | type[int] | type[str]
 PATH_PARAMETER_TYPES: tuple[PathParameterType, ...] = (UUID, int, str)
 # parents_query_dict resolves these with token overrides and `@current`, so path_parameters must not parse them.
 _PARENT_PATH_PARAMETERS = frozenset({"team_id", "project_id", "organization_id"})
+_ASCII_DIGITS = re.compile(r"[0-9]+")
+# Postgres bigint maximum. A larger id makes the database lookup fail with a 500.
+_MAX_BIGINT = 2**63 - 1
+
+
+def _parse_path_parameter(raw_value: str, parameter_type: PathParameterType) -> UUID | int | str:
+    if parameter_type is not int:
+        return parameter_type(raw_value)
+    # int() also accepts "1_000", " 7" and non-ASCII digits, which are not ids.
+    if not _ASCII_DIGITS.fullmatch(raw_value):
+        raise ValueError(f"{raw_value!r} is not a decimal id")
+    value = int(raw_value)
+    if value > _MAX_BIGINT:
+        raise ValueError(f"{raw_value!r} is out of the bigint range")
+    return value
 
 
 class NestedRegistryItem:
@@ -249,7 +265,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if raw_value is None or isinstance(raw_value, parameter_type):
                 continue
             try:
-                self.kwargs[name] = parameter_type(raw_value)
+                self.kwargs[name] = _parse_path_parameter(raw_value, parameter_type)
             except ValueError:
                 # A malformed id names no object, so the answer is 404, the same as from a queryset view.
                 raise NotFound()

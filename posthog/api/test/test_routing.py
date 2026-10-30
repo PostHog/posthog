@@ -258,6 +258,12 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
             ("list_route_has_no_pk", "", 200, {"kwargs": ["parent_lookup_project_id"]}),
             ("malformed_uuid", "not-a-uuid/", 404, None),
             ("malformed_second_capture", "{id}/numbers/seven/", 404, None),
+            ("max_bigint", "{id}/numbers/9223372036854775807/", 200, {"pk_type": "UUID", "number": 2**63 - 1}),
+            ("above_bigint", "{id}/numbers/9223372036854775808/", 404, None),
+            ("underscore_separator", "{id}/numbers/1_000/", 404, None),
+            ("leading_space", "{id}/numbers/%207/", 404, None),
+            ("negative", "{id}/numbers/-7/", 404, None),
+            ("non_ascii_digit", "{id}/numbers/%D9%A7/", 404, None),
         ]
     )
     def test_path_parameters_reach_the_handler_parsed(
