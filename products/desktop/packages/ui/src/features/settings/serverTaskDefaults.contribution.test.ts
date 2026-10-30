@@ -44,7 +44,7 @@ const openProject = (projectId: number) =>
 
 describe("ServerTaskDefaultsContribution", () => {
   it("does not carry a project's value into the next project when the person switches mid-sync", async () => {
-    const inSync = { autoPublishCloudRuns: true };
+    const inSync = { autoPublishCloudRuns: true, startInPlanMode: true };
     useSettingsStore.setState({
       _hasHydrated: true,
       autoPublishCloudRuns: true,

@@ -39,7 +39,8 @@ export class ServerTaskDefaultsContribution implements Contribution {
     useSettingsStore.subscribe((state, prev) => {
       if (
         state._hasHydrated !== prev._hasHydrated ||
-        state.autoPublishCloudRuns !== prev.autoPublishCloudRuns
+        state.autoPublishCloudRuns !== prev.autoPublishCloudRuns ||
+        state.defaultInitialTaskMode !== prev.defaultInitialTaskMode
       ) {
         void this.reconcile(false);
       }
@@ -56,7 +57,12 @@ export class ServerTaskDefaultsContribution implements Contribution {
     if (!settings._hasHydrated || projectId == null) return;
     const synced = settings.taskDefaultsOnServer[String(projectId)];
     const local = settings.autoPublishCloudRuns;
-    if (!fetchAlways && synced?.autoPublishCloudRuns === local) {
+    const localMode = settings.defaultInitialTaskMode;
+    if (
+      !fetchAlways &&
+      synced?.autoPublishCloudRuns === local &&
+      synced.startInPlanMode === (localMode === "plan")
+    ) {
       return;
     }
     if (this.inFlight.has(projectId)) {
@@ -82,6 +88,7 @@ export class ServerTaskDefaultsContribution implements Contribution {
       const sync = nextTaskDefaultsSync({
         server: taskDefaults,
         localAutoPublishCloudRuns: local,
+        localInitialTaskMode: localMode,
         synced,
       });
       if (Object.keys(sync.upload).length > 0) {
@@ -94,13 +101,17 @@ export class ServerTaskDefaultsContribution implements Contribution {
         return;
       }
       const store = useSettingsStore.getState();
-      if (store.autoPublishCloudRuns !== local) {
+      if (
+        store.autoPublishCloudRuns !== local ||
+        store.defaultInitialTaskMode !== localMode
+      ) {
         // The person changed the setting while the request ran. The rerun
         // sends that change.
         this.rerun.add(projectId);
         store.setTaskDefaultsOnServer(projectId, {
           ...sync.synced,
           autoPublishCloudRuns: local,
+          startInPlanMode: localMode === "plan",
         });
         return;
       }
@@ -109,6 +120,9 @@ export class ServerTaskDefaultsContribution implements Contribution {
       store.setTaskDefaultsOnServer(projectId, sync.synced);
       if (sync.pullAutoPublishCloudRuns !== null) {
         store.setAutoPublishCloudRuns(sync.pullAutoPublishCloudRuns);
+      }
+      if (sync.pullInitialTaskMode !== null) {
+        store.setDefaultInitialTaskMode(sync.pullInitialTaskMode);
       }
     } catch (err) {
       log.warn("Failed to sync task defaults with the server", err);
