@@ -1,5 +1,4 @@
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -18,48 +17,6 @@ use crate::discovery::DiscoveryMode;
 use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum CompletionGranularity {
-    #[default]
-    Poll,
-    Group,
-}
-
-impl FromStr for CompletionGranularity {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_lowercase().as_str() {
-            "poll" => Ok(Self::Poll),
-            "group" => Ok(Self::Group),
-            other => Err(format!(
-                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
-            )),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Polling {
-    #[default]
-    Capped,
-    Continuous,
-}
-
-impl FromStr for Polling {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_lowercase().as_str() {
-            "capped" => Ok(Self::Capped),
-            "continuous" => Ok(Self::Continuous),
-            other => Err(format!(
-                "unknown consumer polling strategy '{other}' (expected 'capped' or 'continuous')"
-            )),
-        }
-    }
-}
 
 /// Configuration for the ingestion consumer. Env var names and defaults match
 /// the Node.js ingestion consumer, so both read the same ConfigMap.
@@ -260,28 +217,16 @@ pub struct Config {
     #[envconfig(from = "INGESTION_GOVERNOR_STEP_INTERVAL_MS", default = "1000")]
     pub governor_step_interval_ms: u64,
 
-    /// Maximum polls in flight under the capped polling strategy; continuous
-    /// polling does not read it. Same name as the Node.js setting.
-    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
-    pub consumer_max_background_tasks: usize,
-
-    /// `poll` or `group`; see [`CompletionGranularity`].
-    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
-    pub consumer_completion_granularity: CompletionGranularity,
-
-    /// Minimum spacing between offset commits at `group` granularity
-    /// (milliseconds). Not read at `poll` granularity.
+    /// Minimum spacing between offset commits (milliseconds).
     #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
     pub consumer_commit_interval_ms: u64,
 
-    /// Uncommitted events at which a partition's fetch pauses. `0` (default)
-    /// sets no event limit. Not read at `poll` granularity.
+    /// Uncommitted events at which a partition's fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
     pub consumer_partition_budget_events: u64,
 
     /// Uncommitted key-plus-value-plus-header bytes at which a partition's
-    /// fetch pauses. `0` (default) sets no byte limit. Not read at `poll`
-    /// granularity.
+    /// fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_BYTES", default = "0")]
     pub consumer_partition_budget_bytes: u64,
 
@@ -290,23 +235,15 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", default = "0.8")]
     pub consumer_partition_budget_low_watermark: f64,
 
-    /// `capped` or `continuous`. `continuous` runs only with `group`
-    /// granularity, a partition budget, and an in-flight limit; without all
-    /// three the consumer runs `capped`.
-    #[envconfig(from = "CONSUMER_POLLING_STRATEGY", default = "capped")]
-    pub consumer_polling_strategy: Polling,
-
-    /// Uncommitted events across all partitions at which the continuous
-    /// strategy stops reading from Kafka. The poll in progress still
-    /// completes, so the total can pass it by `CONSUMER_BATCH_SIZE`. `0`
-    /// (default) sets no event limit.
+    /// Uncommitted events across all partitions at which the consumer stops
+    /// reading from Kafka. The poll in progress still completes, so the total
+    /// can pass it by `CONSUMER_BATCH_SIZE`. Required.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_EVENTS", default = "0")]
     pub consumer_in_flight_events: u64,
 
     /// Uncommitted key-plus-value-plus-header bytes across all partitions at
-    /// which the continuous strategy stops reading from Kafka. The poll in
-    /// progress still completes, so the total can pass it by one poll. `0`
-    /// (default) sets no byte limit.
+    /// which the consumer stops reading from Kafka. The poll in progress
+    /// still completes, so the total can pass it by one poll. Required.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
     pub consumer_in_flight_bytes: u64,
 
@@ -618,19 +555,36 @@ impl Config {
         })
     }
 
+    // Each limit needs both axes, because one axis alone leaves the other
+    // unbounded: a message with no key, value or headers charges zero bytes.
+
     pub fn partition_budget(&self) -> Result<BudgetLimits, String> {
-        BudgetLimits::new(
+        let budget = BudgetLimits::new(
             NonZeroU64::new(self.consumer_partition_budget_events),
             NonZeroU64::new(self.consumer_partition_budget_bytes),
             self.consumer_partition_budget_low_watermark,
-        )
+        )?;
+        if !budget.sets_both_axes() {
+            return Err(
+                "CONSUMER_PARTITION_BUDGET_EVENTS and CONSUMER_PARTITION_BUDGET_BYTES must both be set"
+                    .to_string(),
+            );
+        }
+        Ok(budget)
     }
 
-    pub fn in_flight_limit(&self) -> ChargeLimit {
-        ChargeLimit::new(
+    pub fn in_flight_limit(&self) -> Result<ChargeLimit, String> {
+        let limit = ChargeLimit::new(
             NonZeroU64::new(self.consumer_in_flight_events),
             NonZeroU64::new(self.consumer_in_flight_bytes),
-        )
+        );
+        if !limit.sets_both_axes() {
+            return Err(
+                "CONSUMER_IN_FLIGHT_EVENTS and CONSUMER_IN_FLIGHT_BYTES must both be set"
+                    .to_string(),
+            );
+        }
+        Ok(limit)
     }
 
     const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
@@ -761,6 +715,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use rstest::rstest;
 
@@ -824,21 +779,34 @@ mod tests {
         assert!(config(vars).request_budget().is_err());
     }
 
-    #[rstest]
-    #[case::unset(&[], false)]
-    #[case::events_only(&[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], true)]
-    #[case::bytes_only(&[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], true)]
-    fn a_valid_partition_budget_is_read(#[case] vars: &[(&str, &str)], #[case] is_set: bool) {
-        assert_eq!(config(vars).partition_budget().unwrap().is_set(), is_set);
+    struct LimitsCase {
+        vars: &'static [(&'static str, &'static str)],
+        expected_valid: bool,
     }
 
-    #[test]
-    fn a_partition_budget_with_an_invalid_watermark_is_rejected() {
-        let vars = &[
-            ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
-            ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2"),
-        ];
-        assert!(config(vars).partition_budget().is_err());
+    #[rstest]
+    #[case::both_axes(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"), ("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], expected_valid: true })]
+    #[case::unset(LimitsCase { vars: &[], expected_valid: false })]
+    #[case::events_only(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], expected_valid: false })]
+    #[case::bytes_only(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], expected_valid: false })]
+    #[case::an_invalid_watermark(LimitsCase { vars: &[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"), ("CONSUMER_PARTITION_BUDGET_BYTES", "1048576"), ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2")], expected_valid: false })]
+    fn the_partition_budget_needs_both_axes(#[case] case: LimitsCase) {
+        assert_eq!(
+            config(case.vars).partition_budget().is_ok(),
+            case.expected_valid
+        );
+    }
+
+    #[rstest]
+    #[case::both_axes(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_EVENTS", "30000"), ("CONSUMER_IN_FLIGHT_BYTES", "52428800")], expected_valid: true })]
+    #[case::unset(LimitsCase { vars: &[], expected_valid: false })]
+    #[case::events_only(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_EVENTS", "30000")], expected_valid: false })]
+    #[case::bytes_only(LimitsCase { vars: &[("CONSUMER_IN_FLIGHT_BYTES", "52428800")], expected_valid: false })]
+    fn the_in_flight_limit_needs_both_axes(#[case] case: LimitsCase) {
+        assert_eq!(
+            config(case.vars).in_flight_limit().is_ok(),
+            case.expected_valid
+        );
     }
 
     #[rstest]
@@ -899,18 +867,5 @@ mod tests {
         assert_eq!(Adaptation::from_str(" ON "), Ok(Adaptation::On));
         assert_eq!(Adaptation::from_str("off"), Ok(Adaptation::Off));
         assert!(Adaptation::from_str("true").is_err());
-    }
-
-    #[test]
-    fn completion_granularity_parses_known_values() {
-        assert_eq!(
-            CompletionGranularity::from_str(" POLL "),
-            Ok(CompletionGranularity::Poll)
-        );
-        assert_eq!(
-            CompletionGranularity::from_str("group"),
-            Ok(CompletionGranularity::Group)
-        );
-        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

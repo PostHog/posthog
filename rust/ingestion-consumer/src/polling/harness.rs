@@ -37,7 +37,6 @@ impl<P: PollingStrategy> Harness<P> {
             },
             settlement: Arc::clone(&settlement),
             group_id: "test".to_string(),
-            debug_recorder: None,
         });
         Self {
             poller,
@@ -66,11 +65,7 @@ impl<P: PollingStrategy> Harness<P> {
         let Some(Step::Submit(collected)) = self.step() else {
             panic!("expected a poll to submit");
         };
-        let CollectedBatch {
-            accumulator,
-            mut partitions,
-            ..
-        } = collected;
+        let CollectedBatch { mut partitions, .. } = collected;
         let mut uncommitted = HashMap::new();
         for (topic_partition, deliveries) in &mut partitions {
             deliveries.generation = self.ledger.generation(topic_partition);
@@ -90,14 +85,8 @@ impl<P: PollingStrategy> Harness<P> {
             })
             .collect();
         self.poller.submitted(InFlightPoll {
-            poll_id: "poll".to_string(),
-            assignment_epoch: 1,
             partitions,
             uncommitted,
-            message_count: accumulator.message_count() as u32,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: std::time::Instant::now(),
         });
         spans
     }

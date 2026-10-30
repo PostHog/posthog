@@ -1,11 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::collections::HashMap;
 
 use common_kafka_consumer::{Charge, Offset, TopicPartition};
 
 use crate::debug_recorder::{PartitionOffset, PartitionOffsets};
 use crate::order_sentinel::OffsetSpan;
-use crate::settlement::ChargedSlice;
 use crate::types::Accumulator;
 
 #[derive(Default)]
@@ -37,14 +35,7 @@ pub(crate) struct PartitionDeliveries {
     /// Max Kafka message timestamp (ms).
     pub(crate) latest_kafka_ts: i64,
     pub(crate) max_lag_ms: Option<i64>,
-    /// Messages the poll delivered, covered, and accepted from this
-    /// partition, so a revoked partition can leave the poll exactly.
     pub(crate) delivered: u32,
-    pub(crate) covered: u32,
-    pub(crate) accepted: u32,
-    /// The offsets that completions covered. Keyed by offset, not by position
-    /// in `span`, because `span` can have gaps.
-    pub(crate) credited: HashSet<i64, ahash::RandomState>,
 }
 
 impl PartitionDeliveries {
@@ -57,34 +48,7 @@ impl PartitionDeliveries {
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
             delivered: 1,
-            covered: 0,
-            accepted: 0,
-            credited: HashSet::default(),
         }
-    }
-
-    /// Credit a completion's run and return the offsets to settle: those
-    /// charged that no earlier completion credited.
-    pub(crate) fn credit_run(&mut self, run: &[Offset]) -> Vec<Offset> {
-        let Self {
-            credited, charges, ..
-        } = self;
-        run.iter()
-            .copied()
-            .filter(|offset| {
-                credited.insert(offset.0)
-                    && charges
-                        .binary_search_by_key(&offset.0, |(charged, _)| charged.0)
-                        .is_ok()
-            })
-            .collect()
-    }
-
-    pub(crate) fn uncredited_charge(&self) -> Option<Offset> {
-        self.charges
-            .iter()
-            .map(|(offset, _)| *offset)
-            .find(|offset| !self.credited.contains(&offset.0))
     }
 
     pub(crate) fn record(&mut self, delivery: &Delivery) {
@@ -107,48 +71,8 @@ pub(crate) struct CollectedBatch {
 }
 
 pub(crate) struct InFlightPoll {
-    /// For logs and debug events only.
-    pub(crate) poll_id: String,
-    /// The epoch the batcher stamped on this poll's completions.
-    pub(crate) assignment_epoch: u64,
     pub(crate) partitions: HashMap<TopicPartition, PartitionDeliveries>,
     pub(crate) uncommitted: HashMap<TopicPartition, Charge>,
-    pub(crate) message_count: u32,
-    /// Messages covered by completions so far, accepted or not.
-    pub(crate) covered: u32,
-    /// Worker-accepted messages so far.
-    pub(crate) accepted: u32,
-    pub(crate) dispatched_at: Instant,
-}
-
-impl InFlightPoll {
-    pub(crate) fn is_complete(&self) -> bool {
-        self.covered >= self.message_count
-    }
-
-    /// A charged offset that no completion covered. A complete poll can still
-    /// have one, because `covered` also counts an offset that is credited twice.
-    pub(crate) fn uncredited_charge(&self) -> Option<(&TopicPartition, Offset)> {
-        self.partitions
-            .iter()
-            .find_map(|(topic_partition, deliveries)| {
-                deliveries
-                    .uncredited_charge()
-                    .map(|offset| (topic_partition, offset))
-            })
-    }
-
-    pub(crate) fn charged_slices(&self) -> Vec<ChargedSlice<'_>> {
-        self.partitions
-            .iter()
-            .map(|(topic_partition, deliveries)| ChargedSlice {
-                topic_partition,
-                generation: deliveries.generation,
-                span: deliveries.span,
-                charges: &deliveries.charges,
-            })
-            .collect()
-    }
 }
 
 /// Per-partition max offset + observed lag for the debug UI's batch events.
