@@ -22,11 +22,11 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from ..diff_metadata import (
     DiffMetadata,

@@ -25,7 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination, PrecountedLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, PrecountedLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
@@ -205,8 +205,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         """List all projects for the team."""
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request, self, lambda page: api.list_repos(self.team_id, page), serializer_class=RepoSerializer
+        return facade_page_response(
+            self, lambda page: api.list_repos(self.team_id, page), serializer_class=RepoSerializer
         )
 
     @validated_request(
@@ -331,8 +331,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         identifier = request.query_params.get("identifier")
         run_type = request.query_params.get("run_type")
         repo_id = _parse_uuid(pk)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_quarantined(
                 repo_id, team_id=self.team_id, identifier=identifier, run_type=run_type, page=page
@@ -570,8 +569,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         repo_id = _parse_uuid(self.parents_query_dict["repo_id"], field="repo_id")
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_runs(
                 self.team_id, review_state=review_state, repo_id=repo_id, search=search, page=page
@@ -648,8 +646,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         review_state = _parse_review_state(request)
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_runs(
                 self.team_id,

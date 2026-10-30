@@ -1,8 +1,7 @@
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model, QuerySet
 
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination
 from rest_framework.request import Request
@@ -15,28 +14,6 @@ from posthog.paging import CursorBound, CursorPageRequest, Page, PageRequest
 if TYPE_CHECKING:
     # DRF's generics module reads DEFAULT_PAGINATION_CLASS while it loads, which can point at this module.
     from rest_framework.generics import GenericAPIView
-
-
-def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
-    """Add the primary key as a final ordering term for a paginated queryset."""
-    if queryset.query.is_sliced:
-        return queryset
-    # `group_by is True` means Django groups by every selected column of the model, primary key
-    # included, so a primary key term cannot change the groups. A tuple comes from
-    # `values(...).annotate(...)`, where a primary key term would split the groups.
-    if queryset.query.group_by is not None and queryset.query.group_by is not True:
-        return queryset
-
-    ordering = queryset.query.order_by or queryset.query.extra_order_by or queryset.model._meta.ordering
-    if not ordering:
-        return queryset.order_by("pk")
-
-    primary_key = queryset.model._meta.pk.name
-    if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):
-        return queryset
-
-    direction = "-" if str(ordering[0]).startswith("-") else ""
-    return queryset.order_by(*ordering, f"{direction}pk")
 
 
 class PrecountedLimitOffsetPagination(LimitOffsetPagination):
@@ -114,39 +91,6 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
             "description": "True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it.",
         }
         return paginated
-
-
-def select_page[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
-    """Return one page of `queryset` and the number of rows in all of it.
-
-    The rows are also sorted by primary key, so a page boundary between rows that share a sort value
-    cannot skip or repeat a row.
-    """
-    count = queryset.count()
-    rows = stable_queryset_ordering(queryset)[page.offset : page.offset + page.limit]
-    return Page(results=list(rows), count=count)
-
-
-def select_cursor_page[M: Model](
-    queryset: QuerySet[M], page: CursorPageRequest, *, ordering_fields: Collection[str]
-) -> Page[M]:
-    """Return the rows of one cursor page of `queryset` and the number of rows in all of it.
-
-    `ordering_fields` names the fields a client may sort by. The primary key is always allowed,
-    because `StableCursorPagination` adds it as the last ordering term.
-    """
-    for term in page.ordering:
-        if term.lstrip("-") not in ordering_fields and term.lstrip("-") != "pk":
-            raise ValueError(f"Cannot order by {term!r}")
-
-    count = queryset.count()
-    first = page.ordering[0]
-    queryset = stable_queryset_ordering(queryset.order_by(*page.ordering))
-    if page.bound is not None:
-        comparison = "lt" if page.bound.before else "gt"
-        queryset = queryset.filter(**{f"{first.lstrip('-')}__{comparison}": page.bound.value})
-
-    return Page(results=list(queryset[page.offset : page.offset + page.limit]), count=count)
 
 
 class BoundedLimitOffsetPagination(LimitOffsetPagination):
@@ -304,3 +248,27 @@ class FacadeCursorPagination(StableCursorPagination):
         serializer_class = serializer_class or view.get_serializer_class()
         serializer = serializer_class(rows, many=True, context=view.get_serializer_context())
         return self.get_paginated_response(serializer.data)
+
+
+def facade_page_response[T](
+    view: "GenericAPIView",
+    fetch: Callable[[PageRequest], Page[T]],
+    serializer_class: type[BaseSerializer] | None = None,
+) -> Response:
+    """Return the limit/offset response for one page that `fetch` reads through a facade."""
+    paginator = view.paginator
+    if not isinstance(paginator, FacadeLimitOffsetPagination):
+        raise ImproperlyConfigured(f"{type(view).__name__} needs a FacadeLimitOffsetPagination pagination_class.")
+    return paginator.get_paginated_facade_response(view.request, view, fetch, serializer_class)
+
+
+def facade_cursor_page_response[T](
+    view: "GenericAPIView",
+    fetch: Callable[[CursorPageRequest], Page[T]],
+    serializer_class: type[BaseSerializer] | None = None,
+) -> Response:
+    """Return the cursor response for one page that `fetch` reads through a facade."""
+    paginator = view.paginator
+    if not isinstance(paginator, FacadeCursorPagination):
+        raise ImproperlyConfigured(f"{type(view).__name__} needs a FacadeCursorPagination pagination_class.")
+    return paginator.get_paginated_facade_response(view.request, view, fetch, serializer_class)

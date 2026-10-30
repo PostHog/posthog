@@ -20,7 +20,6 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -33,6 +32,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import APIScopePermission
 from posthog.products import product_app_names
+from posthog.queryset_paging import stable_queryset_ordering
 
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation

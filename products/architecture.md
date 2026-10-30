@@ -467,15 +467,15 @@ The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` /
 
 A facade returns contracts, not a queryset, so a view cannot hand its rows to a DRF paginator.
 The facade pages in SQL instead, and the view builds the standard response from that page.
-`posthog/paging.py` holds the page types, and `posthog/api/pagination.py` holds the helpers.
+`posthog/paging.py` holds the page types, `posthog/queryset_paging.py` pages a queryset into them, and `posthog/api/pagination.py` holds the view helpers.
 
 - A facade list function takes a `PageRequest` (or a `CursorPageRequest`) and returns `Page[Contract]`.
   Page the queryset with `select_page` (or `select_cursor_page`), then convert the rows with `page.map(...)`.
   Both helpers count the whole list and add the primary key as the last sort term, so a page boundary never skips or repeats a row.
-- The view sets `pagination_class = FacadeLimitOffsetPagination` and returns `self.paginator.get_paginated_facade_response(request, self, fetch)`, where `fetch` calls the facade with the page.
-  For a cursor list, subclass `FacadeCursorPagination` and set `ordering`.
+- The view sets `pagination_class = FacadeLimitOffsetPagination` and returns `facade_page_response(self, fetch)`, where `fetch` calls the facade with the page.
+  For a cursor list, subclass `FacadeCursorPagination`, set `ordering`, and return `facade_cursor_page_response(self, fetch)`.
 - Use limit/offset for a list that people browse with a total.
-  Use a cursor for a list that grows at the top while people read it, such as runs or deliveries, because offsets shift as rows arrive.
+  Use a cursor for a list that grows at the top while people read it, such as batch export runs or deliveries, because offsets shift as rows arrive.
   Do not add page-number lists.
 - Every list returns `count`, `next`, `previous` and `results`, so clients and MCP tools page every product the same way.
   Add extra fields beside them when a list needs them, and do not replace them.

@@ -8,8 +8,9 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.pagination import FacadeCursorPagination, StableCursorPagination, select_cursor_page
+from posthog.api.pagination import FacadeCursorPagination, StableCursorPagination
 from posthog.paging import CursorPageRequest, Page
+from posthog.queryset_paging import select_cursor_page
 
 from products.annotations.backend.models.annotation import Annotation
 
