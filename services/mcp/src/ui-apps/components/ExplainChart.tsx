@@ -10,6 +10,7 @@ import { ExplainChartView } from 'products/product_analytics/mcp/apps/explainCha
 
 import { capture } from '../analytics/posthog'
 import { useEvidenceCharts } from '../hooks/useEvidenceCharts'
+import { ExplainChartFeedback } from './ExplainChartFeedback'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type { TrendsQuery, TrendsResult } from './types'
 
@@ -48,12 +49,14 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
             : undefined
     }, [query])
 
+    // The host updates `data` in place, so key on the story to start each new one at its summary.
+    const storyKey = `${JSON.stringify(data.query)}:${data.headline}`
+
     return (
         <Card>
             <CardContent>
                 <ExplainChartView
-                    // The host updates `data` in place, so key on the story to start each new one at its summary.
-                    key={`${JSON.stringify(data.query)}:${data.headline}`}
+                    key={storyKey}
                     data={data}
                     title={data.insightName ?? 'Trends'}
                     renderChart={(overlay) => (
@@ -79,6 +82,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                         })
                     }
                 />
+                <ExplainChartFeedback key={storyKey} />
             </CardContent>
         </Card>
     )
