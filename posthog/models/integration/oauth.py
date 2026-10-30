@@ -50,6 +50,11 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
         return text[:300] if text else None
 
     if isinstance(body, dict):
+        graph_error = body.get("error")
+        if isinstance(graph_error, dict):
+            # Meta's Graph API nests the error in an object whose trace id and codes mean nothing to the customer.
+            message = graph_error.get("message")
+            return str(message) if message else None
         description = body.get("error_description") or body.get("message")
         code = body.get("error")
         if description and code:
@@ -78,6 +83,12 @@ _STRIPE_MODE_MISMATCH_MESSAGE = (
 )
 
 
+_CLIENT_CREDENTIALS_REJECTED_MESSAGE = (
+    "This connection failed because of a problem on PostHog's side, and nothing in your account needs to change. "
+    "Contact support so we can fix it."
+)
+
+
 def _oauth_error_field(res: requests.Response, field: str) -> str | None:
     try:
         body = res.json()
@@ -89,6 +100,19 @@ def _oauth_error_field(res: requests.Response, field: str) -> str | None:
 
 def _oauth_error_code(res: requests.Response) -> str | None:
     return _oauth_error_field(res, "error")
+
+
+def _is_client_credentials_rejected(res: requests.Response) -> bool:
+    # The provider refused PostHog's client id or secret, so starting the connection again fails the same way.
+    if _oauth_error_code(res) == "invalid_client":
+        return True
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    graph_error = body.get("error") if isinstance(body, dict) else None
+    message = graph_error.get("message") if isinstance(graph_error, dict) else None
+    return isinstance(message, str) and "validating client secret" in message.lower()
 
 
 def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
@@ -113,6 +137,8 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
         # The code expired, was already exchanged, or was issued for another account. The
         # provider's description can echo the code itself, so it stays in the logs.
         raise ValidationError(_INVALID_GRANT_MESSAGE)
+    if _is_client_credentials_rejected(res):
+        raise ValidationError(_CLIENT_CREDENTIALS_REJECTED_MESSAGE)
     provider_error = _extract_oauth_error_message(res)
     if provider_error:
         raise ValidationError(f"{kind} OAuth failed: {provider_error}")

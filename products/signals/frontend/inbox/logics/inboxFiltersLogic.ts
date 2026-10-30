@@ -31,6 +31,7 @@ import {
     InboxReportSectionKey,
     InboxScope,
     SignalReportPriority,
+    SignalSourceProduct,
 } from '../types'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
@@ -45,6 +46,16 @@ export type InboxSortField = 'recommended' | 'priority' | 'created_at' | 'update
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
 export type InboxCreatedWindow = '24h' | '3d' | '7d' | '14d'
+
+/**
+ * One choice in the Source filter. The API combines `source_product` and `scout` as AND, so one
+ * choice sets one of the two and clears the other.
+ */
+export interface InboxSourceSelection {
+    kind: 'source_product' | 'scout'
+    /** The raw `source_product` value, or the exact scout `skill_name`. */
+    value: string
+}
 
 /** The window a model sort picks when none is set: the ranking sweep only scores reports from the last 7 days. */
 const MODEL_SORT_DEFAULT_WINDOW: InboxCreatedWindow = '7d'
@@ -78,7 +89,12 @@ export function isDefaultStateFilter(stateFilter: InboxReportSectionKey[]): bool
 // Query-param keys that mirror the filter state so a view can be shared via URL.
 const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'state', 'sort', 'search', 'created'] as const
 
-const VALID_SOURCE_VALUES = new Set(INBOX_SOURCE_OPTIONS.map((o) => o.value))
+// Every product the backend knows, because the Source filter offers each configured product and not
+// only the products with a toolbar entry.
+const VALID_SOURCE_VALUES = new Set<string>([
+    ...Object.values(SignalSourceProduct),
+    ...INBOX_SOURCE_OPTIONS.map((o) => o.value),
+])
 const VALID_PRIORITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
 const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 // Only the field/direction combinations the Sort control actually offers — validating the field and
@@ -282,6 +298,13 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
+const MIN_TRIGRAM_SEARCH_LENGTH = 3
+
+export function appliedInboxSearch(searchQuery: string): string | undefined {
+    const search = searchQuery.trim()
+    return search.length >= MIN_TRIGRAM_SEARCH_LENGTH ? search : undefined
+}
+
 /**
  * The sort params for the list request. Recommended is a server preset that a user flag resolves
  * to a ranker, so it goes out as `sort` with no `ordering`, because `ordering` overrides the preset.
@@ -300,8 +323,10 @@ export interface inboxFiltersLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
     activeCreatedWindow: InboxCreatedWindow | null
+    activeScoutFilter: string[]
     activeSortDirection: InboxSortDirection
     activeSortField: InboxSortField
+    activeSourceProductFilter: string[]
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     createdWindow: InboxCreatedWindow | null
@@ -320,8 +345,17 @@ export interface inboxFiltersLogicValues {
     searchQuery: string
     sortDirection: InboxSortDirection
     sortField: InboxSortField
+    sourceFilterAvailable: boolean
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: (
+        | 'closed'
+        | 'dismissed'
+        | 'held-back'
+        | 'monitoring'
+        | 'needs-decision'
+        | 'not-actionable'
+        | 'resolved'
+    )[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -407,6 +441,12 @@ export interface inboxFiltersLogicActions {
         direction: InboxSortDirection
         field: InboxSortField
     }
+    setSourceFilter: (selection: InboxSourceSelection | null) => {
+        selection: InboxSourceSelection | null
+    }
+    sourceFilterAvailabilityChanged: () => {
+        value: true
+    }
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
     }
@@ -417,7 +457,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'closed' | 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     }
 }
 
@@ -426,8 +466,8 @@ export interface inboxFiltersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasActiveFilters: (
             searchQuery: string,
-            sourceProductFilter: string[],
-            scoutFilter: string[],
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
@@ -448,8 +488,12 @@ export interface inboxFiltersLogicMeta {
             createdWindow: InboxCreatedWindow | null,
             timeWindowAvailable: boolean
         ) => InboxCreatedWindow | null
+        sourceFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        activeSourceProductFilter: (sourceProductFilter: string[], sourceFilterAvailable: boolean) => string[]
+        activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
         visibleStateFilter: (
             stateFilter: (
+                | 'closed'
                 | 'dismissed'
                 | 'held-back'
                 | 'monitoring'
@@ -510,6 +554,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleSourceProduct: (source: string) => ({ source }),
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
+        // Replace the source and scout selection in one step. Null clears both.
+        setSourceFilter: (selection: InboxSourceSelection | null) => ({ selection }),
+        // Fires when the Source filter flag changes while a stored selection exists, so the lists
+        // reload with or without that selection.
+        sourceFilterAvailabilityChanged: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // The report states (Needs decision, Review and merge, …) shown in the flat Reports list.
         // Multi-select: the open-work states are selected by default (DEFAULT_STATE_FILTER), and an
@@ -553,8 +602,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 scope: values.scope,
                 sortField: values.activeSortField,
                 sortDirection: values.activeSortDirection,
-                sourceProductFilter: values.sourceProductFilter,
-                scoutFilter: values.scoutFilter,
+                sourceProductFilter: values.activeSourceProductFilter,
+                scoutFilter: values.activeScoutFilter,
                 priorityFilter: values.priorityFilter,
                 stateFilter: values.stateFilter,
                 searchQuery: values.searchQuery,
@@ -592,6 +641,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleSourceProduct: () => captureQueryChange('source_product'),
             toggleScout: () => captureQueryChange('scout'),
             clearScoutFilter: () => captureQueryChange('scout'),
+            setSourceFilter: ({ selection }) =>
+                captureQueryChange(selection?.kind === 'scout' ? 'scout' : 'source_product'),
             togglePriority: () => captureQueryChange('priority'),
             setPriorityFilter: () => captureQueryChange('priority'),
             toggleState: () => captureQueryChange('state'),
@@ -691,6 +742,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 toggleSourceProduct: (state, { source }) =>
                     state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
+                setSourceFilter: (_, { selection }) => (selection?.kind === 'source_product' ? [selection.value] : []),
                 setFilters: (_, { filters }) => filters.sourceProductFilter,
                 clearFilters: () => [],
             },
@@ -704,6 +756,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 toggleScout: (state, { scout }) =>
                     state.includes(scout) ? state.filter((s) => s !== scout) : [...state, scout],
                 clearScoutFilter: () => [],
+                setSourceFilter: (_, { selection }) => (selection?.kind === 'scout' ? [selection.value] : []),
                 setFilters: (_, { filters }) => filters.scoutFilter,
                 clearFilters: () => [],
             },
@@ -738,7 +791,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Reports list renders (client-side), so the surfaces that need it check
         // `stateFilter` directly.
         hasActiveFilters: [
-            (s) => [s.searchQuery, s.sourceProductFilter, s.scoutFilter, s.priorityFilter, s.activeCreatedWindow],
+            (s) => [
+                s.searchQuery,
+                s.activeSourceProductFilter,
+                s.activeScoutFilter,
+                s.priorityFilter,
+                s.activeCreatedWindow,
+            ],
             (
                 searchQuery: string,
                 sourceProductFilter: string[],
@@ -746,7 +805,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 priorityFilter: SignalReportPriority[],
                 activeCreatedWindow: InboxCreatedWindow | null
             ): boolean =>
-                searchQuery.trim().length > 0 ||
+                appliedInboxSearch(searchQuery) !== undefined ||
                 sourceProductFilter.length > 0 ||
                 scoutFilter.length > 0 ||
                 priorityFilter.length > 0 ||
@@ -798,6 +857,23 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (createdWindow: InboxCreatedWindow | null, timeWindowAvailable: boolean): InboxCreatedWindow | null =>
                 timeWindowAvailable ? createdWindow : null,
         ],
+        sourceFilterAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_SOURCE_FILTER],
+        ],
+        // The source and scout selection the lists request with. Like the created window, a stored or
+        // shared selection does nothing while its flag is off, so it cannot narrow a list that has no
+        // control for it. The raw values stay stored and in the URL.
+        activeSourceProductFilter: [
+            (s) => [s.sourceProductFilter, s.sourceFilterAvailable],
+            (sourceProductFilter: string[], sourceFilterAvailable: boolean): string[] =>
+                sourceFilterAvailable ? sourceProductFilter : [],
+        ],
+        activeScoutFilter: [
+            (s) => [s.scoutFilter, s.sourceFilterAvailable],
+            (scoutFilter: string[], sourceFilterAvailable: boolean): string[] =>
+                sourceFilterAvailable ? scoutFilter : [],
+        ],
         // The stored state filter can name states the current user cannot see: a staff-only state
         // from a shared link, or one persisted before staff access changed. The list and the filter
         // control read this narrowed view, so a hidden state can never strand the list on a
@@ -818,6 +894,12 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         modelSortAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
             if (wasAvailable && !available && isRankingSortField(values.sortField)) {
                 actions.resetUnavailableSort()
+            }
+        },
+        sourceFilterAvailable: (available: boolean, wasAvailable: boolean | undefined) => {
+            const hasSelection = values.sourceProductFilter.length > 0 || values.scoutFilter.length > 0
+            if (wasAvailable !== undefined && available !== wasAvailable && hasSelection) {
+                actions.sourceFilterAvailabilityChanged()
             }
         },
     })),
@@ -844,6 +926,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleSourceProduct: toUrl,
             toggleScout: toUrl,
             clearScoutFilter: toUrl,
+            setSourceFilter: toUrl,
             togglePriority: toUrl,
             setPriorityFilter: toUrl,
             toggleState: toUrl,

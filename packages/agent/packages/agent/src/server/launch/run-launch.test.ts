@@ -122,18 +122,59 @@ describe("run launch", () => {
   });
 
   describe("readProductLaunch", () => {
-    it("links the product source to the inbox report", () => {
-      const launch = readProductLaunch(
-        sources({
-          apiUrl: "https://us.posthog.com/",
-          task: createTask({ signal_report: "rep_1" }),
+    it.each<[string, Task, string | undefined]>([
+      [
+        "the inbox report",
+        createTask({ signal_report: "rep_1" }),
+        "https://us.posthog.com/project/2/inbox/rep_1",
+      ],
+      [
+        "the web chat for a web task",
+        createTask({ client_provenance: "posthog_web" }),
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+      [
+        "the web chat for a browser task without provenance",
+        createTask({ origin_product: "posthog_ai" }),
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+      [
+        "the desktop bridge for a PostHog AI task from desktop",
+        createTask({
+          origin_product: "posthog_ai",
+          client_provenance: "posthog_desktop",
         }),
+        "https://us.posthog.com/code/task/task-1",
+      ],
+      [
+        "the web chat for a mobile task",
+        createTask({
+          origin_product: "posthog_ai",
+          client_provenance: "posthog_mobile",
+        }),
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+      [
+        "the desktop bridge for a channel task",
+        createTask({ client_provenance: "posthog_desktop", channel: "ch-1" }),
+        "https://us.posthog.com/code/channel/ch-1/tasks/task-1",
+      ],
+      [
+        "the desktop bridge for a desktop task",
+        createTask({ client_provenance: "posthog_desktop" }),
+        "https://us.posthog.com/code/task/task-1",
+      ],
+      [
+        "nothing for an automated task",
+        createTask({ origin_product: "review_hog" }),
+        undefined,
+      ],
+    ])("links the product source to %s", (_, task, expected) => {
+      const launch = readProductLaunch(
+        sources({ apiUrl: "https://us.posthog.com/", task }),
       );
 
-      expect(launch.source).toEqual({
-        label: "inbox report",
-        url: "https://us.posthog.com/project/2/inbox/rep_1",
-      });
+      expect(launch.source?.url).toBe(expected);
     });
 
     it("gives products a copy of the run state", () => {

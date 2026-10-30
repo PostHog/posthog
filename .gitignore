@@ -54,10 +54,6 @@ docs/internal/logs-sampling-discovery.md
 docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
 ee/benchmarks/results
-ee/support_sidebar_max/.env
-ee/support_sidebar_max/.vscode
-ee/support_sidebar_max/.vscode/settings.json
-ee/support_sidebar_max/max-venv/
 frontend/storybook-static
 max-test-venv/
 mts_example_*.json
@@ -225,6 +221,12 @@ posthog/hogql/scripts/.local/
 rust/cohort-store/
 rust/cohort-stream-processor/cohort-store/
 
+# Build output of Rust node addons. Each addon also ignores its own output.
+# This root rule keeps a local leftover ignored after an addon is deleted
+# together with its .gitignore, so `git add -A` cannot commit it.
+rust/**/*.node
+rust/**/dist/
+
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem
 
@@ -248,3 +250,6 @@ corpora/
 /.context/
 # Rendered by the image build with `manage.py render_wizard_tool_catalog`
 /products/wizard/tool-catalog.json
+
+# Argent (simulator driver) writes recordings wherever its tool server starts.
+.argent/recordings/

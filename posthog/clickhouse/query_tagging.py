@@ -691,6 +691,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
+def get_http_request_id() -> str | None:
+    http_request_id = get_query_tag_value("http_request_id")
+    return str(http_request_id) if isinstance(http_request_id, uuid.UUID) else None
+
+
 # Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
 # assignment on a fresh shallow copy (see update/with_temporal/with_dagster), and nested tag
 # objects are only ever replaced, never mutated in place. That makes shallow model_copy()

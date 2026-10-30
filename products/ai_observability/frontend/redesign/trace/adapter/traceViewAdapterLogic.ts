@@ -14,17 +14,22 @@ import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
 import type {
     TraceApi,
+    TraceClusterApi,
     TraceEvaluationResultsApi,
     TraceFeedbackApi,
     TraceNodeApi,
+    TracePullRequestApi,
     TraceSearchResultsApi,
     TraceTimelineRowApi,
 } from '../../../generated/api.schemas'
 import { GitBranchChipProps } from '../components/GitBranchChip'
+import { TraceClustersChipProps } from '../components/TraceClustersChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import type { TraceSearchBoxData } from '../components/TraceSearchBox'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
+import { traceClustersLogic } from '../traceClustersLogic'
 import { traceFeedbackLogic } from '../traceFeedbackLogic'
+import { traceGitPullRequestLogic } from '../traceGitPullRequestLogic'
 import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from '../traceSearchLogic'
 import { traceSummaryLogic } from '../traceSummaryLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
@@ -47,9 +52,11 @@ import {
     TraceSearchFailure,
     TraceSearchStatus,
 } from '../types'
+import { toClustersChip } from './toClustersChip'
 import { toDatasetItemSource } from './toDatasetItemSource'
 import { firstFailingNodeId, toEvalOutcomesByNode, toEvalsChip } from './toEvalSummary'
 import { stepFeedbackOf, toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
+import { toGitPullRequestLink } from './toGitPullRequestLink'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './toSearch'
@@ -80,8 +87,10 @@ export interface traceViewAdapterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    clusters: TraceClusterApi[] | null // traceClustersLogic
     traceFeedback: TraceFeedbackApi | null // traceFeedbackLogic
     traceFeedbackFailed: boolean // traceFeedbackLogic
+    pullRequest: TracePullRequestApi | null // traceGitPullRequestLogic
     query: string // traceSearchLogic
     searchFailure: TraceSearchFailure | null // traceSearchLogic
     searchResults: TraceSearchResultsApi | null // traceSearchLogic
@@ -111,6 +120,7 @@ export interface traceViewAdapterLogicValues {
     tree: TraceNodeApi[] // traceViewLogic
     backLink: LabeledLink
     canViewInThread: boolean
+    clustersChip: TraceClustersChipProps | null
     datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
@@ -151,6 +161,7 @@ export interface traceViewAdapterLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    loadClusters: (createdAt: string) => string // traceClustersLogic
     retryTraceFeedback: () => {
         value: true
     } // traceFeedbackLogic
@@ -280,9 +291,10 @@ export interface traceViewAdapterLogicMeta {
             currentTeamId: number | null,
             traceId: string
         ) => ConversationState
+        clustersChip: (clusters: TraceClusterApi[] | null) => TraceClustersChipProps | null
         evalsChip: (evaluationResults: TraceEvaluationResultsApi | null) => EvalsChipData | null
         evalOutcomesByNode: (evaluationResults: TraceEvaluationResultsApi | null) => Record<string, EvalRollupOutcome>
-        gitBranch: (trace: TraceApi | null) => GitBranchChipProps | null
+        gitBranch: (trace: TraceApi | null, pullRequest: TracePullRequestApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
         feedbackChip: (traceFeedback: TraceFeedbackApi | null) => FeedbackChipData | null
         feedbackCount: (traceFeedback: TraceFeedbackApi | null) => number | null
@@ -361,6 +373,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['searchParams'],
             featureFlagLogic,
             ['featureFlags'],
+            traceClustersLogic({ traceId: props.traceId }),
+            ['clusters'],
             traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['traceFeedback', 'traceFeedbackFailed'],
             traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
@@ -369,12 +383,16 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['state as summaryState', 'requesting as summaryRequesting', 'requestError as summaryRequestError'],
             aiConsentLogic,
             ['dataProcessingAccepted as summaryConsentGiven'],
+            traceGitPullRequestLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['pullRequest'],
         ],
         actions: [
             aiObservabilityTraceLogic,
             ['setEventId', 'loadNeighbors'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['loadNode', 'loadTraceSuccess'],
+            traceClustersLogic({ traceId: props.traceId }),
+            ['loadClusters'],
             traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['retryTraceFeedback'],
             traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
@@ -552,6 +570,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 return toThread({ traceId, createdAt, load, teamId })
             },
         ],
+        clustersChip: [
+            (s) => [s.clusters],
+            (clusters: TraceClusterApi[] | null): TraceClustersChipProps | null => toClustersChip(clusters),
+        ],
         evalsChip: [
             (s) => [s.evaluationResults],
             (evaluationResults: TraceEvaluationResultsApi | null): EvalsChipData | null =>
@@ -562,7 +584,13 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (evaluationResults: TraceEvaluationResultsApi | null): Record<string, EvalRollupOutcome> =>
                 evaluationResults ? toEvalOutcomesByNode(evaluationResults.summary) : {},
         ],
-        gitBranch: [(s) => [s.trace], (trace: TraceApi | null): GitBranchChipProps | null => trace?.git ?? null],
+        gitBranch: [
+            (s) => [s.trace, s.pullRequest],
+            (trace: TraceApi | null, pullRequest: TracePullRequestApi | null): GitBranchChipProps | null =>
+                trace?.git
+                    ? { ...trace.git, pullRequest: pullRequest ? toGitPullRequestLink(pullRequest) : null }
+                    : null,
+        ],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.threadNodeIds, p.traceId],
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
@@ -586,7 +614,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (s) => [s.stepFeedback],
             (stepFeedback: Record<string, StepFeedback>): Record<string, number> =>
                 Object.fromEntries(
-                    Object.entries(stepFeedback).map(([nodeId, step]) => [nodeId, step.scores.length + step.textCount])
+                    Object.entries(stepFeedback).map(([nodeId, step]) => [
+                        nodeId,
+                        step.scores.length + step.responseCount,
+                    ])
                 ),
         ],
         selectedStepFeedback: [
@@ -664,6 +695,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 entry,
                 scores: values.traceFeedback?.scores.length ?? null,
                 responses: values.traceFeedback?.responses.length ?? null,
+                unanswered: values.traceFeedback?.unanswered.length ?? null,
             })
         }
         const syncSummary = (previousMode: TraceMode): void => {
@@ -690,6 +722,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             },
             loadTraceSuccess: ({ trace }) => {
                 actions.loadNeighbors(props.traceId, trace.createdAt)
+                actions.loadClusters(trace.createdAt)
                 // Cluster and session pages link to a trace with tab=summary. The mode opens without generating.
                 // A link that also names a step opens that step, because the Summary mode covers the whole trace.
                 if (values.initialTab === 'summary' && values.mode !== 'summary' && !values.eventId) {

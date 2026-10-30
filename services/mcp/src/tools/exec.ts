@@ -112,13 +112,28 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     }
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+// A tool whose description happens to mention the search term says nothing about what the
+// search was for: `search persons-` reaches query-logs that way. Only a name match counts.
+function namesMatchingSearch(names: string[], term: string): string[] {
+    if (isRegexPattern(term)) {
+        try {
+            const regex = new RegExp(term, 'i')
+            return names.filter((name) => regex.test(name))
+        } catch {
+            return []
+        }
+    }
+    const tokens = term.toLowerCase().split(/\s+/).filter(Boolean)
+    return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
+}
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
         availableToolNames.has('metric-describe') &&
         availableToolNames.has('data-catalog-metric-run')
-    const hasDataDomainMatch = matches.some((name) =>
+    const hasDataDomainMatch = nameMatches.some((name) =>
         DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
     )
     if (!hasMetricCatalog || !hasDataDomainMatch) {
@@ -328,8 +343,10 @@ function execHelp(command: string, learnEnabled: boolean): string {
     }
     const help = commands[command]
     if (typeof help !== 'string') {
+        // `help <prefix>` is a natural way to ask "what can I do with workflows", so the
+        // refusal names the command that answers it rather than only listing the verbs.
         throw new ExecCommandError(
-            `Unknown command: "${command}". Run "help" to list available commands.`,
+            `Unknown command: "${command}". Run "help" to list available commands, or "search ${command}" to find tools for it.`,
             'unknown_command'
         )
     }
@@ -1879,7 +1896,11 @@ export function createExecTool(
                     let gatedMatches: ScopeGatedTool[] = []
                     let truncatedFrom = 0
                     let fallbackFrom: string | undefined
+                    // The word fallback searches something other than what the agent typed, so
+                    // the catalog hint has to read the matches against the term that found them.
+                    let searchTerm = query
                     const rankByWords = (words: string): void => {
+                        searchTerm = words
                         const ranked = searchToolsRanked(searchableTools, words)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
                         matchedNames = ranked.map((r) => r.name)
@@ -1946,7 +1967,7 @@ export function createExecTool(
                             ? undefined
                             : `No tool is named "${fallbackFrom}". These are the closest matches by its words.`
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, matches)
+                        const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
                         return JSON.stringify({
                             matches,
                             truncated: true,
@@ -1959,7 +1980,7 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, matches)
+                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
                     const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
                     if (hint) {
                         return JSON.stringify({ matches, hint })

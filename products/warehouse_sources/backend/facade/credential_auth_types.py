@@ -445,6 +445,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "faros-ai": "credentials",
     "fastbill": "credentials",
     "fastly": "token",
+    "fathom": "credentials",
     "fauna": "credentials",
     "featurebase": "token",
     "feishu": "credentials",
