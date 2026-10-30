@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -94,6 +95,7 @@ def to_printed_hogql(
     )[0]
 
 
+@bounded_compilation
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
@@ -182,6 +184,7 @@ def prepare_and_print_ast(
         context.type_observability = previous_type_observability
 
 
+@bounded_compilation
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
@@ -495,6 +498,7 @@ def prepare_ast_for_printing(
     return node
 
 
+@bounded_compilation
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,

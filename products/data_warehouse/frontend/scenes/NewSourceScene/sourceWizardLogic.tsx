@@ -12,8 +12,8 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -502,6 +502,7 @@ export interface sourceWizardLogicValues {
     nextButtonDisabledReason: string | null
     nextButtonText: string
     oauthRedirectUrl: string | undefined
+    objectStorageSourcesEnabled: boolean
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
@@ -988,6 +989,11 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
+        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
+            name: string
+            type: ManualLinkSourceType
+        }[]
         isSelfManagedSource: (
             manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
         ) => boolean
@@ -1823,13 +1829,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }))
             },
         ],
+        // The managed object storage sources replace self-managed tables, so no new ones are created.
+        objectStorageSourcesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES],
+        ],
         manualConnectors: [
-            () => [],
-            (): { name: string; type: ManualLinkSourceType }[] =>
-                manualLinkSources.map((source) => ({
-                    name: MANUAL_LINK_SOURCE_LABELS[source],
-                    type: source,
-                })),
+            (s) => [s.objectStorageSourcesEnabled],
+            (objectStorageSourcesEnabled: boolean): { name: string; type: ManualLinkSourceType }[] =>
+                objectStorageSourcesEnabled
+                    ? []
+                    : manualLinkSources.map((source) => ({
+                          name: MANUAL_LINK_SOURCE_LABELS[source],
+                          type: source,
+                      })),
         ],
         isSelfManagedSource: [
             (s) => [s.manualLinkingProvider],
@@ -2690,6 +2704,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
                 actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
                 actions.setStep(2)
+                return
+            }
+
+            if (values.objectStorageSourcesEnabled && manualLinkSources.some((type) => type === kind)) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+                router.actions.replace(urls.dataWarehouseSourceNew())
                 return
             }
 

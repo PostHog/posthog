@@ -81,9 +81,7 @@ class FilterExpression:
             self._require(len(types) == 1 and types <= {"string", "integer"}, node, "Use one scalar type of list item.")
             return f"array<{next(iter(types))}>"
         if isinstance(node, ast.CompareOperation):
-            return self._comparison_type(
-                node, self._validate(node.left, depth + 1), self._validate(node.right, depth + 1)
-            )
+            return self._comparison_type(node, depth)
         if isinstance(node, ast.Call):
             return self._call_type(node, depth)
         raise FilterValidationError("unsupported_expression", "This expression form is not supported in filters.", node)
@@ -100,7 +98,13 @@ class FilterExpression:
             return "string"
         raise FilterValidationError("literal_limit", "Use a bounded string, integer, boolean or null literal.", node)
 
-    def _comparison_type(self, node: ast.CompareOperation, left: str, right: str) -> str:
+    def _comparison_type(self, node: ast.CompareOperation, depth: int) -> str:
+        if node.op in {ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn} and isinstance(
+            node.right, ast.Constant
+        ):
+            node.right = ast.Tuple(exprs=[node.right], start=node.right.start, end=node.right.end)
+        left = self._validate(node.left, depth + 1)
+        right = self._validate(node.right, depth + 1)
         if node.op in {ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn}:
             if not isinstance(node.right, ast.Tuple | ast.Array):
                 raise FilterValidationError("type", "IN requires a literal list.", node)

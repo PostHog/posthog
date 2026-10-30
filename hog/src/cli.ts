@@ -153,6 +153,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
         const command = parent.command(name).description(node.description)
         switch (node.kind) {
             case 'group':
+                command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
                     addNode(command, childName, child)
                 }
@@ -262,6 +263,34 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
     })
 }
 
+// posthog-cli commands that hog groups under a new name, with the flags that changed.
+const RENAMED: Record<string, { to: string; hint: string }> = {
+    sourcemap: {
+        to: 'error-tracking inject|upload|process',
+        hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
+    },
+    hermes: {
+        to: 'error-tracking inject|clone|upload',
+        hint: 'Pass paths as arguments instead of --directory, and the two maps to `hog error-tracking clone` instead of -m and -c.',
+    },
+    dsym: {
+        to: 'error-tracking upload',
+        hint: 'Pass the folder as an argument instead of --directory, as in `hog error-tracking upload build/Release-iphoneos`.',
+    },
+    'symbol-sets': {
+        to: 'error-tracking upload|download|extract',
+        hint: 'Pass paths and the symbol set as arguments: `hog error-tracking download <id or ref>` replaces --id and --ref.',
+    },
+    release: {
+        to: 'error-tracking release',
+        hint: '`hog error-tracking release -o text` prints just the release ID, like `posthog-cli release resolve`.',
+    },
+    proguard: {
+        to: 'error-tracking upload',
+        hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',
+    },
+}
+
 function toHogError(caught: unknown): HogError {
     if (caught instanceof HogError) {
         return caught
@@ -271,6 +300,15 @@ function toHogError(caught: unknown): HogError {
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
+            const renamed = RENAMED[name]
+            if (renamed) {
+                return new HogError(
+                    'unknown_command',
+                    `\`${name}\` is \`hog ${renamed.to}\` in hog.`,
+                    renamed.hint,
+                    EXIT_USAGE
+                )
+            }
             const [match] = nestedMatches(COMMANDS, name)
             const message = match ? `Unknown command '${name}'. Did you mean \`hog ${match}\`?` : sentence
             return new HogError(

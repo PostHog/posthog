@@ -30,9 +30,9 @@ import {
     EXPERIMENT_APPROVAL_ACTIONS,
     getApprovalActionLabel,
 } from 'scenes/approvals/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ApprovalPolicy, AvailableFeature } from '~/types'
 
 import { approvalPoliciesLogic } from './approvalPoliciesLogic'

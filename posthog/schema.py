@@ -3222,6 +3222,14 @@ class ResolvedDateRangeResponse(BaseModel):
     )
     date_from: AwareDatetime
     date_to: AwareDatetime
+    read_from: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "The earliest timestamp the query reads, when only its first interval"
+            " depends on rows from before date_from. Lifecycle sets it to the start of"
+            " the interval before the range."
+        ),
+    )
 
 
 class ResultCustomizationBase(BaseModel):
@@ -5903,6 +5911,13 @@ class ExperimentExposureHealthFinding(BaseModel):
         ...,
         description=(
             "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
+        ),
+    )
+    reason: str | None = Field(
+        ...,
+        description=(
+            "A stable qualifier below the subcode, for example where a sample ratio"
+            " mismatch is located. Null when the finding names none."
         ),
     )
     severity: ExperimentExposureHealthFindingSeverity = Field(

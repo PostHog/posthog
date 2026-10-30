@@ -128,7 +128,7 @@ class WarehouseFilterBindings:
         value = (
             _call("JSONExtractString", raw)
             if field_type == "string"
-            else _call("accurateCastOrNull", raw, ast.Constant(value="Int64"))
+            else _call("accurateCastOrNull", _call("JSONExtractRaw", raw), ast.Constant(value="Int64"))
         )
         return _JsonValue(
             raw=value,

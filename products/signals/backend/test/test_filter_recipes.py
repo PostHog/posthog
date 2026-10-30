@@ -192,9 +192,36 @@ class TestFilterRecipeExecution(SimpleTestCase):
         self.assertEqual(self.execute(bindings("array<string>"), '{"value":["a","b"]}'), ["a", "b"])
         self.assertEqual(self.execute(bindings("integer", "column"), 0, "value IN (1,2)"), 0)
         self.assertEqual(self.execute(bindings("integer", "column"), 2, "value IN (1,2)"), 1)
+        self.assertEqual(self.execute(bindings("integer", "column"), 2, "value IN (2)"), 1)
+        self.assertEqual(self.execute(bindings("integer", "column"), 1, "value IN (2)"), 0)
+        self.assertEqual(self.execute(bindings("string", "column"), "Core", "value NOT IN ('Core')"), 0)
+        self.assertEqual(self.execute(bindings("string", "column"), "Other", "value NOT IN ('Core')"), 1)
         self.assertEqual(self.execute(bindings("string", "column"), "literal' OR true", "value = 'other'"), 0)
         self.assertEqual(self.execute(bindings("integer", "column"), 2, "false"), 0)
         self.assertIsNone(bindings().predicate(""))
+
+    @parameterized.expand(
+        [
+            (" 2 ", 2),
+            ("\t2\t", 2),
+            ("\n2\n", 2),
+            (" 9223372036854775807 ", 9223372036854775807),
+            (" -9223372036854775808 ", -9223372036854775808),
+            (" 9223372036854775808 ", None),
+            (" -9223372036854775809 ", None),
+        ]
+    )
+    def test_root_json_integer_whitespace(self, payload: str, expected: int | None) -> None:
+        bundle = catalog_bundle("integer")
+        bundle.fields[0].binding = JsonPathRecipe(kind="json_path", column="payload", path=[])
+        engine = WarehouseFilterBindings(
+            bundle, {"payload": StringDatabaseField(name="payload")}, source_alias="source"
+        )
+        if expected is None:
+            self.assert_malformed(engine, payload)
+        else:
+            self.assertEqual(self.execute(engine, payload), expected)
+            self.assertEqual(self.execute(engine, payload, f"value = {expected}"), 1)
 
     def test_runtime_size_bounds(self) -> None:
         for payload, engine in [

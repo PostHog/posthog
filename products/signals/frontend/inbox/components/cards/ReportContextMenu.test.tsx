@@ -9,7 +9,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
+import { myAgentClaim, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
@@ -150,6 +150,12 @@ describe('ReportContextMenu', () => {
         {
             name: 'releases the user claim',
             report: makeReport({ assignee: myClaim }),
+            item: 'Unclaim',
+            body: { release: true },
+        },
+        {
+            name: 'releases the claim made by the user through their agent',
+            report: makeReport({ assignee: myAgentClaim }),
             item: 'Unclaim',
             body: { release: true },
         },

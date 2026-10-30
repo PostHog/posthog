@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team, User
 from posthog.models.integration import (
     GitHubIntegration,
@@ -777,6 +778,24 @@ def test_serializer_rejects_a_provider_that_cannot_hold_issues(team):
     integration = Integration.objects.create(team=team, kind="slack", integration_id="slack-1", config={})
     serializer = SignalTeamConfigSerializer(
         data={"issue_tracking_integration": integration.id},
+        partial=True,
+        context={"team_id": team.id},
+    )
+
+    assert not serializer.is_valid()
+    assert "issue_tracking_integration" in serializer.errors
+
+
+@pytest.mark.django_db
+def test_serializer_rejects_a_warehouse_source_row(team):
+    integration = Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="github-source",
+        config={"account": {"name": "acme"}, SOURCE_MARKER_CONFIG_KEY: "Github"},
+    )
+    serializer = SignalTeamConfigSerializer(
+        data={"issue_tracking_integration": integration.id, "issue_tracking_config": {"repository": "web"}},
         partial=True,
         context={"team_id": team.id},
     )

@@ -16,14 +16,13 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
-from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
@@ -74,13 +73,7 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
-from .artefact_schemas import (
-    NON_WRITABLE_ARTEFACT_TYPES,
-    ActionabilityChoice,
-    RankingScore,
-    SourceSuggestion,
-    priority_from_judgment,
-)
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .implementation_repositories import (
@@ -109,8 +102,9 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
-from .ranking.public_outcomes import PUBLIC_OUTCOMES, RankingOutcome
-from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
+from .ranking.public_outcomes import RankingOutcome
+from .ranking.report_predictions import read_report_predictions
+from .ranking.staleness import EDIT_ARTEFACT_TYPES
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
@@ -434,8 +428,8 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
-    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    issue_tracking_integration = IntegrationReferenceField(
+        kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
         required=False,
         allow_null=True,
         help_text=(
@@ -671,15 +665,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
         return value.id if value is not None else None
 
-    def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
-        if value is None:
-            return None
-        if not is_supported_external_issue_provider(value.kind):
-            raise serializers.ValidationError(
-                f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
-            )
-        return value
-
     def validate(self, attrs: dict) -> dict:
         attrs = super().validate(attrs)
         # A new channel without its workspace must not keep the old binding, which may name a
@@ -713,7 +698,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             )
         # The repository reaches a GitHub path, so a name it cannot hold fails here rather than on
         # every run.
-        if integration.kind == Integration.IntegrationKind.GITHUB:
+        if integration.kind == IntegrationKind.GITHUB:
             try:
                 validated_github_repository(config["repository"])
             except serializers.ValidationError as error:
@@ -2144,11 +2129,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if request is None or not (can_view() if can_view is not None else request.user.is_staff):
             return _ranking_payload(RankingStatus.NOT_AVAILABLE)
 
-        from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
-            head_lifts,
-            readable_head_names,
-        )
-
         prefetched = getattr(obj, "prefetched_ranking_score_artefacts", None)
         if prefetched is not None:
             art = prefetched[0] if prefetched else None
@@ -2158,8 +2138,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 .order_by("-created_at")
                 .first()
             )
-        if art is None:
-            return _ranking_payload(RankingStatus.UNSCORED)
         prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
         if prefetched_edits is not None:
             latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
@@ -2170,45 +2148,24 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 .values_list("created_at", flat=True)
                 .first()
             )
-        try:
-            score = RankingScore.model_validate_json(art.content)
-            served = score.results[score.served_key]
-        except (ValueError, KeyError):
-            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+        read = read_report_predictions(art, latest_edit_at)
+        if read.status == "unscored":
             return _ranking_payload(RankingStatus.UNSCORED)
-        # The ranking filters read the score alone, so bad readability or threshold metadata must not hide it here.
-        try:
-            readable_heads = readable_head_names(served.metadata)
-        except (KeyError, TypeError, AttributeError):
-            readable_heads = frozenset()
-        try:
-            # A score written before lifts were stored carries the metadata to compute them.
-            lifts = served.lifts or head_lifts(served.scores, served.metadata)
-        except (ValueError, KeyError, TypeError, AttributeError):
-            lifts = {}
         # Agents get rounded values because extra digits suggest precision the model does not have.
         for_agent = is_mcp_request(request)
-        predictions = []
-        for entry in PUBLIC_OUTCOMES:
-            probability = served.scores.get(entry.model_head)
-            if probability is None:
-                continue
-            lift = lifts.get(entry.model_head)
-            predictions.append(
+        return _ranking_payload(
+            RankingStatus(read.status),
+            model=read.model,
+            scored_at=read.scored_at,
+            predictions=[
                 {
                     "outcome": entry.outcome,
-                    "probability": round(probability, 2) if for_agent else probability,
-                    "lift": round(lift, 1) if for_agent and lift is not None else lift,
-                    "readable": entry.model_head in readable_heads,
+                    "probability": round(entry.probability, 2) if for_agent else entry.probability,
+                    "lift": round(entry.lift, 1) if for_agent and entry.lift is not None else entry.lift,
+                    "readable": entry.readable,
                 }
-            )
-        if not predictions:
-            return _ranking_payload(RankingStatus.UNSCORED)
-        return _ranking_payload(
-            RankingStatus.STALE if is_stale_score(score, latest_edit_at) else RankingStatus.SCORED,
-            model=score.served_key,
-            scored_at=score.scored_at,
-            predictions=predictions,
+                for entry in read.predictions
+            ],
         )
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
@@ -3224,6 +3181,12 @@ class SuggestedReviewerEntryReadSerializer(serializers.Serializer):
     reason = serializers.CharField(allow_null=True, help_text="Why this reviewer was chosen.")
     is_skill_owner = serializers.BooleanField(
         help_text="True when the scout owner guardrail added the entry rather than commit authorship."
+    )
+    is_default_owner = serializers.BooleanField(
+        help_text=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence."
+        )
     )
     source_skill = serializers.CharField(
         allow_null=True, help_text="Scout skill whose run wrote the entry. Null when no scout did."
