@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
@@ -27,6 +27,9 @@ export interface Runtime {
     cwd: () => string
     exists: (path: string) => Promise<boolean>
     readFile: (path: string) => Promise<string>
+    isDirectory: (path: string) => Promise<boolean>
+    // Writes a project file, such as a generated SDK, and creates the folders above it.
+    writeFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
     removeFile: (path: string) => Promise<void>
     readStdin: () => Promise<string>
@@ -81,6 +84,15 @@ export function processRuntime(): Runtime {
                 () => false
             ),
         readFile: (path) => readFile(path, 'utf8'),
+        isDirectory: (path) =>
+            stat(path).then(
+                (stats) => stats.isDirectory(),
+                () => false
+            ),
+        writeFile: async (path, contents) => {
+            await mkdir(dirname(path), { recursive: true })
+            await writeFile(path, contents)
+        },
         // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
         // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
         writePrivateFile: async (path, contents) => {
