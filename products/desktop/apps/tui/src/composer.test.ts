@@ -117,17 +117,20 @@ describe("Composer", () => {
     composer.setCommands([
       { name: "review-pr", description: "Review a pull request" },
     ]);
-    composer.handleInput("/");
-    await vi.waitFor(() =>
-      expect(composer.render(60, true).popup.length).toBeGreaterThan(0),
-    );
+    const suggestionsFor = async (typed: string): Promise<string> => {
+      composer.clear();
+      for (const key of typed) composer.handleInput(key);
+      await vi.waitFor(() =>
+        expect(composer.render(60, true).popup.length).toBeGreaterThan(0),
+      );
+      return composer
+        .render(60, true)
+        .popup.map((line) => stripTerminalSequences(line))
+        .join("\n");
+    };
 
-    const popup = composer
-      .render(60, true)
-      .popup.map((line) => stripTerminalSequences(line))
-      .join("\n");
-    expect(popup).toContain("review-pr");
-    expect(popup).toContain("model");
+    expect(await suggestionsFor("/re")).toContain("review-pr");
+    expect(await suggestionsFor("/mo")).toContain("model");
   });
 
   it("shows a cursor only while its pane has focus", () => {

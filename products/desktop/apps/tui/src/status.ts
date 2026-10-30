@@ -18,10 +18,11 @@ const repoName = (repository: string | null | undefined): string | null =>
   repository ? (repository.split("/").at(-1) ?? null) : null;
 
 // Where a chat runs, its repository and its pull request, for the pane's title row.
-// A new chat has no task yet, so it describes the cloud run it will start in `newChatRepository`.
+// Without a server task (a new chat, or a local one), it describes where the chat runs from `place` and `newChatRepository`.
 export function statusChips(
   task: Task | undefined,
   newChatRepository: string | null,
+  place: "local" | "cloud" = "cloud",
 ): StatusChip[] {
   const run = task?.latest_run as
     | (Task["latest_run"] & {
@@ -29,9 +30,8 @@ export function statusChips(
         pr_state?: string | null;
       })
     | undefined;
-  const chips: StatusChip[] = [
-    { label: run?.environment === "local" ? "Local" : "Cloud" },
-  ];
+  const local = run ? run.environment === "local" : place === "local";
+  const chips: StatusChip[] = [{ label: local ? "Local" : "Cloud" }];
   const repo = repoName(task ? task.repository : newChatRepository);
   if (repo) chips.push({ label: repo });
 

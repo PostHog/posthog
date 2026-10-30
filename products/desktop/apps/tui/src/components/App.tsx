@@ -33,6 +33,7 @@ import {
   splitFocused,
   splitSizes,
 } from "../layout";
+import type { LocalSession } from "../local";
 import {
   type ModelChoice,
   modelSheet,
@@ -106,7 +107,13 @@ export interface Session {
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
+  startLocal: (id: string) => Promise<LocalSession>;
 }
+
+// Local chats have no server task; panes hold them under an id with this prefix.
+const LOCAL_PREFIX = "local:";
+const isLocal = (taskId: string | null): taskId is string =>
+  taskId?.startsWith(LOCAL_PREFIX) ?? false;
 
 export function App({
   session,
@@ -120,7 +127,53 @@ export function App({
   logout: () => void;
   mouse?: MouseEvents;
 }): ReactElement {
-  const { work, runs, chats, control } = session ?? {};
+  const {
+    work,
+    runs,
+    chats,
+    control: cloudControl,
+    startLocal,
+  } = session ?? {};
+  // Running local chats, started on first use and stopped when the app closes.
+  const locals = useRef(new Map<string, Promise<LocalSession>>());
+  const [localSessions, setLocalSessions] = useState<Map<string, LocalSession>>(
+    new Map(),
+  );
+  const localFor = (id: string): Promise<LocalSession> => {
+    let started = locals.current.get(id);
+    if (!started) {
+      if (!startLocal)
+        return Promise.reject(new Error("Sign in first: type /login"));
+      started = startLocal(id);
+      locals.current.set(id, started);
+      started.then(
+        (local) =>
+          setLocalSessions((current) => new Map(current).set(id, local)),
+        (error: unknown) => {
+          locals.current.delete(id);
+          flashNotice(`Couldn't start the local agent: ${messageOf(error)}`);
+        },
+      );
+    }
+    return started;
+  };
+  useEffect(
+    () => () => {
+      for (const started of locals.current.values()) {
+        void started.then((local) => local.stop()).catch(() => {});
+      }
+    },
+    [],
+  );
+  // Cloud runs go through the engine; local chats through their own agent process.
+  const control = cloudControl
+    ? (taskId: string, runId: string): PiControl =>
+        isLocal(taskId)
+          ? (localSessions.get(taskId)?.control ?? cloudControl(taskId, runId))
+          : cloudControl(taskId, runId)
+    : undefined;
+  // Where a pane's next new chat runs; /local and /cloud switch it.
+  const [modes, setModes] = useState<Map<string, "local" | "cloud">>(new Map());
   const { exit } = useApp();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -240,6 +293,20 @@ export function App({
     };
   }, [work, limit]);
 
+  // Local chats in the layout come back after a restart, from their saved pi sessions.
+  const localIds = layout.workspaces
+    .flatMap((w) => panes(w.root))
+    .flatMap((pane) => (isLocal(pane.taskId) ? [pane.taskId] : []))
+    .join();
+  const startLocalChat = useRef(localFor);
+  startLocalChat.current = localFor;
+  useEffect(() => {
+    if (!startLocal) return;
+    for (const id of localIds ? localIds.split(",") : []) {
+      void startLocalChat.current(id).catch(() => {});
+    }
+  }, [localIds, startLocal]);
+
   // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
   const prefetched = useRef(new Set<string>());
   useEffect(() => {
@@ -303,15 +370,28 @@ export function App({
 
   const openModelSheet = (paneId: string, task: Task | undefined): void => {
     const run = task?.latest_run;
-    if (task && run && control && indicatorFor(task, false) === "alive") {
-      const live = control(task.id, run.id);
+    const pane = layout.workspaces
+      .flatMap((w) => panes(w.root))
+      .find((candidate) => candidate.id === paneId);
+    const localSession = isLocal(pane?.taskId ?? null)
+      ? localSessions.get(pane?.taskId as string)
+      : undefined;
+    const target = localSession
+      ? { control: localSession.control, taskId: pane?.taskId as string }
+      : task && run && control && indicatorFor(task, false) === "alive"
+        ? { control: control(task.id, run.id), taskId: task.id }
+        : null;
+    if (target) {
+      const live = target.control;
       setNotice("Loading models…");
       live.models().then(
         ({ available, current }) => {
           setNotice(null);
           knownModels.current = available;
           if (current)
-            setTaskModels((models) => new Map(models).set(task.id, current));
+            setTaskModels((models) =>
+              new Map(models).set(target.taskId, current),
+            );
           openModal(
             paneId,
             modelSheet(available, current, "Switches this chat's model now."),
@@ -320,7 +400,7 @@ export function App({
               live.setModel(model).then(
                 () =>
                   setTaskModels((models) =>
-                    new Map(models).set(task.id, model),
+                    new Map(models).set(target.taskId, model),
                   ),
                 (error: unknown) =>
                   flashNotice(`Couldn't switch model: ${messageOf(error)}`),
@@ -461,6 +541,16 @@ export function App({
       setLayout(newChat);
       return;
     }
+    if (slash?.command === "local" || slash?.command === "cloud") {
+      const mode = slash.command;
+      setModes((current) => new Map(current).set(paneId, mode));
+      flashNotice(
+        mode === "local"
+          ? `New chats here run on this machine, in ${process.cwd()}`
+          : "New chats here run in the cloud",
+      );
+      return;
+    }
     if (slash?.command === "login") {
       openLoginSheet(paneId, "Pick the PostHog you sign in to.");
       return;
@@ -479,6 +569,29 @@ export function App({
       return;
     }
     setPending((messages) => new Map(messages).set(paneId, text));
+    const localId = isLocal(pane?.taskId ?? null)
+      ? (pane?.taskId as string)
+      : !pane?.taskId && modes.get(paneId) === "local"
+        ? `${LOCAL_PREFIX}${globalThis.crypto.randomUUID()}`
+        : null;
+    if (localId) {
+      if (!pane?.taskId) {
+        setLayout((state) =>
+          assignTask(state, paneId, localId, text.slice(0, 80)),
+        );
+      }
+      localFor(localId)
+        .then((local) => local.prompt(text))
+        .catch((error: unknown) => {
+          setPending((messages) => {
+            const next = new Map(messages);
+            next.delete(paneId);
+            return next;
+          });
+          flashNotice(`Couldn't send: ${messageOf(error)}`);
+        });
+      return;
+    }
     (current ? chats.reply(current, text) : chats.start(text)).then(
       (task) => {
         setFresh((tasks) => new Map(tasks).set(task.id, task));
@@ -811,6 +924,10 @@ export function App({
             paneTaskId={node.taskId}
             task={taskOf(node.taskId)}
             runs={runs ?? null}
+            local={
+              isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined
+            }
+            newChatPlace={modes.get(node.id) ?? "cloud"}
             chat={chatFor(`${node.id}:${node.taskId}`)}
             composer={composerFor(node.id)}
             pending={pending.get(node.id) ?? null}
@@ -827,9 +944,17 @@ export function App({
             onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
             onTurn={(turn) => runningTurns.current.set(node.id, turn)}
             chips={
-              node.taskId && !taskOf(node.taskId)
-                ? []
-                : statusChips(taskOf(node.taskId), newChatRepository)
+              isLocal(node.taskId) || !node.taskId
+                ? statusChips(
+                    undefined,
+                    newChatRepository,
+                    isLocal(node.taskId)
+                      ? "local"
+                      : (modes.get(node.id) ?? "cloud"),
+                  )
+                : taskOf(node.taskId)
+                  ? statusChips(taskOf(node.taskId), newChatRepository)
+                  : []
             }
             onPrChip={(element, url) => {
               if (element && url)

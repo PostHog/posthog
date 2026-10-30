@@ -37,6 +37,7 @@ describe("App", () => {
             runs: {} as CloudRuns,
             chats: {} as PiChats,
             control: () => ({}) as PiControl,
+            startLocal: () => Promise.reject(new Error("no local")),
           }}
           login={async () => {}}
           logout={() => {}}
@@ -65,6 +66,7 @@ describe("App", () => {
           runs: runs,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
         }}
         login={async () => {}}
         logout={() => {}}

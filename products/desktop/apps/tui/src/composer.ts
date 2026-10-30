@@ -48,6 +48,8 @@ export function isTyping(sequence: string): boolean {
 export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
   { name: "new", description: "Start a new chat" },
+  { name: "local", description: "Run new chats in this pane on this machine" },
+  { name: "cloud", description: "Run new chats in this pane in the cloud" },
   { name: "login", description: "Sign in to PostHog" },
   { name: "logout", description: "Sign out and clear your workspaces" },
 ];

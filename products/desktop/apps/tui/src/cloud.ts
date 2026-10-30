@@ -1,16 +1,22 @@
-import { appendFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { createPiRpcClient } from "@posthog/agent/pi/rpc-client";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
-import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import {
+  getCloudTaskGatewayUrl,
+  TRANSCRIPT_TAIL_WINDOW,
+} from "@posthog/shared";
 import { currentRepository, PiChats } from "./chats";
+import { LocalSession } from "./local";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { CloudRuns } from "./runs";
 
 export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
+const LOCAL_SESSIONS = join(homedir(), ".config", "posthog-tui", "local");
 
 interface TokenSource {
   getAccessToken(): Promise<string>;
@@ -74,6 +80,7 @@ export function createCloud(
   runs: CloudRuns;
   chats: PiChats;
   control: (taskId: string, runId: string) => PiControl;
+  startLocal: (id: string) => Promise<LocalSession>;
 } {
   let teamId: Promise<number> | null = null;
   const context = async () => {
@@ -119,5 +126,29 @@ export function createCloud(
     runs,
     chats: new PiChats(api, sendMessage, currentRepository()),
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
+    // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
+    startLocal: async (id) => {
+      const { apiHost, teamId } = await context();
+      mkdirSync(LOCAL_SESSIONS, { recursive: true });
+      const session = new LocalSession(
+        createPiRpcClient({
+          sessionFile: join(LOCAL_SESSIONS, `${id}.jsonl`),
+          taskContext: {
+            taskId: id,
+            cwd: process.cwd(),
+            projectId: teamId,
+            apiHost,
+            environment: "local",
+          },
+          providerOptions: {
+            apiKey: await auth.getAccessToken(),
+            baseUrl: getCloudTaskGatewayUrl(apiHost),
+            headers: {},
+          },
+        }),
+      );
+      await session.start();
+      return session;
+    },
   };
 }

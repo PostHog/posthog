@@ -52,10 +52,16 @@ describe("statusChips", () => {
     expect(statusChips(subject, null)).toEqual(chips);
   });
 
-  it("describes a new chat by where it will run", () => {
-    expect(statusChips(undefined, "PostHog/posthog-js")).toEqual([
-      { label: "Cloud" },
-      { label: "posthog-js" },
-    ]);
-  });
+  it.each([
+    ["cloud", "Cloud"],
+    ["local", "Local"],
+  ] as const)(
+    "describes a %s chat without a server task by where it runs",
+    (place, label) => {
+      expect(statusChips(undefined, "PostHog/posthog-js", place)).toEqual([
+        { label },
+        { label: "posthog-js" },
+      ]);
+    },
+  );
 });
