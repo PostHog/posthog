@@ -446,9 +446,11 @@ def run_promql_query(
     """Run a PromQL expression as a Snuffle range query on the bucket grid that `run_metric_query` uses.
 
     A bucket that a series did not report is a null point, not zero. The caller checks the Snuffle
-    feature flag. The presentation layer surfaces `ValueError` as a 400.
+    feature flag. The presentation layer surfaces `ValueError` as a 400. Raises `ConcurrencyLimitExceeded`
+    when the organization runs too many queries.
     """
-    return run_promql_range(team, expr, date_from, date_to, interval)
+    with query_concurrency_slots(team):
+        return run_promql_range(team, expr, date_from, date_to, interval)
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:

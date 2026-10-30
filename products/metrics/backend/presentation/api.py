@@ -7,7 +7,7 @@ recognizable.
 import re
 import datetime as dt
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import models
@@ -196,6 +196,7 @@ class MetricQueryInterval(models.TextChoices):
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
 _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+_PROMQL_EXCLUDED_FIELDS = ("metricType", "aggregation", "rangeFunction", "quantile", "filters", "groupBy", "formula")
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -293,6 +294,17 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
 
+    def to_internal_value(self, data: Any) -> dict:
+        attrs = super().to_internal_value(data)
+        # Read the raw input, because the default of 'aggregation' hides whether the caller set it.
+        if (attrs.get("promql") or "").strip():
+            if set_fields := [field for field in _PROMQL_EXCLUDED_FIELDS if data.get(field)]:
+                raise serializers.ValidationError(
+                    f"'promql' cannot be combined with {', '.join(repr(f) for f in set_fields)}. "
+                    "Put selectors, grouping and functions in the PromQL expression."
+                )
+        return attrs
+
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
@@ -310,12 +322,6 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         if [has_single, has_clauses, has_promql].count(True) != 1:
             raise serializers.ValidationError("Provide exactly one of 'metricName', 'clauses' or 'promql'.")
         if has_promql:
-            builder_fields = ("metricType", "rangeFunction", "quantile", "filters", "groupBy", "formula")
-            if set_fields := [field for field in builder_fields if attrs.get(field)]:
-                raise serializers.ValidationError(
-                    f"'promql' cannot be combined with {', '.join(repr(f) for f in set_fields)}. "
-                    "Put selectors, grouping and functions in the PromQL expression."
-                )
             return attrs
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
@@ -1185,16 +1191,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team.pk,
         ):
             raise PermissionDenied("PromQL variable queries are not enabled for this project.")
-        # API keys are budgeted as on /query, so SQL options debit the reads they make.
-        if get_query_tag_value("access_method") == "personal_api_key":
-            tag_queries(api_queries_budgeted=True)
-            if api_queries_budget_enforcement_enabled(self.team):
-                budget = get_api_queries_budget_status(self.team)
-                if budget is not None and budget.remaining_bytes <= 0:
-                    raise Throttled(
-                        wait=budget.retry_after_seconds,
-                        detail="ClickHouse query byte budget exhausted. Try again later.",
-                    )
+        self._enforce_api_queries_budget()
         variables = [
             MetricsDashboardVariable(
                 name=selection["name"],
@@ -1222,6 +1219,19 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ParseError(str(exc))
 
         return Response({"results": results}, status=status.HTTP_200_OK)
+
+    def _enforce_api_queries_budget(self) -> None:
+        # API keys are budgeted as on /query, so these reads debit the budget and stop when it is spent.
+        if get_query_tag_value("access_method") != "personal_api_key":
+            return
+        tag_queries(api_queries_budgeted=True)
+        if api_queries_budget_enforcement_enabled(self.team):
+            budget = get_api_queries_budget_status(self.team)
+            if budget is not None and budget.remaining_bytes <= 0:
+                raise Throttled(
+                    wait=budget.retry_after_seconds,
+                    detail="ClickHouse query byte budget exhausted. Try again later.",
+                )
 
     @extend_schema(request=_MetricQueryRequestSerializer, responses={200: _MetricQueryResponseSerializer})
     @action(
@@ -1282,6 +1292,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team.pk,
         ):
             raise PermissionDenied("PromQL queries are not enabled for this project.")
+        self._enforce_api_queries_budget()
         try:
             series = run_promql_query(
                 team=self.team,
@@ -1290,6 +1301,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=date_to,
                 interval=query_data.get("interval"),
             )
+        except ConcurrencyLimitExceeded as exc:
+            raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except ValueError as exc:
             raise ParseError(str(exc))
 

@@ -502,6 +502,7 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
             ("promql_and_metric_name", {"promql": "up", "metricName": "up"}),
             ("promql_and_clauses", {"promql": "up", "clauses": [{"name": "a", "metricName": "up"}]}),
             ("promql_and_formula", {"promql": "up", "formula": "a / 2"}),
+            ("promql_and_aggregation", {"promql": "http_requests_total", "aggregation": "rate"}),
         ]
     )
     def test_query_needs_exactly_one_form(self, _name: str, body: dict[str, Any]) -> None:
@@ -555,6 +556,44 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
             response = self._post({"promql": "up"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        request.assert_not_called()
+
+    def test_promql_query_respects_the_query_byte_budget(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="promql", user=self.user, secure_value=hash_key_value(token), scopes=["metrics:read"]
+        )
+        self.client.logout()
+        exhausted = MagicMock(remaining_bytes=0, retry_after_seconds=30)
+        with (
+            patch(
+                "products.metrics.backend.presentation.api.api_queries_budget_enforcement_enabled", return_value=True
+            ),
+            patch("products.metrics.backend.presentation.api.get_api_queries_budget_status", return_value=exhausted),
+            patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/metrics/query/",
+                {"query": {"promql": "up"}},
+                format="json",
+                headers={"authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        request.assert_not_called()
+
+    def test_promql_query_takes_a_concurrency_slot(self) -> None:
+        with (
+            patch(
+                "products.metrics.backend.query_concurrency.app_org_concurrency_slot",
+                side_effect=ConcurrencyLimitExceeded("full"),
+            ),
+            patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+        ):
+            response = self._post({"promql": "up"})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
         request.assert_not_called()
 
 
