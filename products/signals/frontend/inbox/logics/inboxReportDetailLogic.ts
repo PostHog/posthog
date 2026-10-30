@@ -90,6 +90,7 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
+import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
@@ -1704,7 +1705,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }
             actions.setReportStateSaving(true)
             try {
-                await signalsReportsStateCreate(String(ApiConfig.getCurrentProjectId()), props.reportId, { state })
+                await withInboxWriteTimeout('state', (options) =>
+                    signalsReportsStateCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.reportId,
+                        { state },
+                        options
+                    )
+                )
                 inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
                 const scene = inboxSceneLogic.findMounted()
                 if (scene?.values.selectedReportId === props.reportId) {
@@ -1712,6 +1720,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }
             } catch {
                 lemonToast.error("Couldn't update this report. Refresh it and try again.")
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
             } finally {
                 actions.setReportStateSaving(false)
             }
@@ -1725,8 +1734,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.setPrioritySaving(true)
             let updated: SignalReportApi
             try {
-                updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
+                updated = await withInboxWriteTimeout('priority', (options) =>
+                    signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority }, options)
+                )
             } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
                 if (inboxReportDetailLogic.isMounted(props)) {
                     actions.setPrioritySaving(false)
                     lemonToast.error("Couldn't save the priority. Try again.")
@@ -1772,11 +1784,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 if (inboxReportDetailLogic.isMounted(props)) {
                     actions.setClaimSaving(false)
                     lemonToast.error(outcome.message)
-                    if (outcome.conflict) {
-                        // Reload so the page shows who holds the claim now.
-                        scene?.actions.loadSelectedReport({ id: props.reportId })
-                    }
                 }
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
                 return
             }
             const updated = outcome.updated

@@ -256,6 +256,39 @@ describe('inboxReportDetailLogic', () => {
             }
         )
 
+        // A write that fails without an answer, such as one that timed out, can still have saved on the server.
+        it.each<{ write: string; mocks: Parameters<typeof useMocks>[0]; run: () => void }>([
+            {
+                write: 'claim',
+                mocks: { post: { '/api/projects/:team_id/signals/reports/:id/claim/': () => [500, {}] } },
+                run: () => logic.actions.setReportClaimed(true),
+            },
+            {
+                write: 'priority',
+                mocks: { put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } },
+                run: () => logic.actions.updatePriority('P2'),
+            },
+            {
+                write: 'state',
+                mocks: { post: { '/api/projects/:team_id/signals/reports/:id/state/': () => [500, {}] } },
+                run: () => logic.actions.changeReportState('potential'),
+            },
+        ])('asks every surface to reload the report after a failed $write write', async ({ mocks, run }) => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            try {
+                useMocks(mocks)
+                await expectLogic(bulkLogic, run).toDispatchActions([
+                    bulkLogic.actionCreators.reportWriteFailed([REPORT.id]),
+                ])
+                expect(errorToast).toHaveBeenCalledTimes(1)
+            } finally {
+                errorToast.mockRestore()
+                bulkLogic.unmount()
+            }
+        })
+
         it('keeps the saved priority after a failure and allows retrying', async () => {
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })
             logic.actions.updatePriority('P2')

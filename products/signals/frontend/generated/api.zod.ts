@@ -51,6 +51,12 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
         ),
+    default_slack_notification_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            "Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too."
+        ),
     autostart_base_branches: zod
         .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
         .optional()

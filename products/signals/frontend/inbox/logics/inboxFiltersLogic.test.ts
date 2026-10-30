@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import {
+    appliedInboxSearch,
     buildSignalReportListOrdering,
     buildSignalReportListSortParams,
     filterSearchParams,
@@ -67,6 +68,17 @@ describe('inboxFiltersLogic', () => {
             ['priority', 'asc', { ordering: 'priority,status,-updated_at' }],
         ] as const)('sends %s:%s as %p', (field, direction, expected) => {
             expect(buildSignalReportListSortParams(field, direction)).toEqual(expected)
+        })
+    })
+
+    describe('appliedInboxSearch', () => {
+        it.each([
+            ['', undefined],
+            [' ai ', undefined],
+            [' api ', 'api'],
+            ['checkout crash', 'checkout crash'],
+        ])('applies %p as %p', (input, expected) => {
+            expect(appliedInboxSearch(input)).toBe(expected)
         })
     })
 
