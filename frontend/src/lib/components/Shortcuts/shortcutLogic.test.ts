@@ -120,6 +120,7 @@ describe('shortcutLogic', () => {
         expect(shortcutLogic.values.shortcutItems[0].keybinding).toBeTruthy()
         shortcutLogic.values.shortcutItems[0].onSelect?.()
         expect(callback).toHaveBeenCalledTimes(1)
+    })
 
     it('leaves hidden shortcuts out of the search items', () => {
         shortcutLogic.actions.registerShortcut({
@@ -139,6 +140,5 @@ describe('shortcutLogic', () => {
         })
 
         expect(shortcutLogic.values.shortcutItems.map((item) => item.name)).toEqual(['Visible action'])
-    })
     })
 })
