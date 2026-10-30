@@ -13287,9 +13287,13 @@ snapshots:
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--light:
         hash: v1.k794b7964.e667a70f89bbba0a7d5bc3166f2bf3a42a17845518e994975944ee2a31aaee0a.fshegHwDj7O7_Gwl8j5eof7QXffqbc_yldQxsNlkUpQ
     scenes-app-insights-flag-calls-retention-notice--default--dark:
-        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
+        hash: v1.k794b7964.20ccba3398f76ea2b88091e558b290bbadac2a2986aebb4fbf11aaed96dd7007.XfNlsSLFg2icPBsHW4S6cBHxBiUxCp6eJR_8O6sb60E
     scenes-app-insights-flag-calls-retention-notice--default--light:
-        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
+        hash: v1.k794b7964.c12813e57a6fae4cc18f454b742439c8fab67c25cd801f9f4f910d0f4cf68a49.AdEUCYBogjpl1gR_QBEajhMqLqSYE7BmAiGZ2yVsOd8
+    scenes-app-insights-flag-calls-retention-notice--first-period--dark:
+        hash: v1.k794b7964.19887b501b8f3644b8f533dd8d5890406c4dd06cc4030f4e00d5afe12db5cd74.DyMNZmR0PK6SE-kQVJNbvhQMaNTlh2XoaIhFC_WI4-A
+    scenes-app-insights-flag-calls-retention-notice--first-period--light:
+        hash: v1.k794b7964.25678808b05ea0f852ddcaab2d64d2d8c5a9643165935b6d84fed53bf8cd7473.Er2uhGCQiqBkVNJZRvhvK6k6iAeM2lB52PJ638tZld8
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.f190c463ee799e93ea5d408200712776460a5a9a920977e2b7a85348350fa43b.dcN7n63RW9QEXstFsPgnAaKodbV6piSN7PMhBuHkaGc
     scenes-app-insights-insight-quick-start--default--light:
