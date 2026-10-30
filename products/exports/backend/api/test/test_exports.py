@@ -44,6 +44,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.api.exports import BLOCKING_EXPORTS_PER_TEAM, _blocking_exports_limiter
+from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.source_authentication import required_scopes_for_export_target
@@ -502,7 +503,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @parameterized.expand([("limit_context", "posthog_ai"), ("execution_mode", "blocking")])
+    @parameterized.expand([("limit_context", "posthog_ai"), ("execution_mode", "blocking"), ("kind", "dataset")])
     def test_errors_if_the_request_picks_an_internal_export_setting(self, key: str, value: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -822,6 +823,36 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/datasets/{dataset_id}/exports/{dataset_export.id}/content",
             fetch_redirect_response=False,
         )
+
+    @parameterized.expand(
+        [
+            ("an owner path", "/api/owner/content", 302, "/api/owner/content?download=true"),
+            ("no owner path", None, 404, None),
+        ]
+    )
+    def test_registered_exports_are_hidden_and_their_content_goes_to_the_owner(
+        self, _name: str, owner_path: str | None, content_status: int, location: str | None
+    ) -> None:
+        with patch.dict(export_handlers._export_format_handlers):
+            export_handlers.register_export_format_handler(
+                export_format="application/json",
+                kind="test_kind",
+                handler=lambda asset: None,
+                content_path=lambda *, team_id, asset_id, export_context: owner_path,
+            )
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.JSON,
+                export_context={"kind": "test_kind"},
+                created_by=self.user,
+                content=b"{}",
+            )
+
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+            content = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content?download=true")
+
+        self.assertEqual(retrieve.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual((content.status_code, content.get("Location")), (content_status, location))
 
     def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
         ordinary_export = ExportedAsset.objects.create(

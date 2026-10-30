@@ -44,6 +44,8 @@ import json
 import argparse
 import warnings
 import subprocess
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -193,25 +195,43 @@ def _name_from_node(node: ast.AST) -> str:
     return ""
 
 
-def _literal_strings(tree: ast.AST) -> set[str]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _SourceFacts:
+    strings: set[str]
+    imports: set[str]
+    calls: list[ast.Call]
+
+
+def _strings_imports_and_calls(tree: ast.AST) -> _SourceFacts:
+    """ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
+    reads node._fields directly. It visits nodes in a different order than ast.walk, which
+    is safe because the caller treats the results as unordered."""
     strings: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            strings.add(node.value)
-    return strings
-
-
-def _imports(tree: ast.AST) -> set[str]:
     imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+    calls: list[ast.Call] = []
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                strings.add(node.value)
+            continue
+        if isinstance(node, ast.Call):
+            calls.append(node)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.add(node.module)
             for alias in node.names:
                 imports.add(f"{node.module}.{alias.name}")
-    return imports
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, list):
+                stack.extend(item for item in value if isinstance(item, ast.AST))
+            elif isinstance(value, ast.AST):
+                stack.append(value)
+    return _SourceFacts(strings=strings, imports=imports, calls=calls)
 
 
 def _normal_tokens(value: str) -> set[str]:
@@ -308,14 +328,11 @@ def classify_test_file(path: str) -> TestFeatures:
     if tree is None:
         return TestFeatures(path=path)
 
-    strings = _literal_strings(tree)
-    imports = _imports(tree)
+    facts = _strings_imports_and_calls(tree)
     calls_http_client = False
     uses_reverse = False
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    for node in facts.calls:
         function_name = _name_from_node(node.func)
         if function_name.endswith(".reverse") or function_name == "reverse":
             uses_reverse = True
@@ -324,12 +341,12 @@ def classify_test_file(path: str) -> TestFeatures:
             if receiver.endswith("client") or ".client" in receiver:
                 calls_http_client = True
 
-    imports_api_client = bool(imports & API_CLIENT_IMPORTS)
-    uses_api_url = any("/api/" in value or value.startswith("/api") for value in strings)
-    lower_imports = " ".join(sorted(imports)).lower()
+    imports_api_client = bool(facts.imports & API_CLIENT_IMPORTS)
+    uses_api_url = any("/api/" in value or value.startswith("/api") for value in facts.strings)
+    lower_imports = " ".join(sorted(facts.imports)).lower()
     lower_path = path.lower()
 
-    api_tokens = set(_api_tokens_from_strings(strings))
+    api_tokens = set(_api_tokens_from_strings(facts.strings))
     if path.startswith("posthog/api/test/"):
         api_tokens.update(_tokens_from_name(PurePosixPath(path).stem.removeprefix("test_")))
 
@@ -347,7 +364,11 @@ def classify_test_file(path: str) -> TestFeatures:
 
 
 def classify_tests() -> dict[str, TestFeatures]:
-    return {path: classify_test_file(path) for path in _iter_python_files() if _is_test_file(path)}
+    paths = [path for path in _iter_python_files() if _is_test_file(path)]
+    # Fork makes each worker inherit module state such as a reassigned REPO_ROOT, which
+    # spawn and forkserver would re-import from scratch.
+    with ProcessPoolExecutor(mp_context=multiprocessing.get_context("fork")) as pool:
+        return dict(zip(paths, pool.map(classify_test_file, paths, chunksize=64)))
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:

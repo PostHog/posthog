@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -38,7 +37,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-10-20',
         pageUrl: urls.aiObservabilityEvaluation('new'),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
             waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]',
         },

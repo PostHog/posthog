@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WebhookSignatureAuthentication
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 
 from products.messaging.backend.facade.customerio import (
     record_global_resubscribe,
@@ -45,7 +45,10 @@ class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
     def get_auth_context(self, request: Request) -> Any:
         if self._team_id is None or self._integration_id is None:
             return None
-        return Integration.objects.filter(team_id=self._team_id, pk=self._integration_id).first()
+        try:
+            return IntegrationManager.customerio_webhook.token.get(self._team_id, self._integration_id)
+        except IntegrationNotFound:
+            return None
 
 
 class CustomerIOWebhookView(APIView):
