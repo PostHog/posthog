@@ -33,6 +33,7 @@ from products.cdp.backend.services.invocation_replay import (
     start_claimed_send,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
+from products.workflows.backend.facade.models import HogFlow
 
 WINDOW_START = datetime(2026, 10, 22, 11, 30, tzinfo=UTC)
 WINDOW_END = datetime(2026, 10, 22, 14, 0, tzinfo=UTC)
@@ -77,13 +78,13 @@ def _row(
     }
 
 
-def _insert(function: HogFunction, rows: list[dict[str, Any]]) -> None:
+def _insert(function: HogFunction | HogFlow, rows: list[dict[str, Any]]) -> None:
     for row in rows:
         sync_execute(
             INSERT_HOG_INVOCATION_RESULT_SQL,
             {
                 "team_id": function.team_id,
-                "function_kind": "hog_function",
+                "function_kind": "hog_flow" if isinstance(function, HogFlow) else "hog_function",
                 "function_id": str(function.id),
                 "parent_run_id": "",
                 "attempts": 1,
@@ -115,6 +116,7 @@ def _criteria(**overrides: Any) -> ReplayCriteria:
         "require_success_since_window": True,
         "skip_already_rerun": True,
         "skip_failing_before_window": True,
+        "include_workflows": False,
         **overrides,
     }
     return ReplayCriteria(**values)
@@ -128,6 +130,13 @@ def _function(team: Any, template_id: str, **fields: Any) -> HogFunction:
         template_id=template_id,
         hog="",
         **{"enabled": True, **fields},
+    )
+
+
+def _workflow(team: Any, **fields: Any) -> HogFlow:
+    hubspot_step = {"id": "sync", "type": "function", "config": {"template_id": "template-hubspot"}}
+    return HogFlow.objects.create(
+        **{"team": team, "name": "workflow", "status": HogFlow.State.ACTIVE, "actions": [hubspot_step], **fields}
     )
 
 
@@ -244,6 +253,56 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
             return
         assert planned[str(function.id)].invocation_ids == tuple(_invocation_id(s) for s in expected_suffixes)
         assert planned[str(function.id)].skipped == expected_skipped
+
+    @parameterized.expand(
+        [
+            # Later steps can send messages, so a later run for the same person does not cover an earlier one.
+            ("replays_every_failed_run", {}, {}, ["a1", "a2"], {}),
+            ("only_when_included", {}, {"include_workflows": False}, [], None),
+            ("archived", {"status": HogFlow.State.ARCHIVED}, {}, [], {"function_not_replayable": 2}),
+            (
+                "sensitive_email",
+                {"actions": [{"id": "email", "type": "function_email", "config": {"sensitive": True}}]},
+                {},
+                [],
+                {"sends_sensitive_email": 2},
+            ),
+            ("step_template_excluded", {}, {"exclude_template_ids": ("template-hubspot",)}, [], None),
+            ("step_template_not_selected", {}, {"template_ids": ("template-google-ads",)}, [], None),
+        ]
+    )
+    def test_plans_which_workflow_failures_to_replay(
+        self,
+        _name: str,
+        workflow_fields: dict[str, Any],
+        criteria: dict[str, Any],
+        expected_suffixes: list[str],
+        expected_skipped: dict[str, int] | None,
+    ) -> None:
+        workflow = _workflow(self.team, **workflow_fields)
+        _insert(workflow, [_row("a1", "failed", 0), _row("a2", "failed", 10), _recovered()])
+
+        plan = plan_replay(_criteria(**{"include_workflows": True, **criteria}))
+
+        planned = {f.function_id: f for f in plan.functions}
+        if expected_skipped is None:
+            assert str(workflow.id) not in planned
+            return
+        assert planned[str(workflow.id)].invocation_ids == tuple(_invocation_id(s) for s in expected_suffixes)
+        assert planned[str(workflow.id)].skipped == expected_skipped
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_sends_workflow_runs_to_the_workflow_rerun(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        function = _function(self.team, "template-google-ads")
+        workflow = _workflow(self.team)
+        for target in (function, workflow):
+            _insert(target, [_row("a1", "failed"), _recovered()])
+
+        execute_replay(plan_replay(_criteria(include_workflows=True)), actor="test")
+
+        sent = {(call.kwargs["function_kind"], call.kwargs["function_id"]) for call in rerun.call_args_list}
+        assert sent == {("hog_function", str(function.id)), ("hog_flow", str(workflow.id))}
 
     @parameterized.expand(
         [
