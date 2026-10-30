@@ -1,9 +1,10 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
 
+import { HERMES_BUNDLE_EXTENSIONS, isComposedMap } from './kinds/hermes'
 import { isJsBundle, JS_EXTENSIONS } from './kinds/js'
 import { isValidProguardMapping } from './kinds/proguard'
 
@@ -50,6 +51,16 @@ const DETECTORS: readonly Detector[] = [
         extensions: JS_EXTENSIONS,
         matches: (path, options) => isJsBundle(path, options.publicPathPrefix),
     },
+    {
+        kind: 'hermes',
+        extensions: HERMES_BUNDLE_EXTENSIONS,
+        matches: (path, options) => isJsBundle(path, options.publicPathPrefix, HERMES_BUNDLE_EXTENSIONS),
+    },
+    {
+        kind: 'hermes',
+        extensions: ['.map'],
+        matches: isComposedMap,
+    },
 ]
 
 function detect(
@@ -63,15 +74,17 @@ function detect(
             (kind === undefined || detector.kind === kind) &&
             (!fromFolder || detector.extensions.some((extension) => path.endsWith(extension)))
     )
-    const matched = candidates.filter((detector) => detector.matches(path, options))
+    const matched = [
+        ...new Set(candidates.filter((detector) => detector.matches(path, options)).map((detector) => detector.kind)),
+    ]
     if (matched.length > 1) {
         throw new HogError(
             'ambiguous_artifact',
-            `${path} looks like more than one artifact type: ${matched.map((detector) => detector.kind).join(', ')}.`,
+            `${path} looks like more than one artifact type: ${matched.join(', ')}.`,
             'Pass --kind to say which one it is.'
         )
     }
-    return matched[0]?.kind
+    return matched[0]
 }
 
 function walk(folder: string, out: string[]): void {
@@ -125,6 +138,15 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 
 export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
     const artifacts: Artifact[] = []
+    // Overlapping paths, like `build build/hbc`, reach the same file twice.
+    const seen = new Set<string>()
+    const add = (artifact: Artifact): void => {
+        const canonical = realpathSync(artifact.path)
+        if (!seen.has(canonical)) {
+            seen.add(canonical)
+            artifacts.push(artifact)
+        }
+    }
     for (const root of roots) {
         const { path, isFile, files } = rootFiles(root, cwd)
         if (isFile) {
@@ -138,13 +160,13 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
                     root.kind ? undefined : 'Pass --kind to say which one it is.'
                 )
             }
-            artifacts.push({ kind, path, display: relative(cwd, path) || path, root })
+            add({ kind, path, display: relative(cwd, path) || path, root })
             continue
         }
         for (const file of files) {
             const kind = detect(file, true, root.kind, options)
             if (kind) {
-                artifacts.push({ kind, path: file, display: relative(cwd, file), root })
+                add({ kind, path: file, display: relative(cwd, file), root })
             }
         }
     }

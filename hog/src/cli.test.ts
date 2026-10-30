@@ -100,6 +100,7 @@ describe('hog', () => {
             'query check',
             'query editor',
             'error-tracking inject',
+            'error-tracking clone',
             'error-tracking upload',
             'error-tracking process',
             'config check',
