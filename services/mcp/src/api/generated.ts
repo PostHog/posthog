@@ -2983,6 +2983,8 @@ export namespace Schemas {
     export interface ResolvedDateRangeResponse {
       date_from: string;
       date_to: string;
+      /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+      read_from?: string | null;
     }
 
     export interface QueryTiming {
@@ -10730,6 +10732,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
+
+
+    export const ValueLabels = {
+      Auto: 'auto',
+      Show: 'show',
+      Hide: 'hide',
+    } as const;
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -10741,8 +10752,12 @@ export namespace Schemas {
     export interface ChartSettingsDisplay {
       color?: string | null;
       displayType?: DisplayType | null;
+      /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+      excludeFromTotal?: boolean | null;
       label?: string | null;
       trendLine?: boolean | null;
+      /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+      valueLabels?: ValueLabels | null;
       yAxisPosition?: YAxisPosition | null;
     }
 
@@ -34301,6 +34316,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35719,6 +35735,7 @@ export namespace Schemas {
       WooPayments: 'WooPayments',
       Soniox: 'Soniox',
       Nango: 'Nango',
+      Fathom: 'Fathom',
     } as const;
 
     /**
@@ -37150,7 +37167,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -40141,7 +40159,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -45297,6 +45316,11 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /**
+         * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+         * @nullable
+         */
+      reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -53390,7 +53414,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54842,7 +54867,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -72938,6 +72964,126 @@ export namespace Schemas {
       Textbox: 'textbox',
     } as const;
 
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     */
+    export type MetricsAlertDestinationTypeEnum = typeof MetricsAlertDestinationTypeEnum[keyof typeof MetricsAlertDestinationTypeEnum];
+
+
+    export const MetricsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type MetricsAlertDestinationEventKindEnum = typeof MetricsAlertDestinationEventKindEnum[keyof typeof MetricsAlertDestinationEventKindEnum];
+
+
+    export const MetricsAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    export interface MetricsAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+         * @minItems 1
+         */
+      event_kinds?: MetricsAlertDestinationEventKindEnum[];
+    }
+
+    export interface MetricsAlertDeleteDestination {
+      /**
+         * IDs of the destinations to delete, as the list endpoint returns them.
+         * @minItems 1
+         * @maxItems 100
+         */
+      destination_ids: string[];
+    }
+
+    export interface MetricsAlertDestination {
+      /** ID of the destination. Send it to the delete endpoint to remove it. */
+      id: string;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
+      /** Whether the destination is sent to. */
+      enabled: boolean;
+      /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+      event_kinds: MetricsAlertDestinationEventKindEnum[];
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
     export interface MetricsCreatedDashboard {
       /** The id of the dashboard. */
       dashboard_id: number;
@@ -73035,6 +73181,175 @@ export namespace Schemas {
          * @nullable
          */
       reviewed_at: string | null;
+    }
+
+    /**
+     * How a series' value compares with `threshold`. Required for a threshold.
+     */
+    export type MetricsPlatformAlertConditionOperator = typeof MetricsPlatformAlertConditionOperator[keyof typeof MetricsPlatformAlertConditionOperator] | null;
+
+
+    export const MetricsPlatformAlertConditionOperator = {
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Eq: 'eq',
+      Ne: 'ne',
+    } as const;
+
+    export type MetricsPlatformAlertConditionKindEnum = typeof MetricsPlatformAlertConditionKindEnum[keyof typeof MetricsPlatformAlertConditionKindEnum];
+
+
+    export const MetricsPlatformAlertConditionKindEnum = {
+      Threshold: 'threshold',
+      Present: 'present',
+    } as const;
+
+    export interface MetricsPlatformAlertCondition {
+      /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+      kind?: MetricsPlatformAlertConditionKindEnum;
+      /** How a series' value compares with `threshold`. Required for a threshold. */
+      operator?: MetricsPlatformAlertConditionOperator;
+      /** The value a series is compared with. Required for a threshold. */
+      threshold?: number | null;
+    }
+
+    export interface MetricsPlatformAlertConfig {
+      /**
+         * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      query: string;
+      /** When a series is in breach. */
+      condition: MetricsPlatformAlertCondition;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type MetricsPlatformAlertConfigurationCreateSourceKind = typeof MetricsPlatformAlertConfigurationCreateSourceKind[keyof typeof MetricsPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationCreateSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface MetricsPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: MetricsPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type MetricsPlatformAlertConfigurationEditSourceKind = typeof MetricsPlatformAlertConfigurationEditSourceKind[keyof typeof MetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const MetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type MetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type MetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface MetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: MetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: MetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface MetricsSuggestedDashboard {
@@ -78330,6 +78645,7 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -78339,6 +78655,7 @@ export namespace Schemas {
       Insight: 'insight',
       WarehouseSource: 'warehouse_source',
       WarehouseDestination: 'warehouse_destination',
+      Metrics: 'metrics',
     } as const;
 
     /**
@@ -78431,7 +78748,8 @@ export namespace Schemas {
        * * `logs` - Logs
        * * `insight` - Insight
        * * `warehouse_source` - Warehouse source
-       * * `warehouse_destination` - Warehouse destination */
+       * * `warehouse_destination` - Warehouse destination
+       * * `metrics` - Metrics */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -87370,6 +87688,11 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /**
+         * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+         * @nullable
+         */
+      reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -89954,6 +90277,69 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
     }
 
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditSourceKind = typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedMetricsPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedMetricsPlatformAlertConfigurationEditSourceKind = {
+      Metrics: 'metrics',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedMetricsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedMetricsPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedMetricsPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
+      source_config?: MetricsPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
     export interface PatchedMoveTileRequest {
       /** Destination dashboard ID. */
       to_dashboard?: number;
@@ -90566,7 +90952,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -95851,7 +96237,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -95979,7 +96365,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -111978,6 +112364,11 @@ export namespace Schemas {
          * @nullable
          */
       default_slack_notification_channel?: string | null;
+      /**
+         * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
+         * @nullable
+         */
+      default_slack_notification_integration?: number | null;
       /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
       autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
       /**
@@ -113999,7 +114390,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -115482,7 +115874,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -116932,7 +117325,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -122138,6 +122532,22 @@ export namespace Schemas {
       event: TraceNodeEvent | null;
     }
 
+    export interface TracePullRequest {
+      /** The owner of the pull request's repository. */
+      repoOwner: string;
+      /** The name of the pull request's repository. */
+      repoName: string;
+      /** The pull request number. */
+      number: number;
+      /** The pull request title, or null when the synced data has none. */
+      title: string | null;
+    }
+
+    export interface TracePullRequestLookup {
+      /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+      pullRequest: TracePullRequest | null;
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.
@@ -123352,6 +123762,18 @@ export namespace Schemas {
       Pagerduty: 'pagerduty',
     } as const;
 
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     */
+    export type WarehouseAlertEventKindChoicesEnum = typeof WarehouseAlertEventKindChoicesEnum[keyof typeof WarehouseAlertEventKindChoicesEnum];
+
+
+    export const WarehouseAlertEventKindChoicesEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+    } as const;
+
     export interface WarehouseAlertCreateDestination {
       /** Notification destination type.
        *
@@ -123361,6 +123783,11 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
+      /**
+         * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -123387,16 +123814,16 @@ export namespace Schemas {
 
     export interface WarehouseAlertDeleteDestination {
       /**
-         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * IDs of the alert's destinations to delete, as the list endpoint returns them.
          * @minItems 1
-         * @maxItems 100
+         * @maxItems 5
          */
-      hog_function_ids: string[];
+      destination_ids: string[];
     }
 
     export interface WarehouseAlertDestination {
-      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-      hog_function_ids: string[];
+      /** Destination ID. Send it to the delete endpoint to remove the destination. */
+      id: string;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -123405,8 +123832,10 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
-      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      /** Whether the destination is sent to. */
       enabled: boolean;
+      /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
+      event_kinds: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID of the Slack workspace. Set when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Set when type=slack. */
@@ -123429,11 +123858,6 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
-    }
-
-    export interface WarehouseAlertDestinationCreated {
-      /** HogFunction IDs created for the destination, one per event kind. */
-      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
@@ -124947,7 +125371,7 @@ export namespace Schemas {
     }
 
     /**
-     * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+     * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
      */
     export type WorkflowImportRequestSnippets = {[key: string]: string};
 
@@ -124968,7 +125392,7 @@ export namespace Schemas {
       source: ImportProviderKeyEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
-      /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+      /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
       snippets?: WorkflowImportRequestSnippets;
       /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
       segment_cohorts?: WorkflowImportRequestSegmentCohorts;
@@ -130671,6 +131095,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

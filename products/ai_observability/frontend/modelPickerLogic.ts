@@ -22,6 +22,7 @@ export interface ModelOption {
     isRecommended?: boolean
     supportsDecisions?: boolean
     supportsChat?: boolean
+    supportsReasoning?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -289,6 +290,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 is_recommended?: boolean
                                 supports_decisions?: boolean
                                 supports_chat?: boolean
+                                supports_reasoning?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -298,6 +300,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 isRecommended: m.is_recommended ?? false,
                                 supportsDecisions: m.supports_decisions ?? false,
                                 supportsChat: m.supports_chat ?? !m.supports_decisions,
+                                supportsReasoning: m.supports_reasoning ?? false,
                                 providerKeyId: key.id,
                             }))
                         } catch {

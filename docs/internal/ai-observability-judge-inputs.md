@@ -180,6 +180,18 @@ Invalid probabilities, missing answers, and mismatched answer types skip the ite
 Inputs rejected for exceeding the model's context window are skipped.
 See OpenAI's [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request), and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their question and answer formats.
 
+## Reasoning level
+
+LLM judges on Anthropic and OpenAI reasoning models can set a reasoning level with the brain button next to the model selector.
+The level is stored as `evaluation_config.reasoning_level` (`minimal`, `low`, `medium` or `high`). Without it, the judge uses the model's default.
+Decision models and other providers do not support it, and the API rejects a level for them.
+Prompt-only `evaluation_config` PATCH requests preserve the saved level; an explicit `reasoning_level: null` restores the model default.
+Selecting a model without reasoning support clears the level in the editor.
+
+Anthropic models before Claude 4.6 get a thinking budget of 1,024, 2,048, 4,096 or 8,192 tokens. Newer models get adaptive thinking with that effort, and `minimal` becomes `low`.
+OpenAI models get `reasoning_effort`. Only the original GPT-5 models accept `minimal`; other models get `low` instead.
+For Anthropic, the token limit of the reply grows by the thinking budget of the level, so the verdict still fits after the thinking.
+
 ## Model output limits
 
 When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.

@@ -2635,6 +2635,10 @@
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
+                "excludeFromTotal": {
+                    "description": "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.",
+                    "type": "boolean"
+                },
                 "label": {
                     "description": "Series label in legends and tooltips; replaces the column name.",
                     "type": "string"
@@ -2642,6 +2646,11 @@
                 "trendLine": {
                     "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
                     "type": "boolean"
+                },
+                "valueLabels": {
+                    "description": "Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.",
+                    "enum": ["auto", "show", "hide"],
+                    "type": "string"
                 },
                 "yAxisPosition": {
                     "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
@@ -2791,7 +2800,7 @@
                     "type": "boolean"
                 },
                 "xAxis": {
-                    "$ref": "#/definitions/AssistantDataVisualizationAxis",
+                    "$ref": "#/definitions/AssistantDataVisualizationColumn",
                     "description": "Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too."
                 },
                 "xAxisLabel": {
@@ -2804,6 +2813,32 @@
                         "$ref": "#/definitions/AssistantDataVisualizationAxis"
                     },
                     "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationColumn": {
+            "additionalProperties": false,
+            "description": "A column with number formatting only. Series display settings apply only to Y-axis series.",
+            "properties": {
+                "column": {
+                    "description": "Name of a column returned by the SQL query.",
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationColumnSettings",
+                    "description": "Optional number formatting for this column."
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationColumnSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "formatting": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
+                    "description": "Number-formatting settings for the values in this column."
                 }
             },
             "type": "object"
@@ -2890,7 +2925,7 @@
                 "columns": {
                     "description": "Columns to display and their order. Omit to show every column returned by the query.",
                     "items": {
-                        "$ref": "#/definitions/AssistantDataVisualizationAxis"
+                        "$ref": "#/definitions/AssistantDataVisualizationColumn"
                     },
                     "type": "array"
                 },
@@ -18102,11 +18137,20 @@
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
+                "excludeFromTotal": {
+                    "description": "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.",
+                    "type": "boolean"
+                },
                 "label": {
                     "type": "string"
                 },
                 "trendLine": {
                     "type": "boolean"
+                },
+                "valueLabels": {
+                    "description": "Overrides the chart's \"Show values on series\" for this series. Unset or 'auto' follows the chart setting.",
+                    "enum": ["auto", "show", "hide"],
+                    "type": "string"
                 },
                 "yAxisPosition": {
                     "enum": ["left", "right"],
@@ -51624,6 +51668,11 @@
                     "type": "string"
                 },
                 "date_to": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "read_from": {
+                    "description": "The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range.",
                     "format": "date-time",
                     "type": "string"
                 }

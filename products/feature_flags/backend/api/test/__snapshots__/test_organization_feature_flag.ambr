@@ -159,9 +159,9 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999)))
@@ -727,18 +727,18 @@
           AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" IN
-            (SELECT U0."id" AS "id"
-             FROM "posthog_team" U0
-             WHERE U0."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
+            (SELECT "U0"."id" AS "id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
          OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
              AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."resource" = 'feature_flag'
              AND "ee_accesscontrol"."resource_id" = '99999'
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" IN
-               (SELECT U0."id" AS "id"
-                FROM "posthog_team" U0
-                WHERE U0."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+               (SELECT "U0"."id" AS "id"
+                FROM "posthog_team" "U0"
+                WHERE "U0"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
@@ -1348,9 +1348,9 @@
                                              'flag-a-query-count')
          AND "posthog_featureflag"."team_id" = 99999
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999)))
@@ -1516,9 +1516,9 @@
                                                  4,
                                                  5 /* ... */)
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999)))
@@ -1592,9 +1592,9 @@
                                                  4,
                                                  5 /* ... */)
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999)))
@@ -2080,9 +2080,9 @@
                                                  4,
                                                  5 /* ... */)
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999)))

@@ -1,6 +1,6 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
-import { ApiRequestTiming } from 'lib/apiRequestTiming'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -119,24 +119,6 @@ type QuerySubmitTelemetry = {
     retry_recovered: boolean
     submit_request_timings: ApiRequestTiming[]
     result_poll_timing?: ApiRequestTiming
-}
-
-const FLATTENED_REQUEST_TIMING_FIELDS = [
-    'http_request_id',
-    'time_to_headers_ms',
-    'body_read_ms',
-    'json_parse_ms',
-    'resource_timing_status',
-] as const
-
-function flattenRequestTiming(
-    timing: ApiRequestTiming | undefined,
-    prefix: '' | 'result_poll_'
-): Record<string, string | number | undefined> {
-    if (!timing) {
-        return {}
-    }
-    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
 }
 
 function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {

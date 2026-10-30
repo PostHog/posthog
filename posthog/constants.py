@@ -11,6 +11,8 @@ POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 # it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
 AI_EVENT_NAME_PREFIX = "$ai_"
 
+MCP_EVENT_NAME_PREFIX = "$mcp_"
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
