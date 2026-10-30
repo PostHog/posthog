@@ -22,12 +22,24 @@ from prometheus_client import Counter
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.constants import (
-    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-    HogQLQuerySettings,
-    get_default_hogql_global_settings,
-)
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
+from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
+    ExperimentMetricEventsPreaggregatedTable,
+)
+from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
+from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
+from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_sessions_preaggregated import WebSessionsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
+from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
@@ -178,6 +190,7 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 
 def _get_insert_settings(
     team_id: int,
+    table: "LazyComputationTable",
     *,
     spill_to_disk: bool = False,
     read_after_write: bool = True,
@@ -199,6 +212,9 @@ def _get_insert_settings(
     minutes later (background builders) gets no consistency from it — only the
     failure mode where a downed or stale-registered replica turns every build
     into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+
+    `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
+    later SELECT choose replicas the same way. A table that sets none uses the profile default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -214,7 +230,7 @@ def _get_insert_settings(
             # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
             # for version compatibility.
             "insert_distributed_sync": 1,
-            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+            **_read_table_load_balancing(table),
         }
     )
     if spill_to_disk:
@@ -590,6 +606,33 @@ class LazyComputationTable(StrEnum):
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
+
+
+# The HogQL table that reads each target table. The two dimensional web tables are read
+# without HogQL, so they have no entry.
+_READ_TABLES: dict[LazyComputationTable, Table] = {
+    LazyComputationTable.PREAGGREGATION_RESULTS: PreaggregationResultsTable(),
+    LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED: ExperimentExposuresPreaggregatedTable(),
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED: ExperimentMetricEventsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED: MarketingTouchpointsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED: MarketingConversionsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED: MarketingCostsPreaggregatedTable(),
+    LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED: WebOverviewPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PREAGGREGATED: WebStatsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED: WebStatsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED: WebVitalsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED: WebStatsFrustrationPreaggregatedTable(),
+    LazyComputationTable.WEB_GOALS_PREAGGREGATED: WebGoalsPreaggregatedTable(),
+    LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED: WebSessionsPreaggregatedTable(),
+}
+
+
+def _read_table_load_balancing(table: LazyComputationTable) -> dict[str, str]:
+    read_table = _READ_TABLES.get(table)
+    if read_table is None or read_table.top_level_settings is None:
+        return {}
+    load_balancing = read_table.top_level_settings.load_balancing
+    return {"load_balancing": load_balancing} if load_balancing is not None else {}
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -1081,7 +1124,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id),
+                settings=_get_insert_settings(team.id, query_info.table),
             )
         )
 
@@ -1876,6 +1919,7 @@ def ensure_precomputed(
                     values,
                     settings=_get_insert_settings(
                         t.id,
+                        table,
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
                         overrides=insert_settings,

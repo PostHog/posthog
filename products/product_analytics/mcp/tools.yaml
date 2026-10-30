@@ -12,7 +12,7 @@ ui_apps:
         link_prop: openLink
     explain-chart:
         type: custom
-        app_name: PostHog Chart Walkthrough
+        app_name: PostHog Chart Explanation
         description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
         render_ui:
             component_import: ../components/ExplainChart
@@ -76,6 +76,15 @@ tools:
 
             Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
             so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
 
 
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an

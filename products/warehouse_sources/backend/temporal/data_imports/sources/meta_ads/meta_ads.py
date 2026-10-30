@@ -19,7 +19,8 @@ from requests.exceptions import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -145,7 +146,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
+def _fetch_integration_row(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -156,13 +157,16 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
     to be stale (and, after a failed query marks one unusable, drops it), so each attempt runs on a
     fresh connection; the short backoff also gives a saturated pool time to drain rather than
     retrying straight back into the same wait timeout. This read is idempotent, so it is safe to
-    repeat. ``Integration.DoesNotExist`` is left to propagate.
+    repeat. A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.meta_ads.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -179,7 +183,7 @@ class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
 
-def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+def get_integration_by_id(integration_id: int, team_id: int) -> IntegrationRecord:
     """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
     integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
@@ -191,7 +195,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     return meta_ads_integration.integration
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> IntegrationRecord:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
@@ -212,7 +216,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`), or
+    # heavy fields that can make even the smallest page too much data. Both read them back per row.
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -733,7 +738,7 @@ def _get_ad_account_page(session: Session, url: str, access_token: str, params: 
         raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
-def list_ad_accounts(integration: Integration) -> list[dict]:
+def list_ad_accounts(integration: IntegrationRecord) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
     # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
@@ -918,9 +923,10 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
-    again without those fields, and the fields are read back per row from
-    ``node_lookup_url``. The next page asks for every field again.
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), or the smallest page is still
+    too much data, the same page is fetched again without those fields, and
+    the fields are read back per row from ``node_lookup_url``. The next page
+    asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -974,6 +980,12 @@ def _iter_simple_pagination(
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
+                    response = _issue()
+                    continue
+                # A Meta refusal that persists at the smallest page is the same request every time, so
+                # backoff alone never clears it when a few rows carry very large heavy fields.
+                if refusable_fields and node_lookup_url is not None and not without_refusable_fields:
+                    without_refusable_fields = True
                     response = _issue()
                     continue
                 if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:

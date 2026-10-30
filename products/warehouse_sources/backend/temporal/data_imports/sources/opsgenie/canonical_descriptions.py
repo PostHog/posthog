@@ -141,6 +141,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastEdit": "Time and actor of the last edit to the entry.",
         },
     },
+    "alert_logs": {
+        "description": "The activity log of an alert: each state change (created, acknowledged, escalated, closed) and responder action, in order.",
+        "docs_url": "https://docs.opsgenie.com/docs/alert-api-continued#list-alert-logs",
+        "columns": {
+            "alert_id": "Id of the alert the log entry belongs to.",
+            "offset": "Cursor of the log entry, unique within the alert and ordered by time.",
+            "log": "Text of the log entry.",
+            "type": "Kind of log entry, e.g. system or alertRecipient.",
+            "owner": "User or system that made the change.",
+            "createdAt": "Time the log entry was created.",
+        },
+    },
     "schedule_on_calls": {
         "description": "The users on call for each schedule at the time of the sync, with teams and escalations resolved to users.",
         "docs_url": "https://docs.opsgenie.com/docs/who-is-on-call-api",
@@ -163,6 +175,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "length": "Number of intervals in one shift.",
             "participants": "Users, teams, escalations, or none slots that take turns in the rotation.",
             "timeRestriction": "Days and hours the rotation is active, if restricted.",
+        },
+    },
+    "schedule_overrides": {
+        "description": "A temporary override that puts a user on call for a schedule in place of the rotation for a time range.",
+        "docs_url": "https://docs.opsgenie.com/docs/schedule-override-api",
+        "columns": {
+            "schedule_id": "Id of the schedule the override belongs to.",
+            "alias": "Identifier of the override, unique within the schedule.",
+            "user": "User, team, or escalation that is on call during the override.",
+            "startDate": "Time the override starts.",
+            "endDate": "Time the override ends.",
+            "rotations": "Rotations the override applies to; empty when it applies to the whole schedule.",
         },
     },
     "team_members": {

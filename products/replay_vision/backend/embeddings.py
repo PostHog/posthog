@@ -17,17 +17,19 @@ OBSERVATION_EMBEDDINGS_TABLE = (
     f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
 )
 
-# One team's observation embeddings from the given scanners; bind its values with `observation_scope_params`.
-OBSERVATION_SCOPE_PREWHERE = """team_id = %(team_id)s
+# All of one team's observation embeddings; bind its values with `team_embeddings_params`.
+TEAM_EMBEDDINGS_PREWHERE = """team_id = %(team_id)s
               AND product = %(product)s
-              AND document_type = %(document_type)s
+              AND document_type = %(document_type)s"""
+
+# One team's observation embeddings from the given scanners; bind its values with `observation_scope_params`.
+OBSERVATION_SCOPE_PREWHERE = f"""{TEAM_EMBEDDINGS_PREWHERE}
               AND JSONExtractString(metadata, 'scanner_id') IN %(scanner_ids)s"""
 
 
+def team_embeddings_params(team_id: int) -> dict[str, Any]:
+    return {"team_id": team_id, "product": EMBEDDING_PRODUCT, "document_type": EMBEDDING_DOCUMENT_TYPE}
+
+
 def observation_scope_params(team_id: int, scanner_ids: list[str]) -> dict[str, Any]:
-    return {
-        "team_id": team_id,
-        "product": EMBEDDING_PRODUCT,
-        "document_type": EMBEDDING_DOCUMENT_TYPE,
-        "scanner_ids": scanner_ids,
-    }
+    return {**team_embeddings_params(team_id), "scanner_ids": scanner_ids}

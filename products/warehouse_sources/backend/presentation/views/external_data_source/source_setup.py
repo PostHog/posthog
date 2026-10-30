@@ -14,8 +14,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -51,7 +51,6 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
-    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -72,10 +71,14 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
-    history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    new_history_names_taken,
+    new_history_naming,
     new_source_requires_ssl,
+    pin_history_naming,
+    reserved_column_collisions,
+    reserved_column_names,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
@@ -513,9 +516,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
-        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
-
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
@@ -565,39 +565,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 
+        # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
-        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
-                "host"
-            ] != existing_ssh_tunnel.get("host")
-
-            # Deep-merge: start with existing, overlay incoming top-level keys
-            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
-
-            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-            existing_auth = (
-                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+        if incoming_ssh_tunnel is not None:
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
+                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
-            incoming_auth = (
-                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
-            )
-
-            if ssh_tunnel_host_changed and not incoming_auth:
-                raise ValidationError("Changing the SSH tunnel host requires re-entering your SSH credentials.")
-
-            if not incoming_auth:
-                # No auth in incoming request - preserve entire existing auth
-                merged_ssh_tunnel["auth"] = {**existing_auth}
-            else:
-                # Merge auth, preserving sensitive fields not explicitly provided
-                merged_auth = {**incoming_auth}
-                if not ssh_tunnel_host_changed:
-                    for key in ("password", "passphrase", "private_key"):
-                        if existing_auth.get(key) and not incoming_auth.get(key):
-                            merged_auth[key] = existing_auth[key]
-                merged_ssh_tunnel["auth"] = merged_auth
-
-            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -1420,6 +1393,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
+        history_naming_config_by_schema: dict[str, dict[str, Any]] = {}
         if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
@@ -1484,18 +1458,24 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
-            # Capture stamps each change with this column, so a source column of the same name would
-            # fail the source's first sync. Refuse before any replication state exists.
+            # Capture and the history table write their own columns next to the source's, so a synced
+            # source column that loads under one of those names would fail the source's first sync.
+            # Refuse before any replication state exists.
+            new_history = new_history_naming(new_source_model)
+            reserved_columns_by_table = {
+                schema["name"]: reserved_column_collisions(
+                    [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                    reserved_column_names(new_history if is_history_table_mode(schema.get("cdc_table_mode")) else None),
+                    enabled_columns=_payload_enabled_columns(schema),
+                    primary_keys=pk_columns_by_table.get(schema["name"]),
+                )
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and isinstance(schema.get("name"), str)
+            }
             tables_with_reserved_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and isinstance(schema.get("name"), str)
-                    and CDC_SEQ_COLUMN
-                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
-                }
+                f"{table} ({', '.join(columns)})" for table, columns in reserved_columns_by_table.items() if columns
             )
             if tables_with_reserved_column:
                 new_source_model.delete()
@@ -1503,43 +1483,43 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
-                            "that name. Rename the column on your database, or choose another sync method for "
-                            f"these tables: {', '.join(tables_with_reserved_column)}."
+                            "Change data capture can't sync a column that loads under a name PostHog writes. Rename "
+                            "the column on your database, leave it out of the synced columns, or change the sync "
+                            f"method or output tables for these tables: {'; '.join(tables_with_reserved_column)}."
                         )
                     },
                 )
 
-            # The history table stamps each row version with these columns, so a synced source column
-            # of the same name would fail every load into it.
-            tables_with_validity_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and is_history_table_mode(schema.get("cdc_table_mode"))
-                    and isinstance(schema.get("name"), str)
-                    and history_column_collisions(
-                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        _payload_enabled_columns(schema),
-                        pk_columns_by_table.get(schema["name"]),
-                    )
-                }
+            synced_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("should_sync", False) and isinstance(schema.get("name"), str)
+            ]
+            history_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and is_history_table_mode(schema.get("cdc_table_mode"))
+                and isinstance(schema.get("name"), str)
+            ]
+            tables_with_taken_history_name = new_history_names_taken(
+                new_source_model, new_history, history_names, synced_names
             )
-            if tables_with_validity_column:
+            if tables_with_taken_history_name:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "A history table can't store a column that loads as valid_from or valid_to, because "
-                            "PostHog uses those names to record when each version was current. Rename the column on "
-                            "your database, or choose the consolidated table only for these tables: "
-                            f"{', '.join(tables_with_validity_column)}."
+                            "A history table would have the same name as another table you chose to sync. Choose "
+                            "the consolidated table only, or leave the other table out, for these tables: "
+                            f"{', '.join(tables_with_taken_history_name)}."
                         )
                     },
                 )
+            for name in history_names:
+                pin_history_naming(history_naming_config_by_schema.setdefault(name, {}), new_history)
 
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
@@ -1755,6 +1735,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+                sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 

@@ -29,9 +29,10 @@ it('renders the goal line on the dashboard chart', async () => {
 })
 ```
 
+- Outside this repo, install `@testing-library/react` next to `@posthog/quill-charts`. The helpers need a jsdom test environment and a runner with global `beforeEach` and `afterEach`.
 - `setupChartTests()` registers the hooks every chart test needs: jsdom mocks for `ResizeObserver` and `getBoundingClientRect`, synchronous animation frames, and cleanup after each test.
 - `findChart()` waits for the chart to render. Pass `seriesCount` to wait for a specific series count, or `scope` when the page has more than one chart. `getChart()` is the synchronous version.
-- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. For a custom tooltip, read `tooltip.element`.
+- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. `tooltip.clickRow('Pageviews')` clicks a row. For a custom tooltip, read `tooltip.element`.
 
 The accessor surface (full list in `testing/accessor.ts`):
 
@@ -50,11 +51,14 @@ chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
-chart.annotationBadges() // HTMLElement[]
+chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
-chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
-chart.sankeyColumnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.slope.valueLabels() // [{ text, color, side }, …] slope value labels, start and end columns
+chart.slope.seriesLabels() // slope series names, after collision avoidance
+chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
+chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
 ```
 
 Gestures work under any wrapper, because the chart records its label count on its root:

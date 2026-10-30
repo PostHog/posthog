@@ -38,26 +38,25 @@ dependencies = [
     "dagster-slack==0.28.11",
     "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
-    "dj-database-url~=3.0.0",
-    "django~=5.2.0",
+    "dj-database-url~=3.1.2",
+    "django~=6.1.0",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
     "django-extensions~=4.1.0",
-    "django-filter~=26.1",
+    "django-filter~=26.2",
     "django-loginas==0.3.14",
     "django-prometheus~=2.5.0",
     "django-redis==7.0.0",
     "django-structlog[celery]~=10.1.0",
     "django-two-factor-auth~=1.18.0",
-    "djangorestframework~=3.17.2",
+    "djangorestframework~=3.18.3",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
     "dlt==1.18.2",
     "dnspython==2.6.1",
     "drf-exceptions-hog==0.4.0",
-    "drf-extensions~=0.8.0",
     "drf-spectacular~=0.30.0",
-    "drf-spectacular-sidecar~=2026.9.1",
+    "drf-spectacular-sidecar~=2026.10.1",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.40.1",
@@ -105,7 +104,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.76.0",
+    "posthoganalytics==7.80.3",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -135,7 +134,7 @@ dependencies = [
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
     "snowflake-connector-python==4.7.5",
-    "social-auth-app-django~=5.8.0",
+    "social-auth-app-django~=5.9.0",
     "social-auth-core~=4.8.7",
     "django-scim2==0.23.0",
     "sqlparse==0.5.4",
@@ -159,7 +158,7 @@ dependencies = [
     "personhog-proto",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "whitenoise~=6.10.0",
+    "whitenoise~=6.12.0",
     "xgboost==3.2.0",
     # CPU inference for the inbox ranking network. Keep in step with the `inbox-ranking` training group.
     "onnxruntime~=1.30.0",
@@ -237,10 +236,10 @@ dev = [
     "import-linter~=2.11",
     "deepdiff~=8.6.1",
     "django-linear-migrations~=2.19.0",
-    "django-stubs~=5.2.0",
+    "django-stubs~=6.1.0",
     # django-stubs requires this unbounded, so an upgrade run drifts it to a version
     # that models a different Django. Hold it on the line django-stubs is on.
-    "django-stubs-ext~=5.2.5",
+    "django-stubs-ext~=6.1.0",
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
@@ -348,10 +347,22 @@ personhog-proto = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "fa20b806e32cf748dfee3545d8926b9c36aff789" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
-# To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
-# v0.11.0-posthog.N tag, and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.8" }
+# Base future upstream rebases on the pinned tag so local fixes survive.
+# Cut the next v0.11.0-posthog.N tag and bump this pin.
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.13" }
 torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }]
+
+# These releases cap Django below 6.1 only because 6.1 was untested when they shipped. Upstream main
+# raises the cap without library code changes. Drop each block once a release lifts the cap.
+[[tool.uv.dependency-metadata]]
+name = "django-prometheus"
+version = "2.5.0"
+requires-dist = ["Django>=4.2,!=5.0.*", "prometheus-client>=0.7"]
+
+[[tool.uv.dependency-metadata]]
+name = "django-scim2"
+version = "0.23.0"
+requires-dist = ["django>=5.2.8", "pygments>=2.20.0,<3.0.0", "scim2-filter-parser>=0.5.0"]
 
 # xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
 # CPU, so drop it to keep the wheel out of the image.
@@ -619,6 +630,12 @@ ignore_imports = [
     "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
     "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.flag_gated_templates",
     "products.cdp.backend.presentation.icons -> products.cdp.backend.services.icons",
+    # TODO: approvals presentation wave. The approval handling mixin that other products' viewsets
+    # use still reads the gate exceptions and the change request serializer from approvals
+    # internals. Delete both entries once the facade exposes the exceptions and a change request
+    # contract for presentation to serialize, because ApprovalRequired carries the ChangeRequest model.
+    "products.approvals.backend.presentation.mixins -> products.approvals.backend.exceptions",
+    "products.approvals.backend.presentation.mixins -> products.approvals.backend.serializers",
     # TODO: existing violations — fix by routing through facade
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
@@ -723,7 +740,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.api.feature_flag",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.models.feature_flag",
-    "products.experiments.backend.presentation.views -> products.approvals.backend.mixins",
     "products.experiments.backend.presentation.views -> products.experiments.backend.experiment_service",
     "products.experiments.backend.presentation.views -> products.experiments.backend.llm_metric_templates",
     "products.experiments.backend.presentation.views -> products.experiments.backend.models.experiment",
@@ -746,14 +762,6 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
-    # TODO: batch_exports presentation wave — the moved viewsets, serializers and destination
-    # test helpers still reach in-product internals directly. Thin each one to parse -> facade
-    # -> serialize and delete each entry. backend:contract-check stays off until this list is
-    # empty. Only delete entries here: a new import from these views goes through the facade.
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.hogql_source",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

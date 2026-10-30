@@ -1678,7 +1678,7 @@ class TestSurvey(APIBaseTest):
                                 {
                                     "key": "id",
                                     "value": cohort_not_valid_for_ff.pk,
-                                    "operator": "exact",
+                                    "operator": "in",
                                     "type": "cohort",
                                 }
                             ],

@@ -8,9 +8,14 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS, USER_HISTORY_KINDS
 from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
-from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
+from products.signals.dags.inbox_ranking.multihead.inputs import (
+    NetworkConfig,
+    NetworkInputs,
+    ProjectContext,
+    UserContext,
+)
 
 torch = pytest.importorskip("torch")
 onnxruntime = pytest.importorskip("onnxruntime")
@@ -42,7 +47,7 @@ print("torch" in sys.modules)
 """
 
 
-def _inputs(rows: int, *, with_context: bool, seed: int = 0) -> NetworkInputs:
+def _inputs(rows: int, *, with_context: bool, seed: int = 0, user_kinds: int = 0) -> NetworkInputs:
     rng = np.random.default_rng(seed)
     reports = rng.normal(0.0, 1 / np.sqrt(EMBEDDING_DIMENSIONS), size=(rows, EMBEDDING_DIMENSIONS)).astype(np.float32)
     if not with_context:
@@ -54,7 +59,15 @@ def _inputs(rows: int, *, with_context: bool, seed: int = 0) -> NetworkInputs:
         has_history=rng.integers(0, 2, size=(rows, KINDS)).astype(np.float32),
         index=np.arange(rows),
     )
-    return NetworkInputs(reports=reports, context=context)
+    users = None
+    if user_kinds:
+        users = UserContext(
+            vectors=rng.normal(
+                0.0, 1 / np.sqrt(EMBEDDING_DIMENSIONS), size=(rows, user_kinds, EMBEDDING_DIMENSIONS)
+            ).astype(np.float32),
+            index=np.arange(rows),
+        )
+    return NetworkInputs(reports=reports, context=context, users=users)
 
 
 def test_a_nan_label_adds_no_gradient_and_no_loss() -> None:
@@ -91,12 +104,16 @@ def test_a_seeded_fit_is_repeatable(_name: str, with_context: bool) -> None:
     np.testing.assert_array_equal(runs[0][1], runs[1][1])
 
 
-@parameterized.expand([("report_only", False), ("with_project_vectors", True)])
-def test_onnx_export_matches_the_torch_network(_name: str, with_context: bool) -> None:
+@parameterized.expand(
+    [("report_only", False, 0), ("with_project_vectors", True, 0), ("with_user_history", True, len(USER_HISTORY_KINDS))]
+)
+def test_onnx_export_matches_the_torch_network(_name: str, with_context: bool, user_kinds: int) -> None:
     rows = 37
-    inputs = _inputs(rows, with_context=with_context, seed=2)
+    inputs = _inputs(rows, with_context=with_context, seed=2, user_kinds=user_kinds)
     labels = np.random.default_rng(3).integers(0, 2, size=(rows, len(HEADS))).astype(np.float32)
-    network = MultiHeadNetwork(heads=HEADS, with_context=with_context, kinds=KINDS, config=CONFIG)
+    network = MultiHeadNetwork(
+        heads=HEADS, with_context=with_context, kinds=KINDS, config=CONFIG, user_kinds=user_kinds
+    )
     network.fit(inputs, labels, np.arange(rows))
 
     with tempfile.TemporaryDirectory() as directory:
@@ -107,6 +124,8 @@ def test_onnx_export_matches_the_torch_network(_name: str, with_context: bool) -
     feeds = {"report": inputs.reports}
     if inputs.context is not None:
         feeds |= {"project": inputs.context.vectors, "has_history": inputs.context.has_history}
+    if inputs.users is not None:
+        feeds |= {"user": inputs.users.vectors}
     assert [i.name for i in session.get_inputs()] == list(feeds)
     assert [o.name for o in session.get_outputs()] == ["probabilities"]
     (probabilities,) = session.run(None, feeds)

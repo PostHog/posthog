@@ -34,13 +34,10 @@ from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     EVAL_INTERACTION_ORIGIN,
     INITIAL_PERMISSION_MODE_CHOICES,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
+    RESUME_SNAPSHOT_KIND,
     InitialPermissionMode,
-    SnapshotKind,
     filter_user_sandbox_env_vars,
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
@@ -97,7 +94,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.models import Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
     )
@@ -342,25 +339,23 @@ def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) 
 
     A snapshot's content layout matches the path it was captured from, so a stored path outside
     the allowlist (notably the legacy "/tmp" default, whose mount replaced the live system temp
-    dir and killed the sandbox) cannot be remapped to a safe path — the snapshot is unusable and
-    the resume must fall back to a fresh sandbox.
+    dir and killed the sandbox) cannot be remapped to a safe path. A snapshot with no stored path
+    predates the path stamp and cannot be restored either, so the resume falls back to a fresh
+    sandbox.
     """
-    if not snapshot_mount_path:
-        return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
     if isinstance(snapshot_mount_path, str) and snapshot_mount_path in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
         return snapshot_mount_path
 
-    logger.warning(
-        "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
-        extra={"snapshot_mount_path": snapshot_mount_path},
-    )
+    if snapshot_mount_path:
+        logger.warning(
+            "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
+            extra={"snapshot_mount_path": snapshot_mount_path},
+        )
     return None
 
 
-def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> bool:
-    """Whether a stored snapshot may be restored into a new sandbox; False falls back to a fresh one.
-    A directory snapshot whose stored mount path was invalidated (legacy "/tmp" captures) can't be restored."""
-    return not (kind == SNAPSHOT_KIND_DIRECTORY and mount_path is None)
+def is_resume_snapshot_usable(mount_path: str | None) -> bool:
+    return mount_path is not None
 
 
 class RunState(BaseModel, extra="allow"):
@@ -383,7 +378,6 @@ class RunState(BaseModel, extra="allow"):
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
-    snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
@@ -402,19 +396,11 @@ class RunState(BaseModel, extra="allow"):
     def model_access(self) -> ModelAccess:
         return resolve_model_access(self.model_dump())
 
-    def resume_snapshot_kind(self) -> SnapshotKind:
-        if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
-            return SNAPSHOT_KIND_DIRECTORY
-        return SNAPSHOT_KIND_FILESYSTEM
-
     def resume_snapshot_mount_path(self) -> str | None:
-        if self.resume_snapshot_kind() != SNAPSHOT_KIND_DIRECTORY:
-            return None
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
     def resume_snapshot_is_usable(self) -> bool:
-        """See ``is_resume_snapshot_usable`` — callers must provision fresh when False."""
-        return is_resume_snapshot_usable(self.resume_snapshot_kind(), self.resume_snapshot_mount_path())
+        return is_resume_snapshot_usable(self.resume_snapshot_mount_path())
 
     def resume_snapshot_carry_state(self) -> dict[str, Any]:
         """State keys a successor run must copy (always the full set, never the external ID
@@ -423,7 +409,7 @@ class RunState(BaseModel, extra="allow"):
             return {}
         carried: dict[str, Any] = {
             "snapshot_external_id": self.snapshot_external_id,
-            "snapshot_kind": self.resume_snapshot_kind(),
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
         }
         mount_path = self.resume_snapshot_mount_path()
         if mount_path is not None:
@@ -436,29 +422,6 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
     normalized_state["same_run_resume"] = is_same_run_resume_state(state)
     normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
     return RunState.model_validate(normalized_state)
-
-
-@dataclass(frozen=True)
-class SnapshotMetadata:
-    kind: SnapshotKind
-    mount_path: str | None
-
-    @property
-    def is_usable(self) -> bool:
-        """See ``is_resume_snapshot_usable`` — same invalidation rule."""
-        return is_resume_snapshot_usable(self.kind, self.mount_path)
-
-
-def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:
-    kind: SnapshotKind = (
-        SNAPSHOT_KIND_DIRECTORY
-        if snapshot.metadata.get("snapshot_kind") == SNAPSHOT_KIND_DIRECTORY
-        else SNAPSHOT_KIND_FILESYSTEM
-    )
-    mount_path = None
-    if kind == SNAPSHOT_KIND_DIRECTORY:
-        mount_path = normalize_directory_resume_snapshot_mount_path(snapshot.metadata.get("snapshot_mount_path"))
-    return SnapshotMetadata(kind=kind, mount_path=mount_path)
 
 
 # TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
@@ -974,7 +937,11 @@ def _installation_repository_names(github_integration: GitHubIntegrationBase, re
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
-    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
+    # Same rule as TaskProcessingContext.github_access_repositories: what the run clones, plus any
+    # repositories its creator granted on top. Never wider, so an empty grant keeps the clone scope.
+    access = (state or {}).get("github_access_repositories")
+    if isinstance(access, list) and access and all(isinstance(r, str) for r in access):
+        return access
     pinned = (state or {}).get("repositories")
     if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
         return pinned

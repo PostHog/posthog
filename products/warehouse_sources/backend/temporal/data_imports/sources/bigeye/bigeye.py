@@ -9,6 +9,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import (
     BIGEYE_ENDPOINTS,
+    LINEAGE_GRAPH_DEPTH,
     REQUEST_TIMEOUT_SECONDS,
     SCORECARD_DAYS_OF_HISTORY,
     BigeyeEndpointConfig,
@@ -51,9 +52,9 @@ WORKSPACE_ID_REQUIRED_MESSAGE = "A workspace ID must be supplied"
 
 _HOST_RE = re.compile(r"^https?://", re.IGNORECASE)
 
-# A metric deleted between the Metrics listing and its own request returns 404; skip it instead of
-# failing the whole fan-out.
-_PER_METRIC_RESPONSE_ACTIONS: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+# A metric or data node deleted between its listing and its own request returns 404; skip it instead
+# of failing the whole fan-out.
+_FAN_OUT_RESPONSE_ACTIONS: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 @frozen
@@ -62,6 +63,8 @@ class BigeyeResumeConfig:
     # Set only by the per-metric endpoints: the metric to resume from. `next_cursor` is then that
     # metric's page cursor, or empty to start the metric from its first page.
     metric_id: Optional[int] = None
+    # Set only by the per-data-node endpoints: the lineage data node to resume from.
+    data_node_id: Optional[int] = None
 
 
 def normalize_host(host: Optional[str]) -> str:
@@ -86,6 +89,11 @@ def _flatten_collection(item: dict[str, Any]) -> dict[str, Any]:
     # while keeping the full nested payload for anyone querying the raw JSON columns.
     config = item.get("collectionConfiguration") or {}
     return {**item, "id": config.get("id"), "name": config.get("name")}
+
+
+def _flatten_delta(item: dict[str, Any]) -> dict[str, Any]:
+    delta = item.get("delta") or {}
+    return {**item, "id": delta.get("id"), "name": delta.get("name")}
 
 
 def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
@@ -139,6 +147,8 @@ def get_resource(name: str, workspace_id: Optional[int]) -> EndpointResource:
     }
     if name == "Collections":
         resource["data_map"] = _flatten_collection
+    elif name == "Deltas":
+        resource["data_map"] = _flatten_delta
     elif name == "MetricScorecard":
         resource["data_map"] = _explode_scorecard
     return resource
@@ -153,6 +163,85 @@ def _list_metric_ids(client: RESTClient) -> list[int]:
         metric_ids.update(int(metric["id"]) for metric in page if metric.get("id") is not None)
     # Sorted so a resumed run walks the metrics in the same order as the run that saved the state.
     return sorted(metric_ids)
+
+
+def _list_table_data_node_ids(
+    client: RESTClient,
+    workspace_id: Optional[int],
+    resumable_source_manager: ResumableSourceManager[BigeyeResumeConfig],
+) -> list[int]:
+    tables_config = BIGEYE_ENDPOINTS["Tables"]
+    body: dict[str, Any] = {"pageSize": PAGE_SIZE, "includeDataNodeIds": True, "ignoreFields": True}
+    if workspace_id is not None:
+        body["workspaceId"] = workspace_id
+    data_node_ids: set[int] = set()
+    for page in client.paginate(
+        path=tables_config.path,
+        method=tables_config.method,
+        json=body,
+        paginator=JSONResponseCursorPaginator(
+            cursor_path="paginationInfo.nextCursor",
+            cursor_param="pageCursor",
+            param_location="json",
+        ),
+        data_selector=tables_config.data_selector,
+    ):
+        # Tables without lineage have no data node and so no graph to fetch.
+        data_node_ids.update(int(table["dataNodeId"]) for table in page if table.get("dataNodeId"))
+        # Nothing is staged or held yet, so a hand-off here only lists the tables again.
+        resumable_source_manager.safe_point()
+    return sorted(data_node_ids)
+
+
+def _lineage_graph_rows(root_data_node_id: int, page: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for nodes in page:
+        for node_id, node in (nodes or {}).items():
+            lineage_node = node.get("lineageNode") or {}
+            rows.append(
+                {
+                    **node,
+                    "id": lineage_node.get("id", int(node_id)),
+                    "node_name": lineage_node.get("nodeName"),
+                    "root_data_node_id": root_data_node_id,
+                }
+            )
+    return rows
+
+
+def _iter_lineage_graphs(
+    client: RESTClient,
+    endpoint_config: BigeyeEndpointConfig,
+    workspace_id: Optional[int],
+    resumable_source_manager: ResumableSourceManager[BigeyeResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    data_node_ids = _list_table_data_node_ids(client, workspace_id, resumable_source_manager)
+
+    start_index = 0
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.data_node_id is not None:
+        start_index = bisect_left(data_node_ids, resume.data_node_id)
+
+    hooks = create_response_hooks(_FAN_OUT_RESPONSE_ACTIONS, resource_name=endpoint_config.name)
+
+    for index in range(start_index, len(data_node_ids)):
+        data_node_id = data_node_ids[index]
+        for page in client.paginate(
+            path=endpoint_config.path.format(dataNodeId=data_node_id),
+            params={"depth": LINEAGE_GRAPH_DEPTH, "direction": "ALL"},
+            paginator=SinglePagePaginator(),
+            data_selector=endpoint_config.data_selector,
+            hooks=hooks,
+        ):
+            rows = _lineage_graph_rows(data_node_id, page)
+            if index + 1 < len(data_node_ids):
+                resumable_source_manager.save_state(
+                    BigeyeResumeConfig(next_cursor="", data_node_id=data_node_ids[index + 1])
+                )
+            if rows:
+                yield rows
+
+        resumable_source_manager.safe_point()
 
 
 def _per_metric_request(endpoint_config: BigeyeEndpointConfig, metric_id: int) -> dict[str, Any]:
@@ -193,7 +282,7 @@ def _iter_per_metric(
         if start_index < len(metric_ids) and metric_ids[start_index] == resume.metric_id:
             resume_cursor = resume.next_cursor or None
 
-    hooks = create_response_hooks(_PER_METRIC_RESPONSE_ACTIONS, resource_name=endpoint_config.name)
+    hooks = create_response_hooks(_FAN_OUT_RESPONSE_ACTIONS, resource_name=endpoint_config.name)
     row_map = _flatten_revision if endpoint_config.name == "MetricRevisions" else None
     next_page: dict[str, Optional[str]] = {}
 
@@ -239,18 +328,23 @@ def bigeye_source(
 ) -> SourceResponse:
     endpoint_config = BIGEYE_ENDPOINTS[endpoint]
 
-    if endpoint_config.per_metric:
+    if endpoint_config.per_metric or endpoint_config.per_table_data_node:
         client = RESTClient(
             base_url=_base_url(host),
             auth=APIKeyAuth(api_key=_auth_header_value(api_key), name="Authorization", location="header"),
-            # The per-metric requests take no `workspaceId` parameter, so scope them with Bigeye's header.
+            # The fan-out requests take no `workspaceId` parameter, so scope them with Bigeye's header.
             headers={"X-Bigeye-Workspace-Id": str(workspace_id)} if workspace_id is not None else None,
             request_timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
         )
+        items = (
+            (lambda: _iter_lineage_graphs(client, endpoint_config, workspace_id, resumable_source_manager))
+            if endpoint_config.per_table_data_node
+            else (lambda: _iter_per_metric(client, endpoint_config, resumable_source_manager))
+        )
         return SourceResponse(
             name=endpoint_config.name,
-            items=lambda: _iter_per_metric(client, endpoint_config, resumable_source_manager),
+            items=items,
             primary_keys=list(endpoint_config.primary_keys),
             partition_count=1,
             partition_size=1,

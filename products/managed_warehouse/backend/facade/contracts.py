@@ -380,6 +380,11 @@ class TrinoCompiledQuery:
     sql: str
     values: dict[str, Any]
     hogql: str | None = None
+    needs_row_type_probe: bool = True
+    """Whether an output column may hold a ROW with anonymous fields.
+
+    False only when every output column resolved to a type without a tuple or an unknown part.
+    """
 
 
 @frozen

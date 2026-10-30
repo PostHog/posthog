@@ -18,6 +18,32 @@ filters:
         - pyproject.toml
         - bin/temporal-django-worker
         - 'posthog/clickhouse/migrations/**'
+    dataWarehouseMetadata:
+        - 'posthog/hogql*/**'
+        - 'posthog/temporal/data_modeling/**'
+        - 'products/customer_analytics/backend/**'
+        - 'products/warehouse_sources/backend/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - pyproject.toml
+        - bin/temporal-django-worker
+        - 'posthog/clickhouse/migrations/**'
+        - 'products/data_modeling/backend/**'
+        - 'posthog/llm/**'
+        - 'products/data_warehouse/backend/**'
+        - 'posthog/personhog_client/**'
+        - 'packages/personhog-proto/**'
+        - 'posthog/kafka_client/**'
+        - 'common/hogvm/**'
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/schema.py
+        - 'posthog/settings/temporal.py'
+        - posthog/exceptions.py
+        - uv.lock
+        - manage.py
+        - Dockerfile
     experimentsRecalculationActivity:
         - 'products/experiments/backend/**'
         - 'products/experiments/stats/**'
@@ -49,3 +75,11 @@ images:
                 repository: posthog-temporal-workers/experiments-recalculation-activity
                 filter: experimentsRecalculationActivity
                 bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
+            experiments-recalculation-precompute:
+                repository: posthog-temporal-workers/experiments-recalculation-precompute
+                filter: experimentsRecalculationActivity
+                bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
+            data-warehouse-metadata:
+                repository: posthog-temporal-workers/data-warehouse-metadata
+                filter: dataWarehouseMetadata
+                bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620

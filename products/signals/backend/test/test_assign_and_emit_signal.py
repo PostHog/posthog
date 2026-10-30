@@ -3,7 +3,7 @@ import random
 from datetime import timedelta
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
@@ -13,6 +13,7 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, RelatedTo, ReportLink
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -21,6 +22,10 @@ from products.signals.backend.models import SignalEmissionRecord, SignalReport, 
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
+from products.signals.backend.temporal.agentic.select_repository import (
+    SelectRepositoryInput,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -450,6 +455,8 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
     "report_status,flag_result,recurs",
     [
         (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.CLOSED, False, True),
+        (SignalReport.Status.CLOSED, True, True),
         (SignalReport.Status.MONITORING, False, True),
         (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
         (SignalReport.Status.MONITORING, True, False),
@@ -541,6 +548,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
         ("already_fixed", True),
         ("fixed_outside_posthog", True),
         ("pr_merged", True),
+        ("wrong_repo", True),
         ("wontfix_intentional", False),
         ("wontfix_irrelevant", False),
         ("analysis_wrong", False),
@@ -549,10 +557,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
     ],
 )
 @pytest.mark.parametrize("unsafe_parent", [False, True])
-async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks, unsafe_parent):
-    # A dismissal that claims the issue is fixed is contradicted by a new signal, so the signal
-    # starts a fresh report, exactly as a resolved report does. Every other reason states a
-    # preference about the report, so a sink stays the right answer.
+async def test_suppressed_report_forks_for_fixed_or_wrong_repo_dismissals(ateam, reason, forks, unsafe_parent):
     parent = await _suppressed_report(ateam, reason)
     if unsafe_parent:
         await database_sync_to_async(SignalReportArtefact.objects.create)(
@@ -590,10 +595,76 @@ async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam):
-    # Dismissals stack, so an "already fixed" a reviewer has since overruled with a won't-fix must
-    # stop forking reports.
-    parent = await _suppressed_report(ateam, "already_fixed")
+@pytest.mark.parametrize(
+    "reason,corrected,eligible,match_parent,overridden,expected",
+    [
+        ("wrong_repo", None, "example/website", True, False, None),
+        ("wrong_repo", "example/checkout", "example/website", True, False, None),
+        ("wrong_repo", "example/checkout", "example/checkout", True, False, "example/checkout"),
+        ("already_fixed", None, "example/website", True, False, "example/website"),
+        ("wrong_repo", None, "example/website", False, False, "example/website"),
+        ("wrong_repo", None, "example/website", True, True, "example/website"),
+    ],
+)
+async def test_recurrence_selection_does_not_reuse_a_rejected_single_repository(
+    ateam: Team,
+    reason: str,
+    corrected: str | None,
+    eligible: str,
+    match_parent: bool,
+    overridden: bool,
+    expected: str | None,
+) -> None:
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.SUPPRESSED
+    )
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(parent.id),
+        content=Dismissal(reason=reason, selected_repository="Example/Website", corrected_repository=corrected),
+        attribution=ArtefactAttribution.system(),
+    )
+    assigned = await assign_and_emit_signal_activity(
+        _build_input(
+            ateam.id, _existing_match(str(parent.id)) if match_parent else _new_match(), weight=WEIGHT_THRESHOLD
+        )
+    )
+    assert assigned.report_id != str(parent.id)
+    if overridden:
+        await _dismiss(parent, "analysis_wrong")
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": eligible, "private": True}]
+    selector = "products.tasks.backend.logic.repo_selection.agent"
+    activity = "products.signals.backend.temporal.agentic.select_repository"
+    with (
+        patch(f"{selector}.resolve_team_github_integration", return_value=github),
+        patch(f"{selector}._list_candidate_repos", return_value=[eligible]),
+        patch(f"{selector}._list_eligible_full_names", return_value={eligible}),
+        patch(f"{selector}.GitHubRepositoryFullCache") as cache,
+        patch(f"{selector}.MultiTurnSession.start", new_callable=AsyncMock) as start,
+        patch(
+            "products.signals.backend.report_generation.select_repo.resolve_agent_runtime", return_value=DEFAULT_RUNTIME
+        ),
+        patch(f"{activity}._resolve_sandbox_user_id", return_value=1),
+        patch(f"{activity}.get_or_create_signals_sandbox_env", return_value=None),
+        patch(f"{activity}.Heartbeater"),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id=assigned.report_id, signals=[])
+        )
+
+    assert result.repository == expected
+    if expected is None:
+        assert "Choose a repository" in result.reason
+    start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
+async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam, reason):
+    parent = await _suppressed_report(ateam, reason)
     await _dismiss(parent, "wontfix_intentional")
 
     result = await assign_and_emit_signal_activity(
@@ -606,18 +677,19 @@ async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
 @pytest.mark.parametrize("repeat_feedback", [False, True])
 @pytest.mark.parametrize("restore_parent", [False, True])
-async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback, restore_parent):
+async def test_second_recurrence_signal_joins_the_open_fork(ateam, reason, repeat_feedback, restore_parent):
     # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
     # per signal: the second signal accumulates on the first signal's fork.
-    parent = await _suppressed_report(ateam, "already_fixed")
+    parent = await _suppressed_report(ateam, reason)
 
     first = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
     if repeat_feedback:
-        await _dismiss(parent, "already_fixed")
+        await _dismiss(parent, reason)
     if restore_parent:
         parent.status = SignalReport.Status.READY
         await database_sync_to_async(parent.save)(update_fields=["status"])

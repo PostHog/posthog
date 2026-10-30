@@ -49,7 +49,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -77,13 +77,16 @@ jobs:
             test_reason: ${{ steps.select-tests.outputs.reason }}
             test_file_count: ${{ steps.select-tests.outputs.file_count }}
         steps:
-            # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
+            # Only the filter action is read from the tree. The change set itself comes from the
+            # pull-request files API, so this step needs no history: reading the whole tree with
+            # full history here measured 75s (median of 12 runs) of an 80s job, and every job in
+            # this workflow waits on it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
                   filter: blob:none
-                  fetch-depth: 0
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -135,6 +138,9 @@ jobs:
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
+                        # A migration change makes the test job build Postgres from the Django
+                        # models, and the Jest integration tests read product tables too.
+                        - 'products/*/backend/migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -180,6 +186,23 @@ jobs:
                         - 'proto/**'
                         - '.github/workflows/ci-nodejs.yml'
                         - '.github/actions/setup-uv/**'
+
+            # Affected-crate detection is the only step below that reads the tree, and only a
+            # rust/ or proto/ change reaches it. It diffs the merge base, so it needs the full
+            # commit graph; it checks that out on its own rather than making every run pay for it.
+            # The cone is a superset of the tree ci-rust.yml's affected job gives the same binary.
+            - name: Check out the Rust tree for affected-crate detection
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/
+                      proto/
+                      rust/
+                  sparse-checkout-cone-mode: false
 
             - name: Install rust for affected-crate detection
               # Not needed on schedule either: the decision step below already returns

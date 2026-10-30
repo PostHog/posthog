@@ -17,7 +17,7 @@ filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, TypeGuard
 from uuid import UUID
@@ -149,7 +149,7 @@ def _required_backfill_kinds(cohort: Cohort) -> set[str]:
     return set(cohort._required_backfill_stamps())
 
 
-def _percent_complete(chunks: dict[str, Any] | None) -> int | None:
+def _percent_complete(chunks: Mapping[str, Any] | None) -> int | None:
     """Scan progress as a whole percent, or None while the run has planned no chunks.
 
     Rounded down, so 100 means every chunk is confirmed rather than 199 of 200.
@@ -230,7 +230,7 @@ def _queued_triggers(pairs: Sequence[tuple[int, str]]) -> dict[tuple[int, str], 
     }
 
 
-def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str, Any]]:
+def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, Mapping[str, Any]]:
     if not run_ids:
         return {}
     tallies = (

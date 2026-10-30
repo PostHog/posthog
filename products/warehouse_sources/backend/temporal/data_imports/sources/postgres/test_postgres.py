@@ -408,6 +408,21 @@ class TestPostgresSourceForeignServerConnectionError:
         assert not is_non_retryable, f"A foreign-server connection failure must stay retryable: {error_msg}"
         assert "Connection refused" not in error_msg
 
+        # Also classified in get_retryable_errors, so _handle_import_error logs this self-recovering
+        # failure as a warning instead of flooding error tracking with an exception on every retry.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+
+        message = next(
+            (
+                friendly
+                for pattern, friendly in source.get_retry_exhausted_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert message is not None, "an unreachable foreign server must surface an actionable message once exhausted"
+        assert "still enabled" in message.lower()
+
 
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
@@ -737,6 +752,11 @@ class TestPostgresSourceNonRetryableErrors:
             "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
             "read at time 100.000000000,0 encountered previous write with future timestamp 100.000000000,1: "
             '"sql txn" meta={id=00000000}',
+            # A proxy/pooler's own brief service outage at connect time, with no lifecycle or
+            # capacity wording. Self-recovering once the outage clears, so it must stay classified
+            # retryable like the other connect-time refusals above. IP is invented, not a real
+            # customer value.
+            'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -780,6 +800,10 @@ class TestPostgresSourceNonRetryableErrors:
                 "read at time 100.000000000,0",
                 "serialization conflict",
             ),
+            (
+                'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
+                "temporarily unavailable",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
@@ -796,7 +820,7 @@ class TestPostgresSourceNonRetryableErrors:
         )
         assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
         assert expected_phrase in message.lower()
-        assert "db.example.com" not in message and "10.0.0.1" not in message
+        assert "db.example.com" not in message and "10.0.0.1" not in message and "203.0.113.7" not in message
 
     def test_every_retryable_error_has_an_exhaustion_message(self, source):
         # A transient substring added to postgres.py flows into get_retryable_errors automatically,
@@ -1078,6 +1102,9 @@ class TestPostgresSourceNonRetryableErrors:
             "missing chunk number 0 for toast value 90210 in pg_toast_16384",
             'index "orders_pkey" contains unexpected zero page at block 42',
             'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # The server couldn't open the relation file at all (IoError, SQLSTATE 58030) rather than
+            # failing to read a block from one already open.
+            'could not open file "base/16384/1259": Input/output error',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
         ],
@@ -1092,6 +1119,16 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Damaged source page should surface an actionable message"
         assert "damaged data on disk" in friendly[0]
+
+    def test_file_descriptor_exhaustion_on_open_is_retryable(self, source):
+        # Same "could not open file" prefix as the damaged-page case above, but a different errno
+        # reason: file-descriptor exhaustion clears once load on the source drops, unlike the
+        # physical "Input/output error" case, so it must not be classified as permanent corruption.
+        error_msg = 'could not open file "base/16384/1259": Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion should be retryable: {error_msg}"
+        )
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1499,6 +1536,8 @@ class TestPostgresSourceNonRetryableErrors:
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
             'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
             'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'invalid input syntax for type boolean: "2"',
+            'InvalidTextRepresentation: invalid input syntax for type boolean: "2"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -1784,6 +1823,28 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "pg_stat_statements not loaded error should surface an actionable message"
         assert "shared_preload_libraries" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/RLS
+            # policy's own PL/pgSQL function doing FOREACH over an array that is null for a row.
+            'FOREACH expression must not be null\nCONTEXT:  PL/pgSQL function ledger.holdout_hash(text,text) line 4 at FOREACH over array\nSQL function "is_holdout_domain" statement 1',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "NullValueNotAllowed: FOREACH expression must not be null",
+        ],
+    )
+    def test_foreach_over_null_array_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FOREACH-over-null-array error should be non-retryable: {error_msg}"
+
+    def test_foreach_over_null_array_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "FOREACH expression must not be null"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FOREACH-over-null-array error should surface an actionable message"
+        assert "FOREACH" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2672,6 +2733,10 @@ class TestIsConnectionDroppedError:
             # error code, so it's matched on the full phrase including the ":closed" reason; same
             # transient class as the pooler drops above and recovers on reconnect.
             psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
+            # Same Supavisor pooler-drop shape, but raised with Erlang's ":einval" (POSIX EINVAL)
+            # reason instead of ":closed" — gen_tcp returns it when an operation hits a backend
+            # socket the pooler has already torn down. Same transient class; recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :einval"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
@@ -2728,6 +2793,12 @@ class TestIsConnectionDroppedError:
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # PgBouncer's own pool-checkout timeout: the client waits past `query_wait_timeout` for a
+            # backend to free up in transaction/statement-pooling mode. PgBouncer reports this as a
+            # bare "query_wait_timeout" over a raw error packet, which psycopg surfaces as
+            # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
+            # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("query_wait_timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
@@ -2840,6 +2911,13 @@ class TestDroppedOrConnectTimeout:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is shutting down"
+            ),
+            # A proxy/pooler in front of the source refusing a connect attempt during its own brief
+            # internal hiccup — no SQLSTATE-mapped subclass, no lifecycle wording. Transient — a
+            # fresh connect after a short backoff succeeds once the outage clears — so it must be
+            # recognised here too instead of burning the whole activity's retry budget.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  service temporarily unavailable'
             ),
             # This worker's process-wide (EMFILE) or system-wide (ENFILE) file-descriptor table is
             # full while opening the socket for a fresh connect. Transient on our side of the wire —
@@ -10379,6 +10457,21 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_recovery_conflict_error_is_not_captured(self):
+        # A hot-standby recovery conflict cancelling this catalog query is the same transient
+        # condition the main read path already retries (`get_rows` via `_is_recovery_conflict_error`).
+        # This best-effort lookup has no retry loop of its own: degrade quietly rather than flooding
+        # error tracking with a condition that isn't a bug.
+        conn = self._conn_raising(
+            psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
     def test_pooler_login_cooldown_error_is_not_captured(self):
         # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's

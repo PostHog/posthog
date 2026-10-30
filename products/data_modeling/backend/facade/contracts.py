@@ -116,7 +116,20 @@ class MaterializationRunDirection(LabeledStrEnum):
     DOWNSTREAM = "downstream", "Downstream"
 
 
+class MaterializationEngine(LabeledStrEnum):
+    CLICKHOUSE = "clickhouse", "ClickHouse"
+    TRINO = "trino", "Trino"
+
+
 class MaterializationForbiddenError(Exception):
+    pass
+
+
+class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
+    pass
+
+
+class MaterializationAlreadyRunningError(Exception):
     pass
 
 

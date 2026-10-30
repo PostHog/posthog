@@ -17,6 +17,10 @@ MAX_COMPETITORS = 20
 MAX_WEB_PAGE_ROWS = 1000
 TOP_DOMAINS_COUNT = 1_000_000
 TOP_DOMAINS_PAGE_ROWS = 100_000
+# Each day costs 3 requests and at least 150 API units, so a first sync reads only the last week.
+SITE_METRICS_FIRST_SYNC_DAYS = 7
+# Longer than the longest sync frequency, so a scheduled sync leaves no day out.
+SITE_METRICS_MAX_SYNC_DAYS = 31
 
 BACKLINK_FIELDS = (
     "url_from",
@@ -93,9 +97,45 @@ RANK_TRACKER_FIELDS = (
 )
 
 
-class EndpointSettings(TypedDict):
+class DailyReport(TypedDict):
     path: str
     data_selector: str
+    target_params: list[str]
+    # Response field to row column.
+    columns: dict[str, str]
+
+
+SITE_METRICS_REPORTS: list[DailyReport] = [
+    {
+        "path": "site-explorer/domain-rating",
+        "data_selector": "domain_rating",
+        "target_params": ["target"],
+        "columns": {"domain_rating": "domain_rating", "ahrefs_rank": "ahrefs_rank"},
+    },
+    {
+        "path": "site-explorer/backlinks-stats",
+        "data_selector": "metrics",
+        "target_params": ["target", "mode", "protocol"],
+        "columns": {"live": "live_backlinks", "live_refdomains": "live_refdomains"},
+    },
+    {
+        "path": "site-explorer/metrics",
+        "data_selector": "metrics",
+        "target_params": ["target", "mode", "protocol"],
+        "columns": {
+            "org_keywords": "org_keywords",
+            "org_keywords_1_3": "org_keywords_1_3",
+            "org_traffic": "org_traffic",
+            "org_cost": "org_cost",
+        },
+    },
+]
+
+
+class EndpointSettings(TypedDict):
+    # Tables built from more than one report have no single path or data selector.
+    path: NotRequired[str]
+    data_selector: NotRequired[str]
     primary_keys: list[str]
     params: dict[str, str | int]
     description: str
@@ -112,6 +152,8 @@ class EndpointSettings(TypedDict):
     snapshot_date: NotRequired[bool]
     # Rank Tracker reports one device per request, so the table reads each and tags rows with it.
     devices: NotRequired[list[str]]
+    # Each sync adds one row per day, merged from these reports for that date.
+    daily_reports: NotRequired[list[DailyReport]]
 
 
 ENDPOINTS: dict[str, EndpointSettings] = {
@@ -168,6 +210,15 @@ ENDPOINTS: dict[str, EndpointSettings] = {
         "description": "Monthly organic and paid search traffic and traffic value of the selected project's target.",
         "target_params": ["target", "mode", "protocol"],
         "history": True,
+    },
+    "site_metrics_daily": {
+        "primary_keys": ["project_id", "date"],
+        "params": {},
+        "description": (
+            "Daily Domain Rating, Ahrefs Rank, live backlink and referring domain totals, and organic "
+            "keyword and traffic totals of the selected project's target."
+        ),
+        "daily_reports": SITE_METRICS_REPORTS,
     },
     "backlinks": {
         "path": "site-explorer/all-backlinks",
@@ -293,7 +344,7 @@ ENDPOINTS: dict[str, EndpointSettings] = {
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [incremental_field("date", IncrementalFieldType.Date)]
     for name, endpoint in ENDPOINTS.items()
-    if endpoint.get("history")
+    if endpoint.get("history") or endpoint.get("daily_reports")
 }
 
 AUTH_ERROR = "Ahrefs authentication failed. Check your API key in Account settings > API keys."

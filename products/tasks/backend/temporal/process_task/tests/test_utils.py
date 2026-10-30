@@ -13,11 +13,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
-from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
-    SNAPSHOT_KIND_DIRECTORY,
-)
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
@@ -132,33 +128,16 @@ class TestRunStateResumeCompatibility(SimpleTestCase):
         self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
-class TestRunStateSnapshotPaths(TestCase):
+class TestRunStateSnapshotPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "new_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
-                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-            ),
-            (
-                "stored_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                DEFAULT_SANDBOX_WORKING_DIR,
-            ),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, DEFAULT_SANDBOX_WORKING_DIR),
             # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
             # to the default: the snapshot's content layout only fits the path it was captured
             # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
-            (
-                "legacy_tmp_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                None,
-            ),
-            (
-                "unsupported_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
-                None,
-            ),
-            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, None),
+            ("unsupported_path", {"snapshot_mount_path": "/tmp/agent-env"}, None),
+            ("no_path", {}, None),
         ]
     )
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
@@ -166,19 +145,9 @@ class TestRunStateSnapshotPaths(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "directory_workspace_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                True,
-            ),
-            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
-            (
-                "directory_legacy_tmp_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                False,
-            ),
-            ("filesystem", {"snapshot_kind": "filesystem"}, True),
-            ("no_kind", {}, True),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, True),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, False),
+            ("no_path", {}, False),
         ]
     )
     def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
@@ -190,30 +159,25 @@ class TestRunStateSnapshotPaths(TestCase):
                 "directory_full_triple",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
             ),
             (
-                "filesystem_no_mount_path",
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-            ),
-            (
-                "legacy_no_kind",
+                "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
-                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+                {},
             ),
             (
                 "unusable_directory",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": "/tmp",
                 },
                 {},
@@ -1270,6 +1234,18 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             ("task_repository", {}, "acme/api", ["acme/api"]),
             ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
             ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+            (
+                "access_list_widens_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": ["acme/api", "acme/assets"]},
+                "acme/api",
+                ["acme/api", "acme/assets"],
+            ),
+            (
+                "empty_access_list_keeps_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": []},
+                "acme/api",
+                ["acme/api"],
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")

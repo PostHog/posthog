@@ -61,6 +61,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
@@ -389,10 +390,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             return set()
 
         installation_ids: set[str] = set()
-        for ti in Integration.objects.filter(team=team, kind="github").values("integration_id"):
-            iid = ti["integration_id"]
-            if iid:
-                installation_ids.add(str(iid))
+        for ti in IntegrationManager.github.oauth.list(team.id):
+            if ti.integration_id:
+                installation_ids.add(str(ti.integration_id))
         return installation_ids
 
     @extend_schema(
@@ -824,10 +824,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # the resolved team (the simple "Link my Slack account" path).
         body: Any = request.data if isinstance(request.data, dict) else {}
         slack_team_id_hint = body.get("slack_team_id")
-        workspace_query = Integration.objects.filter(team=team, kind="slack")
-        if slack_team_id_hint:
-            workspace_query = workspace_query.filter(integration_id=slack_team_id_hint)
-        workspace = workspace_query.first()
+        workspace = IntegrationManager.slack.oauth.find(
+            team.id, external_id=str(slack_team_id_hint) if slack_team_id_hint else None
+        )
         if workspace is None:
             raise exceptions.ValidationError(
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
@@ -845,7 +844,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         install_url = build_invite_url(
             slack_user_id=None,
-            slack_team_id=workspace.integration_id,
+            slack_team_id=workspace.integration_id or "",
             posthog_team_id=team.id,
             channel=None,
             thread_ts=None,
@@ -969,14 +968,8 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
 def _team_github_installation_id(team: Any) -> str | None:
     if team is None:
         return None
-    team_row = (
-        Integration.objects.filter(team=team, kind="github")
-        .exclude(integration_id__isnull=True)
-        .exclude(integration_id="")
-        .order_by("id")
-        .first()
-    )
-    return str(team_row.integration_id) if team_row is not None and team_row.integration_id else None
+    team_row = next((row for row in IntegrationManager.github.oauth.list(team.id) if row.integration_id), None)
+    return str(team_row.integration_id) if team_row is not None else None
 
 
 def _attempt_app_oauth_fast_path(

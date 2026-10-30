@@ -20,11 +20,11 @@ import {
     OBSERVATION_RETURN_PATH_PARAM,
     POSTHOG_AI_ORIGIN,
     RECORDING_ORIGIN,
-    WATCH_FEED_ORIGIN,
+    HIGHLIGHT_FEED_ORIGIN,
     isObservationOrigin,
     safeReturnPath,
     scannerBreadcrumb,
-    watchFeedBreadcrumb,
+    highlightFeedBreadcrumb,
 } from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
@@ -115,8 +115,8 @@ function recordingBreadcrumb(observation: ReplayObservationApi, returnPath: stri
 function parentBreadcrumbFor(observation: ReplayObservationApi, searchParams: Record<string, unknown>): Breadcrumb {
     const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
     const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
-    if (origin === WATCH_FEED_ORIGIN) {
-        return watchFeedBreadcrumb()
+    if (origin === HIGHLIGHT_FEED_ORIGIN) {
+        return highlightFeedBreadcrumb()
     }
     if (origin === RECORDING_ORIGIN) {
         return recordingBreadcrumb(observation, returnPath)

@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
+from products.tasks.backend.constants import RESUME_SNAPSHOT_KIND, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -70,7 +70,6 @@ from .activities.feature_flags import (
 )
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
-from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -85,6 +84,7 @@ from .activities.provision_sandbox import (
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -2028,7 +2028,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     snapshot_external_id=None,
                     used_snapshot=False,
                     should_create_snapshot=True,
-                    snapshot_kind=SNAPSHOT_KIND_FILESYSTEM,
                     snapshot_mount_path=None,
                     snapshot_source="none",
                     image_source=fresh_image_source,
@@ -2096,6 +2095,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             shallow_clone=prepared.shallow_clone,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
+                        schedule_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:
@@ -2636,7 +2636,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._boot_milestones_before_ready.append((event_name, now))
         task = asyncio.create_task(self._track_boot_milestone(event_name, properties))
         self._boot_telemetry_tasks.append(task)
-        task.add_done_callback(self._boot_telemetry_tasks.remove)
 
     def _record_boot_milestone_sample(self, event_name: str, since_agent_ready_ms: int) -> None:
         record_agent_boot_milestone_ms(
@@ -2685,7 +2684,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _flush_boot_telemetry_tasks(self) -> None:
         while self._boot_telemetry_tasks:
-            await asyncio.gather(*tuple(self._boot_telemetry_tasks))
+            pending = [task for task in self._boot_telemetry_tasks if not task.done()]
+            self._boot_telemetry_tasks.clear()
+            if pending:
+                await asyncio.gather(*pending)
 
     async def _report_sandbox_deadline_outcome(self, *, outcome: str, reason: str | None, duration: timedelta) -> None:
         """Report how a sandbox deadline resolved, for the rollout's metrics.
@@ -2993,7 +2995,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self.context.state = {
             **(self.context.state or {}),
             "snapshot_external_id": snapshot.external_id,
-            "snapshot_kind": snapshot.snapshot_kind,
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
             "snapshot_mount_path": snapshot.snapshot_mount_path,
             "same_run_resume": True,
             "same_run_resume_idle": True,
@@ -3315,7 +3317,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "sandbox_id": sandbox_id,
                         "reason": reason,
                         "snapshot_external_id": result.external_id,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                     },
                 )
@@ -3327,7 +3328,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": self.context.run_id,
                         "sandbox_id": sandbox_id,
                         "reason": reason,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                         "error": result.error,
                     },

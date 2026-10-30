@@ -303,11 +303,11 @@
         "feature_flag": "insight-data-checks"
     },
     "explain-chart": {
-        "description": "Show the person a walkthrough of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the walkthrough and the response says so. Otherwise it returns only a short summary: show the walkthrough with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
+        "description": "Show the person an explanation of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the explanation and the response says so. Otherwise it returns only a short summary: show the explanation with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
-        "title": "Show chart walkthrough",
+        "title": "Explain this chart",
         "required_scopes": ["insight:read", "query:read"],
         "api_operations": ["GET /api/projects/{project_id}/insights/{id}/", "POST /api/projects/{project_id}/query/"],
         "feature_flag": "investigate-insight",
@@ -576,7 +576,7 @@
         }
     },
     "event-definition-create": {
-        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
+        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, owner, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
         "category": "Events & properties",
         "feature": "events",
         "summary": "Create an event definition.",
@@ -589,8 +589,22 @@
             "readOnlyHint": false
         }
     },
+    "event-definition-get": {
+        "description": "Get one event definition by its exact name, like '$pageview' or 'user_signed_up'. Returns the description, owner, tags, verified and hidden state, first seen time, and last seen time. Use this to find who owns an event. Returns `found: false` when no definition has that name.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Get an event definition by name.",
+        "title": "Get event definition",
+        "required_scopes": ["event_definition:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "event-definition-update": {
-        "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
+        "description": "Update event definition metadata. Can update description, owner, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",
         "feature": "events",
         "summary": "Update an event definition's metadata.",

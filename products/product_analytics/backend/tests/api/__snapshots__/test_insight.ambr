@@ -33,9 +33,9 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_dashboard"."team_id" = 99999))
@@ -73,7 +73,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -510,9 +511,9 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
   
-    (SELECT U0."last_viewed_at" AS "last_viewed_at"
-     FROM "posthog_insightviewed" U0
-     WHERE U0."insight_id" = ("posthog_dashboarditem"."id")
+    (SELECT "U0"."last_viewed_at" AS "last_viewed_at"
+     FROM "posthog_insightviewed" "U0"
+     WHERE "U0"."insight_id" = ("posthog_dashboarditem"."id")
      ORDER BY 1 DESC
      LIMIT 1) AS "last_viewed_at",
          "posthog_team"."id",
@@ -1161,9 +1162,9 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_dashboard"."team_id" = 99999))
@@ -1618,9 +1619,9 @@
   FROM "posthog_insightvariable"
   INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
   WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
+           (SELECT "U0"."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" "U0"
+            WHERE "U0"."id" = 99999
             LIMIT 1)
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))
@@ -1667,7 +1668,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -2189,9 +2191,9 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
   
-    (SELECT U0."last_viewed_at" AS "last_viewed_at"
-     FROM "posthog_insightviewed" U0
-     WHERE U0."insight_id" = ("posthog_dashboarditem"."id")
+    (SELECT "U0"."last_viewed_at" AS "last_viewed_at"
+     FROM "posthog_insightviewed" "U0"
+     WHERE "U0"."insight_id" = ("posthog_dashboarditem"."id")
      ORDER BY 1 DESC
      LIMIT 1) AS "last_viewed_at",
          "posthog_team"."id",
@@ -2971,9 +2973,9 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_dashboard"."team_id" = 99999))
@@ -3421,9 +3423,9 @@
   FROM "posthog_insightvariable"
   INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
   WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
+           (SELECT "U0"."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" "U0"
+            WHERE "U0"."id" = 99999
             LIMIT 1)
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))
@@ -3470,7 +3472,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -3912,9 +3915,9 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
   
-    (SELECT U0."last_viewed_at" AS "last_viewed_at"
-     FROM "posthog_insightviewed" U0
-     WHERE U0."insight_id" = ("posthog_dashboarditem"."id")
+    (SELECT "U0"."last_viewed_at" AS "last_viewed_at"
+     FROM "posthog_insightviewed" "U0"
+     WHERE "U0"."insight_id" = ("posthog_dashboarditem"."id")
      ORDER BY 1 DESC
      LIMIT 1) AS "last_viewed_at",
          "posthog_team"."id",
@@ -4199,9 +4202,9 @@
   FROM "posthog_insightvariable"
   INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
   WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
+           (SELECT "U0"."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" "U0"
+            WHERE "U0"."id" = 99999
             LIMIT 1)
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))
@@ -4248,7 +4251,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -4706,9 +4710,9 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
   
-    (SELECT U0."last_viewed_at" AS "last_viewed_at"
-     FROM "posthog_insightviewed" U0
-     WHERE U0."insight_id" = ("posthog_dashboarditem"."id")
+    (SELECT "U0"."last_viewed_at" AS "last_viewed_at"
+     FROM "posthog_insightviewed" "U0"
+     WHERE "U0"."insight_id" = ("posthog_dashboarditem"."id")
      ORDER BY 1 DESC
      LIMIT 1) AS "last_viewed_at",
          "posthog_team"."id",
@@ -5390,9 +5394,9 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_dashboard"."team_id" = 99999))
@@ -5999,9 +6003,9 @@
   FROM "posthog_insightvariable"
   INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
   WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
+           (SELECT "U0"."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" "U0"
+            WHERE "U0"."id" = 99999
             LIMIT 1)
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))
@@ -6048,7 +6052,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -6527,9 +6532,9 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags",
   
-    (SELECT U0."last_viewed_at" AS "last_viewed_at"
-     FROM "posthog_insightviewed" U0
-     WHERE U0."insight_id" = ("posthog_dashboarditem"."id")
+    (SELECT "U0"."last_viewed_at" AS "last_viewed_at"
+     FROM "posthog_insightviewed" "U0"
+     WHERE "U0"."insight_id" = ("posthog_dashboarditem"."id")
      ORDER BY 1 DESC
      LIMIT 1) AS "last_viewed_at",
          "posthog_team"."id",
@@ -7188,9 +7193,9 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_dashboard"."team_id" = 99999))
@@ -7666,9 +7671,9 @@
   FROM "posthog_insightvariable"
   INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
   WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
+           (SELECT "U0"."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" "U0"
+            WHERE "U0"."id" = 99999
             LIMIT 1)
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))

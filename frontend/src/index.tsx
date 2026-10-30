@@ -12,7 +12,10 @@ import { retryBootImport } from 'lib/utils/retryImport'
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
-markBootPhase('entry', { deferred_app_context: !!window.POSTHOG_APP_CONTEXT_REQUEST })
+markBootPhase('entry', {
+    deferred_app_context: !!window.POSTHOG_APP_CONTEXT_REQUEST,
+    deferred_app_context_variant: window.POSTHOG_APP_CONTEXT?.deferred_app_context_variant,
+})
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 

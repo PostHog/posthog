@@ -109,6 +109,7 @@ from products.feature_flags.backend.tasks import (
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
+    report_django_local_evaluation_usage_task,
     sync_cross_region_flags_task,
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
@@ -120,10 +121,12 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_report_inbox_state_cache,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -448,6 +451,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=5 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_tracker_issues.s(),
+        name="complete verified signals tracker issues",
+        expires_seconds=60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
@@ -461,6 +472,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="50"),
         refresh_signal_scout_background_bands.s(),
         name="refresh signals scout background bands",
+    )
+
+    # Correct signals cached implementation PR flags that drifted - daily at 4:40 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="40"),
+        reconcile_report_inbox_state_cache.s(),
+        name="reconcile signals report inbox state",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -645,6 +664,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="cross-region flags sync",
             expires=30,
         )
+
+    # Every minute, send the local evaluation requests that Django counted to usage ingestion.
+    # The interval sets only how fresh the records are, because unsent counts wait in Redis.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        report_django_local_evaluation_usage_task.s(),
+        name="report django local evaluation usage",
+        expires_seconds=60,
+    )
 
     add_periodic_task_with_expiry(
         sender,

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     NON_RETRYABLE_ERRORS,
     QUOTA_RETRY_ERROR,
     RETRYABLE_QUOTA_ERRORS,
+    SITE_METRICS_FIRST_SYNC_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -121,9 +122,12 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
                 "Metrics history costs 10 units per metric for each month returned. "
                 f"Each sync imports the latest crawl, with a sample of up to {MAX_PAGE_ROWS} pages. "
                 "Page data requires verified project ownership. "
-                "Domain Rating, metrics history, backlinks, organic keywords, and referring domains report on the "
+                "Domain Rating, metrics history, daily site metrics, backlinks, organic keywords, and referring domains report on the "
                 "Site Audit project's target. Rank Tracker rankings come from the same project. "
-                f"History tables start {HISTORY_DAYS} days back. Backlinks import up to {MAX_BACKLINK_ROWS} live links, "
+                f"History tables start {HISTORY_DAYS} days back. "
+                "Daily site metrics cost 150 units for each day. "
+                f"The first sync reads the last {SITE_METRICS_FIRST_SYNC_DAYS} days, and later syncs add each new day. "
+                f"Backlinks import up to {MAX_BACKLINK_ROWS} live links, "
                 f"organic keywords up to {MAX_KEYWORD_ROWS} keywords, and referring domains up to {MAX_REFDOMAIN_ROWS} domains. "
                 "Link intersect tables compare the target with the project's competitors in Ahrefs. "
                 "Brand Radar web pages come from the Brand Radar reports linked to the project. "

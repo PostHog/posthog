@@ -212,7 +212,11 @@ describe('replayObservationLogic', () => {
     // A `from` origin sends back to where the reader was, not to the scanner that owns the row. `return_to`
     // must stay on this site: anything else falls back to the origin's own page.
     test.each([
-        { label: 'the watch feed', params: { from: 'watch', t: 12 }, expected: '/replay-vision?tab=watch' },
+        {
+            label: 'the highlight feed',
+            params: { from: 'highlights', t: 12 },
+            expected: '/replay-vision?tab=highlights',
+        },
         { label: 'the recording', params: { from: 'recording' }, expected: '/replay/sess-1' },
         {
             label: 'the playlist it was opened from',

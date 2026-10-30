@@ -17,7 +17,6 @@ import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -141,11 +140,7 @@ export type SceneMainTitleProps = {
 }
 
 export function SceneTitleSection(props: SceneMainTitleProps): JSX.Element | null {
-    const { zenMode } = useValues(navigation3000Logic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    if (zenMode) {
-        return null
-    }
     return todayRailEnabled ? <QuillSceneTitleSection {...props} /> : <LemonSceneTitleSection {...props} />
 }
 

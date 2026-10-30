@@ -486,6 +486,13 @@ export interface inboxTaskKickoffLogicActions {
     setSidePanelOptions: (options: string | null) => {
         options: string | null
     } // sidePanelStateLogic
+    alignReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
+    }
     createPrFailure: () => {
         value: true
     }
@@ -611,6 +618,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     })),
 
     actions({
+        alignReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
             report,
@@ -653,7 +661,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         reportChatContext: [
             null as ReportChatContext | null,
             {
-                openReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
+                alignReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
                 openReportTask: (_, { report }) => ({
                     report,
                     reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
@@ -729,10 +737,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
-        openReportDiscussion: ({ report }) => {
+        alignReportDiscussion: ({ report }) => {
             cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
+            const warmReportIds = [values.reportWarmLease?.reportId, cache.warmingReportId, cache.pendingWarmReport?.id]
+            if (warmReportIds.some((id) => id && id !== report.id)) {
+                actions.releaseReportDiscussionWarm()
+            }
+        },
+        openReportDiscussion: ({ report, reportUrl }) => {
+            actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
                 actions.warmReportDiscussion(report)
@@ -968,13 +983,29 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
-            if (values.createPrDisabledReason) {
-                lemonToast.error(values.createPrDisabledReason)
+            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
+            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                return null
+            })
+            if (!githubAccess) {
+                actions.createPrFailure()
+                return
+            }
+            const { reportGithubAccessLogic } = githubAccess
+            const disabledReason =
+                values.createPrDisabledReason ??
+                (
+                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                    reportGithubAccessLogic.findMounted({ report })
+                )?.values.disabledReason
+            if (disabledReason) {
+                lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
                     outcome: 'blocked',
-                    blockedReason: values.createPrDisabledReason,
+                    blockedReason: disabledReason,
                 })
                 actions.createPrFailure()
                 return

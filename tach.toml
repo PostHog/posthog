@@ -281,7 +281,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
+    "posthog", "products.cdp", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
     # depends on products.conversations in turn, so keep this direction on the facade.
     "products.signals",
@@ -495,6 +495,8 @@ depends_on = [
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
+    # Facade-only: the built-in bot filter reads the bot user agent patterns.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -587,6 +589,10 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    # Facade only: the trace view links a trace's git branch to its pull request.
+    "products.engineering_analytics",
+    # Trace feedback reads trace-linked survey responses through the surveys facade.
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -702,6 +708,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
+    "products.alerts_platform",
     "products.dashboards",
     "products.error_tracking",
     "products.exports",
@@ -874,7 +882,7 @@ depends_on = [
     "products.experiments",
     "products.exports",
     "products.feature_flags",
-    # Facade-only: the watch feed's hourly Jev sweep calls the shared decision-model client.
+    # Facade-only: the highlight feed's hourly Jev sweep calls the shared decision-model client.
     "products.ml_inference",
     "products.notifications",
     "products.signals",
@@ -1600,8 +1608,6 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.data_modeling", "products.access_control",
-    # Facade-only: data catalog declares its Today highlight sources against the Today facade contract.
-    "products.today",
 ]
 layer = "modules"
 
@@ -1743,6 +1749,13 @@ expose = [
     "backend\\.llm.*",
     "backend\\.markdown_outline.*",
     "backend\\.models.*",
+    "backend\\.offline_evaluation_billing.get_offline_evaluation_usage",
+    "backend\\.offline_evaluation_service.OfflineEvaluationIngestionService",
+    "backend\\.offline_evaluation_service.OfflineExperimentService",
+    "backend\\.offline_evaluation_types.ExperimentSubmission",
+    "backend\\.offline_evaluation_types.ItemSubmission",
+    "backend\\.offline_evaluation_types.ResultSubmission",
+    "backend\\.offline_evaluation_types.UploadSubmission",
     "backend\\.prompt_references.*",
     "backend\\.queries.*",
     "backend\\.summarization.*",
@@ -1789,6 +1802,8 @@ depends_on = [
     "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
+    # Facade-only: warehouse suggestions declares its Today highlight sources against the Today facade contract.
+    "products.today",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -1868,12 +1883,17 @@ from = [
 
 [[modules]]
 path = "products.authorization"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.access_control",
+]
 layer = "modules"
 
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    # Django adapters, such as building a Resource from a model. The facade cannot take a model.
+    "backend\\.presentation.*",
 ]
 from = [
     "products.authorization",

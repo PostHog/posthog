@@ -2,13 +2,15 @@ import io
 import os
 import csv
 import gzip
+import json
 import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.test import override_settings
 
@@ -16,6 +18,7 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from fsspec.implementations.local import LocalFileSystem
@@ -23,6 +26,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
+    filesystem,
     formats,
     source_base,
 )
@@ -32,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import CsvColumnType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     ObjectStorageDeltaCursor,
     iter_delta_tables,
@@ -58,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStore,
     S3ObjectStore,
     StoredObject,
+    lookup_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_csv_tables,
@@ -570,6 +576,66 @@ class TestJsonl:
             {"id": None, "value": 4},
             {"value": "five"},
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "date",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": None}, {"d": "2024-03-02"}],
+                [date(2024, 3, 1), None, date(2024, 3, 2)],
+                0,
+            ),
+            (
+                "datetime_in_utc",
+                CsvColumnType(name="d", kind="datetime"),
+                [{"d": "2024-03-01 10:30:00"}, {"d": "2024-03-01T10:30:00Z"}, {"d": None}],
+                [datetime(2024, 3, 1, 10, 30, tzinfo=UTC)] * 2 + [None],
+                0,
+            ),
+            (
+                "datetime_in_a_time_zone",
+                CsvColumnType(name="d", kind="datetime", timezone="America/New_York"),
+                [{"d": "2024-07-01 10:30:00"}],
+                [datetime(2024, 7, 1, 14, 30, tzinfo=UTC)],
+                0,
+            ),
+            (
+                "bad_values_become_null",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": "not a date"}, {"d": "2024-13-45"}],
+                [date(2024, 3, 1), None, None],
+                2,
+            ),
+            (
+                "column_with_only_nulls",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": None}, {"d": None}],
+                [None, None],
+                0,
+            ),
+        ]
+    )
+    def test_stored_date_types_cast_json_text(
+        self, _name: str, column_type: CsvColumnType, rows: list[dict], expected: list, nulled: int
+    ) -> None:
+        content = b"\n".join(json.dumps(row).encode() for row in rows) + b"\n"
+        logger = MagicMock()
+
+        [table] = iter_jsonl_tables(io.BytesIO(content), "x.jsonl", column_types=(column_type,), logger=logger)
+
+        assert table.schema.field("d").type == column_type.arrow_type
+        assert table.column("d").to_pylist() == expected
+        assert logger.warning.called is bool(nulled)
+
+    def test_columns_without_a_stored_type_stay_as_they_are(self) -> None:
+        content = b'{"d": "2024-03-01", "n": 1}\n'
+
+        [table] = iter_jsonl_tables(
+            io.BytesIO(content), "x.jsonl", column_types=(CsvColumnType(name="n", kind="integer"),)
+        )
+
+        assert table.to_pylist() == [{"d": "2024-03-01", "n": 1}]
 
     def test_a_too_deeply_nested_record_is_a_parse_error(self) -> None:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
@@ -1182,3 +1248,75 @@ class TestS3Listing:
 
             with pytest.raises(PermissionError):
                 _s3_store(client).list_objects("", 10)
+
+
+class TestS3BucketRegion:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Any:
+        lookup_s3_bucket_region.cache_clear()
+        yield
+        lookup_s3_bucket_region.cache_clear()
+
+    def _stubbed_client(self, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Stubber]:
+        client = boto3.client("s3", region_name="us-east-1")
+        monkeypatch.setattr(filesystem.boto3, "client", lambda *_args, **_kwargs: client)
+        return client, Stubber(client)
+
+    def test_a_readable_bucket_names_its_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_response(
+            "head_bucket",
+            {"ResponseMetadata": {"HTTPStatusCode": 200, "HTTPHeaders": {"x-amz-bucket-region": "eu-central-1"}}},
+            {"Bucket": "customer-data"},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == "eu-central-1"
+
+    @pytest.mark.parametrize(
+        "status, headers, expected",
+        [
+            # A private bucket refuses the anonymous request but still names its region.
+            (403, {"x-amz-bucket-region": "eu-central-1"}, "eu-central-1"),
+            (301, {"x-amz-bucket-region": "ap-southeast-2"}, "ap-southeast-2"),
+        ],
+    )
+    def test_an_error_answer_still_names_the_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, headers: dict[str, str], expected: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error(
+            "head_bucket",
+            service_error_code=str(status),
+            http_status_code=status,
+            response_meta={"HTTPHeaders": headers},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == expected
+
+    @pytest.mark.parametrize(
+        "status, error, match",
+        [
+            (404, ObjectStorageError, NO_SUCH_BUCKET_ERROR),
+            # An outage stays a retryable error, not a missing bucket.
+            (500, ClientError, "500"),
+        ],
+    )
+    def test_an_answer_without_a_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, error: type[Exception], match: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error("head_bucket", service_error_code=str(status), http_status_code=status)
+
+        with stubber, pytest.raises(error, match=match):
+            lookup_s3_bucket_region("customer-data")
+
+    def test_an_invalid_bucket_sends_no_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("no client should be built")
+
+        monkeypatch.setattr(filesystem.boto3, "client", refuse)
+
+        with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
+            lookup_s3_bucket_region("Not_A_Bucket")

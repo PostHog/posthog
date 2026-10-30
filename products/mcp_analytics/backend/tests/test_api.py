@@ -1,7 +1,8 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -14,11 +15,15 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, 
 
 from posthog.hogql.database.database import Database
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
-from products.mcp_analytics.backend import intent_generation, mcp_harness
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -779,6 +784,10 @@ class TestLLMConsentGate(APIBaseTest):
 
 
 class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     def test_aggregates_window_and_extracts_error_messages(self) -> None:
         session_id = str(uuid7())
         _create_event(
@@ -857,6 +866,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
                 properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
             )
+        flush_persons_and_events()
 
     @parameterized.expand(
         [
@@ -885,6 +895,81 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert sum(row.calls for row in overview.top_tools) == expected_calls
         assert sum(row.calls for row in overview.clients) == expected_calls
         assert len(overview.recent_calls) == expected_calls
+
+    def _restrict_a_property(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    @parameterized.expand(
+        [
+            ("same_request_is_served_from_cache", 1, False, "never", 0, 1),
+            ("empty_result_is_not_cached", 0, False, "never", 0, 2),
+            ("other_filters_query_again", 1, True, "never", 0, 2),
+            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, 2),
+            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, 1),
+            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, 2),
+        ]
+    )
+    def test_caches_overview_per_filters_and_property_restrictions(
+        self,
+        _name: str,
+        calls_before: int,
+        change_filters: bool,
+        restrict_a_property: Literal["never", "before_requests", "between_requests"],
+        seconds_later: int,
+        expected_calls: int,
+    ) -> None:
+        self.team.test_account_filters = TEST_ACCOUNT_FILTERS
+        self.team.save()
+        if restrict_a_property == "before_requests":
+            self._restrict_a_property()
+        self._emit_call({"$mcp_client_name": "claude-code"}, count=calls_before)
+        api.get_activity_overview(self.team, user=self.user)
+
+        self._emit_call({"$mcp_client_name": "claude-code"}, count=2 - calls_before)
+        if restrict_a_property == "between_requests":
+            self._restrict_a_property()
+        with time_machine.travel(datetime.now(tz=UTC) + timedelta(seconds=seconds_later), tick=False):
+            overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
+
+        assert overview.stats.total_calls == expected_calls
+
+    @parameterized.expand(
+        [
+            ("plain_property_is_shared", "$mcp_tool_name", TEST_ACCOUNT_FILTERS, True),
+            ("virtual_property_is_per_member", "$virt_tier", TEST_ACCOUNT_FILTERS, False),
+            (
+                "hogql_test_account_filter_is_per_member",
+                "$mcp_tool_name",
+                [{"key": "1 = 1", "type": "hogql"}],
+                False,
+            ),
+        ]
+    )
+    def test_overview_cache_key_is_per_member_unless_filters_read_the_same_for_everyone(
+        self, _name: str, key: str, test_account_filters: list[dict[str, Any]], shared: bool
+    ) -> None:
+        self.team.test_account_filters = test_account_filters
+        self.team.save()
+        other_user = self._create_user("other@example.com")
+        properties: list[AnyPropertyFilterDiscriminated] = [
+            EventPropertyFilter(key=key, value="x", operator=PropertyOperator.EXACT)
+        ]
+
+        keys = {
+            logic._activity_overview_cache_key(self.team, properties, True, set(), user)
+            for user in (self.user, other_user)
+        }
+
+        assert (len(keys) == 1) == shared
 
     def test_tool_filter_does_not_hide_missing_capability_reports(self) -> None:
         self._emit_call({"$mcp_tool_name": "query_run"})

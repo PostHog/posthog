@@ -37,6 +37,7 @@ import {
 
 import api, { getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -76,8 +77,6 @@ import {
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -154,6 +153,8 @@ import {
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -220,6 +221,7 @@ function reportDashboardTileRefreshed(
     variables: Record<string, any>,
     refreshDurationMs: number,
     individualRefresh: boolean,
+    requestTiming: ApiRequestTiming | undefined,
     filterChange?: PendingFilterChange
 ): void {
     const insight = tile.insight
@@ -236,6 +238,7 @@ function reportDashboardTileRefreshed(
         variables,
         refresh_duration_ms: refreshDurationMs,
         individual_refresh: individualRefresh,
+        ...flattenRequestTiming(requestTiming, ''),
         ...sanitizedQuery,
         ...(filterChange
             ? {
@@ -317,6 +320,7 @@ async function refreshInsightTile(
     const insight = tile.insight
     const queryId = uuid()
     let queryStartTime = performance.now()
+    let requestTiming: ApiRequestTiming | undefined
     const { signal, finish } = tileLoads.start([tile.id], refreshSignal, { forceRefresh, settings })
 
     try {
@@ -329,7 +333,12 @@ async function refreshInsightTile(
                 dashboardId,
                 queryId,
                 forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                { signal },
+                {
+                    signal,
+                    onRequestTiming: (timing) => {
+                        requestTiming = timing
+                    },
+                },
                 filters,
                 variables,
                 tile.filters_overrides
@@ -349,7 +358,8 @@ async function refreshInsightTile(
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
-            false
+            false,
+            requestTiming
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -772,6 +782,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    queryLoadQueue: TaskQueue
     readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
@@ -3474,7 +3485,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ cache }) => ({
+        queryLoadQueue: [() => [], (): TaskQueue => tileLoadQueue(cache)],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
@@ -5306,6 +5318,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakpoint()
 
                 const refreshStartTime = performance.now()
+                let requestTiming: ApiRequestTiming | undefined
                 // when one insight is refreshed manually, we want to avoid cache and force a refresh of the insight
                 // hence using 'force_blocking', small cost to give latest data for the insight
                 // also it's then consistent with the dashboard refresh button
@@ -5315,7 +5328,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboardId,
                     uuid(),
                     'force_blocking',
-                    undefined,
+                    {
+                        onRequestTiming: (timing) => {
+                            requestTiming = timing
+                        },
+                    },
                     withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
                     urlVariables,
                     tile.filters_overrides
@@ -5349,6 +5366,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
                     true,
+                    requestTiming,
                     currentFilterChange
                 )
                 if (currentFilterChange?.remainingInsightIds.size === 0) {
@@ -6737,84 +6755,96 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ values, actions }) => ({
-        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
-            const id = subscriptionId
-                ? subscriptionId == 'new'
-                    ? subscriptionId
-                    : parseInt(subscriptionId, 10)
-                : undefined
-            actions.setSubscriptionMode(true, id)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setDashboardEditing(null, DashboardEventSource.Browser)
-        },
+    urlToAction(({ values, actions }) => {
+        const restoreSettingsFromHistory = (searchParams: Record<string, any>): void => {
+            const current = values.currentDashboardSettings
+            const settings: DashboardSettings = {
+                filters: combineSavedAndUrlFilters(
+                    values.savedDashboardSettings.filters,
+                    parseURLFilters(searchParams)
+                ),
+                // Browser history carries SQL variables as well as filters. Until the variable
+                // definitions load there is nothing to map the URL values onto, so the current
+                // values stay.
+                variables: values.initialVariablesLoaded
+                    ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
+                    : current.variables,
+            }
 
-        '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
-            actions.revealHighlightedInsight()
-            actions.setSubscriptionMode(false, undefined)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            if (method === 'POP' && values.dashboard) {
-                const current = values.currentDashboardSettings
-                const settings: DashboardSettings = {
-                    filters: combineSavedAndUrlFilters(
-                        values.savedDashboardSettings.filters,
-                        parseURLFilters(searchParams)
-                    ),
-                    // Browser history carries SQL variables as well as filters. Until the variable
-                    // definitions load there is nothing to map the URL values onto, so the current
-                    // values stay.
-                    variables: values.initialVariablesLoaded
-                        ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
-                        : current.variables,
-                }
-
-                // Back and Forward also arrive from routes that leave the settings alone, such as the
-                // sharing page. Rebuilding the settings there would re-query every tile and cancel a
-                // refresh in flight for values the dashboard already holds.
-                if (
-                    !dashboardFiltersEqual(current.filters, settings.filters) ||
-                    !equal(current.variables, settings.variables)
-                ) {
-                    actions.setDashboardSettingsDraft(settings)
-                    if (values.canAutoPreview) {
-                        actions.refreshDashboardItems({
-                            action: RefreshDashboardItemsAction.Preview,
-                            forceRefresh: false,
-                        })
-                    }
+            // Back and Forward also arrive from routes that leave the settings alone, such as the
+            // sharing page. Rebuilding the settings there would re-query every tile and cancel a
+            // refresh in flight for values the dashboard already holds.
+            if (
+                !dashboardFiltersEqual(current.filters, settings.filters) ||
+                !equal(current.variables, settings.variables)
+            ) {
+                actions.setDashboardSettingsDraft(settings)
+                if (values.canAutoPreview) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
                 }
             }
-            if (values.dashboardMode === DashboardMode.Sharing) {
+        }
+
+        return {
+            '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
+                const id = subscriptionId
+                    ? subscriptionId == 'new'
+                        ? subscriptionId
+                        : parseInt(subscriptionId, 10)
+                    : undefined
+                actions.setSubscriptionMode(true, id)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
-            }
-            switch (searchParams.tileType) {
-                case 'text':
-                    actions.openTextTileModal()
-                    break
-                case 'image':
-                    actions.openImageTileModal()
-                    break
-                case 'button':
-                    actions.openButtonTileModal()
-                    break
-            }
-        },
-        '/dashboard/:id/sharing': () => {
-            actions.setSubscriptionMode(false, undefined)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
-        },
-        '/dashboard/:id/tiles/:tileId': ({ tileId }) => {
-            actions.setSubscriptionMode(false, undefined)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setDashboardEditing(null, DashboardEventSource.Browser)
-            const parsedTileId = parseDashboardTileId(tileId)
-            actions.setTextTileId(parsedTileId)
-            actions.setButtonTileId(parsedTileId)
-        },
-    })),
+                actions.setDashboardEditing(null, DashboardEventSource.Browser)
+            },
+
+            '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
+                actions.revealHighlightedInsight()
+                actions.setSubscriptionMode(false, undefined)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
+                if (method === 'POP' && values.dashboard) {
+                    restoreSettingsFromHistory(searchParams)
+                }
+                if (values.dashboardMode === DashboardMode.Sharing) {
+                    actions.setDashboardMode(null, DashboardEventSource.Browser)
+                }
+                switch (searchParams.tileType) {
+                    case 'text':
+                        actions.openTextTileModal()
+                        break
+                    case 'image':
+                        actions.openImageTileModal()
+                        break
+                    case 'button':
+                        actions.openButtonTileModal()
+                        break
+                }
+            },
+            '/dashboard/:id/sharing': () => {
+                actions.setSubscriptionMode(false, undefined)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
+                actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
+            },
+            '/dashboard/:id/tiles/:tileId': ({ tileId }) => {
+                actions.setSubscriptionMode(false, undefined)
+                actions.setDashboardMode(null, DashboardEventSource.Browser)
+                actions.setDashboardEditing(null, DashboardEventSource.Browser)
+                const parsedTileId = parseDashboardTileId(tileId)
+                actions.setTextTileId(parsedTileId)
+                actions.setButtonTileId(parsedTileId)
+            },
+            // The product analytics page shows a full dashboard at its own URL.
+            [urls.analyticsProductHome()]: (_params, searchParams, _hashParams, { method }) => {
+                if (method === 'POP' && values.dashboard && values.placement === DashboardPlacement.Dashboard) {
+                    restoreSettingsFromHistory(searchParams)
+                }
+            },
+        }
+    }),
 ])

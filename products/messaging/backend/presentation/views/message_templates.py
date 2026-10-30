@@ -1,7 +1,9 @@
+import time
 from collections.abc import Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 
@@ -29,8 +31,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
@@ -59,12 +61,15 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     DeliveryUnavailable,
     TransactionalEmailError,
+    TransactionalEmailStage,
     check_transactional_update,
     lock_transactional_workflow_id,
     make_transactional,
+    observe_transactional_email_stage,
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
+    transactional_email_stage,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -141,8 +146,12 @@ class EmailTemplateSenderSerializer(serializers.Serializer):
         integration_id = data.get("integrationId")
         if integration_id is None:
             raise serializers.ValidationError({"integrationId": "Choose an email sender."})
-        if not Integration.objects.filter(team_id=self.context["team_id"], kind="email", id=integration_id).exists():
-            raise serializers.ValidationError({"integrationId": "No email sender with this ID in this project."})
+        try:
+            IntegrationManager.email.credentials.get(self.context["team_id"], integration_id)
+        except IntegrationNotFound:
+            raise serializers.ValidationError(
+                {"integrationId": "No email sender with this ID in this project."}
+            ) from None
         return data
 
 
@@ -490,6 +499,17 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
+def require_transactional_email_api(team: Any) -> None:
+    if not posthoganalytics.feature_enabled(
+        TRANSACTIONAL_EMAIL_API_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    ):
+        raise NotFound()
+
+
 def transactional_email_throttles() -> list[BaseThrottle]:
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
@@ -526,20 +546,55 @@ class TransactionalEmailSendMixin:
     team_id: int
     organization: Any
     user_access_control: Any
+    # The actions of the viewset that send an email. Only these record stage durations.
+    transactional_email_send_actions: tuple[str, ...] = ()
+    _validation_started_at: float | None = None
+
+    def _is_transactional_email_send(self) -> bool:
+        return getattr(self, "action", None) in self.transactional_email_send_actions
+
+    def _send_stage(self, stage: TransactionalEmailStage) -> AbstractContextManager[None]:
+        return transactional_email_stage(stage) if self._is_transactional_email_send() else nullcontext()
+
+    def dispatch(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        started_at = time.monotonic()
+        try:
+            return cast(Any, super()).dispatch(request, *args, **kwargs)
+        finally:
+            # A body that fails validation never reaches the action, so its validation time is recorded here.
+            self._end_request_validation()
+            if self._is_transactional_email_send():
+                observe_transactional_email_stage("total", time.monotonic() - started_at)
+
+    def perform_authentication(self, request: Any) -> None:
+        with self._send_stage("auth"):
+            cast(Any, super()).perform_authentication(request)
+
+    def check_permissions(self, request: Any) -> None:
+        with self._send_stage("permissions"):
+            cast(Any, super()).check_permissions(request)
+
+    def check_throttles(self, request: Any) -> None:
+        with self._send_stage("throttle"):
+            cast(Any, super()).check_throttles(request)
+
+    def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        cast(Any, super()).initial(request, *args, **kwargs)
+        # @validated_request parses and validates the body after initial() returns and before the action body runs.
+        self._validation_started_at = time.monotonic()
+
+    def _end_request_validation(self) -> None:
+        if self._validation_started_at is not None and self._is_transactional_email_send():
+            observe_transactional_email_stage("validation", time.monotonic() - self._validation_started_at)
+        self._validation_started_at = None
 
     def _require_transactional_email_flag(self) -> None:
-        if not posthoganalytics.feature_enabled(
-            TRANSACTIONAL_EMAIL_API_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            raise NotFound()
+        require_transactional_email_api(self.team)
 
     def _queue_transactional_email(self, request: Any, template: MessageTemplateRow, *, route: str) -> Response:
-        if template.transactional_hog_flow_id:
-            self._require_workflow_editor(template.transactional_hog_flow_id)
+        with transactional_email_stage("workflow_access"):
+            if template.transactional_hog_flow_id:
+                self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
         idempotency_key = request.headers.get("Idempotency-Key")
         outcome: dict[str, Any] = {
@@ -564,7 +619,8 @@ class TransactionalEmailSendMixin:
             outcome["outcome"] = "unavailable"
             raise TransactionalEmailUnavailable() from None
         finally:
-            self._report_transactional_email_send(request, template, outcome)
+            with transactional_email_stage("usage_event"):
+                self._report_transactional_email_send(request, template, outcome)
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -640,6 +696,7 @@ class MessageTemplatesViewSet(
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
     psak_allowed_actions = ["send"]
+    transactional_email_send_actions = ("send",)
 
     serializer_class = MessageTemplateSerializer
 
@@ -846,8 +903,12 @@ class MessageTemplatesViewSet(
     )
     @action(detail=True, methods=["POST"], pagination_class=None)
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        self._require_transactional_email_flag()
-        return self._queue_transactional_email(request, self.get_object(), route="template")
+        self._end_request_validation()
+        with transactional_email_stage("feature_flag"):
+            self._require_transactional_email_flag()
+        with transactional_email_stage("template_lookup"):
+            template = self.get_object()
+        return self._queue_transactional_email(request, template, route="template")
 
     @validated_request(
         MakeTransactionalSerializer,
@@ -906,6 +967,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
+    transactional_email_send_actions = ("email",)
 
     def get_throttles(self):
         return transactional_email_throttles()
@@ -924,10 +986,13 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     )
     @action(detail=False, methods=["POST"])
     def email(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        self._require_transactional_email_flag()
-        try:
-            template = get_template(self.team_id, request.validated_data["template"]["id"])
-        except MessageTemplateMissing:
-            raise NotFound()
-        self.check_object_permissions(request, template)
+        self._end_request_validation()
+        with transactional_email_stage("feature_flag"):
+            self._require_transactional_email_flag()
+        with transactional_email_stage("template_lookup"):
+            try:
+                template = get_template(self.team_id, request.validated_data["template"]["id"])
+            except MessageTemplateMissing:
+                raise NotFound()
+            self.check_object_permissions(request, template)
         return self._queue_transactional_email(request, template, route="send_email")

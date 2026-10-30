@@ -77,7 +77,6 @@ function mockOnboarding(firstReport: FirstReportStateApi, notify: boolean): void
     useMocks({
         get: {
             '/api/projects/:id/signals/onboarding/': {
-                variant: 'test-ui',
                 completed_at: new Date().toISOString(),
                 draft: null,
                 jobs: { scout: 'started', recommendations: 'skipped' },
@@ -198,6 +197,32 @@ describe('ReportsTab', () => {
         }
     })
 
+    it.each<FirstReportStateApi['status']>(['running', 'insufficient_data'])(
+        'hides %s progress when the current filters have reports',
+        async (status) => {
+            mockOnboarding({ status, task_id: 'task-1', task_run_id: 'run-1' }, true)
+            mockReportRows()
+            inboxFiltersLogic.mount()
+            inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['resolved'] })
+
+            const { container } = render(<ReportsTab />)
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+            await waitFor(() => expect(container.querySelector('[data-attr="report-card-resolved"]')).not.toBeNull())
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['held-back'] })
+            await waitFor(() =>
+                expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).not.toBeNull()
+            )
+            expect(container.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
+
+            inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['needs-decision'] })
+            await waitFor(() => expect(container.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull())
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+        }
+    )
+
     // Polling flips the state while the card is on screen. The card has to go and the report has to
     // land in the list without a page reload.
     it.each(['none', 'rows', 'counts-and-rows'])(
@@ -260,14 +285,23 @@ describe('ReportsTab', () => {
 
     // All the states load at once, so the naive wiring fires one `Inbox viewed` per state and
     // multiplies every visit in the activation funnel.
-    it('fires Inbox viewed once for the whole list', async () => {
+    it.each([
+        { name: 'the visible sections', counts: COUNT_BY_FILTER, total: 14, empty: false },
+        {
+            name: 'only hidden Closed reports',
+            counts: [{ match: (params: URLSearchParams) => params.get('status') === 'closed', count: 3 }],
+            total: 0,
+            empty: true,
+        },
+    ])('fires Inbox viewed once for $name', async ({ counts, total, empty }) => {
+        mockReportCounts(counts)
         render(<ReportsTab />)
 
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
             // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
-            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 14, is_empty: false })
+            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: total, is_empty: empty })
         })
     })
 

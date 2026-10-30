@@ -64,6 +64,18 @@ class AccountsTableAggregation(StrEnum):
     MEDIAN = "median"
 
 
+class AccountsTableCustomPropertyDisplayType(StrEnum):
+    TEXT = "text"
+    LINK = "link"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    DATE = "date"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -237,6 +249,12 @@ class DisplayType(StrEnum):
     LINE = "line"
     BAR = "bar"
     AREA = "area"
+
+
+class ValueLabels(StrEnum):
+    AUTO = "auto"
+    SHOW = "show"
+    HIDE = "hide"
 
 
 class YAxisPosition(StrEnum):
@@ -659,6 +677,11 @@ class BIAggregation(StrEnum):
     MINIMUM = "minimum"
     MAXIMUM = "maximum"
     CUSTOM = "custom"
+
+
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
 
 
 class Operator1(StrEnum):
@@ -1525,6 +1548,11 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
+
+
 class ExternalQueryErrorCode(StrEnum):
     PLATFORM_ACCESS_REQUIRED = "platform_access_required"
     QUERY_EXECUTION_FAILED = "query_execution_failed"
@@ -2138,6 +2166,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
 class Breakdown1(StrEnum):
     KEYWORD = "keyword"
     PAGE = "page"
+    SEARCH_TERM = "search_term"
 
 
 class Platform(StrEnum):
@@ -2423,10 +2452,12 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG = "ExperimentWarehouseNativeExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_NATIVE_NODE = "ExperimentWarehouseNativeNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
@@ -3010,6 +3041,16 @@ class SnapchatAdsConversionValueFields(StrEnum):
 
 class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
+
+
+class SpanHealthStatus(StrEnum):
+    SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
+    RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"
 
 
 class SpanPropertyFilterType(StrEnum):

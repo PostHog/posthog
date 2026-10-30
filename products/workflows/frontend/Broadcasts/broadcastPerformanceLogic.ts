@@ -7,11 +7,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
 import { type EmailLinkRow, parseEmailLinkTotals } from '../Workflows/workflowMetricsSummaryLogic'
+import type { BroadcastChannel } from './broadcastsLogic'
 
 export interface BroadcastPerformanceLogicProps {
     /** The batch run the numbers belong to. A batch send's email metrics are recorded against the run, not the flow. */
     runId: string
     runStartedAt: string
+    channel?: BroadcastChannel
 }
 
 export interface BroadcastPerformanceStats {
@@ -27,6 +29,8 @@ export interface BroadcastPerformanceStats {
     trackedSends: number
     /** Recipients who met the broadcast's goal. */
     converted: number
+    /** Push only: people with no device registered for the app. */
+    skipped: number
 }
 
 const TOTALS_METRICS = [
@@ -38,9 +42,18 @@ const TOTALS_METRICS = [
     'email_blocked',
     'email_failed',
     'email_untracked',
+    'push_sent',
+    'push_skipped',
+    'push_failed',
+    'push_opened',
     'email_unsubscribed',
     'conversion',
 ]
+
+const SEND_ACTIVITY_METRICS: Record<BroadcastChannel, string[]> = {
+    email: ['email_sent', 'email_delivered', 'email_opened', 'email_link_clicked'],
+    push: ['push_sent', 'push_opened'],
+}
 
 /** Hourly buckets read well for a few days after a send, then the tail of late opens needs daily ones. */
 const HOURLY_WINDOW_DAYS = 3
@@ -48,7 +61,8 @@ const HOURLY_WINDOW_DAYS = 3
 export function sendActivityParams(
     runId: string,
     runStartedAt: string,
-    now: Dayjs = dayjs()
+    now: Dayjs = dayjs(),
+    channel: BroadcastChannel = 'email'
 ): Partial<AppMetricsCommonParams> {
     const started = dayjs(runStartedAt)
     const interval = now.diff(started, 'day', true) <= HOURLY_WINDOW_DAYS ? 'hour' : 'day'
@@ -57,7 +71,7 @@ export function sendActivityParams(
         appSource: 'hog_flow',
         appSourceId: runId,
         breakdownBy: 'metric_name',
-        metricName: ['email_sent', 'email_delivered', 'email_opened', 'email_link_clicked'],
+        metricName: SEND_ACTIVITY_METRICS[channel],
         interval,
         dateFrom: started.toISOString(),
     }
@@ -117,7 +131,10 @@ export interface broadcastPerformanceLogicActions {
 export interface broadcastPerformanceLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        stats: (totals: Record<string, number> | null) => BroadcastPerformanceStats | null
+        stats: (
+            totals: Record<string, number> | null,
+            arg: BroadcastChannel | undefined
+        ) => BroadcastPerformanceStats | null
         trackingOff: (stats: BroadcastPerformanceStats | null) => boolean
     }
 }
@@ -198,10 +215,30 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
     }),
     selectors({
         stats: [
-            (s) => [s.totals],
-            (totals: Record<string, number> | null): BroadcastPerformanceStats | null => {
+            (s) => [s.totals, (_, props: BroadcastPerformanceLogicProps) => props.channel],
+            (
+                totals: Record<string, number> | null,
+                channel: BroadcastChannel | undefined
+            ): BroadcastPerformanceStats | null => {
                 if (!totals) {
                     return null
+                }
+                if (channel === 'push') {
+                    const pushSent = totals.push_sent ?? 0
+                    // Push has no delivery receipts or link tracking, so every send counts as tracked.
+                    return {
+                        sent: pushSent,
+                        delivered: 0,
+                        opened: totals.push_opened ?? 0,
+                        clicked: 0,
+                        bounced: 0,
+                        markedAsSpam: 0,
+                        failed: totals.push_failed ?? 0,
+                        trackedSends: pushSent,
+                        converted: totals.conversion ?? 0,
+                        skipped: totals.push_skipped ?? 0,
+                        unsubscribed: 0,
+                    }
                 }
                 const sent = totals.email_sent ?? 0
                 return {
@@ -216,6 +253,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,
+                    skipped: 0,
                 }
             },
         ],
@@ -225,8 +263,10 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
             (stats: BroadcastPerformanceStats | null): boolean => !!stats && stats.sent > 0 && stats.trackedSends === 0,
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
         actions.loadTotals()
-        actions.loadLinks()
+        if (props.channel !== 'push') {
+            actions.loadLinks()
+        }
     }),
 ])

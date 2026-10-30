@@ -45,6 +45,16 @@ const ROLLOUT_TOOLS = [
     },
 ] as const
 
+function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
+    return {
+        api: {
+            request: requestMock,
+            getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
+        },
+        stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
+    } as unknown as Context
+}
+
 describe('feature flag lifecycle tools', () => {
     // The snapshot test would also catch a `filters` param appearing here, but it is
     // silenced by `vitest -u`. These assertions are not: the whole point of the lifecycle
@@ -80,13 +90,7 @@ describe('feature flag lifecycle tools', () => {
     // turn a flag on would turn it off.
     it.each(LIFECYCLE_TOOLS)('$name posts to its own endpoint ($case)', async ({ name, input, body }) => {
         const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-        const context = {
-            api: {
-                request: requestMock,
-                getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
-            },
-            stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-        } as unknown as Context
+        const context = createMockContext(requestMock)
 
         await GENERATED_TOOL_MAP[name]!().handler(context, input)
 
@@ -119,17 +123,77 @@ describe('feature flag lifecycle tools', () => {
         '$name posts the version and rollout fields to its endpoint',
         async ({ name, input, path, body }) => {
             const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-            const context = {
-                api: {
-                    request: requestMock,
-                    getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
-                },
-                stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-            } as unknown as Context
+            const context = createMockContext(requestMock)
 
             await GENERATED_TOOL_MAP[name]!().handler(context, input)
 
             expect(requestMock).toHaveBeenCalledExactlyOnceWith({ method: 'POST', path, body })
         }
     )
+})
+
+// A flag on config version 2 refuses any PATCH without the row `version`, a soft delete included.
+const VERSIONED_PATCH_TOOLS = [
+    {
+        name: 'delete-feature-flag',
+        case: 'versioned',
+        input: { id: 42, version: 3 },
+        body: { version: 3, deleted: true },
+    },
+    { name: 'delete-feature-flag', case: 'unversioned', input: { id: 42 }, body: { deleted: true } },
+    {
+        name: 'update-feature-flag',
+        case: 'versioned',
+        input: { id: 42, name: 'Renamed', version: 3 },
+        body: { name: 'Renamed', version: 3 },
+    },
+    { name: 'update-feature-flag', case: 'unversioned', input: { id: 42, name: 'Renamed' }, body: { name: 'Renamed' } },
+] as const
+
+describe('feature flag PATCH tools', () => {
+    it.each(['delete-feature-flag', 'update-feature-flag'])('%s takes an optional version', (name) => {
+        const schema = z.toJSONSchema(GENERATED_TOOL_MAP[name]!().schema, { io: 'input', reused: 'inline' }) as {
+            properties?: Record<string, unknown>
+            required?: string[]
+        }
+
+        expect(schema.properties).toHaveProperty('version')
+        expect(schema.required).toEqual(['id'])
+    })
+
+    it('delete-feature-flag takes only the flag id and version', () => {
+        const schema = z.toJSONSchema(GENERATED_TOOL_MAP['delete-feature-flag']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        }) as { properties?: Record<string, unknown> }
+
+        expect(Object.keys(schema.properties ?? {}).sort()).toEqual(['id', 'version'])
+    })
+
+    it.each(VERSIONED_PATCH_TOOLS)('$name sends version only when given ($case)', async ({ name, input, body }) => {
+        const requestMock = vi.fn().mockResolvedValue({ id: 42 })
+        const context = createMockContext(requestMock)
+
+        await GENERATED_TOOL_MAP[name]!().handler(context, input)
+
+        expect(requestMock).toHaveBeenCalledExactlyOnceWith({
+            method: 'PATCH',
+            path: '/api/projects/17/feature_flags/42/',
+            body,
+        })
+    })
+
+    it('delete-feature-flag always soft-deletes, whatever else the caller sends', async () => {
+        const requestMock = vi.fn().mockResolvedValue({ id: 42 })
+        const context = createMockContext(requestMock)
+        const tool = GENERATED_TOOL_MAP['delete-feature-flag']!()
+
+        await tool.handler(context, tool.schema.parse({ id: 42, version: 3, deleted: false, name: 'Renamed' }))
+
+        expect(requestMock).toHaveBeenCalledExactlyOnceWith({
+            method: 'PATCH',
+            path: '/api/projects/17/feature_flags/42/',
+            body: { version: 3, deleted: true },
+        })
+    })
 })

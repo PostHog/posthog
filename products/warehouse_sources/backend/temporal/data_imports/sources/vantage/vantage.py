@@ -124,6 +124,10 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
+def _page_size_params(config: VantageEndpointConfig) -> dict[str, Any]:
+    return {config.page_size_param: config.page_size} if config.page_size_param else {}
+
+
 def _top_level_resource(
     config: VantageEndpointConfig,
     api_key: str,
@@ -140,7 +144,7 @@ def _top_level_resource(
                 "endpoint": {
                     "path": config.path,
                     # Cap page size on the first request; `links.next` carries limit/page thereafter.
-                    "params": {"limit": config.page_size, **config.params},
+                    "params": {**_page_size_params(config), **config.params},
                     # Rows nest under the endpoint's own key (e.g. "cost_reports"). A missing key on a
                     # 200 yields zero rows (matching the prior `data.get(key, [])`), not a hard error.
                     "data_selector": config.data_key,
@@ -203,6 +207,7 @@ def _fanout_resource(
             job_id=job_id,
             db_incremental_field_last_value=None,
             child_params_extra=config.params or None,
+            page_size_param=config.page_size_param,
             parent_endpoint_extra={"data_selector": parent_config.data_key},
             child_endpoint_extra={
                 "data_selector": config.data_key,

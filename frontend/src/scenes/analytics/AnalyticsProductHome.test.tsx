@@ -11,7 +11,12 @@ import { initKeaTests } from '~/test/init'
 import { AnalyticsProductHome } from './AnalyticsProductHome'
 
 jest.mock('products/product_analytics/frontend/insights/home/HomeTab', () => ({
-    HomeTab: () => <div>Product analytics dashboard</div>,
+    HomeTab: ({ page }: { page: { title: JSX.Element } }) => (
+        <>
+            {page.title}
+            <div>Product analytics dashboard</div>
+        </>
+    ),
 }))
 
 jest.mock('products/product_analytics/frontend/insights/home/HomeDashboardModals', () => ({
@@ -56,15 +61,15 @@ describe('AnalyticsProductHome', () => {
     })
 
     test.each([
-        ['the default dashboard', null, 'Make my own dashboard'],
-        ['a custom Home dashboard', 42, 'Home dashboard options'],
-    ])('lets the user change Home from %s', (_scenario, homeDashboardId, expectedControl) => {
+        ['the default dashboard', null, 'home-tab-choose-dashboard'],
+        ['a custom dashboard', 42, 'home-tab-dashboard-options'],
+    ])('shows a labeled Customize control for %s', (_scenario, homeDashboardId, expectedDataAttr) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, home_tab_dashboard: homeDashboardId })
 
-        render(<AnalyticsProductHome />)
+        const { container } = render(<AnalyticsProductHome />)
 
-        expect(screen.queryByText(expectedControl) ?? screen.queryByLabelText(expectedControl)).not.toBeNull()
+        expect(container.querySelector(`[data-attr="${expectedDataAttr}"]`)?.textContent).toBe('Customize')
     })
 })

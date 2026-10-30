@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
+    createDefaultTooltipAccessor,
     type DefaultTooltipAccessor,
     findChart,
     getChartTooltip,
@@ -20,16 +21,6 @@ import { INSIGHT_TEST_ID } from './render-insight'
 import { type InsightTooltipAccessor, createInsightTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
-
-/* Budget for one chart interaction, shared between its two waits (canvas render, then
- * tooltip poll) rather than given to each in full. Two full DEBOUNCE_TIMEOUTs chained
- * together outlast Jest's 5s per-test budget, so on a loaded shard the test dies before
- * either wait reaches its own deadline, reporting "Exceeded timeout of 5000 ms" against
- * the `it(` line instead of naming the phase that never completed. */
-const CHART_INTERACTION_TIMEOUT = 4000
-
-/** Milliseconds left until `deadline`, floored so the wait still gets one poll. */
-const budgetUntil = (deadline: number): number => Math.max(50, deadline - Date.now())
 
 function getLogic(): ReturnType<typeof insightVizDataLogic.build> {
     const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
@@ -153,26 +144,16 @@ export const chart = {
     /** Current chart tooltip element, or null if none is rendered. */
     getTooltip: getChartTooltip,
     async hoverTooltip(index: number): Promise<InsightTooltipAccessor> {
-        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
-        const chart = await findChart({ timeout: budgetUntil(deadline) })
-        const tooltip = await chart.hoverTooltip(index, budgetUntil(deadline))
+        const tooltip = await (await findChart()).hoverTooltip(index)
         return createInsightTooltipAccessor(tooltip.element)
     },
     async clickAtIndex(index: number): Promise<void> {
-        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
-        const chart = await findChart({ timeout: budgetUntil(deadline) })
-        await chart.clickAtIndex(index, budgetUntil(deadline))
+        await (await findChart()).clickAtIndex(index)
     },
     /** Click a row inside the pinned tooltip by matching its label text. Use
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
-    async clickTooltipRow(label: string | RegExp): Promise<void> {
-        const tooltip = await waitForChartTooltip()
-        // Each quill tooltip row renders its label twice — a visible copy plus an aria-hidden
-        // measurement copy used for truncation layout — so match only the visible one.
-        const matches = within(tooltip).getAllByText(label)
-        const row = matches.find((el) => !el.closest('[aria-hidden="true"]')) ?? matches[0]
-        const clickable = row.closest('[data-attr="hog-chart-tooltip-row"]') ?? row.closest('tr') ?? row
-        fireEvent.click(clickable)
+    async clickTooltipRow(label: string): Promise<void> {
+        createDefaultTooltipAccessor(await waitForChartTooltip()).clickRow(label)
     },
 }
 
@@ -180,8 +161,6 @@ export const chart = {
  *  instead of the InsightTooltip table. */
 export const sqlChart = {
     async hoverTooltip(index: number): Promise<DefaultTooltipAccessor> {
-        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
-        const chart = await findChart({ timeout: budgetUntil(deadline) })
-        return await chart.hoverTooltip(index, budgetUntil(deadline))
+        return await (await findChart()).hoverTooltip(index)
     },
 }

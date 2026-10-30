@@ -106,12 +106,31 @@ it('pivots table members by shelf and restores flat results when dimensions retu
     expect(isBIPivotTable(flat)).toBe(false)
     expect(getBIResultDimensions(flat).map(({ column }) => column)).toEqual(['region', 'channel'])
     expect(buildBIQuery(flat)?.query).not.toContain('bi_current')
+
+    const columnsOnly = { ...config, rows: [], columns: [region] }
+    const columnResults = [
+        ['north', 20, 5],
+        ['south', 9, 1],
+    ]
+    const horizontal = buildBIPivotModel(
+        columnsOnly,
+        [...getBIResultDimensions(columnsOnly).map(({ column }) => column), 'sum_amount', 'count_orders_2'],
+        columnResults
+    )
+    expect(isBIPivotTable(columnsOnly)).toBe(true)
+    expect(horizontal.rows.map(({ path, label }) => ({ path, label }))).toEqual([{ path: [], label: '' }])
+    expect(horizontal.columns.map(({ label }) => label)).toEqual(['north', 'south'])
+    const north = horizontal.cells.get(biPivotCellKey([], ['north']))!
+    expect(north).toMatchObject({ sum_amount: 20, count_orders_2: 5 })
+    expect(getBIDrillSelection(columnsOnly, north).filters.map(({ field, value }) => [field.name, value])).toEqual([
+        ['region', 'north'],
+    ])
+    expect(buildBIPivotModel(columnsOnly, [], []).rows).toEqual([])
 })
 
 it.each([
     { chartType: ChartDisplayType.ActionsLineGraph },
     { columns: [] },
-    { rows: [] },
     { columns: [field('   ')] },
     { compareFilter: { compare: true } },
     { source: { table: 'orders', connectionId: 'example-connection' } },

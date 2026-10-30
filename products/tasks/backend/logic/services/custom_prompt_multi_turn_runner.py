@@ -348,13 +348,27 @@ class MultiTurnSession:
         *,
         label: str = "",
         validation_context: dict[str, object] | None = None,
+        json_retry_prompt: str | None = None,
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
+        """Send a structured follow-up, optionally asking once for corrected JSON on parse or validation failure."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(
-            last_message, model, label=label or "followup", validation_context=validation_context
-        )
-        return parsed
+        try:
+            return self._parse_and_validate(
+                last_message, model, label=label or "followup", validation_context=validation_context
+            )
+        except ValueError as error:
+            if json_retry_prompt is None:
+                raise
+            logger.warning(
+                "multi_turn: followup did not validate against %s for run=%s label=%s, asking for JSON once (%s)",
+                model.__name__,
+                self.task_run.id,
+                label,
+                type(error).__name__,
+            )
+        retry_label = f"{label or 'followup'} json retry"
+        retry_message = await self.send_followup_raw(json_retry_prompt, label=retry_label)
+        return self._parse_and_validate(retry_message, model, label=retry_label, validation_context=validation_context)
 
     async def send_followup_raw(
         self,

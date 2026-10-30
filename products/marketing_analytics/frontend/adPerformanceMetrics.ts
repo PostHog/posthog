@@ -1,3 +1,4 @@
+import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 import type {
     ExternalTable,
     NativeSource,
@@ -120,11 +121,13 @@ export function buildAdPerformanceTrendsQuery(
 }
 
 export function adPerformanceSparklines(
+    query: TrendsQuery,
     results: TrendResult[]
 ): Partial<Record<validColumnsForTiles, AdPerformanceSparkline>> {
     const buckets = new Map<string, Map<string, number>>()
     for (const row of results) {
-        const metric = row.action?.custom_name
+        // `buildAdPerformanceTrendsQuery` names each series after the metric it reads
+        const metric = getResultSeries(query, row).node?.custom_name
         if (row.compare || !metric || !RAW_METRICS.some((key) => key === metric)) {
             continue
         }

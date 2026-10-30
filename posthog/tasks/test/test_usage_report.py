@@ -76,6 +76,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -107,6 +108,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -789,6 +791,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
+                    "mcp_event_count_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -893,6 +896,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
+                            "mcp_event_count_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -987,6 +991,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         },
                     },
                 },
@@ -1104,6 +1109,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "cdp_billable_invocations_in_period": 0,
                     "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
+                    "mcp_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1206,6 +1212,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         }
                     },
                 },
@@ -2466,6 +2473,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
         [
             ("empty", None),
             ("events", "event_count_in_period"),
+            ("mcp_events", "mcp_event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
             ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
@@ -3554,9 +3562,17 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         create_app_metric2(
             team_id=self.org_1_team_2.id,
             app_source="hog_flow",
+            instance_id=TRANSACTIONAL_EMAIL_ACTION_ID,
             metric_name="billable_invocation",
             metric_kind="email",
-            count=15,
+            count=9,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=6,
         )
         create_app_metric2(
             team_id=self.org_1_team_2.id,
@@ -3593,18 +3609,21 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # Push bills as a destination for now, so it counts toward workflow_billable_invocations
         # while still reporting separately under workflow_push_sent.
         assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
+        assert org_1_report["workflow_transactional_emails_sent_in_period"] == 9
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
         assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
 
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
+        assert org_1_report["teams"]["3"]["workflow_transactional_emails_sent_in_period"] == 0
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
         assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
         assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
+        assert org_1_report["teams"]["4"]["workflow_transactional_emails_sent_in_period"] == 9
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
@@ -6399,9 +6418,39 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, reporting_end),
+            [(self.team.id, 3)],
+        )
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
+
+    def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        tool_call_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            timestamp=self.begin + relativedelta(hours=1),
+        )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            event_uuid=tool_call_event_uuid,
+            timestamp=self.begin + relativedelta(hours=5),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, self.end),
+            [(self.team.id, 1)],
+        )
 
     @parameterized.expand(
         [

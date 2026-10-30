@@ -179,6 +179,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+    '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -739,7 +740,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
-    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlerts: {
+        name: 'Platform alerts',
+        description:
+            'Get told when your logs or data cross a threshold you set, in Slack, email, PagerDuty, or another tool.',
+        projectBased: true,
+        iconType: 'inbox',
+    },
     PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
@@ -918,6 +925,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage where your warehouse sources write the rows they sync.',
         iconType: 'data_warehouse',
     },
+    WarehouseDestinationConnect: { projectBased: true, name: 'Connect warehouse destination' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1595,6 +1603,8 @@ export const productUrls = {
         `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+    warehouseDestinationConnect: (kind?: string): string =>
+        `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -2397,6 +2407,7 @@ export type ProductTreePath =
     | 'MCP servers'
     | 'Metrics'
     | 'Notebooks'
+    | 'Platform alerts'
     | 'Playground'
     | 'Product analytics'
     | 'Product tours'
@@ -2488,6 +2499,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
@@ -2662,6 +2674,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -2866,10 +2879,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
-        searchKeywords: ['signals', 'triage', 'findings'],
+        searchKeywords: ['signals', 'sources', 'triage', 'findings'],
         searchTabs: [
             { name: 'Reports', href: urls.inbox('reports') },
             { name: 'Scouts', href: urls.inbox('scouts') },
+            { name: 'Sources', href: urls.inbox('sources') },
+            { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         tags: ['beta'],
@@ -3032,6 +3047,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Platform alerts',
+        intents: [],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'inbox',
+        href: urls.platformAlerts(),
+        searchKeywords: ['alerts', 'alerting', 'notifications', 'monitors'],
+        flag: FEATURE_FLAGS.PLATFORM_ALERTS,
+        sceneKey: 'PlatformAlerts',
+        sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
     },
     {
         path: 'Playground',
@@ -3552,6 +3578,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -3661,7 +3688,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.warehouseDestinations(),
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
         sceneKey: 'WarehouseDestinations',
-        sceneKeys: ['WarehouseDestinations'],
+        sceneKeys: ['WarehouseDestinations', 'WarehouseDestinationConnect'],
     },
     {
         path: 'Warehouse properties',
