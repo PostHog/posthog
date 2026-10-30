@@ -6,8 +6,8 @@ from typing import Any
 from django.db.models import BigIntegerField, F, IntegerField
 from django.db.models.functions import Coalesce
 
+from posthog.integrations import IntegrationManager
 from posthog.models import EventProperty, PropertyDefinition, Team
-from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.api import person_property_names_with_access_rules
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
@@ -62,7 +62,7 @@ def _with_filled_secrets(action: dict[str, Any], keys: set[str]) -> dict[str, An
 
 
 def channels(team: Team) -> frozenset[Channel]:
-    kinds = set(Integration.objects.filter(team_id=team.id).values_list("kind", flat=True))
+    kinds = {row.kind for row in IntegrationManager.kinds("twilio", "apns", "firebase").list(team.id)}
     connected: set[Channel] = set()
     if "twilio" in kinds:
         connected.add("sms")
@@ -72,20 +72,12 @@ def channels(team: Team) -> frozenset[Channel]:
 
 
 def push_integration_ids(team: Team) -> tuple[int, ...]:
-    return tuple(
-        Integration.objects.filter(team_id=team.id, kind__in=["apns", "firebase"])
-        .order_by("created_at")
-        .values_list("id", flat=True)
-    )
+    return tuple(row.id for row in IntegrationManager.kinds("apns", "firebase").list(team.id))
 
 
 def slack_integration_id(team: Team) -> int | None:
-    return (
-        Integration.objects.filter(team_id=team.id, kind="slack")
-        .order_by("created_at")
-        .values_list("id", flat=True)
-        .first()
-    )
+    row = IntegrationManager.slack.oauth.find(team.id)
+    return row.id if row is not None else None
 
 
 def email_sender(team: Team) -> EmailSender | None:
@@ -110,7 +102,7 @@ def has_verified_email_sender(team: Team) -> bool:
 def _verified_senders(team: Team) -> list[EmailSender]:
     return [
         EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
-        for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at")
+        for integration in IntegrationManager.email.credentials.list(team.id)
         if (config := integration.config or {}).get("verified") is True and config.get("email")
     ]
 
