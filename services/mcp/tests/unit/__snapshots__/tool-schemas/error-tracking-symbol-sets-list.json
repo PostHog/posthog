@@ -3,6 +3,7 @@
     "properties": {
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 100,
             "type": "number"
         },
         "offset": {

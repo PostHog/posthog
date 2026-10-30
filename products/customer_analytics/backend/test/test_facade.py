@@ -16,6 +16,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
+from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -543,11 +544,11 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_list_accounts_for_view_filters_by_search(self, _name: str, search: str):
         self._create(name="Acme Corp", external_id="acme-1", properties={"email_domains": ["acme.example"]})
         self._create(name="Globex", external_id="glx-9")
-        page, count = facade.list_accounts_for_view(
-            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search=search
+        page = facade.list_accounts_for_view(
+            team_id=self.team.id, user_access_control=self._uac(), page=PageRequest(limit=10), search=search
         )
-        assert count == 1
-        assert [a.name for a in page] == ["Acme Corp"]
+        assert page.count == 1
+        assert [a.name for a in page.results] == ["Acme Corp"]
 
     # --- CustomerJourney ---
 

@@ -123,6 +123,13 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertIn(str(config1.id), config_ids)
         self.assertIn(str(config2.id), config_ids)
 
+        # one-row pages walk both configs without skipping or repeating one
+        paged_ids = {
+            self.client.get(self.endpoint_base, {"limit": 1, "offset": offset}).json()["results"][0]["id"]
+            for offset in range(2)
+        }
+        self.assertEqual(paged_ids, {str(config1.id), str(config2.id)})
+
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
             team=self.team, scope="person", content=self.valid_data["content"], sidebar=self.valid_data["sidebar"]

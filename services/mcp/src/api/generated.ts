@@ -129848,6 +129848,7 @@ export namespace Schemas {
     created_by?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129863,6 +129864,7 @@ export namespace Schemas {
     export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129885,6 +129887,7 @@ export namespace Schemas {
     export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129919,6 +129922,7 @@ export namespace Schemas {
     include_ignored?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129968,6 +129972,7 @@ export namespace Schemas {
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -129979,6 +129984,7 @@ export namespace Schemas {
     export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -129990,6 +129996,7 @@ export namespace Schemas {
     export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130005,6 +130012,7 @@ export namespace Schemas {
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130016,6 +130024,7 @@ export namespace Schemas {
     export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -131255,6 +131264,7 @@ export namespace Schemas {
     export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132523,6 +132533,7 @@ export namespace Schemas {
     export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132556,6 +132567,7 @@ export namespace Schemas {
     export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132567,6 +132579,7 @@ export namespace Schemas {
     export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132582,6 +132595,7 @@ export namespace Schemas {
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132593,6 +132607,7 @@ export namespace Schemas {
     export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135317,6 +135332,7 @@ export namespace Schemas {
     issue_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135381,6 +135397,7 @@ export namespace Schemas {
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135453,6 +135470,7 @@ export namespace Schemas {
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135476,6 +135494,7 @@ export namespace Schemas {
     issue_ids?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135491,6 +135510,7 @@ export namespace Schemas {
     export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -135513,6 +135533,7 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -136521,6 +136542,7 @@ export namespace Schemas {
     created_by_ids?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

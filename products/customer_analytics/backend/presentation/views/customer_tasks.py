@@ -8,16 +8,17 @@ from drf_spectacular.helpers import forced_singular_serializer
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
+from posthog.paging import Page, PageRequest
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -316,20 +317,19 @@ class CustomerTaskActivityPageSerializer(serializers.Serializer):
     results = CustomerTaskActivitySerializer(many=True, read_only=True, help_text="Activities in this page.")
 
 
-def _paginated_response(
-    request: Request,
-    page: list[Any],
-    count: int,
-    limit: int,
-    offset: int,
-    serializer_class: type[serializers.Serializer],
-) -> Response:
-    paginator = LimitOffsetPagination()
-    paginator.request = request
-    paginator.limit = limit
-    paginator.offset = offset
-    paginator.count = count
-    return paginator.get_paginated_response(serializer_class(instance=page, many=True).data)
+class CustomerTaskPagination(FacadeLimitOffsetPagination):
+    """Pages with the limit and offset that the list query serializers validated.
+
+    The serializers own the bounds and return a 400 for a limit outside 1 to 100. The base class
+    parses the raw query params again, which turns an accepted value such as `limit=5.0` into the
+    default limit.
+    """
+
+    def get_limit(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["limit"]
+
+    def get_offset(self, request: Request) -> int:
+        return cast(ValidatedRequest, request).validated_query_data["offset"]
 
 
 class CustomerTaskCanonicalTeamAccessPermission(BasePermission):
@@ -388,25 +388,29 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_query_data
         assigned_to = data.get("assigned_to")
         assigned_role_id = _parse_assigned_role_id(assigned_to)
-        page, count = api.list_customer_tasks(
-            team_id=self.canonical_team_id,
-            user_access_control=self.user_access_control,
-            filters=contracts.CustomerTaskListFilters(
-                search=data.get("search", "").strip() or None,
-                account_id=data.get("account_id"),
-                assigned_to=None if assigned_role_id else assigned_to,
-                assigned_role_id=assigned_role_id,
-                statuses=data.get("statuses", ()),
-                archive_state=data["archive_state"],
-                due_after=data.get("due_after"),
-                due_before=data.get("due_before"),
-                has_due_at=data.get("has_due_at") if "has_due_at" in request.query_params else None,
-                ordering=data.get("ordering"),
-            ),
-            offset=data["offset"],
-            limit=data["limit"],
+        filters = contracts.CustomerTaskListFilters(
+            search=data.get("search", "").strip() or None,
+            account_id=data.get("account_id"),
+            assigned_to=None if assigned_role_id else assigned_to,
+            assigned_role_id=assigned_role_id,
+            statuses=data.get("statuses", ()),
+            archive_state=data["archive_state"],
+            due_after=data.get("due_after"),
+            due_before=data.get("due_before"),
+            has_due_at=data.get("has_due_at") if "has_due_at" in request.query_params else None,
+            ordering=data.get("ordering"),
         )
-        return _paginated_response(request, page, count, data["limit"], data["offset"], CustomerTaskSerializer)
+        return CustomerTaskPagination().get_paginated_facade_response(
+            request,
+            self,
+            lambda page: api.list_customer_tasks(
+                team_id=self.canonical_team_id,
+                user_access_control=self.user_access_control,
+                filters=filters,
+                page=page,
+            ),
+            serializer_class=CustomerTaskSerializer,
+        )
 
     @extend_schema(responses={200: CustomerTaskSerializer, 404: OpenApiResponse(description="Task not found.")})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -529,18 +533,20 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"])
     @validated_request(query_serializer=CustomerTaskActivityQuerySerializer)
     def activities(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        data = request.validated_query_data
-        result = api.list_customer_task_activities(
-            team_id=self.canonical_team_id,
-            task_id=self.kwargs["pk"],
-            user_access_control=self.user_access_control,
-            offset=data["offset"],
-            limit=data["limit"],
+        def fetch(page: PageRequest) -> Page[contracts.CustomerTaskActivityView]:
+            result = api.list_customer_task_activities(
+                team_id=self.canonical_team_id,
+                task_id=self.kwargs["pk"],
+                user_access_control=self.user_access_control,
+                page=page,
+            )
+            if result is None:
+                raise NotFound("Task not found.")
+            return result
+
+        return CustomerTaskPagination().get_paginated_facade_response(
+            request, self, fetch, serializer_class=CustomerTaskActivitySerializer
         )
-        if result is None:
-            return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
-        page, count = result
-        return _paginated_response(request, page, count, data["limit"], data["offset"], CustomerTaskActivitySerializer)
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, contracts.CustomerTaskAccountNotFound):
