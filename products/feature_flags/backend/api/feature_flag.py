@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import logging
+import builtins
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
@@ -5183,7 +5184,7 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
-    def _ids_user_can_edit(self, queryset: QuerySet[FeatureFlag]) -> list[int]:
+    def _ids_user_can_edit(self, queryset: QuerySet[FeatureFlag]) -> builtins.list[int]:
         """IDs of the flags in `queryset` that the user can edit, with the same check as the serializer's `get_can_edit`."""
         from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
