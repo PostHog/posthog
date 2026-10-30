@@ -1,11 +1,14 @@
 from contextlib import AbstractContextManager
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -26,6 +29,72 @@ class TestTrialAPI(APIBaseTest):
         self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+
+    @parameterized.expand(
+        [
+            ("trial", "member", 3, 403),
+            ("source", "member", 3, 403),
+            ("trial", "owner", 3, 200),
+            ("source", "admin", 3, 201),
+            ("trial", "member", 0, 200),
+            ("source", "member", None, 201),
+        ]
+    )
+    def test_activation_preserves_locked_scout_permissions(
+        self, path: str, role: str, locked_index: int | None, expected_status: int
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN if role == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        owner = (
+            self.user
+            if role == "owner"
+            else User.objects.create_and_join(self.organization, "scout-owner@example.com", None)
+        )
+        scouts = []
+        for index in range(4):
+            name = f"signals-scout-permission-{index}"
+            LLMSkill.objects.create(
+                team=self.team, name=name, description="Example scout", body="# Scout", created_by=owner
+            )
+            scouts.append(
+                SignalScoutConfig.objects.create(
+                    team=self.team, skill_name=name, created_by=owner, lifecycle_locked=index == locked_index
+                )
+            )
+        SignalScoutConfig.objects.filter(id__in=[scout.id for scout in scouts[:3]]).update(
+            created_at=timezone.now() - timedelta(days=1)
+        )
+        if role == "member" and locked_index is not None:
+            direct = self.client.patch(
+                f"/api/projects/{self.team.pk}/signals/scout/configs/{scouts[locked_index].id}/",
+                {"enabled": False},
+                format="json",
+            )
+            assert direct.status_code == 403, direct.content
+
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+            patch("products.signals.backend.views.SignalSourceConfigViewSet._trigger_error_tracking_backfill"),
+        ):
+            response = self.client.post(
+                self.url if path == "trial" else f"/api/projects/{self.team.pk}/signals/source_configs/",
+                {}
+                if path == "trial"
+                else {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.content
+        allowed = expected_status != 403
+        assert SignalTrialGrant.objects.for_team(self.team.id).exists() is allowed
+        for scout in scouts:
+            scout.refresh_from_db()
+        assert [scout.enabled for scout in scouts] == ([True, True, True, False] if allowed else [True] * 4)
+        if path == "source":
+            assert SignalSourceConfig.objects.filter(team=self.team, enabled=True).exists() is allowed
 
     @parameterized.expand(
         [(path, allowed) for path in ("trial", "source", "source_update") for allowed in (False, True)]

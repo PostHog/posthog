@@ -9,10 +9,11 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
 from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
@@ -127,13 +128,28 @@ class TrialPolicy:
 
     def _pause_excess_scouts(self, grant: SignalTrialGrant) -> None:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
+        from products.signals.backend.scout_harness.lifecycle_lock import (
+            user_holds_scout_lifecycle_claim,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
+        )
 
         configs = list(
             SignalScoutConfig.objects.for_team(self.team_id, canonical=True)
             .filter(enabled=True)
             .order_by("created_at", "id")
         )
-        for config in configs[grant.scout_limit :]:
+        excess = configs[grant.scout_limit :]
+        locked = [config for config in excess if config.lifecycle_locked]
+        if locked:
+            team = Team.objects.get(pk=self.team_id)
+            user = User.objects.get(pk=grant.claimed_by_id)
+            for config in locked:
+                if not user_holds_scout_lifecycle_claim(
+                    team=team, skill_name=config.skill_name, config=config, user=user
+                ):
+                    raise PermissionDenied(
+                        "Starting this trial would pause a locked scout. Only the person its runs act as or a project admin can do that."
+                    )
+        for config in excess:
             config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
             config.enabled = False
             config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
