@@ -500,6 +500,7 @@ def _place_insight_tile(
     *,
     insight_id: int,
     insight_team_id: int,
+    loaded_insight: "Insight | None",
     dashboard: Dashboard,
     query: Any,
     user: User,
@@ -508,11 +509,18 @@ def _place_insight_tile(
 ) -> tuple[DashboardTile, bool]:
     """Put the insight on one dashboard, and report whether it was missing from it before.
 
-    `dashboard_access` is `user_access_control` resolved against the dashboard's own team; None
-    skips the edit check. A removed tile is restored rather than duplicated, so it keeps its layout.
+    `loaded_insight` is the insight row when the caller holds it, so that saving a new tile does
+    not read the row again. `dashboard_access` is `user_access_control` resolved against the
+    dashboard's own team; None skips the edit check. A removed tile is restored rather than
+    duplicated, so it keeps its layout. An insight already on the dashboard returns its tile before
+    any check, because nothing changes.
     """
     if dashboard.team_id != insight_team_id:
         raise DashboardNotFound
+
+    live_tile = DashboardTile.objects.filter(insight_id=insight_id, dashboard=dashboard).first()
+    if live_tile is not None:
+        return live_tile, False
 
     # Adding a tile is an edit of the dashboard.
     if dashboard_access is not None and not dashboard_access.check_access_level_for_object(dashboard, "editor"):
@@ -521,9 +529,10 @@ def _place_insight_tile(
     # The dashboard's public link or subscription must not expose a query the editor can't run.
     check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
 
-    tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
-        insight_id=insight_id, dashboard=dashboard
+    insight_lookup: dict[str, Any] = (
+        {"insight": loaded_insight} if loaded_insight is not None else {"insight_id": insight_id}
     )
+    tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(dashboard=dashboard, **insight_lookup)
     if tile.deleted:
         tile.deleted = False
         tile.save()
@@ -551,14 +560,16 @@ def add_insight_to_dashboard(
     dashboard = Dashboard.objects.filter(team_id=insight_team_id, pk=dashboard_id).first()
     if dashboard is None:
         raise DashboardNotFound(str(dashboard_id))
-    if not DashboardTile.objects.filter(insight_id=insight_id, dashboard=dashboard).exists():
-        check_insight_tile_limit(
-            team=dashboard.team, dashboard_id=dashboard.id, dashboard_name=dashboard.name, user=user
-        )
+    live_tile = DashboardTile.objects.filter(insight_id=insight_id, dashboard=dashboard).first()
+    if live_tile is not None:
+        return PlacedInsightTile(id=live_tile.id, dashboard_id=dashboard.id, added=False)
+    check_insight_tile_limit(team=dashboard.team, dashboard_id=dashboard.id, dashboard_name=dashboard.name, user=user)
     access_by_team = _dashboard_edit_access_by_team([dashboard], user_access_control)
     tile, added = _place_insight_tile(
         insight_id=insight_id,
         insight_team_id=insight_team_id,
+        # A public facade function takes no product model, so this path saves the tile by insight ID.
+        loaded_insight=None,
         dashboard=dashboard,
         query=query,
         user=user,
@@ -609,6 +620,7 @@ def update_insight_dashboard_membership(
         _place_insight_tile(
             insight_id=insight.id,
             insight_team_id=insight.team_id,
+            loaded_insight=insight,
             dashboard=dashboard,
             query=query,
             user=user,

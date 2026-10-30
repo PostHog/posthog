@@ -9,6 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
@@ -82,20 +83,26 @@ class TestDashboardAddInsight(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("dashboard_is_view_only", "dashboard", "viewer"),
-            ("insight_is_hidden", "insight", "none"),
+            ("dashboard_is_view_only", "dashboard", "viewer", False),
+            ("insight_is_hidden", "insight", "none", False),
+            ("insight_is_hidden_in_a_sibling_environment", "insight", "none", True),
         ]
     )
     def test_refuses_a_member_who_cannot_edit_the_dashboard_or_view_the_insight(
-        self, _name: str, resource: str, access_level: str
+        self, _name: str, resource: str, access_level: str, in_sibling_environment: bool
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
+        team = self.team
+        if in_sibling_environment:
+            team = self.create_sibling_environment()
+            self.dashboard_id = Dashboard.objects.create(team=team, name="Growth overview").id
+            self.insight_id = Insight.objects.create(team=team, name="Weekly signups").id
         resource_id = self.dashboard_id if resource == "dashboard" else self.insight_id
         AccessControl.objects.create(
-            team=self.team, resource=resource, resource_id=str(resource_id), access_level=access_level
+            team=team, resource=resource, resource_id=str(resource_id), access_level=access_level
         )
         member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
         self.client.force_login(member)

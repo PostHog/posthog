@@ -288,7 +288,10 @@ def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_contro
     insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
     if insight is None:
         raise NotFound()
-    if not user_access_control.check_access_level_for_object(insight, "viewer"):
+    # The request's access control answers only for the team in the URL, and the insight can belong to a
+    # sibling environment of the project, whose own rules decide.
+    insight_access = user_access_control.for_team_ids([insight.team_id])[insight.team_id]
+    if not insight_access.check_access_level_for_object(insight, "viewer"):
         raise PermissionDenied("You don't have permission to view this insight.")
     return insight
 

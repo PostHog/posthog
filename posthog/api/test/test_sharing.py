@@ -2703,6 +2703,21 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
             }
 
+    def test_adding_insight_already_on_shared_dashboard_returns_its_tile(self):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/add_insight/", {"insight_id": self.insight.id}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["id"] == tile.id
+
     @parameterized.expand(
         [
             ("whole_dashboard", status.HTTP_400_BAD_REQUEST),
