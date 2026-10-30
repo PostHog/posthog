@@ -5251,6 +5251,23 @@
   
   '''
 # ---
+# name: test_create_table_query[metrics4_input_to_metrics_kafka_metrics]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics4_input_to_metrics_kafka_metrics TO posthog_test.writable_metrics_kafka_metrics
+  AS SELECT
+      _partition,
+      _topic,
+      maxSimpleState(_offset) AS max_offset,
+      maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+      maxSimpleState(timestamp) AS max_timestamp,
+      maxSimpleState(now()) AS max_created_at,
+      maxSimpleState(now() - observed_timestamp) AS max_lag
+  FROM posthog_test.metrics4_input
+  GROUP BY _partition, _topic
+  
+  '''
+# ---
 # name: test_create_table_query[metrics4_names]
   '''
   
@@ -11076,6 +11093,23 @@
       `original_expiry_timestamp` DateTime64(6)
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_series')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_metrics_kafka_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.writable_metrics_kafka_metrics
+  (
+      `_partition` UInt32,
+      `_topic` String,
+      `max_offset` SimpleAggregateFunction(max, UInt64),
+      `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+      `max_lag` SimpleAggregateFunction(max, UInt64)
+  )
+  ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics_kafka_metrics')
   
   '''
 # ---

@@ -2053,6 +2053,45 @@ SQL
     }
   }
 
+  materialized_view "metrics4_input_to_metrics_kafka_metrics" {
+    to_table = "posthog.writable_metrics_kafka_metrics"
+    query    = <<SQL
+SELECT
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(timestamp) AS max_timestamp,
+  maxSimpleState(now()) AS max_created_at,
+  maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM posthog.metrics4_input
+GROUP BY
+  _partition, _topic
+SQL
+
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
+    }
+  }
+
   materialized_view "ops_query_log_archive_v3_mv" {
     to_table = "posthog.writable_query_log_archive_v3"
     query    = <<SQL

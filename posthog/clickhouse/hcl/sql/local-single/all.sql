@@ -4003,6 +4003,15 @@ CREATE TABLE posthog.writable_metrics4_series (
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_series');
+CREATE TABLE posthog.writable_metrics_kafka_metrics (
+  _partition UInt32,
+  _topic String,
+  max_offset SimpleAggregateFunction(max, UInt64),
+  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
+  max_lag SimpleAggregateFunction(max, UInt64)
+) ENGINE = Distributed('logs', 'posthog', 'metrics_kafka_metrics');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -5380,6 +5389,17 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics_kafka_metrics TO posthog.writable_metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(timestamp) AS max_timestamp,
+  maxSimpleState(now()) AS max_created_at,
+  maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM posthog.metrics4_input
+GROUP BY
+  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.performance_events_mv TO posthog.writeable_performance_events (uuid UUID, session_id String, window_id String, pageview_id String, distinct_id String, timestamp DateTime64(3), time_origin DateTime64(3, 'UTC'), entry_type LowCardinality(String), name String, team_id Int64, current_url String, start_time Float64, duration Float64, redirect_start Float64, redirect_end Float64, worker_start Float64, fetch_start Float64, domain_lookup_start Float64, domain_lookup_end Float64, connect_start Float64, secure_connection_start Float64, connect_end Float64, request_start Float64, response_start Float64, response_end Float64, decoded_body_size Int64, encoded_body_size Int64, initiator_type LowCardinality(String), next_hop_protocol LowCardinality(String), render_blocking_status LowCardinality(String), response_status Int64, transfer_size Int64, largest_contentful_paint_element String, largest_contentful_paint_render_time Float64, largest_contentful_paint_load_time Float64, largest_contentful_paint_size Float64, largest_contentful_paint_id String, largest_contentful_paint_url String, dom_complete Float64, dom_content_loaded_event Float64, dom_interactive Float64, load_event_end Float64, load_event_start Float64, redirect_count Int64, navigation_type LowCardinality(String), unload_event_end Float64, unload_event_start Float64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   session_id,
