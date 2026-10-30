@@ -119,8 +119,8 @@ fn ends_with_escape(bytes: &[u8], at: usize) -> bool {
 }
 
 const SRCSET_KEY: &[u8] = br#""srcset":"#;
-/// A CSS-escaped `//` as a JSON string holds it, as in a selector that names a URL.
-const ESCAPED_SLASHES: &[u8] = br"\\/\\/";
+/// A CSS-escaped `:/` or `//` as a JSON string holds it, as in a selector that names a URL.
+const ESCAPED_URL_STARTS: [&[u8]; 2] = [br"\\:\\/", br"\\/\\/"];
 
 /// The block's URLs as a selector holds them. Most events hold none, so these are built when one first does.
 struct EscapedMatchers {
@@ -258,7 +258,7 @@ pub struct UrlRewrite {
     /// Bytes that `apply` returned still hold a declined URL.
     declined_kept: bool,
     srcset_key: AhoCorasick,
-    escaped_slashes: AhoCorasick,
+    escaped_url_starts: AhoCorasick,
     escaped: Option<EscapedMatchers>,
     css_matcher: Option<AhoCorasick>,
     css_targets: Vec<CssTarget>,
@@ -483,8 +483,8 @@ impl UrlRewrite {
             targets,
             declined_kept: false,
             srcset_key: AhoCorasick::new([SRCSET_KEY]).expect("one literal pattern builds"),
-            escaped_slashes: AhoCorasick::new([ESCAPED_SLASHES])
-                .expect("one literal pattern builds"),
+            escaped_url_starts: AhoCorasick::new(ESCAPED_URL_STARTS)
+                .expect("two literal patterns build"),
             escaped: None,
             css_matcher,
             css_targets,
@@ -623,7 +623,7 @@ impl UrlRewrite {
             Cow::Borrowed(bytes) => self.replace_urls(bytes),
             Cow::Owned(rewritten) => Cow::Owned(self.replace_urls(&rewritten).into_owned()),
         };
-        let replaced = if self.escaped_slashes.is_match(replaced.as_ref()) {
+        let replaced = if self.escaped_url_starts.is_match(replaced.as_ref()) {
             match replaced {
                 Cow::Borrowed(bytes) => self.replace_escaped_urls(bytes),
                 Cow::Owned(replaced) => {
