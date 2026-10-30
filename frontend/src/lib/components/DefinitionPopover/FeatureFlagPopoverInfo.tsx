@@ -2,7 +2,8 @@ import { useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
+import { DefinitionPopoverCard } from 'lib/components/DefinitionPopover/DefinitionPopoverCard'
+import { DefinitionPopoverGrid } from 'lib/components/DefinitionPopover/DefinitionPopoverGrid'
 import { pluralize } from 'lib/utils/strings'
 
 import { featureFlagSummaryLogic } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
@@ -18,19 +19,19 @@ export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.El
     }
 
     return (
-        <DefinitionPopover.Grid cols={1}>
-            <DefinitionPopover.Card
+        <DefinitionPopoverGrid cols={1}>
+            <DefinitionPopoverCard
                 title="Status"
                 value={summary.archived ? 'Archived' : summary.active ? 'Enabled' : 'Disabled'}
             />
             {summary.conditionCount !== null && (
-                <DefinitionPopover.Card
+                <DefinitionPopoverCard
                     title="Release conditions"
                     value={pluralize(summary.conditionCount, 'condition', 'conditions')}
                 />
             )}
             {summary.variants && (
-                <DefinitionPopover.Card
+                <DefinitionPopoverCard
                     title="Variants"
                     value={
                         summary.variants.length > 0
@@ -41,6 +42,6 @@ export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.El
                     }
                 />
             )}
-        </DefinitionPopover.Grid>
+        </DefinitionPopoverGrid>
     )
 }
