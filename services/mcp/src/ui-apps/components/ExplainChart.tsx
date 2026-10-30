@@ -82,7 +82,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                         })
                     }
                 />
-                <ExplainChartFeedback key={storyKey} />
+                <ExplainChartFeedback key={`feedback:${storyKey}`} />
             </CardContent>
         </Card>
     )
