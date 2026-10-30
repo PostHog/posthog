@@ -102,6 +102,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
     assert len(run_states) == 2
     assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
+    assert all(state["include_live_context"] is False for state in run_states)
 
 
 @pytest.mark.django_db
@@ -126,6 +127,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["pending_dispatch"]["create_pr"] is False
     assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
+    assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
     assert "fff999" in task.description and "Only touch the API reference." in task.description
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
