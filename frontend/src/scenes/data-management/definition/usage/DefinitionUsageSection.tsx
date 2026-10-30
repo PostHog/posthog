@@ -50,7 +50,6 @@ export function DefinitionUsageSection({
                     title="Queries"
                     value={queryCount ?? undefined}
                     formatValue={formatCount}
-                    headlineClassName="text-2xl"
                     showChange={false}
                     subtitle={queryCount === 0 ? 'Not queried in the last 30 days' : 'In the last 30 days'}
                     loading={queryCountLoading}
@@ -64,7 +63,6 @@ export function DefinitionUsageSection({
                     title="Saved insights"
                     value={summary?.insightCount}
                     formatValue={formatCount}
-                    headlineClassName="text-2xl"
                     showChange={false}
                     subtitle={summary ? dashboardsSubtitle(summary, noun) : undefined}
                     loading={summaryLoading}
