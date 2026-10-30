@@ -7,11 +7,14 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #
 # - Organization-level lists (/organizations, /organizations/{id}/projects, .../members,
 #   .../subscriptions) return an `{"items": [...], "_links": {...}}` envelope with cursor
-#   pagination (`page[size]` 1-100, `_links.next.href`).
-# - Project-scoped lists (/projects/{id}/environments, /projects/{id}/activities) return a bare
-#   JSON array. Environments are unpaginated; activities page backwards through history with the
-#   `count` + `starts_at` params (undocumented in the OpenAPI spec but used by the official
-#   Platform.sh PHP client and CLI).
+#   pagination (`page[size]` 1-100, `_links.next.href`). /regions uses the same envelope but names
+#   its list `regions`. The billing lists (invoices, usage records) page with a `page` number, and
+#   the spec documents no `_links` on invoices, so they fall back to incrementing `page`.
+# - Project-scoped lists (/projects/{id}/environments, /projects/{id}/activities,
+#   /projects/{id}/environments/{id}/deployments) return a bare JSON array. Environments and
+#   deployments are unpaginated; activities page backwards through history with the `count` +
+#   `starts_at` params (undocumented in the OpenAPI spec but used by the official Platform.sh PHP
+#   client and CLI).
 #
 # Only `activities` syncs incrementally: it's the one unbounded, append-heavy table, and the API
 # prunes expired activities server-side, so a full refresh would drop history the API no longer
@@ -21,7 +24,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # until that's confirmed.
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlatformShEndpointConfig:
     name: str
     # Path template appended to the API base. Fan-out children carry a placeholder filled from the
@@ -40,11 +43,16 @@ class PlatformShEndpointConfig:
     # order, but they're all full refresh so no watermark ever depends on it.
     sort_mode: Literal["asc", "desc"] = "asc"
     should_sync_default: bool = True
-    # Fan-out: the endpoint whose rows seed this child's path ("organizations" or "projects").
+    # Fan-out: the endpoint whose rows seed this child's path ("organizations", "projects" or
+    # "environments").
     fan_out_parent: Optional[str] = None
     # True when the response is the `{"items": [...], "_links": {...}}` envelope with cursor
     # pagination; False for project-scoped endpoints that return a bare JSON array.
     response_envelope: bool = True
+    # Envelope key that holds the rows.
+    items_key: str = "items"
+    # Page-number query param to increment when a page carries no `_links.next`.
+    page_number_param: Optional[str] = None
     # Send `page[size]` on envelope requests / `count` on the activities feed. None for
     # unpaginated bare lists (environments).
     page_size: Optional[int] = 100
@@ -135,6 +143,58 @@ PLATFORM_SH_ENDPOINTS: dict[str, PlatformShEndpointConfig] = {
         path="/organizations/{organization_id}/members",
         primary_keys=["organization_id", "id"],
         fan_out_parent="organizations",
+    ),
+    "deployments": PlatformShEndpointConfig(
+        name="deployments",
+        # The resolved configuration running in each environment: apps, workers, services, crons,
+        # routes and container sizes. The id is only unique within its environment (usually
+        # "current"), so key on the injected project and environment ids too.
+        path="/projects/{project_id}/environments/{environment_id}/deployments",
+        primary_keys=["project_id", "environment_id", "id"],
+        # The spec doesn't say whether `created_at` moves when the environment redeploys.
+        partition_key=None,
+        fan_out_parent="environments",
+        response_envelope=False,
+        page_size=None,
+        include_parent_fields={"project_id": "project_id", "id": "environment_id"},
+        # Variable values can hold secrets even when the variable isn't flagged sensitive, and they
+        # appear at the top level and under each app and worker.
+        strip_keys_recursive=["basic_auth", "variables"],
+    ),
+    "invoices": PlatformShEndpointConfig(
+        name="invoices",
+        path="/organizations/{organization_id}/invoices",
+        primary_keys=["organization_id", "id"],
+        partition_key="created",
+        fan_out_parent="organizations",
+        page_size=None,
+        page_number_param="page",
+        include_parent_fields={"id": "organization_id"},
+        # A download link for the PDF, not invoice data.
+        drop_keys=["invoice_pdf"],
+        # Billing lists need the organization billing permission, which many token users lack.
+        should_sync_default=False,
+    ),
+    "usage_records": PlatformShEndpointConfig(
+        name="usage_records",
+        # Usage per subscription and usage group (storage, environments, user licenses). The spec
+        # documents `filter[started_at]`, but it isn't verified against the live API, so this
+        # ships as full refresh like projects.
+        path="/organizations/{organization_id}/records/usage",
+        primary_keys=["organization_id", "id"],
+        partition_key="start",
+        fan_out_parent="organizations",
+        page_size=None,
+        page_number_param="page",
+        include_parent_fields={"id": "organization_id"},
+        max_pages_per_parent=1000,
+        should_sync_default=False,
+    ),
+    "regions": PlatformShEndpointConfig(
+        name="regions",
+        path="/regions",
+        partition_key=None,
+        items_key="regions",
     ),
 }
 

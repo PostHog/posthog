@@ -37,7 +37,8 @@ import structlog
 from posthog.hogql import ast
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -510,7 +511,7 @@ def _resolve_write_target(
             "connect it as a GitHub source to quarantine there."
         )
 
-    integration_row = Integration.objects.filter(team=team, kind="github").first()
+    integration_row = IntegrationManager.github.oauth.find(team.id)
     if integration_row is None:
         raise QuarantineWriteError("Connect a GitHub integration with write access to quarantine tests from here.")
     github = GitHubIntegration(integration_row, source="ci_quarantine", priority=Priority.CRITICAL)

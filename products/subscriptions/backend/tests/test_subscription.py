@@ -18,6 +18,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -957,8 +958,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert res.status_code == status.HTTP_201_CREATED
 
-    def test_cannot_create_slack_subscription_with_non_slack_integration(self):
-        integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
+    @parameterized.expand(
+        [
+            ("non_slack_kind", "hubspot", {}),
+            ("warehouse_source_row", "slack", {SOURCE_MARKER_CONFIG_KEY: "Slack"}),
+        ]
+    )
+    def test_cannot_create_slack_subscription_with_unusable_integration(self, _name, kind, config):
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
 
         response = self._create_subscription(
             target_type="slack",
@@ -966,7 +973,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             integration_id=integration.id,
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "require a Slack integration" in response.json()["detail"]
+        assert "does not exist or does not belong to your team" in response.json()["detail"]
 
     def test_can_create_teams_subscription_with_a_webhook_url(self):
         response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
