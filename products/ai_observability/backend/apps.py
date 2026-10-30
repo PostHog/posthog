@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from django.apps import AppConfig
@@ -14,6 +15,14 @@ def _export_dataset_jsonl(asset: "ExportedAsset") -> None:
     export_dataset_jsonl(asset)
 
 
+def _dataset_export_content_path(*, team_id: int, asset_id: int, export_context: Mapping[str, object]) -> str | None:
+    from products.ai_observability.backend.api.dataset_exports import (  # noqa: PLC0415 -- keeps the dataset API off the Django startup path
+        dataset_export_content_path,
+    )
+
+    return dataset_export_content_path(team_id=team_id, asset_id=asset_id, export_context=export_context)
+
+
 class AIObservabilityConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "products.ai_observability.backend"
@@ -25,7 +34,13 @@ class AIObservabilityConfig(AppConfig):
         # the ai_observability Temporal worker) so wiring it here stays off the django.setup() path.
         from products.ai_observability.backend import activity_logging  # noqa: F401, PLC0415
         from products.exports.backend.facade.exporters import (  # noqa: PLC0415 -- registration belongs at app population
+            DATASET_EXPORT_KIND,
             register_export_format_handler,
         )
 
-        register_export_format_handler("application/x-ndjson", _export_dataset_jsonl)
+        register_export_format_handler(
+            export_format="application/x-ndjson",
+            kind=DATASET_EXPORT_KIND,
+            handler=_export_dataset_jsonl,
+            content_path=_dataset_export_content_path,
+        )
