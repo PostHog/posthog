@@ -27,15 +27,15 @@ jobs:
         env:
             SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
@@ -60,7 +60,7 @@ jobs:
 
             - name: Notify Slack
               if: steps.due.outputs.entries != ''
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
             # Nobody watches a scheduled run, and a broken alerter otherwise looks the same as nothing being due.
             - name: Notify Slack on alert failure
               if: failure() && github.event_name != 'pull_request'
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

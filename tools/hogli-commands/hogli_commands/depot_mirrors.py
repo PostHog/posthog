@@ -13,7 +13,9 @@ from pathlib import Path
 
 # These mirrors carry intentional deltas that each mirror's header documents.
 # Every other mirror stays byte-identical to its canonical action.
-DELTA_MIRRORS = frozenset({"commit-snapshots", "pnpm-install", "setup-pnpm"})
+DELTA_MIRRORS = frozenset(
+    {"commit-snapshots", "pnpm-install", "setup-pnpm", "setup-sqlx-cli", "setup-uv", "trunk-quarantine-gate"}
+)
 # Depot resolves both `./.github/actions/<name>` and `./.depot/actions/<name>` from .depot/actions/<name>.
 LOCAL_ACTION_USE = re.compile(r"""uses:\s*['"]?\./\.(?:github|depot)/actions/([A-Za-z0-9_.-]+)""")
 

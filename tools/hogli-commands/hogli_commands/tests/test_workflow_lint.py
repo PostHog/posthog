@@ -2307,7 +2307,7 @@ def _write_table_actions(repo_root: Path, *, declared: bool = True) -> None:
         (directory / "action.yml").write_text("\n".join(lines) + "\n")
 
 
-def _caller(args: str, *, uses: str = "./.github/actions/semgrep-ci") -> str:
+def _caller(args: str, *, uses: str = "$/.github/actions/semgrep-ci") -> str:
     return f"""
     name: Security
     on: [pull_request]
@@ -2817,7 +2817,7 @@ def _image_job(push_to_ghcr: str, verify_step: str) -> str:
         timeout-minutes: 5
         steps:
           - id: docker-meta
-            uses: ./.github/actions/docker-meta
+            uses: $/.github/actions/docker-meta
             with:
               image-name: app
               push-to-ghcr: {push_to_ghcr}

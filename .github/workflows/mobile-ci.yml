@@ -46,19 +46,19 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
                   permission-pull-requests: read
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -86,7 +86,7 @@ jobs:
                 working-directory: products/mobile
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
@@ -98,7 +98,7 @@ jobs:
             # Reads packageManager from the app's package.json, not the repo root's,
             # so the pnpm that wrote products/mobile/pnpm-lock.yaml also installs it.
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/mobile/package.json
               env:
@@ -112,7 +112,7 @@ jobs:
 
             # The app pins its own Node in .node-version, which EAS builds read too.
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/mobile/.node-version
                   token: ${{ github.token }}
@@ -125,7 +125,7 @@ jobs:
             # saves on every run, PRs included. Only master pushes write the cache.
             - name: Restore pnpm store
               id: pnpm-cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
@@ -136,7 +136,7 @@ jobs:
 
             - name: Save pnpm store
               if: github.ref == 'refs/heads/master' && steps.pnpm-cache.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}

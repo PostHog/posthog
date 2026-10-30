@@ -28,10 +28,10 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Install Flox
-              uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
+              uses: flox/install-flox-action@v2.4.0
               with:
                   version: '1.19.1'
                   # This workflow only runs on pull_request, so the cache is never seeded on

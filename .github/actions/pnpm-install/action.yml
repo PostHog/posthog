@@ -39,7 +39,7 @@ runs:
     using: composite
     steps:
         - name: Set up pnpm and Node
-          uses: ./.github/actions/setup-pnpm
+          uses: $/.github/actions/setup-pnpm
           with:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
@@ -50,7 +50,7 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
-          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          uses: actions/cache/restore@v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
               key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -67,7 +67,7 @@ runs:
           run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm lockfile verdict
-          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          uses: actions/cache/restore@v5.0.3
           with:
               path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
               key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}

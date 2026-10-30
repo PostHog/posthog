@@ -32,7 +32,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
+              uses: trunk-io/dynamic-ci@v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -54,18 +54,18 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -127,7 +127,7 @@ jobs:
             matrix: ${{ steps.shards.outputs.matrix }}
             affected_crates: ${{ steps.affected.outputs.crates }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -142,13 +142,13 @@ jobs:
                   clean: false
 
             - name: Install rust
-              uses: ./.github/actions/setup-rust
+              uses: $/.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
             - name: Compute affected crates
               id: affected
-              uses: ./.github/actions/rust-compute-affected
+              uses: $/.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
@@ -181,7 +181,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       rust/
@@ -203,10 +203,10 @@ jobs:
             # ("Collection was modified" or a missing-key error), and the runner
             # fails the step even though the tool installed fine.
             - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+              uses: $/.github/actions/setup-protoc
 
             - name: Install rust
-              uses: ./.github/actions/setup-rust
+              uses: $/.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
@@ -214,10 +214,10 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
@@ -263,7 +263,7 @@ jobs:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -276,7 +276,7 @@ jobs:
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -306,38 +306,38 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: ./.github/actions/setup-rust
+              uses: $/.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
             - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+              uses: $/.github/actions/setup-protoc
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -351,7 +351,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Set up databases
               env:
@@ -373,7 +373,7 @@ jobs:
                   cd ../ && ./bin/download-mmdb
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@v1.12.5
 
             - name: Install cargo-nextest
               # --force: Swatinem/rust-cache restores ~/.cargo/.crates2.json but not the
@@ -502,7 +502,7 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: ./.github/actions/trunk-quarantine-gate
+              uses: $/.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: rust/junit-nextest-*.xml
                   test-collection-id: TewkWR1w # rust
@@ -553,14 +553,14 @@ jobs:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
 
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -578,21 +578,21 @@ jobs:
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
-              uses: ./.github/actions/setup-rust
+              uses: $/.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
 
             - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+              uses: $/.github/actions/setup-protoc
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Create and migrate the persons database
               env:
@@ -772,7 +772,7 @@ jobs:
 
             - name: Upload harness logs on failure
               if: failure()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: personhog-test-harness-logs
                   path: rust/target/debug/harness-logs/
@@ -804,7 +804,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # clippy --all-targets compiles replay-core-v4's tests, which read the encryption vectors the Node writers pin.
                   sparse-checkout: |
@@ -829,10 +829,10 @@ jobs:
             # ("Collection was modified" or a missing-key error), and the runner
             # fails the step even though the tool installed fine.
             - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+              uses: $/.github/actions/setup-protoc
 
             - name: Install rust
-              uses: ./.github/actions/setup-rust
+              uses: $/.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
@@ -841,10 +841,10 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
@@ -866,7 +866,7 @@ jobs:
               run: cargo check --all-features
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@v1.12.5
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json

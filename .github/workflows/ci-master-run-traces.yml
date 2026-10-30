@@ -51,7 +51,7 @@ jobs:
         steps:
             # Scheduled runs check out master, so PR code cannot replace the reporter
             # that receives the project token.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
@@ -66,17 +66,17 @@ jobs:
             - name: Mint telemetry GitHub token
               id: app-token
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@v1.7.1
               continue-on-error: true
               timeout-minutes: 1
 

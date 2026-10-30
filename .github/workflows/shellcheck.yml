@@ -12,7 +12,7 @@ jobs:
         timeout-minutes: 5
         name: shellcheck
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # Only these paths exist on disk, so a new step must list the files it reads.
                   sparse-checkout: |

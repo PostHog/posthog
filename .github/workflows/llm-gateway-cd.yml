@@ -25,7 +25,7 @@ jobs:
 
         steps:
             - name: Check out llm-gateway code
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       services/llm-gateway/
@@ -34,7 +34,7 @@ jobs:
 
             - name: Docker meta and registry login
               id: docker-meta
-              uses: ./.github/actions/docker-meta
+              uses: $/.github/actions/docker-meta
               with:
                   image-name: llm-gateway
                   # Publishes only from the default branch — assume the role and touch ECR only there
@@ -48,12 +48,12 @@ jobs:
                   legacy-images: ghcr.io/posthog/posthog/llm-gateway
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Build and push Docker image
               id: push
               if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   context: ./services/llm-gateway/
                   file: services/llm-gateway/Dockerfile
@@ -73,7 +73,7 @@ jobs:
         steps:
             - name: get deployer token
               id: deployer
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
@@ -81,7 +81,7 @@ jobs:
                   repositories: charts
 
             - name: Trigger llm-gateway deployment
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts

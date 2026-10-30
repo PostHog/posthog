@@ -56,20 +56,20 @@ jobs:
             inputs_digest: ${{ steps.desired.outputs.inputs_digest }}
             drift_reason: ${{ steps.filter.outputs.sandbox_image != 'true' && steps.drift.outputs.drift_reason || '' }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               if: github.event_name == 'push' || github.event_name == 'pull_request'
               with:
@@ -160,7 +160,7 @@ jobs:
 
             - name: Login to ghcr.io
               if: github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true'
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -245,7 +245,7 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
@@ -295,7 +295,7 @@ jobs:
             contents: read
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Fetch history without file contents
               if: github.event_name == 'pull_request'
@@ -381,13 +381,13 @@ jobs:
               run: bin/ci-wait-for-docker launch
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ github.token }}
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -399,14 +399,14 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-skills'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Wait for Docker services
               env:
@@ -415,7 +415,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact merge-base SHA
@@ -475,12 +475,12 @@ jobs:
               run: ./bin/hogli build:skills
 
             - name: Download context-mill skills
-              uses: ./.github/actions/download-context-mill-skills
+              uses: $/.github/actions/download-context-mill-skills
               with:
                   target-dir: products/posthog_ai/dist/skills
 
             - name: Upload built skills
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
@@ -502,7 +502,7 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/actions/download-context-mill-skills
                   sparse-checkout-cone-mode: false
@@ -527,12 +527,12 @@ jobs:
                   echo "Installed $(find products/posthog_ai/dist/skills -mindepth 1 -maxdepth 1 -type d | wc -l) released skills"
 
             - name: Download context-mill skills
-              uses: ./.github/actions/download-context-mill-skills
+              uses: $/.github/actions/download-context-mill-skills
               with:
                   target-dir: products/posthog_ai/dist/skills
 
             - name: Upload built skills
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
@@ -563,24 +563,24 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 2
 
             - name: Download built skills
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              uses: docker/setup-buildx-action@v4.0.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Login to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -590,7 +590,7 @@ jobs:
             - parallel:
                   - name: Build and push container image (base)
                     id: build
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
@@ -611,7 +611,7 @@ jobs:
 
                   - name: Build and push container image (notebook)
                     id: build-notebook
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
@@ -631,7 +631,7 @@ jobs:
 
                   - name: Build and push container image (streamlit)
                     id: build-streamlit
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
@@ -658,7 +658,7 @@ jobs:
             - name: Upload the base image digest
               id: image-artifact
               if: ${{ !cancelled() && steps.image-metadata.outcome == 'success' }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: sandbox-base-image-${{ github.run_attempt }}
                   path: ${{ runner.temp }}/sandbox-base-image.json
@@ -719,7 +719,7 @@ jobs:
             packages: write
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .dockerignore
@@ -727,10 +727,10 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Login to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -740,7 +740,7 @@ jobs:
             - parallel:
                   - name: Build and push container image (pi)
                     id: build-pi
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout
@@ -759,7 +759,7 @@ jobs:
 
                   - name: Build and push container image (autoresearch)
                     id: build-autoresearch
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout
@@ -778,7 +778,7 @@ jobs:
 
                   - name: Build and push container image (vm)
                     id: build-vm
-                    uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+                    uses: depot/build-push-action@v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout
@@ -815,7 +815,7 @@ jobs:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             SLACK_CHANNEL: 'C0C3FBES5ST'
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
@@ -864,7 +864,7 @@ jobs:
 
             - name: Restore the release thread
               if: steps.pin.outputs.changed == 'true'
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: .sandbox-agent-slack-thread
                   key: sandbox-agent-slack-${{ steps.pin.outputs.version }}
@@ -901,7 +901,7 @@ jobs:
             - name: Post the merge in the release thread
               if: steps.message.outputs.text != '' && steps.message.outputs.ts != ''
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -916,7 +916,7 @@ jobs:
             - name: Post the merge as a new thread
               if: steps.message.outputs.text != '' && steps.message.outputs.ts == ''
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -948,7 +948,7 @@ jobs:
             - name: Post the reconcile rebuild
               if: steps.reconcile.outputs.text != ''
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

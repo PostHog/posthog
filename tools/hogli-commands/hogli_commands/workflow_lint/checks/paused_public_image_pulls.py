@@ -7,7 +7,7 @@ from ..model import Job, Step, Workflow
 
 PAUSE_VARIABLE = "PUBLIC_IMAGE_PUSH_PAUSED"
 PUBLIC_PUSH_INPUTS = ("push-to-ghcr", "push-to-dockerhub")
-DOCKER_META_ACTION = "./.github/actions/docker-meta"
+DOCKER_META_ACTION = "$/.github/actions/docker-meta"
 PUBLIC_IMAGE_RE = re.compile(r"\b(?:ghcr\.io|docker\.io)/[\w.-]+/[\w.-]+|(?<![\w./-])posthog/[\w.-]+[:@]")
 IMAGE_READ_RE = re.compile(
     r"\bdocker\s+(?:image\s+)?(?:pull|run|create)\b|\bimagetools\s+(?:inspect|create)\b|\b(?:crane|skopeo)\s"

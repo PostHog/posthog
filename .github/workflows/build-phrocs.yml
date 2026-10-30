@@ -42,10 +42,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Set up Go
-              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+              uses: actions/setup-go@v6.4.0
               with:
                   go-version: '1.26.10'
                   cache: true
@@ -97,7 +97,7 @@ jobs:
 
             - name: Upload checksums for the Homebrew job
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: phrocs-checksums
                   path: tools/phrocs/dist/checksums.txt
@@ -114,20 +114,20 @@ jobs:
 
         steps:
             - name: Checkout formula template
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: tools/phrocs/Formula/phrocs.rb
                   sparse-checkout-cone-mode: false
 
             - name: Download checksums
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: phrocs-checksums
                   path: tools/phrocs/dist
 
             - name: Generate Homebrew tap token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
@@ -152,7 +152,7 @@ jobs:
                       tools/phrocs/Formula/phrocs.rb > /tmp/phrocs.rb
 
             - name: Checkout Homebrew tap
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   repository: PostHog/homebrew-tap
                   token: ${{ steps.app-token.outputs.token }}
@@ -161,7 +161,7 @@ jobs:
               run: cp /tmp/phrocs.rb Formula/phrocs.rb
 
             - name: Commit Homebrew formula update
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'chore: update phrocs formula to ${{ inputs.version }}'
                   repo: PostHog/homebrew-tap

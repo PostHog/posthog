@@ -41,11 +41,11 @@ jobs:
             # token, and a workflow_dispatch from a non-master ref would otherwise
             # run that ref's tool code in credential scope — same rule as every
             # other credentialed job in this family.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.repository.default_branch }}
             - name: Connect to Tailscale (tag:hogland-ci)
-              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              uses: tailscale/github-action@v4.1.2
               with:
                   oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
@@ -69,7 +69,7 @@ jobs:
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             # uv (repo convention): --no-project skips the monorepo sync, --with
             # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
             - name: Reap previews for closed PRs

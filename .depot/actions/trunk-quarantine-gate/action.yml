@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 name: 'Trunk quarantine gate'
 description: 'Upload a shard JUnit report to Trunk, masking known flakes, retrying once on a transient upload failure'
 

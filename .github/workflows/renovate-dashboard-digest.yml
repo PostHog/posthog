@@ -35,11 +35,11 @@ jobs:
                 # Keep in sync with enabledManagers in .github/renovate.json5.
                 manager: [npm, github-actions, cargo, pep621, gomod, custom.regex]
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
@@ -53,7 +53,7 @@ jobs:
                   npm_config_ignore_scripts: 'true'
               run: npx --yes renovate@44.139.0 --platform=local --dry-run=lookup
 
-            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+            - uses: actions/upload-artifact@v7.0.1
               with:
                   name: renovate-report-${{ matrix.manager }}
                   path: ${{ runner.temp }}/renovate-report.json
@@ -65,7 +65,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
@@ -74,11 +74,11 @@ jobs:
                       .nvmrc
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
-            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+            - uses: actions/download-artifact@v7.0.0
               with:
                   pattern: renovate-report-*
                   path: ${{ runner.temp }}/renovate-reports

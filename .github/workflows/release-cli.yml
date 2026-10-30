@@ -31,7 +31,7 @@ jobs:
             has-changesets: ${{ steps.check.outputs.has-changesets }}
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.sha }}
                   sparse-checkout: cli/.sampo/changesets
@@ -52,7 +52,7 @@ jobs:
             - name: Send failure event to PostHog
               if: ${{ failure() }}
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
                   event: 'posthog-sdk-github-release-workflow-failure'
@@ -155,7 +155,7 @@ jobs:
             - name: Send failure event to PostHog
               if: ${{ failure() }}
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
                   event: 'posthog-sdk-github-release-workflow-failure'
@@ -190,7 +190,7 @@ jobs:
         steps:
             - name: Get GitHub App token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
@@ -198,7 +198,7 @@ jobs:
                   permission-pull-requests: write
 
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: master
                   fetch-depth: 0
@@ -240,7 +240,7 @@ jobs:
             - name: Cache Sampo CLI
               id: cache-sampo
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
-              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache@v5.0.5
               with:
                   path: ~/.cargo/bin/sampo
                   key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
@@ -271,7 +271,7 @@ jobs:
             # Format before the release pull request is created so its checks see the final change.
             - name: Install pnpm dependencies
               if: steps.prepare-release.outputs.new-version != ''
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
@@ -347,7 +347,7 @@ jobs:
             - name: Commit release changes to release branch
               id: commit-release
               if: steps.check-changes.outputs.committed == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }}'
                   repo: ${{ github.repository }}
@@ -430,7 +430,7 @@ jobs:
             - name: Get release approval token
               id: release-approval-token
               if: steps.release-pr.outputs.url != ''
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
@@ -466,7 +466,7 @@ jobs:
             - name: Send failure event to PostHog
               if: ${{ failure() }}
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
                   event: 'posthog-sdk-github-release-workflow-failure'
@@ -513,7 +513,7 @@ jobs:
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.sha }}
                   fetch-depth: 2
@@ -581,7 +581,7 @@ jobs:
             - name: Send failure event to PostHog
               if: ${{ failure() }}
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
                   event: 'posthog-sdk-github-release-workflow-failure'
@@ -616,7 +616,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
@@ -644,7 +644,7 @@ jobs:
                   fi
                   sh "$installer"
             - name: Cache dist
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/dist
@@ -664,7 +664,7 @@ jobs:
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
             - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
@@ -702,7 +702,7 @@ jobs:
             - name: enable windows longpaths
               run: |
                   git config --global core.longpaths true
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
@@ -737,7 +737,7 @@ jobs:
                   sh "$installer"
             # Get the dist-manifest
             - name: Fetch local artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -746,7 +746,7 @@ jobs:
               run: |
                   ${{ matrix.packages_install }}
             - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
             - name: Fix node-gyp permissions
               # This job also runs on the Windows runner, where the default
               # shell is PowerShell and `find` resolves to Windows FIND.exe.
@@ -754,7 +754,7 @@ jobs:
               shell: bash
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
             - name: Install API CLI dependencies
@@ -850,7 +850,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-build-local-${{ join(matrix.targets, '_') }}
                   path: |
@@ -871,29 +871,29 @@ jobs:
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
             - name: Install cached dist
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
             # Get all the local artifacts for the global tasks to use (for e.g. checksums)
             - name: Fetch local artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: target/distrib/
                   merge-multiple: true
             - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
             - name: Install API CLI dependencies
@@ -918,7 +918,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-build-global
                   path: |
@@ -945,25 +945,25 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
                   token: ${{ steps.app-token.outputs.token }}
             - name: Install cached dist
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
             # Fetch artifacts from scratch-storage
             - name: Fetch artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -976,14 +976,14 @@ jobs:
                   cat dist-manifest.json
                   echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
             - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   # Overwrite the previous copy
                   name: artifacts-dist-manifest
                   path: dist-manifest.json
             # Create a GitHub Release while uploading all files to it
             - name: 'Download GitHub Artifacts'
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: artifacts
@@ -1001,7 +1001,7 @@ jobs:
                   vars.AWS_CLI_RELEASES_ROLE_ARN != ''
                   && vars.AWS_CLI_RELEASES_BUCKET != ''
                   && vars.AWS_CLI_RELEASES_CLOUDFRONT_ID != ''
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_CLI_RELEASES_ROLE_ARN }}
                   # The bucket and its distribution live in the prod-us account,
@@ -1116,18 +1116,18 @@ jobs:
         permissions:
             id-token: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   sparse-checkout: .nvmrc
                   sparse-checkout-cone-mode: false
             - name: Fetch npm packages
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: npm/
                   merge-multiple: true
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   registry-url: 'https://registry.npmjs.org'
@@ -1160,7 +1160,7 @@ jobs:
             # cargo-dist generates the formula complete with per-platform URLs and
             # checksums, so unlike the phrocs formula there is no template to fill.
             - name: Fetch the generated formula
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: artifacts/
@@ -1170,21 +1170,21 @@ jobs:
               run: cp artifacts/posthog-cli.rb "$RUNNER_TEMP/posthog-cli.rb"
             - name: Generate Homebrew tap token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: homebrew-tap
             - name: Checkout Homebrew tap
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   repository: PostHog/homebrew-tap
                   token: ${{ steps.app-token.outputs.token }}
             - name: Update the formula
               run: cp "$RUNNER_TEMP/posthog-cli.rb" Formula/posthog-cli.rb
             - name: Commit the formula
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'chore: update posthog-cli formula to ${{ needs.release.outputs.new-version }}'
                   repo: PostHog/homebrew-tap
@@ -1209,7 +1209,7 @@ jobs:
             # there is no CARGO_REGISTRY_TOKEN secret to hold or rotate.
             id-token: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
             - name: Install rust
@@ -1217,7 +1217,7 @@ jobs:
               with:
                   toolchain: 1.91.1
             - name: Fetch release artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: artifacts/
@@ -1246,7 +1246,7 @@ jobs:
                   echo "bundle: $(wc -c < cli/lib/posthog-api-cli.mjs) bytes"
             - name: Authenticate with crates.io
               id: auth
-              uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+              uses: rust-lang/crates-io-auth-action@v1.0.5
             - name: Publish to crates.io
               working-directory: cli
               env:
@@ -1308,7 +1308,7 @@ jobs:
 
             - name: Send failure event to PostHog
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
                   event: 'posthog-sdk-github-release-workflow-failure'

@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 # Depot mirror of .github/actions/commit-snapshots. Only the CI report steps differ. On Depot CI
 # github.token is the Depot Code Access token that every Depot job shares, and it must not write,
 # so the section posts with inputs.ci-report-token. An empty token skips the section, because an

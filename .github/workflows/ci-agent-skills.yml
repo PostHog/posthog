@@ -26,18 +26,18 @@ jobs:
             skills: ${{ steps.filter.outputs.skills || 'true' }}
             lint: ${{ steps.filter.outputs.lint || 'true' }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -72,10 +72,10 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
@@ -101,7 +101,7 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # Deep enough to reach the PR's merge base, which keys the schema cache below.
                   fetch-depth: 1000
@@ -184,7 +184,7 @@ jobs:
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -199,20 +199,20 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -224,7 +224,7 @@ jobs:
                   components: cargo
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Wait for Docker services
               env:
@@ -233,7 +233,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact merge-base SHA
@@ -296,7 +296,7 @@ jobs:
               # release-skills publishes this exact artifact, so it does not repeat the
               # Postgres, Rust, and sqlx setup that produces it.
               if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: agent-skills-zip
                   path: products/posthog_ai/dist/skills.zip
@@ -342,14 +342,14 @@ jobs:
         steps:
             # The version step below only needs the origin remote for `git ls-remote`, so
             # nothing of the tree has to be materialized.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/workflows/ci-agent-skills.yml
                   sparse-checkout-cone-mode: false
                   filter: blob:none
 
             - name: Download skills ZIP built by check-skills
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: agent-skills-zip
                   path: products/posthog_ai/dist

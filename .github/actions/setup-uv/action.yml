@@ -34,7 +34,7 @@ runs:
     steps:
         - name: Install uv
           id: setup-uv
-          uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+          uses: astral-sh/setup-uv@v10.3.2
           with:
               version: '0.13.4'
               enable-cache: ${{ inputs.enable-cache }}

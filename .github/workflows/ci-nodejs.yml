@@ -49,7 +49,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
+              uses: trunk-io/dynamic-ci@v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -79,19 +79,19 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
                   filter: blob:none
                   fetch-depth: 0
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               # Skipped on master push and on the hourly schedule: the decision step below
               # treats both as "run everything". See "The hourly master lane" in
@@ -197,7 +197,7 @@ jobs:
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
               if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
-              uses: ./.github/actions/rust-compute-affected
+              uses: $/.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
@@ -311,7 +311,7 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
 
@@ -319,14 +319,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -340,10 +340,10 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -377,7 +377,7 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
 
@@ -385,14 +385,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -406,10 +406,10 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
@@ -467,7 +467,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -479,7 +479,7 @@ jobs:
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -505,21 +505,21 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -530,17 +530,17 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -558,7 +558,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -714,7 +714,7 @@ jobs:
 
             - name: Upload test results
               if: always()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   # Attempt-suffixed so a same-run re-run keeps attempt 1's artifact available
                   # for the recovery/failure correlation the signal job does. Retention 1 day:
@@ -744,7 +744,7 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: ./.github/actions/trunk-quarantine-gate
+              uses: $/.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-*.xml
                   test-collection-id: ugvRjGsw # nodejs
@@ -784,7 +784,7 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
         steps:
             - name: Code check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   clean: false
 
@@ -797,7 +797,7 @@ jobs:
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -823,21 +823,21 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -848,19 +848,19 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              uses: ./.github/actions/setup-sccache
+              uses: $/.github/actions/setup-sccache
 
             # A key of its own: the other jobs on the shared key save it first on each master
             # push, so it never held the dev-profile deps this job builds.
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-nodejs-e2e'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -878,7 +878,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -953,7 +953,7 @@ jobs:
 
             # ingestion-consumer depends on ingestion-worker-proto, whose build script runs protoc.
             - name: Install protoc
-              uses: ./.github/actions/setup-protoc
+              uses: $/.github/actions/setup-protoc
 
             - name: Pre-build Rust ingestion consumer
               working-directory: rust
@@ -1015,7 +1015,7 @@ jobs:
             # the test's failure message only carries their tails.
             - name: Upload personhog stack logs
               if: failure()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: personhog-kafka-parity-logs
                   path: rust/target/debug/harness-logs/
@@ -1050,7 +1050,7 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
@@ -1069,19 +1069,19 @@ jobs:
                   fi
                   echo "available=$available" >> "$GITHUB_OUTPUT"
             # Direct install: Timing updates target the PR head, which may predate the local action.
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+            - uses: astral-sh/setup-uv@v7.6.0
               if: steps.test-reporter.outputs.available == 'true'
               with:
                   version: '0.13.4'
             - name: Download Jest results
               if: steps.test-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-nodejs-*
             - name: Render test-speed report
               if: steps.test-reporter.outputs.available == 'true'
-              uses: ./.github/actions/report-jest-timings
+              uses: $/.github/actions/report-jest-timings
               with:
                   artifacts: ./junit-artifacts
 
@@ -1112,7 +1112,7 @@ jobs:
         steps:
             - name: Capture Node.js jest selection to DevEx PostHog
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-nodejs-selection'

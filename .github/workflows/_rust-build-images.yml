@@ -69,7 +69,7 @@ jobs:
             matrix: ${{ steps.set.outputs.matrix }}
         steps:
             - name: Check out rust-images.yml
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/rust-images.yml
                   sparse-checkout-cone-mode: false
@@ -115,7 +115,7 @@ jobs:
             - name: Check Out Repo
               # Use sparse checkout to only select files in rust directory
               # Turning off cone mode ensures that files in the project root are not included during checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ inputs.checkout-ref || '' }}
                   sparse-checkout: |
@@ -128,16 +128,16 @@ jobs:
               run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+              uses: docker/setup-qemu-action@v4.0.0
               with:
                   image: tonistiigi/binfmt:qemu-v10.2.1@sha256:7c76af7ed8714b80e3fc6d6d1c748ebcac867ad6b631167d0a6d3d92952151ea
                   platforms: all
 
             - name: Login to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -155,7 +155,7 @@ jobs:
             - name: Configure AWS credentials for the shared-services ECR
               id: ecr-credentials
               if: ${{ inputs.push && env.ECR_PUBLISH_ROLE != '' }}
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ env.ECR_PUBLISH_ROLE }}
                   aws-region: us-east-1
@@ -163,11 +163,11 @@ jobs:
             - name: Login to the shared-services ECR
               id: ecr
               if: ${{ steps.ecr-credentials.outcome == 'success' }}
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             - name: Docker meta
               id: meta
-              uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+              uses: docker/metadata-action@v6.0.0
               # Kargo reads org.opencontainers.image.revision from the image index to match an
               # image to its source commit, so the annotations must land on the index, not only
               # on the per-platform manifests.
@@ -190,7 +190,7 @@ jobs:
 
             - name: Set up Docker Buildx
               id: buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              uses: docker/setup-buildx-action@v4.0.0
 
             - name: Retrieve sccache configuration
               id: sccache
@@ -229,7 +229,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   project: ${{ matrix.project }}
                   context: ./rust/
@@ -268,7 +268,7 @@ jobs:
 
             - name: Report failure
               if: failure() && github.event_name != 'pull_request'
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: ${{ inputs.event-name }}
@@ -276,7 +276,7 @@ jobs:
             - name: Report failure to DevEx PostHog
               if: failure() && github.event_name != 'pull_request'
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: ${{ inputs.event-name }}
@@ -291,7 +291,7 @@ jobs:
 
             - name: Upload digest
               if: inputs.push
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: digest-${{ matrix.image }}
                   path: /tmp/digest-${{ matrix.image }}.txt
@@ -309,7 +309,7 @@ jobs:
             digests: ${{ steps.aggregate.outputs.digests }}
         steps:
             - name: Download all digest artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: digest-*
                   path: /tmp/digests

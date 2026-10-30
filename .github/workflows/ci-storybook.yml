@@ -56,7 +56,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
+              uses: trunk-io/dynamic-ci@v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -118,7 +118,7 @@ jobs:
             # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
             # ./.github/actions/paths-filter steps, which must exist on disk (on
             # pull_request events they still diff via the API, not the checkout).
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .github/actions/paths-filter
@@ -126,13 +126,13 @@ jobs:
                       pnpm-workspace.yaml
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -208,7 +208,7 @@ jobs:
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
@@ -257,13 +257,13 @@ jobs:
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
 
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
@@ -272,7 +272,7 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
@@ -283,7 +283,7 @@ jobs:
             # may not contain it. Restore the store inline instead, sharing the same
             # pnpm-<os>-<lockhash> key as the action.
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -293,7 +293,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Restore pnpm cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -307,7 +307,7 @@ jobs:
             # from scratch, which dwarfs the rest of the build. The
             # pnpm lockfile hash ensures the cache is invalidated when deps change.
             - name: Restore Vite build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: common/storybook/node_modules/.vite
                   key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -322,13 +322,13 @@ jobs:
 
             - name: Save Vite build cache
               if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: common/storybook/node_modules/.vite
                   key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -344,7 +344,7 @@ jobs:
             # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
               continue-on-error: true
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: storybook-module-graph
                   path: common/storybook/dist/module-graph.json
@@ -353,7 +353,7 @@ jobs:
 
             # Consumed by check-baseline-removals, which needs only the story index.
             - name: Upload story index artifact
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: storybook-index
                   path: common/storybook/dist/index.json
@@ -377,7 +377,7 @@ jobs:
             && needs.select-stories.outputs.mode == 'selective'
         steps:
             # The checker comes from the base branch, so the PR under test cannot change its verdict.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.base.ref }}
                   repository: ${{ github.event.pull_request.base.repo.full_name }}
@@ -387,7 +387,7 @@ jobs:
                       .github/scripts/check-snapshot-baseline-removals.mjs
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -395,12 +395,12 @@ jobs:
                   sparse-checkout: frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: checker/.nvmrc
 
             - name: Download story index artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: storybook-index
                   path: ${{ runner.temp }}/storybook-index
@@ -471,7 +471,7 @@ jobs:
         steps:
             # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
             # built from the base branch below.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -486,7 +486,7 @@ jobs:
             # feed an old binary flags this workflow added (e.g. --partial), failing the
             # run. Pinning to base.ref keeps the CLI in lockstep with the workflow. The
             # tsconfig rootDir is the parent dir, so the generated types must come along.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -499,14 +499,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -519,7 +519,7 @@ jobs:
             # No restore-keys: a prefix match would hand the job a build of other source.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: |
                       vr-cli/products/visual_review/cli/dist
@@ -550,7 +550,7 @@ jobs:
               # actions/cache builds the archive before it reserves the key. The shards save
               # their own version of this entry, see there.
               if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: |
                       vr-cli/products/visual_review/cli/dist
@@ -618,13 +618,13 @@ jobs:
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
 
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
@@ -633,14 +633,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -651,7 +651,7 @@ jobs:
 
             - name: Restore pnpm cache
               id: pnpm-restore
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -665,13 +665,13 @@ jobs:
             # from the one pnpm-store-cache.yml writes, and one shard saves it.
             - name: Save pnpm cache
               if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Download Storybook build artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -762,7 +762,7 @@ jobs:
             # test code runs earlier in this job and can write to $GITHUB_ENV. Build the CLI
             # from the base branch (see vr-setup for the rationale), which also keeps fork
             # code out of the CLI.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
@@ -778,7 +778,7 @@ jobs:
             - name: Restore VR CLI build
               id: restore-vr-cli
               if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: |
                       vr-cli/products/visual_review/cli/dist
@@ -882,7 +882,7 @@ jobs:
                   && matrix.shard == 1
                   && matrix.browser == 'chromium'
                   && steps.build-vr-cli.outcome == 'success'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: |
                       vr-cli/products/visual_review/cli/dist
@@ -895,7 +895,7 @@ jobs:
             - name: Upload test results
               if: always()
               continue-on-error: true
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
@@ -916,7 +916,7 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: ./.github/actions/trunk-quarantine-gate
+              uses: $/.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: common/storybook/junit.xml
                   test-collection-id: P3SjL3vy # storybook
@@ -950,13 +950,13 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
 
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
@@ -965,14 +965,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -982,7 +982,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
             - name: Restore pnpm cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -992,7 +992,7 @@ jobs:
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Download Storybook build artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: storybook-build
                   path: common/storybook/dist
@@ -1033,7 +1033,7 @@ jobs:
 
             - name: Upload flake verification screenshots
               if: failure() && steps.flake-verify.outcome == 'failure'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: flake-verification-diffs
                   path: |
@@ -1131,7 +1131,7 @@ jobs:
         steps:
             # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
             # built from the base branch below.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
@@ -1142,7 +1142,7 @@ jobs:
 
             # Build the VR CLI from the base branch, not the PR head (see vr-setup
             # for the rationale).
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -1155,14 +1155,14 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1171,7 +1171,7 @@ jobs:
             # vr-setup writes. This job never saves it.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: |
                       vr-cli/products/visual_review/cli/dist
@@ -1239,14 +1239,14 @@ jobs:
               id: telemetry-app-token
               if: github.run_attempt == '1'
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
@@ -1257,7 +1257,7 @@ jobs:
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-running-time'
@@ -1281,7 +1281,7 @@ jobs:
         steps:
             - name: Capture story selection to DevEx PostHog
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-test-selection'
@@ -1329,7 +1329,7 @@ jobs:
             suggested_shards: ${{ steps.classify.outputs.suggested_shards }}
             estimated_minutes_saved: ${{ steps.classify.outputs.estimated_minutes_saved }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   filter: blob:none
                   fetch-depth: 500
@@ -1337,7 +1337,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Check out trusted story selector
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   filter: blob:none
                   fetch-depth: 1
@@ -1351,13 +1351,13 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
@@ -1365,7 +1365,7 @@ jobs:
             - name: Download module-graph artifact
               id: download
               continue-on-error: true
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: storybook-module-graph
                   path: /tmp/storybook-graph

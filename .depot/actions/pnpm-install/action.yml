@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 # Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
 # Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
 # "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not

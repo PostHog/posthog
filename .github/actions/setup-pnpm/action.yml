@@ -28,7 +28,7 @@ runs:
         # longer than several jobs' whole timeout-minutes budget. Cap a single
         # attempt well above a healthy fetch and retry instead of waiting.
         - name: Install pnpm
-          uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+          uses: pnpm/action-setup@v6.0.8
           env:
               NPM_CONFIG_FETCH_TIMEOUT: 45000
               NPM_CONFIG_FETCH_RETRIES: 2
@@ -67,13 +67,13 @@ runs:
         - name: Restore Node tool cache
           id: node-toolcache
           if: steps.node-version.outputs.version != ''
-          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          uses: actions/cache/restore@v5.0.3
           with:
               path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
               key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}
 
         - name: Set up Node.js
-          uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+          uses: actions/setup-node@v6.2.0
           with:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
@@ -82,7 +82,7 @@ runs:
         # that ref alone, evict the shared master entry, and help only that one PR.
         - name: Save Node tool cache
           if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
-          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          uses: actions/cache/save@v5.0.3
           with:
               path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
               key: node-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node-version.outputs.version }}

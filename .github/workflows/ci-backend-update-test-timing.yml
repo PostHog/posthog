@@ -34,12 +34,12 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # For PRs: checkout PR head; for schedule/dispatch: checkout branch by name (not SHA)
                   ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -47,11 +47,11 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@v1.7.1
 
             - name: Find Backend CI run to use
               id: find-backend-run
@@ -145,7 +145,7 @@ jobs:
               # needs a stand-in or every product loses its durations. The last
               # cached map is that stand-in. .test_durations is untracked, so a miss
               # leaves no file and the fallback below publishes no product entries.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               continue-on-error: true
               with:
                   path: .test_durations
@@ -394,7 +394,7 @@ jobs:
               # ci-dagster restore it by the posthog-test-durations- prefix). Scheduled/dispatch
               # runs are on master, so the cache is readable from every branch. Saved every run;
               # a same-day key is an immutable no-op.
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               continue-on-error: true
               with:
                   path: .test_durations
@@ -408,7 +408,7 @@ jobs:
               # across every backend + dagster shard. Same per-day key shape as the union; a
               # miss makes file-mode fall back to scoping the union (still correct, just the
               # pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               continue-on-error: true
               with:
                   path: |
@@ -422,7 +422,7 @@ jobs:
               # this artifact from the latest successful run of this workflow. The repo
               # caps artifact retention at 30 days, which outlives any plausible cache
               # lapse; the hourly refresh keeps it fresh.
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: test-durations
                   path: |
@@ -443,7 +443,7 @@ jobs:
             # root leaves the full checkout of the recorded commit below with an incomplete tree.
             # That checkout also clears the workspace, and an older commit does not have the
             # script, so the next step copies it out.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   path: depot-reader
                   sparse-checkout: .github/scripts/depot_backend_runs.py
@@ -452,7 +452,7 @@ jobs:
             - name: Keep the Depot run reader
               run: cp depot-reader/.github/scripts/depot_backend_runs.py "$RUNNER_TEMP/depot_backend_runs.py"
 
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@v1.7.1
 
             - name: Find the newest scheduled Backend CI run with recordings
               id: find-run
@@ -475,7 +475,7 @@ jobs:
 
             - name: Check whether that run's manifest is cached
               id: cached
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: events-schema-prune.json
                   key: posthog-events-schema-prune-${{ steps.find-run.outputs.run_id }}
@@ -485,13 +485,13 @@ jobs:
             # changed since then runs in full until a newer recording replaces the manifest.
             - name: Check out the recorded commit
               if: steps.cached.outputs.cache-hit != 'true'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ steps.find-run.outputs.revision }}
 
             - name: Install uv
               if: steps.cached.outputs.cache-hit != 'true'
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
@@ -513,7 +513,7 @@ jobs:
               # ci-backend's turbo-discover restores the newest entry by the
               # posthog-events-schema-prune- prefix and pins it for every shard of the run.
               if: steps.cached.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: events-schema-prune.json
                   key: posthog-events-schema-prune-${{ steps.find-run.outputs.run_id }}

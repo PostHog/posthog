@@ -28,13 +28,13 @@ jobs:
             # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Checkout master branch
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   # this value MUST be set to `master` to avoid executing untrusted code.
@@ -42,7 +42,7 @@ jobs:
                   ref: master
 
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   # Resolve the node-versions manifest on the app token, not the shared per-repo GITHUB_TOKEN bucket
@@ -53,7 +53,7 @@ jobs:
             # only needs pyyaml, so set up python and install just that — no full
             # project sync in this node-first workflow.
             - name: Setup Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version: '3.14'
                   # Same reasoning as the node manifest lookup above

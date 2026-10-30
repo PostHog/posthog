@@ -63,7 +63,7 @@ jobs:
 
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
@@ -71,7 +71,7 @@ jobs:
                   permission-pull-requests: write
 
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   sparse-checkout: |
@@ -281,7 +281,7 @@ jobs:
             - name: Commit via GitHub API (signed)
               id: commit
               if: steps.state.outputs.action == 'bump'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'chore(tasks): bump sandbox @posthog/agent to ${{ steps.resolve.outputs.latest }}'
                   repo: ${{ github.repository }}
@@ -339,7 +339,7 @@ jobs:
               id: slack-opened-reply
               if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts != ''
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -355,7 +355,7 @@ jobs:
               id: slack-opened-parent
               if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts == ''
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -380,7 +380,7 @@ jobs:
             - name: Cache the Slack thread for the merge notice
               if: github.ref == 'refs/heads/master' && steps.state.outputs.action == 'bump' && steps.thread.outputs.ts != ''
               continue-on-error: true
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: .sandbox-agent-slack-thread
                   key: sandbox-agent-slack-${{ steps.resolve.outputs.latest }}
@@ -388,7 +388,7 @@ jobs:
             - name: Wait for the image smoke on the bump commit
               id: smoke
               if: steps.state.outputs.action == 'bump'
-              uses: ./.github/actions/wait-for-check
+              uses: $/.github/actions/wait-for-check
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   checkName: Sandbox Base Image Smoke
@@ -439,7 +439,7 @@ jobs:
               id: gateway-smoke
               if: steps.state.outputs.action == 'bump'
               timeout-minutes: 25
-              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              uses: $/.github/actions/sandbox-agent-gateway-smoke
               with:
                   image: ${{ steps.image.outputs.image }}
                   agent-version: ${{ steps.resolve.outputs.latest }}
@@ -465,7 +465,7 @@ jobs:
               id: nightly-smoke
               if: github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action)
               timeout-minutes: 25
-              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              uses: $/.github/actions/sandbox-agent-gateway-smoke
               with:
                   image: ghcr.io/posthog/posthog-sandbox-base:master
                   agent-version: ${{ steps.resolve.outputs.pinned }}
@@ -476,7 +476,7 @@ jobs:
               id: nightly-failure
               if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -497,7 +497,7 @@ jobs:
             - name: Get release approval token
               id: releaser-token
               if: steps.state.outputs.action == 'bump'
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
@@ -574,7 +574,7 @@ jobs:
             - name: Post the outcome in the Slack thread
               if: ${{ !cancelled() && steps.outcome.outputs.text != '' }}
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -647,7 +647,7 @@ jobs:
 
             - name: Login to ghcr.io
               if: steps.merge.outputs.state == 'merged'
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -792,7 +792,7 @@ jobs:
             - name: Post the rollout in the release thread
               if: ${{ !cancelled() && steps.outcome.outputs.text != '' && needs.update-sandbox-agent-version.outputs.thread_ts != '' }}
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
@@ -806,7 +806,7 @@ jobs:
             - name: Post the rollout as a new thread
               if: ${{ !cancelled() && steps.outcome.outputs.text != '' && needs.update-sandbox-agent-version.outputs.thread_ts == '' }}
               continue-on-error: true
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

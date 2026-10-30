@@ -39,7 +39,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   submodules: recursive
             - name: Install dist
@@ -66,7 +66,7 @@ jobs:
                   fi
                   sh "$installer"
             - name: Cache dist
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/dist
@@ -85,7 +85,7 @@ jobs:
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
             - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
@@ -122,7 +122,7 @@ jobs:
             - name: enable windows longpaths
               run: |
                   git config --global core.longpaths true
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   submodules: recursive
             - name: Install Rust
@@ -156,7 +156,7 @@ jobs:
                   sh "$installer"
             # Get the dist-manifest
             - name: Fetch local artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -165,7 +165,7 @@ jobs:
               run: |
                   ${{ matrix.packages_install }}
             - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
             - name: Fix node-gyp permissions
               # This job also runs on the Windows runner, where the default
               # shell is PowerShell and `find` resolves to Windows FIND.exe.
@@ -173,7 +173,7 @@ jobs:
               shell: bash
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
             - name: Install API CLI dependencies
@@ -217,7 +217,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-build-local-${{ join(matrix.targets, '_') }}
                   path: |
@@ -236,28 +236,28 @@ jobs:
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   submodules: recursive
             - name: Install cached dist
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
             # Get all the local artifacts for the global tasks to use (for e.g. checksums)
             - name: Fetch local artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: artifacts-*
                   path: target/distrib/
                   merge-multiple: true
             - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              uses: pnpm/action-setup@v6.0.8
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
             - name: Install API CLI dependencies
@@ -281,7 +281,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: artifacts-build-global
                   path: |

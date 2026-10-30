@@ -66,7 +66,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
+              uses: trunk-io/dynamic-ci@v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -80,10 +80,10 @@ jobs:
         timeout-minutes: 5
         name: Validate dagster path filter coverage
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
             - run: uv run .github/scripts/check-dagster-paths.py
@@ -123,7 +123,7 @@ jobs:
             # reads it at the merge base. Checking it out puts the blob on disk, so that
             # `git show` resolves locally rather than through a lazy fetch that could fail
             # quietly and leave the migration cache key wrong.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -134,13 +134,13 @@ jobs:
                       docker-compose.base.yml
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
@@ -405,13 +405,13 @@ jobs:
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
@@ -517,7 +517,7 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -530,7 +530,7 @@ jobs:
             - name: Log in to Docker Hub
               continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -553,21 +553,21 @@ jobs:
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -588,7 +588,7 @@ jobs:
                   components: cargo
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Add service hostnames to /etc/hosts
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -606,7 +606,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
@@ -681,7 +681,7 @@ jobs:
               # Restore the newest cache (refreshed by ci-backend-update-test-timing.yml,
               # which merges all segments into one file); the fallback step below covers
               # a miss.
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: .test_durations
                   # run_id never matches — forces the prefix restore-key to the newest entry.
@@ -747,14 +747,14 @@ jobs:
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               if: always()
               with:
                   name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
 
             - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               if: ${{ github.ref == 'refs/heads/master' && always() }}
               with:
                   name: timing_data-Dagster-${{ matrix.group }}

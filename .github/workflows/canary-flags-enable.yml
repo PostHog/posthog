@@ -66,7 +66,7 @@ jobs:
             target_environment: ${{ steps.command.outputs.target_environment }}
         steps:
             - name: React to comment
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       await github.rest.reactions.createForIssueComment({
@@ -80,14 +80,14 @@ jobs:
             # org-private team memberships (returns 404, looks like "not a member").
             - name: Get app token for team membership check
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Parse command and validate
               id: command
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   ACTOR: ${{ github.actor }}
               with:
@@ -242,7 +242,7 @@ jobs:
 
             - name: Add canary-flags label
               if: steps.command.outputs.should_build == 'true'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_NUMBER: ${{ steps.command.outputs.pr_number }}
               with:
@@ -258,7 +258,7 @@ jobs:
 
             - name: Report failure on PR
               if: failure()
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const prNumber = context.payload.issue.number;
@@ -310,7 +310,7 @@ jobs:
             - name: Get charts deployer token (for state file read)
               id: charts_token
               if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
@@ -346,7 +346,7 @@ jobs:
 
             - name: Resolve PR info and validate approval
               id: pr_info
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   COMMENT_PR_NUMBER: ${{ needs.handle_comment.outputs.pr_number }}
                   COMMENT_PR_HEAD_SHA: ${{ needs.handle_comment.outputs.pr_head_sha }}
@@ -488,14 +488,14 @@ jobs:
             - name: Get app token for team membership check
               id: app-token
               if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.pr_info.outputs.should_proceed == 'true'
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Verify canary label was authorized
               if: github.event_name == 'pull_request' && steps.pr_info.outputs.should_proceed == 'true'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
               with:
@@ -557,7 +557,7 @@ jobs:
 
             - name: Verify PR author is org member
               if: github.event_name != 'issue_comment' && steps.pr_info.outputs.should_proceed == 'true'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
               with:
@@ -590,7 +590,7 @@ jobs:
 
             - name: Verify team membership
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   ACTOR: ${{ github.actor }}
               with:
@@ -660,7 +660,7 @@ jobs:
             # signal.
             - name: Report failure on PR
               if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
@@ -700,7 +700,7 @@ jobs:
 
         steps:
             - name: Check Out Repo
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ needs.preflight.outputs.pr_head_sha }}
                   sparse-checkout: |
@@ -712,10 +712,10 @@ jobs:
               run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Login to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -725,17 +725,17 @@ jobs:
             # The canary image also goes to feature-flags-prs in the shared-services ECR.
             # The charts canary pulls it from there. ECR replication copies it to eu-central-1.
             - name: Configure AWS credentials for the shared-services ECR
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to the shared-services ECR
               id: ecr
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              uses: docker/setup-buildx-action@v4.0.0
 
             - name: Retrieve sccache configuration
               id: sccache
@@ -746,7 +746,7 @@ jobs:
 
             - name: Build and push feature-flags image
               id: docker_build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   project: vglf58qgzw
                   context: ./rust/
@@ -767,7 +767,7 @@ jobs:
 
             - name: Get deployer token
               id: deployer
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
@@ -775,7 +775,7 @@ jobs:
                   repositories: charts
 
             - name: Dispatch canary deployment to charts repo
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
                   IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
@@ -821,7 +821,7 @@ jobs:
 
             - name: Report success on PR
               if: success() && github.event_name == 'issue_comment'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
                   IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
@@ -857,7 +857,7 @@ jobs:
 
             - name: Report failure on PR
               if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;

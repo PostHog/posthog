@@ -72,7 +72,7 @@ jobs:
         outputs:
             image: ${{ steps.filter.outputs.image }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
@@ -81,7 +81,7 @@ jobs:
             # no file cap, so it also reads a batch push that carries several commits.
             # continue-on-error covers a failing filter step: it publishes no verdict,
             # and the empty value builds.
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               continue-on-error: true
               with:
@@ -119,7 +119,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 2
 
@@ -130,14 +130,14 @@ jobs:
               run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+              uses: docker/setup-buildx-action@v4.0.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Docker meta and registry login
               id: docker-meta
-              uses: ./.github/actions/docker-meta
+              uses: $/.github/actions/docker-meta
               with:
                   image-name: posthog
                   ecr-image-name: ${{ env.ECR_REPOSITORY }}
@@ -199,7 +199,7 @@ jobs:
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
+              uses: PostHog/resolve-release@v1.0.0
               with:
                   api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
                   project-id: '2'
@@ -213,7 +213,7 @@ jobs:
               # A hung build has to end as a step failure, not a job timeout: the retry ladder below
               # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
               timeout-minutes: 25
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -239,14 +239,14 @@ jobs:
 
             - name: Re-login to DockerHub (retry)
               if: steps.build.outcome == 'failure'
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Re-login to ghcr.io (retry)
               if: steps.build.outcome == 'failure'
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -254,14 +254,14 @@ jobs:
 
             - name: Re-configure AWS credentials (retry)
               if: steps.build.outcome == 'failure'
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Re-login to Amazon ECR (retry)
               if: steps.build.outcome == 'failure'
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             # Attempt 1 may have pushed to ECR before failing on another registry. Re-check
             # so the retry reconciles from that digest instead of rebuilding (which would
@@ -293,7 +293,7 @@ jobs:
               if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 25
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -355,7 +355,7 @@ jobs:
 
             - name: report failure
               if: always() && steps.image.outputs.digest == ''
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -363,7 +363,7 @@ jobs:
             - name: report failure to DevEx PostHog
               if: always() && steps.image.outputs.digest == ''
               continue-on-error: true
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              uses: PostHog/posthog-github-action@v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-image-build'
@@ -394,7 +394,7 @@ jobs:
 
             - name: get deployer token
               id: deployer
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
@@ -403,7 +403,7 @@ jobs:
 
             - name: get PR labels
               id: labels
-              uses: ./.github/actions/get-pr-labels
+              uses: $/.github/actions/get-pr-labels
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -413,7 +413,7 @@ jobs:
             # and a `git diff HEAD^ HEAD` gate reads only the last one. A path changed in an
             # earlier commit of a batch then never dispatched its fleet's deploy.
             - name: Check for changes that affect temporal workers
-              uses: ./.github/actions/paths-filter
+              uses: $/.github/actions/paths-filter
               id: check_temporal_worker_changes
               with:
                   shared-image-policy: .github/shared-image-releases.yaml
@@ -741,7 +741,7 @@ jobs:
                         - bin/temporal-django-worker
 
             - name: Trigger PostHog Cloud deployment from Charts
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -762,7 +762,7 @@ jobs:
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.nodejs == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -783,7 +783,7 @@ jobs:
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -804,7 +804,7 @@ jobs:
 
             - name: Trigger Max AI Temporal worker cloud deployment
               if: steps.check_temporal_worker_changes.outputs.maxAi == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -825,7 +825,7 @@ jobs:
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
               if: steps.check_temporal_worker_changes.outputs.tasksAgent == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -845,7 +845,7 @@ jobs:
                       }
 
             - name: Install uv for dependency analysis
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 
@@ -900,7 +900,7 @@ jobs:
 
             - name: Trigger Billing Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.billing == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -921,7 +921,7 @@ jobs:
 
             - name: Trigger Video Export Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.videoExport == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -942,7 +942,7 @@ jobs:
 
             - name: Trigger Self-Driving Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -963,7 +963,7 @@ jobs:
 
             - name: Trigger Session Replay Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.sessionReplay == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -984,7 +984,7 @@ jobs:
 
             - name: Trigger Replay Vision Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.replayVision == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1005,7 +1005,7 @@ jobs:
 
             - name: Trigger Web Analytics Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.webAnalytics == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1026,7 +1026,7 @@ jobs:
 
             - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.experimentsRecalculation == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1047,7 +1047,7 @@ jobs:
 
             - name: Trigger Error Tracking Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.errorTracking == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1068,7 +1068,7 @@ jobs:
 
             - name: Trigger Weekly Digest Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.weeklyDigest == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1089,7 +1089,7 @@ jobs:
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.analyticsPlatform == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1150,7 +1150,7 @@ jobs:
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.generalPurpose == 'true' || steps.check_general_purpose_coverage_added.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1171,7 +1171,7 @@ jobs:
 
             - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1217,7 +1217,7 @@ jobs:
 
             - name: Trigger Health Check Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.healthCheck == 'true' || steps.check_health_check_coverage_added.outputs.changed == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1238,7 +1238,7 @@ jobs:
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.llmAnalyticsEvals == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1262,7 +1262,7 @@ jobs:
 
             - name: Trigger MCP Analytics Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.mcpAnalytics == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1283,7 +1283,7 @@ jobs:
 
             - name: Trigger Logs Alerting Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.logsAlerting == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1304,7 +1304,7 @@ jobs:
 
             - name: Trigger Stamphog Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.stamphog == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1325,7 +1325,7 @@ jobs:
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.ducklake == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1346,7 +1346,7 @@ jobs:
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1367,7 +1367,7 @@ jobs:
 
             - name: Trigger Warehouse Sources Load Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.warehouseSourcesLoad == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1388,7 +1388,7 @@ jobs:
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.dataWarehouseCdpProducer == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1409,7 +1409,7 @@ jobs:
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.dataModeling == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1429,7 +1429,7 @@ jobs:
                       }
 
             - name: Trigger Dagster Code Location Reload
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1479,7 +1479,7 @@ jobs:
                   fi
 
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Resolve commit timestamp
               id: commit-time
@@ -1488,17 +1488,17 @@ jobs:
               run: echo "timestamp=${HEAD_COMMIT_TIMESTAMP:-$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to Amazon ECR
               id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             # Same idempotency rule as posthog_build: a re-run must not push a new digest over
             # an existing full-SHA tag. A genuine miss returns `None`, and any API error fails the step.
@@ -1527,7 +1527,7 @@ jobs:
             - name: Build and push Dagster ML image
               id: build
               if: steps.preflight.outputs.digest == ''
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   context: .
                   file: ./Dockerfile.dagster-ml
@@ -1550,7 +1550,7 @@ jobs:
               id: deployer
               if: steps.image.outputs.digest != ''
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
@@ -1561,7 +1561,7 @@ jobs:
               id: labels
               if: steps.deployer.outputs.token != ''
               continue-on-error: true
-              uses: ./.github/actions/get-pr-labels
+              uses: $/.github/actions/get-pr-labels
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -1570,7 +1570,7 @@ jobs:
             - name: Trigger Dagster ML Code Location Reload
               if: steps.deployer.outputs.token != ''
               continue-on-error: true
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -1605,7 +1605,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -1630,7 +1630,7 @@ jobs:
 
             - name: Configure AWS credentials for ordered image alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
@@ -1638,7 +1638,7 @@ jobs:
             - name: Log in to Amazon ECR for ordered image alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               id: ecr-login
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             - name: Publish and read back ordered image alias
               id: publish-alias
@@ -1673,7 +1673,7 @@ jobs:
             contents: read
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -1682,7 +1682,7 @@ jobs:
 
             - name: Inspect shared-image publication channels
               id: shared-image-channels
-              uses: ./.github/actions/shared-image-releases
+              uses: $/.github/actions/shared-image-releases
               with:
                   shared-image-operation: inspect
                   shared-image-repository: ${{ env.ECR_REPOSITORY }}
@@ -1708,7 +1708,7 @@ jobs:
             - name: Configure AWS credentials for shared-image channels
               id: shared-image-credentials
               if: ${{ steps.ordered-release.outputs.tag != '' }}
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_TEMPORAL_WORKERS_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
@@ -1717,12 +1717,12 @@ jobs:
             - name: Log in to Amazon ECR for shared-image channels
               id: shared-image-ecr-login
               if: ${{ !cancelled() && steps.shared-image-credentials.outcome == 'success' }}
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             - name: Publish and read back eligible shared-image channels
               if: ${{ !cancelled() && steps.shared-image-ecr-login.outcome == 'success' }}
               timeout-minutes: 13
-              uses: ./.github/actions/shared-image-releases
+              uses: $/.github/actions/shared-image-releases
               with:
                   shared-image-operation: publish
                   shared-image-digest: ${{ needs.posthog_build.outputs.image-digest }}
@@ -1736,7 +1736,7 @@ jobs:
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: shared-image-releases-${{ github.run_attempt }}
                   path: shared-image-releases/

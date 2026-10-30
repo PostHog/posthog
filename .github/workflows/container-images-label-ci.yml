@@ -29,10 +29,10 @@ jobs:
             contents: read
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Build and cache Docker image in Depot
-              uses: ./.github/actions/build-n-cache-image
+              uses: $/.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: true

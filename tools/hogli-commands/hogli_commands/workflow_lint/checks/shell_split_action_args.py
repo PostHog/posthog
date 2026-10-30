@@ -110,7 +110,7 @@ def _input_name(match: re.Match[str]) -> str:
 def _action_key(uses: str | None) -> str | None:
     """Normalize a step's ``uses:`` to a repo-relative action path, or None.
 
-    Covers the local form (``./.github/actions/semgrep-ci``) and the
+    Covers the local forms (``./.github/actions/semgrep-ci``, ``$/.github/actions/semgrep-ci``) and the
     repo-qualified one (``PostHog/posthog/.github/actions/semgrep-ci@sha``).
     """
     if not uses:
@@ -119,7 +119,7 @@ def _action_key(uses: str | None) -> str | None:
     # Anchored, never a substring search: `OtherOrg/repo/.github/actions/semgrep-ci`
     # is a different action that happens to share our layout, and matching it would
     # fail a workflow over semantics that action does not have.
-    if path.startswith("./"):
+    if path.startswith(("./", "$/")):
         path = path[2:]
     elif path.startswith(REPO_PREFIX):
         path = path[len(REPO_PREFIX) :]

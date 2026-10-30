@@ -17,13 +17,13 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
@@ -77,7 +77,7 @@ jobs:
 
             - name: Commit via GitHub API (signed)
               if: steps.check-changes.outputs.changes == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              uses: planetscale/ghcommit-action@v0.2.20
               with:
                   commit_message: 'Update bot IPs from GoodBots repository'
                   repo: ${{ github.repository }}

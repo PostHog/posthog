@@ -20,7 +20,7 @@ runs:
     steps:
         - name: Restore sqlx-cli binary from cache
           id: cache-sqlx-cli
-          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          uses: actions/cache/restore@v5.0.1
           with:
               # The cache version hashes this path string, and runner.temp differs between
               # GitHub Actions and Depot CI. A literal path lets both engines restore the entry master saves.
@@ -54,7 +54,7 @@ runs:
 
         - name: Save sqlx-cli binary to cache
           if: steps.cache-sqlx-cli.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
-          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          uses: actions/cache/save@v5.0.1
           with:
               path: ~/.cache/sqlx-cli
               key: ${{ steps.cache-sqlx-cli.outputs.cache-primary-key }}

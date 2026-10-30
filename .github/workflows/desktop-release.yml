@@ -25,7 +25,7 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
@@ -87,13 +87,13 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -101,12 +101,12 @@ jobs:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   package-manager-cache: false
@@ -116,7 +116,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Restore pnpm store
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -147,7 +147,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
                   aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
@@ -245,7 +245,7 @@ jobs:
               run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts
 
             - name: Upload Playwright report
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               if: failure() && matrix.arch == 'arm64'
               with:
                   name: release-playwright-report-macos-${{ matrix.arch }}
@@ -254,7 +254,7 @@ jobs:
 
             - name: Upload the x64 app for the native Intel e2e run
               if: matrix.arch == 'x64'
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: e2e-app-macos-x64
                   path: products/desktop/apps/code/out/*-mac.zip
@@ -272,7 +272,7 @@ jobs:
                     apps/code/out/*.blockmap
 
             - name: Configure AWS credentials for the update feed
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
@@ -299,14 +299,14 @@ jobs:
               run: shasum -a 256 *.dmg *-mac.zip *.blockmap > "checksums-macos-$MATRIX_ARCH.txt"
 
             - name: Upload checksums artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: checksums-macos-${{ matrix.arch }}
                   path: products/desktop/apps/code/out/checksums-macos-${{ matrix.arch }}.txt
                   retention-days: 1
 
             - name: Upload mac manifest artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: mac-manifest-${{ matrix.arch }}
                   path: products/desktop/apps/code/out/latest-mac.yml
@@ -323,7 +323,7 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       products/desktop
@@ -340,12 +340,12 @@ jobs:
                   sysctl -n machdep.cpu.brand_string
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   package-manager-cache: false
@@ -357,7 +357,7 @@ jobs:
               run: node scripts/build-agent-workspace.mjs
 
             - name: Download the x64 app
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: e2e-app-macos-x64
                   path: /tmp/e2e-app
@@ -375,7 +375,7 @@ jobs:
               run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts
 
             - name: Upload Playwright report
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               if: failure()
               with:
                   name: release-playwright-report-macos-x64
@@ -408,13 +408,13 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -422,12 +422,12 @@ jobs:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   package-manager-cache: false
@@ -518,7 +518,7 @@ jobs:
                   gh release upload "desktop-v$env:APP_VERSION" --repo $env:GITHUB_REPOSITORY --clobber @files
 
             - name: Configure AWS credentials for the update feed
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
@@ -540,7 +540,7 @@ jobs:
                   }
 
             - name: Upload windows manifest artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: win-manifest
                   path: products/desktop/apps/code/out/latest.yml
@@ -554,7 +554,7 @@ jobs:
               run: sha256sum *.exe *.blockmap > checksums-windows-x64.txt
 
             - name: Upload checksums artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: checksums-windows-x64
                   path: products/desktop/apps/code/out/checksums-windows-x64.txt
@@ -591,13 +591,13 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -613,12 +613,12 @@ jobs:
                     squashfs-tools zsync libfuse2t64 fakeroot rpm
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   package-manager-cache: false
@@ -693,7 +693,7 @@ jobs:
                     apps/code/out/*.rpm
 
             - name: Configure AWS credentials for the update feed
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1
@@ -725,7 +725,7 @@ jobs:
               run: sha256sum *.AppImage *.deb *.rpm > "checksums-linux-$MATRIX_ARCH.txt"
 
             - name: Upload checksums artifact
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: checksums-linux-${{ matrix.arch }}
                   path: products/desktop/apps/code/out/checksums-linux-${{ matrix.arch }}.txt
@@ -745,7 +745,7 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
@@ -757,7 +757,7 @@ jobs:
                   echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Checkout release scripts
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -773,7 +773,7 @@ jobs:
                   persist-credentials: false
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   package-manager-cache: false
@@ -782,13 +782,13 @@ jobs:
               run: npm install --prefix products/desktop/apps/code yaml@^2
 
             - name: Download arm64 mac manifest
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: mac-manifest-arm64
                   path: /tmp/mac-manifests/arm64
 
             - name: Download x64 mac manifest
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: mac-manifest-x64
                   path: /tmp/mac-manifests/x64
@@ -808,7 +808,7 @@ jobs:
                   gh release upload "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --clobber /tmp/latest-mac.yml
 
             - name: Download checksum artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: checksums-*
                   merge-multiple: true
@@ -826,7 +826,7 @@ jobs:
                     --title "desktop-v$APP_VERSION" --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: win-manifest
                   path: /tmp/win-manifest
@@ -846,7 +846,7 @@ jobs:
                     /tmp/latest-mac.yml /tmp/win-manifest/latest.yml
 
             - name: Configure AWS credentials for the update feed
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_DESKTOP_APP_RELEASES_ROLE_ARN }}
                   aws-region: us-east-1

@@ -32,7 +32,7 @@ jobs:
         outputs:
             deltalite-release-needed: ${{ steps.version.outputs.deltalite-release-needed }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -40,7 +40,7 @@ jobs:
             - name: Check if rust/deltalite/python/ or the workflow has changed
               id: changed-files
               if: github.event_name == 'pull_request'
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              uses: step-security/changed-files@v47.0.5
               with:
                   files_yaml: |
                       deltalite:
@@ -135,14 +135,14 @@ jobs:
                       target: x86_64
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@v6.0.2
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: '3.12.10' # 3.12.11/.12 binaries lag on macOS
 
             - name: Build wheel via maturin
-              uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+              uses: PyO3/maturin-action@v1.51.0
               with:
                   command: build
                   target: ${{ matrix.target }}
@@ -158,7 +158,7 @@ jobs:
 
             - name: Build sdist (linux x86_64 manylinux only)
               if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64' && matrix.manylinux == '2_28'
-              uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+              uses: PyO3/maturin-action@v1.51.0
               with:
                   command: sdist
                   args: --out dist --manifest-path rust/deltalite/python/Cargo.toml
@@ -166,7 +166,7 @@ jobs:
                   RUSTFLAGS: ''
 
             - name: Upload artifact
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   # `manylinux` is included to disambiguate the two linux runs per
                   # arch (glibc 2_28 vs musllinux_1_2); macOS rows leave it unset.
@@ -186,19 +186,19 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Download all wheel artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   pattern: wheels-*
                   merge-multiple: true
                   path: dist
 
             - name: Generate artifact attestations
-              uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+              uses: actions/attest-build-provenance@v4.2.2
               with:
                   subject-path: 'dist/*'
 
             - name: Publish package to PyPI
-              uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+              uses: pypa/gh-action-pypi-publish@v1.14.2
               with:
                   # Attaches the attestations generated above to the PyPI release.
                   attestations: true

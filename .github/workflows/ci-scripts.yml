@@ -53,7 +53,7 @@ jobs:
             # pulls each manifest without its source tree), and
             # report_test_timings imports the owners resolver and finds the root by
             # owners.yaml. A new test that reads another path must add it here.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 1
                   sparse-checkout: |
@@ -84,12 +84,12 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
 

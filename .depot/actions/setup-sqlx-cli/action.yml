@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 name: Setup sqlx-cli
 description: |
     Installs sqlx-cli and adds it to PATH.

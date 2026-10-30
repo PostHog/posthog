@@ -37,7 +37,7 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .github/scripts/weekly-mcp-tool-health-report.mjs
@@ -52,7 +52,7 @@ jobs:
                       services/mcp/src/tools/index.ts
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 

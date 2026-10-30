@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 name: Set up pnpm and Node
 description: |
     Puts pnpm and the `.nvmrc` Node on PATH. Installs nothing.

@@ -39,7 +39,7 @@ jobs:
                   RAW_BODY: ${{ github.event.pull_request.body }}
 
             # `gh` CLI in the next step requires the repo to be checked out
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               with:
                   # make the checkout extremely quickly
@@ -75,7 +75,7 @@ jobs:
             - name: Get app token
               id: app-token
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
@@ -85,7 +85,7 @@ jobs:
             - name: Check whether PR author is a PostHog org member
               id: membership
               if: steps.app-token.outputs.token != ''
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
               with:
@@ -123,7 +123,7 @@ jobs:
                   github.event.pull_request.user.login != 'posthog-bot' &&
                   !contains(github.event.pull_request.user.login, 'github-actions')
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -141,7 +141,7 @@ jobs:
               if: steps.membership.outputs.is-member == 'true'
               # A non-critical nudge must never turn the PR red on a transient API error.
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               env:
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}

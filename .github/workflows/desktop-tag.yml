@@ -37,7 +37,7 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
@@ -70,7 +70,7 @@ jobs:
                   fi
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -149,7 +149,7 @@ jobs:
             - name: Wait for Desktop Tests
               id: master-ci
               if: steps.master-ci-run.outputs.sha != ''
-              uses: ./.github/actions/wait-for-check
+              uses: $/.github/actions/wait-for-check
               with:
                   token: ${{ github.token }}
                   checkName: Desktop Tests Pass

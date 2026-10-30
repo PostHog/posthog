@@ -1,0 +1,32 @@
+# Depot CI runs `.depot/` workflows and actions without reading `.github/workflows/actions.lock`,
+# so a tag there runs whatever commit the tag points to at job start. `.github/` is covered by the
+# lockfile instead: `Lint workflows` runs `gh actions-lock --verify`, so ci-security.yaml excludes
+# the upstream copy of this rule from p/github-actions.
+rules:
+    - id: github-actions-mutable-action-tag-depot
+      message: >-
+          Depot CI does not read actions.lock, so this action runs whatever commit its tag or
+          branch points to. Pin it to a full 40-character commit SHA with a `# vX.Y.Z` comment.
+      severity: ERROR
+      languages:
+          - yaml
+      paths:
+          include:
+              - /.depot/
+      metadata:
+          category: security
+          cwe:
+              - 'CWE-1357: Reliance on Insufficiently Trustworthy Component'
+          references:
+              - https://github.com/semgrep/semgrep-rules/blob/develop/yaml/github-actions/security/github-actions-mutable-action-tag.yaml
+      patterns:
+          - pattern-inside: '{steps: ...}'
+          - pattern: |
+                uses: "$ACTION"
+          - metavariable-pattern:
+                metavariable: $ACTION
+                language: generic
+                patterns:
+                    - pattern-not-regex: '^\./'
+                    - pattern-not-regex: '^docker://'
+                    - pattern-not-regex: '@[0-9a-f]{40}(\s|$)'

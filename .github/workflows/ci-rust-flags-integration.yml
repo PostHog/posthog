@@ -85,19 +85,19 @@ jobs:
                     --health-retries 5
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # Deep enough to reach the PR's merge base, which keys the schema cache below.
                   fetch-depth: 1000
                   filter: blob:none
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version: '3.14.7'
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install system dependencies
               # protobuf-compiler (protoc) is needed to build personhog-router: its
@@ -110,7 +110,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              uses: Swatinem/rust-cache@v2.9.1
               with:
                   shared-key: 'v2-rust-flags-integration-debug'
                   workspaces: rust
@@ -124,7 +124,7 @@ jobs:
                   PGPASSWORD=posthog psql -h localhost -U posthog -d test_posthog -c "CREATE DATABASE test_posthog_persons;"
 
             - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
+              uses: $/.github/actions/setup-sqlx-cli
 
             - name: Fetch current PR base for merge-base
               if: github.event_name == 'pull_request'
@@ -183,7 +183,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact merge-base SHA key,

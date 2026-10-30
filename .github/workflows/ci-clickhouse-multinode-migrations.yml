@@ -70,19 +70,19 @@ jobs:
             # posthog/clickhouse/hcl/bin/image.txt; the repo variable overrides it when set.
             HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Add multinode hostnames to /etc/hosts
               run: |
                   echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium kafka zookeeper" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version: 3.14.7
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -118,7 +118,7 @@ jobs:
                   fi
 
             - name: Log in to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -137,7 +137,7 @@ jobs:
 
             - name: Upload compose logs on failure
               if: failure()
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: multinode-compose-logs
                   path: multinode-compose.log

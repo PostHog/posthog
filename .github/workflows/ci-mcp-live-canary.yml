@@ -37,10 +37,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
 
@@ -53,7 +53,7 @@ jobs:
             # has an author watching it, so only unattended runs post.
             - name: Notify Slack on canary failure
               if: failure() && steps.live.outcome == 'failure' && github.event_name == 'schedule'
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

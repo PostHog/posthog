@@ -164,7 +164,7 @@ jobs:
             - name: Announce (deployment)
               id: start
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -186,7 +186,7 @@ jobs:
                           environment, log_url: runUrl, description: 'Building preview…',
                       });
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
@@ -246,7 +246,7 @@ jobs:
             # sensitive comes online.
             - name: Guard dispatch against fork PRs
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -260,7 +260,7 @@ jobs:
                               `with the hogland token in scope.`);
                       }
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # A dispatched run would otherwise check out master (the dispatch ref)
                   # and ship master's SPA as the "PR frontend" — dispatch is the only
@@ -278,7 +278,7 @@ jobs:
             # PRs skip all of this and keep the fast preview.
             - name: Detect frontend changes
               id: fe
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -302,7 +302,7 @@ jobs:
             # raw setup-node `cache: pnpm` here).
             - name: Install frontend deps
               if: steps.fe.outputs.changed == 'true'
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
             - name: Build the PR frontend
@@ -318,7 +318,7 @@ jobs:
             # the deploy job — a tarball of built assets, consumed as data.
             - name: Upload frontend dist
               if: steps.fe.outputs.changed == 'true'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: hogbox-preview-frontend-dist
                   path: ${{ runner.temp }}/frontend-dist.tgz
@@ -377,7 +377,7 @@ jobs:
             # sensitive comes online.
             - name: Guard dispatch against fork PRs
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);
@@ -403,7 +403,7 @@ jobs:
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.
             # A blip is infra: bring-up then fails into the failure reporter, not a red X.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
@@ -411,7 +411,7 @@ jobs:
             - name: Connect to Tailscale (tag:hogland-ci)
               id: tailnet
               continue-on-error: true
-              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              uses: tailscale/github-action@v4.1.2
               with:
                   oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
@@ -443,7 +443,7 @@ jobs:
             # --no-project skips the posthog monorepo (don't sync it); --with pins
             # the SDK into an ephemeral env. posthog-hogland is first-party and
             # exempted from the 7-day soak in [tool.uv].
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
               id: uv
@@ -489,7 +489,7 @@ jobs:
               id: fe
               if: steps.build.outcome == 'success'
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       // Must match the build-frontend job's `name:` exactly.
@@ -532,7 +532,7 @@ jobs:
               id: dist
               if: steps.fe.outputs.swap == 'true'
               continue-on-error: true
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: hogbox-preview-frontend-dist
                   path: ${{ runner.temp }}/fe-dist
@@ -575,7 +575,7 @@ jobs:
               id: ready
               if: steps.outcome.outputs.ok == 'true'
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               # DEP comes from the job env (announce job outputs).
               env:
                   URL: ${{ steps.build.outputs.url }}
@@ -621,7 +621,7 @@ jobs:
             - name: Report failure (deployment)
               if: steps.outcome.outputs.ok != 'true'
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const environment = process.env.DEPLOY_ENVIRONMENT;
@@ -670,13 +670,13 @@ jobs:
             # needed, so master's copy is correct.
             # Fails open throughout: a missed destroy is reaped by the daily sweep in
             # hogbox-preview-cleanup.yml, so hogland being down never reds the PR.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               continue-on-error: true
               with:
                   ref: ${{ github.event.repository.default_branch }}
             - name: Connect to Tailscale (tag:hogland-ci)
               continue-on-error: true
-              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              uses: tailscale/github-action@v4.1.2
               with:
                   oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
@@ -698,7 +698,7 @@ jobs:
                   [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::OIDC mint failed after 3 attempts"; exit 1; }
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
               continue-on-error: true
@@ -713,7 +713,7 @@ jobs:
             - name: Deactivate deployment
               if: always()
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              uses: actions/github-script@v8.0.0
               with:
                   script: |
                       const pr = Number(process.env.PR);

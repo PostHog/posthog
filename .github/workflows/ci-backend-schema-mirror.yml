@@ -29,13 +29,13 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: .github/scripts/depot_backend_runs.py
                   sparse-checkout-cone-mode: false
 
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - uses: depot/setup-action@v1.7.1
 
             - name: Find the newest Depot master run with a dump
               id: source
@@ -88,7 +88,7 @@ jobs:
 
             - name: Upload migrated schema artifact
               if: steps.source.outputs.run_id != ''
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: migrated-schema
                   path: schema.sql.gz
@@ -98,14 +98,14 @@ jobs:
 
             - name: Save schema to GitHub cache (master key)
               if: steps.source.outputs.run_id != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ steps.source.outputs.sha }}
 
             - name: Save schema to GitHub cache (migration-set key)
               if: steps.source.outputs.run_id != '' && steps.dump.outputs.migration_key != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/save@v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.dump.outputs.migration_key }}
@@ -131,7 +131,7 @@ jobs:
                   echo "$SHA" > mirrored
                   echo "recorded=true" >> "$GITHUB_OUTPUT"
 
-            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+            - uses: actions/upload-artifact@v6.0.0
               if: steps.record.outputs.recorded == 'true'
               with:
                   name: migrated-schema-mirrored-${{ steps.source.outputs.sha }}

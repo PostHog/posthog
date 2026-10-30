@@ -34,7 +34,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   clean: false
 
@@ -42,7 +42,7 @@ jobs:
               run: ./bin/download-mmdb
 
             - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
@@ -60,7 +60,7 @@ jobs:
             # explicitly when the test genuinely fails.
             - name: Notify Slack on canary failure
               if: failure() && steps.canary.outcome == 'failure'
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

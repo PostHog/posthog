@@ -1,3 +1,4 @@
+# Keeps third-party actions pinned to commit SHAs, because Depot CI does not read .github/workflows/actions.lock.
 name: Set up uv
 description: |
     Installs CI's exact uv version and optionally restores its cache.

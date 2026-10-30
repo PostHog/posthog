@@ -30,7 +30,7 @@ jobs:
         outputs:
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -38,7 +38,7 @@ jobs:
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
               if: github.event_name == 'pull_request'
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              uses: step-security/changed-files@v47.0.5
               with:
                   files_yaml: |
                       parser:
@@ -46,7 +46,7 @@ jobs:
 
             - name: Check package version and detect an update
               id: check-package-version
-              uses: PostHog/check-package-version@f540540cb12d45ec3c58d42dbf1d60070ed2d268 # v2.1.1
+              uses: PostHog/check-package-version@v2.1.1
               with:
                   path: common/hogql_parser
 
@@ -88,10 +88,10 @@ jobs:
             (github.event_name == 'workflow_dispatch' ||
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
+              uses: $/.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -100,7 +100,7 @@ jobs:
               run: cd common/hogql_parser && npm run build
 
             - name: Upload dist artifact
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: hogql-parser-dist
                   path: common/hogql_parser/dist/
@@ -119,16 +119,16 @@ jobs:
             contents: read
             id-token: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Download dist artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: hogql-parser-dist
                   path: common/hogql_parser/dist
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org

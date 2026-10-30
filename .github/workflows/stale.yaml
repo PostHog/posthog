@@ -48,12 +48,12 @@ jobs:
             # were unstaled mid-cycle.
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
-            - uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
+            - uses: actions/stale@v10.2.0
               with:
                   repo-token: ${{ steps.app-token.outputs.token }}
                   days-before-issue-stale: 730
@@ -82,7 +82,7 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
@@ -98,7 +98,7 @@ jobs:
             # by Trunk itself and must not be touched mid-merge.
             - name: Remove stale branches
               id: stale-branches
-              uses: fpicalausa/remove-stale-branches@9b829bc2975ade0c61e64e9613def53ec0732440 # v2.6.1
+              uses: fpicalausa/remove-stale-branches@v2.6.1
               with:
                   github-token: ${{ steps.app-token.outputs.token }}
                   dry-run: true

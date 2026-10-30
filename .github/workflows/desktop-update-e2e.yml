@@ -60,26 +60,26 @@ jobs:
             SKIP_NOTARIZE: '1'
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
                   cache: 'pnpm'
                   cache-dependency-path: products/desktop/pnpm-lock.yaml
 
             - name: Cache Electron binary
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -87,7 +87,7 @@ jobs:
                       electron-${{ runner.os }}-
 
             - name: Cache Playwright browsers
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/ms-playwright
                   key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -98,7 +98,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              uses: aws-actions/configure-aws-credentials@v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
                   aws-region: ${{ vars.AWS_TWIG_APP_ASSETS_REGION }}
@@ -165,7 +165,7 @@ jobs:
             # leg so a flake in the (riskier) old-build step can never mask the baseline.
             - name: Cache old Forge app (v0.55.132)
               id: forge-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: products/desktop/apps/code/out/old-forge
                   key: forge-app-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('products/desktop/apps/code/scripts/dev-update/build-old-forge.sh') }}
@@ -251,7 +251,7 @@ jobs:
               # not fail the run and page #alerts-devex about a broken update path when
               # all three legs proved PASS.
               continue-on-error: true
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: update-e2e-macos
                   path: |
@@ -274,7 +274,7 @@ jobs:
             - name: Upload old build (1.0.0)
               if: always()
               continue-on-error: true
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: update-old-build-1.0.0
                   path: |
@@ -287,7 +287,7 @@ jobs:
             - name: Upload new build feed (2.0.0)
               if: always()
               continue-on-error: true
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: update-new-build-2.0.0
                   path: products/desktop/apps/code/out/dev-update-feed/
@@ -321,7 +321,7 @@ jobs:
             - name: Upload old Forge build (v0.55.132)
               if: always()
               continue-on-error: true
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@v7.0.1
               with:
                   name: update-old-forge-build-1.0.0
                   path: products/desktop/apps/code/out/PostHog-Code-forge-1.0.0-arm64-mac.zip
@@ -333,7 +333,7 @@ jobs:
             # A manual dispatch is somebody debugging, and they watch the run.
             - name: Notify Slack on update e2e failure
               if: failure() && github.event_name == 'schedule'
-              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              uses: slackapi/slack-github-action@v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}

@@ -57,11 +57,11 @@ jobs:
 
             - name: Checkout
               if: steps.source-check.outputs.changed == 'true'
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Install pnpm dependencies
               if: steps.source-check.outputs.changed == 'true'
-              uses: ./.github/actions/pnpm-install
+              uses: $/.github/actions/pnpm-install
 
             - name: Generate docs
               if: steps.source-check.outputs.changed == 'true'

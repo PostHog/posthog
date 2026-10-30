@@ -43,17 +43,17 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
 
@@ -62,7 +62,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Cache pnpm store
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -70,14 +70,14 @@ jobs:
 
             # Same keys as desktop-test.yml's electron-test job.
             - name: Cache Electron binary
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/.cache/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
             - name: Cache Playwright browsers
               id: playwright-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/.cache/ms-playwright
                   key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -102,17 +102,17 @@ jobs:
                 working-directory: products/desktop
         steps:
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              uses: pnpm/action-setup@v6.0.9
               with:
                   package_json_file: products/desktop/package.json
 
             - name: Setup Node.js
-              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              uses: actions/setup-node@v6.4.0
               with:
                   node-version-file: products/desktop/.node-version
 
@@ -122,7 +122,7 @@ jobs:
 
             - name: Cache pnpm store
               id: pnpm-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
@@ -131,14 +131,14 @@ jobs:
             # Same keys as desktop-update-e2e.yml, the remaining macOS consumer.
             - name: Cache Electron binary
               id: electron-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/electron
                   key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
             - name: Cache Playwright browsers
               id: playwright-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              uses: actions/cache@v6.1.0
               with:
                   path: ~/Library/Caches/ms-playwright
                   key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}

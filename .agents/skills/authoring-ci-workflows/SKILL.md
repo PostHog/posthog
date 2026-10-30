@@ -30,7 +30,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
-Renovate bumps third-party action digests, except in workflows listed in `actions.lock`.
+`Lint workflows` runs `gh actions-lock --verify`, which fails when a `uses:` has no lockfile entry. Renovate does not bump actions.
 
 ## Check what a condition does before you push it
 
@@ -293,12 +293,9 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 ## Pinning and tool versions
 
-- **Pin third-party actions to full 40-character commit SHAs** with `# vX.Y.Z` comments.
-  Workflows already listed in `.github/workflows/actions.lock` may use exact version tags backed by locked commits.
-  Before editing one or the lockfile, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
-  Keep inline SHA pins elsewhere: copying an onboarded workflow does not onboard its copy.
-  The other sanctioned exception is a debug-only action.
-  In-repo composites use a local path with no ref (`uses: ./.github/actions/pnpm-install`).
+- **`.github/workflows/actions.lock` pins every third-party action** to a commit, so workflows and composites reference exact version tags.
+  Before adding a workflow or changing any `uses:`, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
+  In-repo composites use the `$/` form (`uses: $/.github/actions/pnpm-install`), which runs the action at the workflow's own commit.
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
@@ -392,7 +389,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `$/.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `$/.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 
 **pnpm on a `depot-*` runner uses Depot Cache, not GitHub Actions cache.** Depot transparently handles the `actions/cache` API calls made by `pnpm-install`.
@@ -547,7 +544,7 @@ Before that date, fix or add to the baseline every violation that landed during 
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
-- [ ] Third-party actions SHA-pinned, or the already-onboarded workflow's lockfile regenerated and verified.
+- [ ] Lockfile regenerated and verified after any `uses:` change.
 - [ ] Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.

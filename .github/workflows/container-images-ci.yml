@@ -36,17 +36,17 @@ jobs:
             dockerfiles_changed: ${{ steps.filter.outputs.dockerfiles }}
             dockerfiles_files: ${{ steps.filter.outputs.dockerfiles_files }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./.github/actions/paths-filter
+            - uses: $/.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -146,7 +146,7 @@ jobs:
             contents: read
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
             - name: Fetch base ref for comparison
               run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
             - name: Check for non-test files dropped from the image
@@ -169,11 +169,11 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Build and cache Docker image in Depot
               id: build
-              uses: ./.github/actions/build-n-cache-image
+              uses: $/.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
@@ -213,24 +213,24 @@ jobs:
         if: needs.changes.outputs.dagster_ml_changed == 'true' && needs.posthog_build.outputs.digest != '' && !startsWith(github.head_ref, 'trunk-merge/')
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              uses: depot/setup-action@v1.7.1
 
             # Pull-only use of the PR role: the base image lives in posthog-cloud-prs.
             - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              uses: aws-actions/configure-aws-credentials@v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to Amazon ECR
               id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+              uses: aws-actions/amazon-ecr-login@v2.1.2
 
             - name: Build Dagster ML image
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: depot/build-push-action@v1.17.0
               with:
                   context: .
                   file: ./Dockerfile.dagster-ml
@@ -249,13 +249,13 @@ jobs:
             contents: read
         steps:
             - name: Check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
 
             # Changed-Dockerfile list comes from the shared paths-filter in `changes`, so no
             # second changed-files action or full-history checkout. The job still always runs
             # (only the hadolint step is gated) to keep its required-check status reporting.
             - name: Lint changed Dockerfile(s) with Hadolint
               if: needs.changes.outputs.dockerfiles_changed == 'true'
-              uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
+              uses: jbergstroem/hadolint-gh-action@v1.13.0
               with:
                   dockerfile: '${{ needs.changes.outputs.dockerfiles_files }}'

@@ -60,9 +60,9 @@ jobs:
         steps:
             # Depth 1: the change set and the merge base come from the GitHub API
             # below, not from local history.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
@@ -71,7 +71,7 @@ jobs:
             # --no-project` to find a changed product's importers; the script pins
             # tach, so no Python project sync is needed. A missing uv widens those
             # products to every backend lane rather than failing the job.
-            - uses: ./.github/actions/setup-uv
+            - uses: $/.github/actions/setup-uv
               with:
                   enable-cache: false
               continue-on-error: true
@@ -199,7 +199,7 @@ jobs:
               # A failure here must not keep the PR out of the queue. The crate
               # list goes missing, and the script falls back to every crate.
               continue-on-error: true
-              uses: ./.github/actions/rust-compute-affected
+              uses: $/.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
                   # Reuse the master merge base the file list came from. A
@@ -456,12 +456,12 @@ jobs:
             contents: read
             pull-requests: write
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   # Run only trusted base-branch code with the token that can edit PR comments.
                   ref: ${{ github.event.pull_request.base.sha }}
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}

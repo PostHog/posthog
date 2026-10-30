@@ -41,10 +41,10 @@ jobs:
         # managed set is trusted and we want it enforced.
         continue-on-error: true
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Log in to ghcr.io
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              uses: docker/login-action@v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -87,7 +87,7 @@ jobs:
               # Secrets are empty on fork PRs and until the App is provisioned —
               # in both cases the gate reports skipped (with a summary), not red.
               if: env.HAS_GATE_CREDS == 'true'
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HCL_COMPOSE_GATE_PRIVATE_KEY }}

@@ -25,15 +25,15 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
 
             - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              uses: actions/setup-python@v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: $/.github/actions/setup-uv
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -47,16 +47,14 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   gh extension install github/gh-actions-lock --pin v0.4.0
-                  # Only onboarded workflows are verified, because an unscoped run fails on every workflow not yet in the lockfile.
-                  mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
-                  gh actions-lock --verify "${workflows[@]}"
+                  gh actions-lock --verify
 
     workflow-run-plans:
         name: Workflow run plans
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
@@ -70,7 +68,7 @@ jobs:
                       pnpm-workspace.yaml
                   sparse-checkout-cone-mode: false
 
-            - uses: ./.github/actions/pnpm-install
+            - uses: $/.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter @posthog/workflow-plan
 

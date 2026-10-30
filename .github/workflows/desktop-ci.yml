@@ -73,11 +73,11 @@ jobs:
         timeout-minutes: 5
         steps:
             - name: Checkout gate scripts
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: .github/scripts/desktop
                   persist-credentials: false
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - uses: actions/create-github-app-token@v3.1.1
               id: app-token
               # forks can't read org secrets; fall back to github.token
               if: github.repository == 'PostHog/posthog' && github.event.pull_request.head.repo.full_name == github.repository

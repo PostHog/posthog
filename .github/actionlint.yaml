@@ -18,12 +18,15 @@ self-hosted-runner:
 # only because actionlint's popular-actions database special-cases it. The
 # `{changes: string}` anchor keeps this scoped to that action's output type.
 paths:
+    # actionlint does not parse `$/` action references yet: https://github.com/rhysd/actionlint/issues/711
     '.github/workflows/**/*.yml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
+            - 'specifying action "\$/.+" in invalid format because ref is missing'
     '.github/workflows/**/*.yaml':
         ignore:
             - 'property ".+" is not defined in object type \{changes: string\}'
+            - 'specifying action "\$/.+" in invalid format because ref is missing'
     # GitHub's stacked PRs added the `stacked` activity type after actionlint's event list.
     # The broad glob also matches the copies hogli lint:workflows checks outside .github.
     '**/*.yml':
