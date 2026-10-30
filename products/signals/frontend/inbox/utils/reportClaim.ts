@@ -4,6 +4,7 @@ import { signalsReportsClaim, signalsReportsRetrieve } from 'products/signals/fr
 import type { SignalReportApi, SignalReportClaimApi, _UserApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus } from '../types'
+import { withInboxWriteTimeout } from './writeTimeout'
 
 /** Statuses the claim endpoint accepts. Mirrors the server's `CLAIMABLE_REPORT_STATUSES`. */
 const CLAIMABLE_STATUSES: ReadonlySet<SignalReportStatus> = new Set([
@@ -43,7 +44,7 @@ type FreshClaimAttempt = { fresh: SignalReportApi | null; updated: SignalReportA
 async function claimFromFreshReport(teamId: string, reportId: string): Promise<FreshClaimAttempt> {
     let fresh: SignalReportApi
     try {
-        fresh = await signalsReportsRetrieve(teamId, reportId)
+        fresh = await withInboxWriteTimeout('claim', (options) => signalsReportsRetrieve(teamId, reportId, options))
     } catch {
         return { fresh: null, updated: null }
     }
@@ -51,7 +52,13 @@ async function claimFromFreshReport(teamId: string, reportId: string): Promise<F
         return { fresh, updated: null }
     }
     try {
-        return { fresh, updated: await signalsReportsClaim(teamId, reportId, reportClaimRequest(fresh, true)) }
+        const request = reportClaimRequest(fresh, true)
+        return {
+            fresh,
+            updated: await withInboxWriteTimeout('claim', (options) =>
+                signalsReportsClaim(teamId, reportId, request, options)
+            ),
+        }
     } catch {
         return { fresh, updated: null }
     }
@@ -72,7 +79,13 @@ export async function requestReportClaim(
     claimed: boolean
 ): Promise<ReportClaimOutcome> {
     try {
-        return { ok: true, updated: await signalsReportsClaim(teamId, report.id, reportClaimRequest(report, claimed)) }
+        const request = reportClaimRequest(report, claimed)
+        return {
+            ok: true,
+            updated: await withInboxWriteTimeout('claim', (options) =>
+                signalsReportsClaim(teamId, report.id, request, options)
+            ),
+        }
     } catch (error) {
         const conflict = error instanceof ApiError && error.status === 409
         const retry = conflict && claimed ? await claimFromFreshReport(teamId, report.id) : null
