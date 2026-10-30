@@ -238,7 +238,10 @@ export function useSend({
       );
       return;
     }
-    (current ? chats.reply(current, text) : chats.start(text)).then(
+    (current
+      ? chats.reply(current, text, images)
+      : chats.start(text, images)
+    ).then(
       (task) => {
         setFresh((tasks) => new Map(tasks).set(task.id, task));
         if (!current) {

@@ -254,7 +254,6 @@ export function App({
   });
 
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
-    runsLocally,
     layout,
     setLayout,
     sidebar,

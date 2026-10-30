@@ -1,10 +1,11 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
+import { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
 import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
@@ -139,17 +140,33 @@ export function createCloud(
     taskId: string,
     runId: string,
     content: string,
+    artifactIds: string[],
   ) => {
     const result = await engine.sendCommand({
       taskId,
       runId,
       ...(await context()),
       method: "user_message",
-      params: { content, artifact_ids: [], steer: true },
+      params: { content, artifact_ids: artifactIds, steer: true },
     });
     if (!result.success)
       throw new Error(result.error ?? "Couldn't send the message");
   };
+  // The desktop app's uploader for cloud attachments. The TUI sends only images, never skills.
+  const noSkills = (): never => {
+    throw new Error("The TUI does not send skills");
+  };
+  const artifacts = new CloudArtifactService(
+    async (filePath) => {
+      try {
+        return readFileSync(filePath).toString("base64");
+      } catch {
+        return null;
+      }
+    },
+    noSkills,
+    async () => [],
+  );
   let projectId: number | null = null;
   const agentAuth: AgentAuth = {
     getValidAccessToken: async () => ({
@@ -214,7 +231,12 @@ export function createCloud(
     engine.sendCommand({ ...input, ...(await context()) });
   return {
     runs,
-    chats: new PiChats(api, sendMessage, currentRepository()),
+    chats: new PiChats(api, sendMessage, currentRepository(), {
+      toTask: (taskId, filePaths) =>
+        artifacts.uploadTaskStagedAttachments(api, taskId, filePaths),
+      toRun: (taskId, runId, filePaths) =>
+        artifacts.uploadRunAttachments(api, taskId, runId, filePaths),
+    }),
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {

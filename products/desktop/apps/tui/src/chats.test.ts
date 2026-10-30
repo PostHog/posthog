@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { Task } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
@@ -26,12 +27,23 @@ function setup() {
     })),
   };
   const sendMessage = vi.fn(async () => {});
+  const uploads = {
+    toTask: vi.fn(async (_taskId: string, _filePaths: string[]) => [
+      "staged-1",
+    ]),
+    toRun: vi.fn(
+      async (_taskId: string, _runId: string, _filePaths: string[]) => [
+        "run-1",
+      ],
+    ),
+  };
   const chats = new PiChats(
     api as unknown as PostHogAPIClient,
     sendMessage,
     "posthog/posthog",
+    uploads,
   );
-  return { api, sendMessage, chats };
+  return { api, sendMessage, uploads, chats };
 }
 
 describe("PiChats", () => {
@@ -78,6 +90,7 @@ describe("PiChats", () => {
       "t1",
       "r1",
       "Also update the docs",
+      [],
     );
     expect(api.runTaskInCloud).not.toHaveBeenCalled();
   });
@@ -113,6 +126,53 @@ describe("PiChats", () => {
       pendingUserMessage: "Keep going",
     });
     expect(resumed.latest_run?.id).toBe("r2");
+  });
+
+  describe("with images", () => {
+    const image = {
+      data: Buffer.from("png").toString("base64"),
+      mimeType: "image/png",
+    };
+    const uploaded = (call: unknown[] | undefined) =>
+      (call?.at(-1) as string[]).map((path) => readFileSync(path, "utf8"));
+
+    it("uploads them to the task and starts the run carrying them", async () => {
+      const { api, uploads, chats } = setup();
+
+      await chats.start("look", [image]);
+
+      expect(uploads.toTask.mock.calls[0]?.[0]).toBe("t1");
+      expect(uploaded(uploads.toTask.mock.calls[0])).toEqual(["png"]);
+      expect(api.startTaskRun).toHaveBeenCalledWith("t1", "r1", {
+        pendingUserMessage: "look",
+        pendingUserArtifactIds: ["staged-1"],
+      });
+    });
+
+    it("uploads them to a live run and sends their ids with the reply", async () => {
+      const { sendMessage, uploads, chats } = setup();
+
+      await chats.reply(task("in_progress"), "and this", [image]);
+
+      expect(uploads.toRun.mock.calls[0]?.slice(0, 2)).toEqual(["t1", "r1"]);
+      expect(sendMessage).toHaveBeenCalledWith("t1", "r1", "and this", [
+        "run-1",
+      ]);
+    });
+
+    it("uploads them to the task when the reply resumes a finished run", async () => {
+      const { api, uploads, chats } = setup();
+
+      await chats.reply(task("completed"), "again", [image]);
+
+      expect(uploads.toRun).not.toHaveBeenCalled();
+      expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+        piRuntime: true,
+        resumeFromRunId: "r1",
+        pendingUserMessage: "again",
+        pendingUserArtifactIds: ["staged-1"],
+      });
+    });
   });
 
   it("refuses to continue a chat that was not started with pi", async () => {
