@@ -691,7 +691,7 @@ class Recorder:
         if "upload" in step:
             spec = step["upload"]
             loc = self.locate(page, spec.get("target", {"selector": "input[type=file]"}))
-            await loc.set_input_files(str(self.base / spec["file"]))
+            await loc.set_input_files(str(self.base / self.vars.real(spec["file"])))
         acted = self.now()
         if "wait_for" in step and "goto" not in step:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
