@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import { useAnimatedNumber } from '../../components/MetricCard/useAnimatedNumber'
 import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { dimColor, resolveCssColor, toSrgbColor } from '../../core/color-utils'
 import {
     clampGaugeSweep,
     computeGaugeLayout,
@@ -26,11 +25,12 @@ import { useChartDraw } from '../../core/hooks/useChartDraw'
 import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
-import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { buildYTickFormatter } from '../../utils/y-formatters'
 import type { YFormatterConfig } from '../../utils/y-formatters'
-import { drawGauge } from './gauge-canvas'
-import type { GaugePaint } from './gauge-canvas'
+import { drawGauge } from './draw-gauge'
+import type { GaugePaint } from './draw-gauge'
+import { initialGaugeColors, resolveGaugeColors } from './gauge-colors'
 import { GAUGE_EMPTY_VALUE, GaugeTooltip } from './GaugeTooltip'
 import type { GaugeTooltipContext, GaugeTooltipThreshold } from './GaugeTooltip'
 
@@ -110,10 +110,9 @@ const DEFAULT_ANIMATION_MS = 500
 const MAX_MINMAX_SWEEP = 300
 const EMPTY_SERIES: never[] = []
 const EMPTY_LABELS: string[] = []
-const TRACK_ALPHA = 0.1
-const FALLBACK_TRACK = 'rgba(128, 128, 128, 0.16)'
-const FALLBACK_INK = '#1f2328'
-const FALLBACK_COLOR = '#1d4aff'
+// Where the tooltip anchors, as a fraction of the outer radius up and right of the center: the
+// top-right shoulder of the ring, so it sits beside the gauge instead of over the value.
+const TOOLTIP_ANCHOR = 0.72
 
 const TEXT_BASE_STYLE: React.CSSProperties = {
     position: 'absolute',
@@ -140,28 +139,19 @@ function defaultFormatter(value: number): string {
     return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
 }
 
-/** A `var(--…)` that does not resolve would reach the canvas as an invalid color, which the canvas
- *  ignores, so it paints with whatever color the previous stroke left behind. */
-function resolveColor(color: string, fallback: string, root: HTMLElement | null): string {
-    let resolved = resolveCssColor(color, root ?? undefined).trim()
-    // jsdom and other non-browser hosts do not inherit custom properties down to the wrapper.
-    if (root && resolved.startsWith('var(')) {
-        resolved = resolveCssColor(color).trim()
-    }
-    return resolved && !resolved.startsWith('var(') ? resolved : fallback
+function paintFromScales(scales: ChartScales): GaugePaint | null {
+    return (scales._private as { gauge?: GaugePaint } | undefined)?.gauge ?? null
 }
 
-interface HostStyle {
-    ink: string
-    fontFamily: string
+function drawStatic({ ctx, scales }: ChartDrawArgs): void {
+    const paint = paintFromScales(scales)
+    if (paint) {
+        drawGauge(ctx, paint)
+    }
 }
 
-function readHostStyle(element: HTMLElement | null): HostStyle {
-    if (!element || typeof getComputedStyle !== 'function') {
-        return { ink: FALLBACK_INK, fontFamily: FONT_FAMILY }
-    }
-    const style = getComputedStyle(element)
-    return { ink: style.color || FALLBACK_INK, fontFamily: style.fontFamily || FONT_FAMILY }
+function drawHover(): boolean {
+    return false
 }
 
 function minMaxFontSize(width: number, height: number): number {
@@ -244,37 +234,28 @@ function GaugeInner({
         [valueFormatter, valueFormat]
     )
 
-    const sorted = useMemo(() => sortThresholds(thresholds), [thresholds])
+    // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint the
+    // canvas on every parent render. A threshold list is a handful of steps, so the key is cheap.
+    const thresholdsKey = (thresholds ?? [])
+        .map((t) => `${t.value}\u0000${t.color}\u0000${t.label ?? ''}`)
+        .join('\u0001')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const sorted = useMemo(() => sortThresholds(thresholds), [thresholdsKey])
     const bounds = useMemo(
         () => resolveGaugeBounds({ value, min, max, thresholds: sorted, target: target?.value }),
         [value, min, max, sorted, target]
     )
 
-    // Colors resolve against the wrapper once it mounts, so a scoped theme container applies. Every memo
-    // that resolves a `var(--…)` keys on `theme`, because a light/dark flip changes what the var means
-    // while the input string stays the same.
-    const hasWrapper = dimensions !== null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const root = useMemo(() => wrapperRef.current, [wrapperRef, hasWrapper])
-    const baseColor = useMemo(
-        () => resolveColor(color || theme.colors[0] || FALLBACK_COLOR, theme.colors[0] || FALLBACK_COLOR, root),
-        [color, theme, root]
-    )
-    const resolvedThresholds = useMemo(
-        () => sorted.map((t) => ({ ...t, color: resolveColor(t.color, baseColor, root) })),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [sorted, baseColor, theme, root]
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const hostStyle = useMemo(() => readHostStyle(root), [root, theme])
-    const trackColor = useMemo(() => {
-        if (trackColorProp) {
-            return resolveColor(trackColorProp, FALLBACK_TRACK, root)
+    // Computed styles are read in a layout effect, not during render, and again on every theme change,
+    // because a light/dark flip changes what each `var(--…)` means while the input string stays the same.
+    const [colors, setColors] = useState(() => initialGaugeColors({ sorted, color, trackColor: trackColorProp, theme }))
+    useLayoutEffect(() => {
+        const root = wrapperRef.current
+        if (root) {
+            setColors(resolveGaugeColors(root, { sorted, color, trackColor: trackColorProp, theme }))
         }
-        const ink = toSrgbColor(hostStyle.ink)
-        const tinted = dimColor(ink, TRACK_ALPHA)
-        return tinted === ink ? (theme.gridColor ?? FALLBACK_TRACK) : tinted
-    }, [trackColorProp, hostStyle.ink, theme, root])
+    }, [wrapperRef, sorted, color, trackColorProp, theme])
+    const { base: baseColor, thresholds: resolvedThresholds, track: trackColor, ink, fontFamily } = colors
 
     const targetFraction = value === null ? 0 : gaugeFraction(value, bounds)
     const animatedFraction = useAnimatedNumber(targetFraction, animationMs)
@@ -310,13 +291,7 @@ function GaugeInner({
             return { layout: fit(0), ends: null }
         }
         const withFooter = fit(minMaxFont * 1.6)
-        const placed = placeMinMax(
-            withFooter,
-            dimensions.width,
-            minText,
-            maxText,
-            `${minMaxFont}px ${hostStyle.fontFamily}`
-        )
+        const placed = placeMinMax(withFooter, dimensions.width, minText, maxText, `${minMaxFont}px ${fontFamily}`)
         // Labels that would overlap stay hidden, so the rings take back the room reserved for them.
         return placed ? { layout: withFooter, ends: placed } : { layout: fit(0), ends: null }
     }, [
@@ -330,7 +305,7 @@ function GaugeInner({
         minMaxFont,
         minText,
         maxText,
-        hostStyle.fontFamily,
+        fontFamily,
     ])
 
     const bandPaint = useMemo(() => {
@@ -357,23 +332,16 @@ function GaugeInner({
             valueColor: arcColor,
             targetAngle:
                 targetInRange && target ? fractionToAngle(gaugeFraction(target.value, bounds), layout.angles) : null,
-            targetColor: resolveColor(hostStyle.ink, FALLBACK_INK, root),
+            targetColor: ink,
         }
-    }, [layout, trackColor, bandPaint, animatedFraction, arcColor, target, bounds, hostStyle.ink, root])
+    }, [layout, trackColor, bandPaint, animatedFraction, arcColor, target, bounds, ink])
 
+    // The paint rides on `scales._private`, so the draw functions stay module-level and each frame of
+    // the value animation reaches the canvas through the same input the draw loop already watches.
     const scales = useMemo<ChartScales | null>(
-        () => (layout ? { x: () => undefined, y: () => 0, yTicks: () => [] } : null),
-        [layout]
-    )
-    const drawStatic = useCallback(
-        ({ ctx: drawCtx }: ChartDrawArgs) => {
-            if (paint) {
-                drawGauge(drawCtx, paint)
-            }
-        },
+        () => (paint ? { x: () => undefined, y: () => 0, yTicks: () => [], _private: { gauge: paint } } : null),
         [paint]
     )
-    const drawHover = useCallback(() => false, [])
 
     useChartDraw({
         ctx,
@@ -398,11 +366,11 @@ function GaugeInner({
         return layoutGaugeText({
             layout,
             measure: measureLabelWidth,
-            fontFamily: hostStyle.fontFamily,
+            fontFamily: fontFamily,
             valueText,
             labelText: label || null,
         })
-    }, [layout, hostStyle.fontFamily, valueText, label])
+    }, [layout, fontFamily, valueText, label])
 
     const tooltipThreshold = useMemo<GaugeTooltipThreshold | null>(() => {
         if (valueIndex < 0) {
@@ -432,38 +400,43 @@ function GaugeInner({
     )
 
     const canvasBounds = useCanvasBounds(canvasRef)
-    const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
+    // The wrapper's rect at the moment the cursor entered the ring, or null when it is outside.
+    const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
     const showTooltip = tooltipConfig?.enabled !== false
 
+    // The tooltip anchors to the gauge, not the cursor. While the cursor stays over the ring the state
+    // update returns the previous rect, so React bails out and nothing re-renders or redraws.
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (!layout || !showTooltip) {
                 return
             }
             const rect = e.currentTarget.getBoundingClientRect()
-            const x = e.clientX - rect.left
-            const y = e.clientY - rect.top
-            setCursor(isOverGauge(layout, x, y) ? { x, y } : null)
+            const hit = isOverGauge(layout, e.clientX - rect.left, e.clientY - rect.top)
+            setHoverRect((previous) => (hit ? (previous ?? rect) : null))
         },
         [layout, showTooltip]
     )
-    const onMouseLeave = useCallback(() => setCursor(null), [])
+    const onMouseLeave = useCallback(() => setHoverRect(null), [])
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick: () => {} }), [onMouseMove, onMouseLeave])
 
     const tooltipCtx = useMemo<TooltipContext | null>(() => {
-        if (!cursor || !layout) {
+        if (!hoverRect || !layout) {
             return null
         }
         return {
             dataIndex: 0,
             label: label ?? '',
             seriesData: [],
-            position: { x: layout.cx, y: layout.cy },
-            hoverPosition: cursor,
-            canvasBounds: canvasBounds() ?? new DOMRect(),
+            position: {
+                x: layout.cx + layout.outerRadius * TOOLTIP_ANCHOR,
+                y: layout.cy - layout.outerRadius * TOOLTIP_ANCHOR,
+            },
+            hoverPosition: null,
+            canvasBounds: hoverRect,
             isPinned: false,
         }
-    }, [cursor, layout, label, canvasBounds])
+    }, [hoverRect, layout, label])
 
     const renderTooltip = useCallback(
         (): React.ReactNode => (tooltip ? tooltip(gaugeTooltipCtx) : <GaugeTooltip ctx={gaugeTooltipCtx} />),
@@ -486,7 +459,8 @@ function GaugeInner({
             yGutters: [],
         }
     }, [scales, dimensions, theme, canvasBounds])
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex: cursor ? 0 : -1 }), [cursor])
+    const hovered = hoverRect !== null
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex: hovered ? 0 : -1 }), [hovered])
 
     const ariaLabel = [
         label ? `${label}:` : 'Gauge:',
@@ -574,7 +548,7 @@ function GaugeInner({
                           ))
                         : null}
                     {tooltipCtx && showTooltip ? (
-                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="cursor" />
+                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
                     ) : null}
                 </ChartShell>
             </ChartHoverContext.Provider>

@@ -198,6 +198,27 @@ describe('MetricsPanel', () => {
             expect(getHogChart().gauge()).toMatchObject({ value: '150%', min: '50%', max: '150%' })
         })
 
+        it('drops both gauges when two clauses that returned the same series go away', () => {
+            const fromClause = (clause: string, pod: string, value: number): MetricsChartSeries => ({
+                ...seriesWith({ pod }, [0, 0, value], 'cpu'),
+                clause,
+            })
+            const display: MetricsDisplaySettings = { type: 'gauge', yAxis: { min: 0, max: 100 } }
+            const { container, rerender } = render(
+                <MetricsPanel
+                    series={[fromClause('a', 'x', 10), fromClause('b', 'x', 20), fromClause('a', 'y', 30)]}
+                    fallbackName="cpu"
+                    display={display}
+                />
+            )
+            expect(screen.getByText('a · pod=x')).toBeInTheDocument()
+            expect(screen.getByText('b · pod=x')).toBeInTheDocument()
+
+            rerender(<MetricsPanel series={[fromClause('a', 'y', 30)]} fallbackName="cpu" display={display} />)
+            const values = Array.from(container.querySelectorAll('[data-attr="hog-chart-gauge-value"]'))
+            expect(values.map((el) => el.textContent)).toEqual(['30'])
+        })
+
         it('shows No data on the gauge when every point is null', () => {
             renderPanel([seriesWith({ pod: 'a' }, [null, null, null])], { type: 'gauge' })
             expect(screen.getByText('No data')).toBeInTheDocument()
