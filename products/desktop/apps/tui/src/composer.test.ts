@@ -1,5 +1,8 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import {
+  CombinedAutocompleteProvider,
+  stripTerminalSequences,
+} from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Composer, isAppKey, isTyping } from "./composer";
 
@@ -251,6 +254,29 @@ describe("Composer", () => {
     for (const key of [...extraKeys, "\r"]) composer.handleInput(key);
 
     expect(sent).toEqual([[text, count]]);
+  });
+
+  it("opens no file suggestions while deleting a marker", async () => {
+    vi.useFakeTimers();
+    const lookup = vi.spyOn(
+      CombinedAutocompleteProvider.prototype,
+      "getSuggestions",
+    );
+    try {
+      const composer = new Composer(
+        () => {},
+        () => {},
+      );
+      for (const key of [..."look "]) composer.handleInput(key);
+      composer.attach({ type: "image", data: "aGk=", mimeType: "image/png" });
+      composer.handleInput("\x7f");
+      await vi.runAllTimersAsync();
+
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("keeps numbering images across messages", () => {

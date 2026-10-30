@@ -75,6 +75,7 @@ export class Composer {
   // Images waiting to be sent, by their marker; the numbers run on across messages.
   private readonly images = new Map<string, ImageContent>();
   private imageCount = 0;
+  private suggestions: CombinedAutocompleteProvider | undefined;
 
   constructor(
     private readonly repaint: () => void,
@@ -106,15 +107,14 @@ export class Composer {
   // The run's own slash commands join the built-in ones; the built-ins win on a name clash.
   setCommands(commands: RunCommand[]): void {
     const builtIn = new Set(SLASH_COMMANDS.map((command) => command.name));
-    this.editor.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(
-        [
-          ...SLASH_COMMANDS,
-          ...commands.filter((command) => !builtIn.has(command.name)),
-        ],
-        process.cwd(),
-      ),
+    this.suggestions = new CombinedAutocompleteProvider(
+      [
+        ...SLASH_COMMANDS,
+        ...commands.filter((command) => !builtIn.has(command.name)),
+      ],
+      process.cwd(),
     );
+    this.editor.setAutocompleteProvider(this.suggestions);
   }
 
   // An image shows as a marker in the text; deleting the marker before sending drops the image.
@@ -176,6 +176,8 @@ export class Composer {
     if (!marker) return false;
     for (let step = 0; step < marker.length; step++)
       this.editor.handleInput(sequence);
+    // Mid-delete the text can end in "#", which starts pi's file suggestions; setting the provider again cancels them.
+    if (this.suggestions) this.editor.setAutocompleteProvider(this.suggestions);
     return true;
   }
 
