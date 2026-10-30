@@ -1,20 +1,23 @@
 import { convertStoredEntriesToEvents } from "@posthog/core/sessions/sessionEvents";
-import type {
-  AgentConversationEvent,
-  AgentRuntime,
-  StoredLogEntry,
+import {
+  type AgentConversationEvent,
+  type AgentRuntime,
+  type StoredLogEntry,
+  showActionSchema,
 } from "@posthog/shared";
 import {
   buildAgentConversationItems,
   buildConversationItems,
   type ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { z } from "zod";
 
 export type TranscriptLine =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string }
   | { kind: "tool"; id: string; title: string; status: string }
-  | { kind: "notice"; id: string; text: string; tone: "info" | "error" };
+  | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
+  | { kind: "actions"; id: string; actions: ShowAction[] };
 
 export interface Transcript {
   lines: TranscriptLine[];
@@ -61,6 +64,10 @@ export function transcriptFrom(
 
 // Bookkeeping the harness asks for every turn; it says nothing about the work.
 const SUMMARY_TOOL = "task_summary_update";
+// Buttons the agent offers; the desktop app draws them, and here the action picker does.
+const ACTIONS_TOOL = "show_actions";
+const actionsInput = z.object({ actions: z.array(showActionSchema).min(1) });
+export type ShowAction = z.infer<typeof showActionSchema>;
 
 function toLine(item: ConversationItem): TranscriptLine[] {
   if (item.type === "user_message") {
@@ -78,6 +85,12 @@ function toLine(item: ConversationItem): TranscriptLine[] {
         : [];
     case "tool_call":
       if (update.title.endsWith(SUMMARY_TOOL)) return [];
+      if (update.title.endsWith(ACTIONS_TOOL)) {
+        const input = actionsInput.safeParse(update.rawInput);
+        return update.status !== "failed" && input.success
+          ? [{ kind: "actions", id: item.id, actions: input.data.actions }]
+          : [];
+      }
       return [
         {
           kind: "tool",

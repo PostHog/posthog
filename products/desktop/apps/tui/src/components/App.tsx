@@ -2,6 +2,7 @@ import { StdinBuffer } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { type ActionsLine, canRun, pickerKey } from "../actions";
 import type { PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { Composer, isAppKey } from "../composer";
@@ -93,6 +94,12 @@ export function App({
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
   const [pending, setPending] = useState<Map<string, string>>(new Map());
+  // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
+  const offers = useRef(new Map<string, ActionsLine | null>());
+  const [pickerIndex, setPickerIndex] = useState<Map<string, number>>(
+    new Map(),
+  );
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState(-1);
   const [notice, setNotice] = useState<string | null>(null);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
@@ -344,7 +351,38 @@ export function App({
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
     if (layout.focus !== "pane" || isAppKey(sequence)) return;
-    composerFor(workspace.focusedPaneId).handleInput(sequence);
+    const paneId = workspace.focusedPaneId;
+    const composer = composerFor(paneId);
+    const offer = offers.current.get(paneId);
+    const key = pickerKey(sequence);
+    // With an open offer and nothing typed, arrows and Enter drive the picker.
+    if (offer && !dismissed.has(offer.id) && key && composer.isEmpty()) {
+      onPick(paneId, offer, key);
+      return;
+    }
+    composer.handleInput(sequence);
+  };
+
+  const onPick = (
+    paneId: string,
+    offer: ActionsLine,
+    key: "up" | "down" | "choose" | "dismiss",
+  ): void => {
+    const index = pickerIndex.get(paneId) ?? 0;
+    const last = offer.actions.length - 1;
+    if (key === "up" || key === "down") {
+      const next = Math.min(last, Math.max(0, index + (key === "up" ? -1 : 1)));
+      setPickerIndex((indexes) => new Map(indexes).set(paneId, next));
+      return;
+    }
+    const action = offer.actions[Math.min(index, last)];
+    if (key === "choose" && !canRun(action)) return;
+    setDismissed((ids) => new Set(ids).add(offer.id));
+    if (key === "choose" && action.kind === "compose") {
+      const next = newChat(layout);
+      setLayout(next);
+      composerFor(activeWorkspace(next).focusedPaneId).setText(action.prompt);
+    }
   };
   const handlers = useRef({ onClick, onWheel, onKey, onSubmit });
   handlers.current = { onClick, onWheel, onKey, onSubmit };
@@ -398,6 +436,11 @@ export function App({
           chat={chatFor(`${node.id}:${node.taskId}`)}
           composer={composerFor(node.id)}
           pending={pending.get(node.id) ?? null}
+          onOffer={(offer) => offers.current.set(node.id, offer)}
+          picker={{
+            index: pickerIndex.get(node.id) ?? 0,
+            dismissed,
+          }}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />
       </Box>

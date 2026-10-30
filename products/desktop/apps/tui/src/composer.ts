@@ -52,6 +52,15 @@ export class Composer {
     };
   }
 
+  isEmpty(): boolean {
+    return this.editor.getText().trim() === "";
+  }
+
+  setText(text: string): void {
+    this.editor.setText(text);
+    this.repaint();
+  }
+
   handleInput(sequence: string): void {
     this.editor.handleInput(sequence);
     this.repaint();
