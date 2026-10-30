@@ -6427,11 +6427,11 @@ snapshots:
     mcp-apps-experiments--list--light:
         hash: v1.k794b7964.451b15f153e10361704c68b9044d5b21972a3228b462a743c70b951d633934af.bdxRqm5NR3HwV2Z0wfvGauANrrvulMQobYyNez3m2bI
     mcp-apps-experiments--results--light:
-        hash: v1.k794b7964.c71e75f71935551635fd7a397a9931d44b6b697097cf90909df59baf69ae22a9.V5fKzUyc9sF4z1gwfvmKLzifNjUDEL0Z0lMt2DUUz3E
+        hash: v1.k794b7964.802da40733fd0caa503157578bc65e4ffea6e867525cbcdc501d1f11493cfe2b.yW2II1weyB_9pS1VLUvSedcLzX-riHY__1PY4f-pQPM
     mcp-apps-experiments--results-fallback--light:
         hash: v1.k794b7964.acf3b4c3a462ecfad12108c59a385eef961fc8e1eb11ea0624d80f8b9d551066.3dv3-Kwam5rJplQL4amAeThpXBH5RRnEi62PXnK4uz8
-    mcp-apps-experiments--results-legacy--light:
-        hash: v1.k794b7964.fb16e88ea3b384dd8f67fe6012124373f57c30e37c09a786aa222664bb7fcb8b.mgcHhsY-mwox6xCW6CCwDrmhgLfHnLRPosHWNigYE_Y
+    mcp-apps-experiments--results-get--light:
+        hash: v1.k794b7964.0428e0158176377706c6c967ad17a53458b07e37bdca63449a44575fc4e7cb66.fhmtKOu9UmdtGsj5NMIfFylEcM2XuPPv7Ab9gDjBSkc
     mcp-apps-experiments--running--light:
         hash: v1.k794b7964.f7ae67feb87956b98204afeb00f52012a62fc090b18d186d0575110924e5cb69.lWvegECniqeejO8WWNUVam5X0NQTkwxq2iifV-mN5JI
     mcp-apps-explain-chart--chapter-beside-the-chart--light:
@@ -9110,10 +9110,6 @@ snapshots:
         hash: v1.k794b7964.24177f3a0ab02c226de812af2a7236ca39efa20130a5e3f90b7eb8b9ef8b9fda.4fFcQQuS2W_Ge3tRrUxO5y8iC3h0XcVIp3VQw02oAjE
     scenes-app-ai-observability-evaluations-overview--two-evaluations--light:
         hash: v1.k794b7964.84206a664057f52d1b347eb3b25f0753aa6bc6511e115a84f6d8e81f2db20c88.KHYA6WgaFepaL76lvAalXU2Nzg4xhH60_2gIsul7LAM
-    scenes-app-ai-observability-image-preview--failed-image--dark:
-        hash: v1.k794b7964.e4f4b0993222ae8f8a3f0e59e4c0528312f13a1e358df37e53d4331b4dacbae5.oDWA2N3BGPuGJvd9voAvMpM2rCR7tfrLjEwDqJT6MYk
-    scenes-app-ai-observability-image-preview--failed-image--light:
-        hash: v1.k794b7964.4eb3b049f06ae96184a668696fdadf51050faacc18876e799b3ab0451257ee4b.OeohSQhdo2gAaTqtBzxi8qndmw5hPx_I7FCT5jlQIH8
     scenes-app-ai-observability-image-preview--loaded-image--dark:
         hash: v1.k794b7964.f5616b3a5f8f3fce4e63331f5d758f96b0581c374a7b3b9a670910a8599dde49.e0crK2eCymbeMfVduQVtV_ziu9buu7z919QTrTFJ3S4
     scenes-app-ai-observability-image-preview--loaded-image--light:
