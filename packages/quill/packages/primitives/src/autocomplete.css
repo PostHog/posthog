@@ -127,7 +127,9 @@
         opacity: 0.5;
     }
 
-    .quill-autocomplete__item:not([data-variant='destructive'])[data-highlighted] * {
+    /* `data-keep-color` opts a child out, for example a product icon that carries its own color. */
+    .quill-autocomplete__item:not([data-variant='destructive'])[data-highlighted]
+        *:not([data-keep-color], [data-keep-color] *) {
         color: var(--foreground);
     }
 

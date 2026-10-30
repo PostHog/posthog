@@ -1020,6 +1020,33 @@ class TestSnowflakeSourceNonRetryableErrors:
         assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
+        "error_msg,expected_quota",
+        [
+            (
+                "090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+                "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            (
+                "Warehouse 'EXAMPLE_WH' cannot be resumed because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            ("090001 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed.", False),
+        ],
+    )
+    def test_resource_monitor_quota_keeps_the_schema_enabled(self, source, error_msg, expected_quota):
+        assert error_message_matches(error_msg, source.get_retryable_errors()) is expected_quota
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors())
+        exhausted = [
+            message
+            for key, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
+        assert bool(exhausted) is expected_quota
+        if expected_quota:
+            assert "tries again on its own" in exhausted[0]
+
+    @pytest.mark.parametrize(
         "error_msg",
         [
             "This session does not have a current database",
@@ -1321,6 +1348,19 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
+
+    def test_resource_monitor_quota_names_the_quota_not_a_network_blip(self, source):
+        error = ProgrammingError(
+            msg="090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+            "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+            errno=90073,
+        )
+        with patch.object(source, "get_schemas", side_effect=error):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "resource monitor" in message
+        assert "brief" not in message
 
     def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
         # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a

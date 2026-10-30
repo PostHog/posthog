@@ -57,6 +57,8 @@ import type {
   SignalReportArtefact,
   SignalReportArtefactsResponse,
   SignalReportRefundReason,
+  SignalReportSectionCounts,
+  SignalReportSectionCountsParams,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -445,6 +447,14 @@ export interface TaskSessionStorageAccess {
  */
 export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
 export type CommentScope = (typeof COMMENT_SCOPES)[number];
+
+export type SuggestedReviewerEdit = {
+  action: Extract<
+    NonNullable<Schemas.SignalReportArtefactWrite["action"]>,
+    "add" | "remove"
+  >;
+  targets: NonNullable<Schemas.SignalReportArtefactWrite["targets"]>;
+};
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -1400,6 +1410,7 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -1569,6 +1580,12 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
+      state:
+        contentValue.state === "resolved" ||
+        contentValue.state === "suppressed" ||
+        contentValue.state === "potential"
+          ? contentValue.state
+          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:
@@ -5827,6 +5844,29 @@ export class PostHogAPIClient {
     };
   }
 
+  async getSignalReportSectionCounts(
+    params?: SignalReportSectionCountsParams,
+  ): Promise<SignalReportSectionCounts> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/section_counts/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    if (params?.source_product) {
+      url.searchParams.set("source_product", params.source_product);
+    }
+    if (params?.priority) url.searchParams.set("priority", params.priority);
+    if (params?.suggested_reviewers) {
+      url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch signal report section counts: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as SignalReportSectionCounts;
+  }
+
   async getSignalProcessingState(): Promise<SignalProcessingStateResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6130,6 +6170,7 @@ export class PostHogAPIClient {
     reportId: string,
     artefactId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6142,7 +6183,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -6161,6 +6202,7 @@ export class PostHogAPIClient {
   async setSignalReportReviewers(
     reportId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
@@ -6170,7 +6212,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 

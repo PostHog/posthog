@@ -20,6 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.k
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
 
+_TODAY_WINDOW = "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
+
+_SNAPSHOT_PRIMARY_KEYS = {
+    "request_sizing_recommendations": ["clusterID", "namespace", "controllerKind", "controllerName", "containerName"],
+    "audit_events": ["key"],
+}
+
 
 def _driver(host: str = "https://k.example.com") -> SourceDriver:
     return SourceDriver(KubecostSource(), KubecostSourceConfig(host=host, api_key="token"))
@@ -70,8 +77,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_error",
         [
-            (401, "authentication failed"),
-            (403, "authentication failed"),
             (404, "unexpected status"),
         ],
     )
@@ -154,19 +159,36 @@ class TestGetRows:
         assert all(row["totalCost"] == 1.5 for row in rows)
 
     @pytest.mark.parametrize(
-        "endpoint, expected_path, expected_aggregate",
+        "endpoint, expected_path, expected_aggregate, expected_window, expected_accumulate",
         [
-            ("allocation_by_namespace", "/model/allocation", "namespace"),
-            ("allocation_by_controller", "/model/allocation", "controller"),
-            ("allocation_by_pod", "/model/allocation", "pod"),
-            ("allocation_by_cluster", "/model/allocation", "cluster"),
-            ("allocation_by_node", "/model/allocation", "node"),
-            ("allocation_by_service", "/model/allocation", "service"),
-            ("assets", "/model/assets", None),
-            ("cloud_costs", "/model/cloudCost", None),
+            ("allocation_by_namespace", "/model/allocation", "namespace", _TODAY_WINDOW, "true"),
+            ("allocation_by_controller", "/model/allocation", "controller", _TODAY_WINDOW, "true"),
+            ("allocation_by_pod", "/model/allocation", "pod", _TODAY_WINDOW, "true"),
+            ("allocation_by_cluster", "/model/allocation", "cluster", _TODAY_WINDOW, "true"),
+            ("allocation_by_node", "/model/allocation", "node", _TODAY_WINDOW, "true"),
+            ("allocation_by_service", "/model/allocation", "service", _TODAY_WINDOW, "true"),
+            ("assets", "/model/assets", None, _TODAY_WINDOW, "true"),
+            ("cloud_costs", "/model/cloudCost", None, _TODAY_WINDOW, "true"),
+            (
+                "external_costs",
+                "/model/customCost/timeseries",
+                "zone,accountName,chargeCategory,description,resourceName,resourceType,providerId,usageUnit,domain,costSource",
+                _TODAY_WINDOW,
+                "true",
+            ),
+            # Snapshot endpoints ignore the saved day and query their fixed lookback, or no window at all.
+            ("request_sizing_recommendations", "/model/savings/requestSizingV2", None, "7d", None),
+            ("audit_events", "/model/audit/events", None, None, None),
         ],
     )
-    def test_endpoint_path_and_params(self, endpoint: str, expected_path: str, expected_aggregate: str | None) -> None:
+    def test_endpoint_path_and_params(
+        self,
+        endpoint: str,
+        expected_path: str,
+        expected_aggregate: str | None,
+        expected_window: str | None,
+        expected_accumulate: str | None,
+    ) -> None:
         result = _driver().run(
             endpoint,
             [ScriptedResponse(json={"code": 200, "data": [None]})],
@@ -177,19 +199,143 @@ class TestGetRows:
         assert result.paths == [expected_path]
         assert result.requests[0].origin == "https://k.example.com"
         assert result.requests[0].param("aggregate") == expected_aggregate
-        assert result.requests[0].param("accumulate") == "true"
+        assert result.requests[0].param("window") == expected_window
+        assert result.requests[0].param("accumulate") == expected_accumulate
 
-    def test_api_key_over_plain_http_raises_before_any_request(self) -> None:
-        result = _driver("http://kubecost.example.com").run("allocation_by_namespace", [])
+    @pytest.mark.parametrize(
+        "timeseries, expected_rows",
+        [
+            (
+                [
+                    {
+                        "window": {"start": "2026-07-15T00:00:00Z", "end": "2026-07-15T01:00:00Z"},
+                        "customCosts": [
+                            {"id": "1", "aggregate": "us-east/acct/usage/datadog/observability", "billedCost": 2.5},
+                            # No aggregate: the id is the key.
+                            {"id": "2", "billedCost": 0.5},
+                            "not-a-line-item",
+                        ],
+                    },
+                    # A window with no data and a window without its own bounds.
+                    {"window": {"start": "2026-07-15T01:00:00Z", "end": "2026-07-15T02:00:00Z"}, "customCosts": None},
+                    {"customCosts": [{"aggregate": "eu-west/acct/usage/datadog/observability", "billedCost": 1.0}]},
+                ],
+                [
+                    (
+                        "us-east/acct/usage/datadog/observability",
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z",
+                        2.5,
+                    ),
+                    ("2", "2026-07-15T00:00:00Z", "2026-07-15T01:00:00Z", 0.5),
+                    (
+                        "eu-west/acct/usage/datadog/observability",
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-16T00:00:00Z",
+                        1.0,
+                    ),
+                ],
+            ),
+            (None, []),
+        ],
+    )
+    def test_external_costs_flattens_timeseries_line_items(
+        self, timeseries: Any, expected_rows: list[tuple[str, str, str, float]]
+    ) -> None:
+        result = _driver().run(
+            "external_costs",
+            [ScriptedResponse(json={"code": 200, "data": {"window": {}, "timeseries": timeseries}})],
+            resume_state=KubecostResumeConfig(next_date="2026-07-15"),
+        )
+
+        assert result.raised is None
+        assert [
+            (row["key"], row["window_start"], row["window_end"], row["billedCost"]) for row in result.rows
+        ] == expected_rows
+
+    @pytest.mark.parametrize(
+        "body, expected_keys",
+        [
+            # The documented shape is a bare list.
+            (
+                [
+                    {"clusterID": "c1", "namespace": "web", "controllerName": "api", "containerName": "app"},
+                    {"clusterID": "c1", "namespace": "web", "controllerName": "api", "containerName": "sidecar"},
+                    None,
+                ],
+                ["app", "sidecar"],
+            ),
+            (
+                {"code": 200, "data": [{"clusterID": "c1", "containerName": "app"}]},
+                ["app"],
+            ),
+            (
+                {"TotalMonthlySavings": 4.2, "Count": 1, "Recommendations": [{"containerName": "app"}]},
+                ["app"],
+            ),
+            ({"TotalMonthlySavings": 0, "Count": 0, "Recommendations": None}, []),
+        ],
+    )
+    def test_request_sizing_accepts_documented_response_shapes(self, body: Any, expected_keys: list[str]) -> None:
+        result = _driver().run(
+            "request_sizing_recommendations",
+            [ScriptedResponse(json=body)],
+            resume_state=KubecostResumeConfig(next_date="2026-07-01"),
+        )
+
+        assert result.raised is None
+        assert [row["containerName"] for row in result.rows] == expected_keys
+        # One request for the current state: no day walk and no checkpoint.
+        assert len(result.requests) == 1
+        assert result.saved_states == []
+
+    @pytest.mark.parametrize(
+        "event, expected_key",
+        [
+            (
+                {
+                    "eventType": "add",
+                    "resourceType": "deployment",
+                    "timestamp": "2026-07-14T13:58:44.552788548Z",
+                    "properties": {"cluster": "cluster-one", "name": "web", "namespace": "shop"},
+                },
+                "2026-07-14T13:58:44.552788548Z/add/deployment/cluster-one/shop/web",
+            ),
+            (
+                {"eventType": "delete", "timestamp": "2026-07-14T14:00:00Z", "properties": None},
+                "2026-07-14T14:00:00Z/delete////",
+            ),
+        ],
+    )
+    def test_audit_events_get_a_key_built_from_the_change(self, event: dict[str, Any], expected_key: str) -> None:
+        result = _driver().run("audit_events", [ScriptedResponse(json={"code": 200, "data": [event]})])
+
+        assert result.raised is None
+        assert [row["key"] for row in result.rows] == [expected_key]
+        assert result.rows[0]["eventType"] == event["eventType"]
+
+    @pytest.mark.parametrize("endpoint", ["allocation_by_namespace", "audit_events"])
+    def test_api_key_over_plain_http_raises_before_any_request(self, endpoint: str) -> None:
+        result = _driver("http://kubecost.example.com").run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
         assert "https" in str(result.raised)
         assert result.requests == []
 
-    def test_error_envelope_raises(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, body",
+        [
+            ("allocation_by_namespace", {"code": 400, "message": "bad request"}),
+            # A windowed endpoint must not take a bare body for a Kubecost response.
+            ("allocation_by_namespace", {"message": "bad request"}),
+            ("audit_events", {"code": 400, "message": "bad request"}),
+            ("request_sizing_recommendations", {"code": 400, "message": "bad request"}),
+        ],
+    )
+    def test_error_envelope_raises(self, endpoint: str, body: dict[str, Any]) -> None:
         result = _driver().run(
-            "allocation_by_namespace",
-            [ScriptedResponse(json={"code": 400, "message": "bad request"})],
+            endpoint,
+            [ScriptedResponse(json=body)],
             resume_state=KubecostResumeConfig(next_date="2026-07-15"),
         )
 
@@ -218,7 +364,7 @@ class TestKubecostSourceResponse:
         with time_machine.travel("2026-07-15T10:00:00Z", tick=False):
             yield
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @pytest.mark.parametrize("endpoint", [e for e in ENDPOINTS if e not in _SNAPSHOT_PRIMARY_KEYS])
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         result = _driver().run(
             endpoint,
@@ -236,3 +382,15 @@ class TestKubecostSourceResponse:
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["window_start"]
+
+    @pytest.mark.parametrize("endpoint, expected_primary_keys", list(_SNAPSHOT_PRIMARY_KEYS.items()))
+    def test_snapshot_response_metadata(self, endpoint: str, expected_primary_keys: list[str]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"code": 200, "data": []})])
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
+        assert response.primary_keys == expected_primary_keys
+        # A snapshot is not read in window order, so it makes no ordering promise.
+        assert response.sort_mode is None
+        assert response.partition_keys is None

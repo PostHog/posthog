@@ -1,3 +1,4 @@
+import sys
 import math
 import time
 import asyncio
@@ -84,22 +85,30 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     DEPTH_SAMPLE_AGE_SECONDS,
     HEARTBEAT_RECONNECT_FAILURES_TOTAL,
     HEARTBEAT_RECONNECTS_TOTAL,
+    OLDEST_SERIALIZED_BATCH_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     QUEUE_SAMPLE_GAUGES,
+    RECOVERY_SWEEP_OUTCOMES,
     RUNS_RECONCILED_TOTAL,
     SERIALIZED_BATCHES,
     SLOT_WAITING_BATCHES,
     TOP_GROUPS_CLAIMABLE_SHARE,
+    make_consumer_metrics,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 
 def _freshness(
-    oldest_age_seconds: float | None, *, blocked_batches: int = 0, backlogged_groups: int = 0
+    slot_wait_age_seconds: float | None,
+    *,
+    serialized_age_seconds: float | None = None,
+    blocked_batches: int = 0,
+    backlogged_groups: int = 0,
 ) -> QueueFreshness:
     return QueueFreshness(
-        oldest_age_seconds=oldest_age_seconds,
+        slot_wait_age_seconds=slot_wait_age_seconds,
+        serialized_age_seconds=serialized_age_seconds,
         blocked_batches=blocked_batches,
         backlogged_groups=backlogged_groups,
     )
@@ -192,6 +201,21 @@ def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
     conn.closed = closed
     conn.broken = broken
     return conn
+
+
+def _sweep_outcome_counts(consumer: BatchConsumer) -> dict[str, float]:
+    return {
+        outcome: consumer._metrics.recovery_sweeps_total.labels(outcome=outcome)._value.get()
+        for outcome in RECOVERY_SWEEP_OUTCOMES
+    }
+
+
+def _sweep_outcome_delta(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
+    return {
+        outcome: after[outcome] - before[outcome]
+        for outcome in RECOVERY_SWEEP_OUTCOMES
+        if after[outcome] != before[outcome]
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -799,25 +823,34 @@ class TestRecoverySweep:
         )
 
     @pytest.mark.parametrize(
-        "latest_attempt,history,expected_error,expected_fail_reason,expected_metric",
+        "latest_attempt,history,expected_error,expected_fail_reason,expected_metric,expected_sweep_outcome",
         [
-            (3, InterruptionHistory(), None, "max retries exceeded (likely OOM)", None),
+            (3, InterruptionHistory(), None, "max retries exceeded (likely OOM)", None, "orphans_found"),
             (
                 3,
                 InterruptionHistory(shutdown_marked=True),
                 {"error": "executing interrupted by worker shutdown", "interrupted": True},
                 None,
                 "recovered",
+                "orphans_found_after_shutdown",
             ),
             # Earlier shutdowns do not use the retry budget of a later unmarked loss.
-            (5, InterruptionHistory(recovered=3), {"error": "executing timed out - pod restart or OOM"}, None, None),
-            (6, InterruptionHistory(recovered=3), None, "max retries exceeded (likely OOM)", None),
+            (
+                5,
+                InterruptionHistory(recovered=3),
+                {"error": "executing timed out - pod restart or OOM"},
+                None,
+                None,
+                "orphans_found",
+            ),
+            (6, InterruptionHistory(recovered=3), None, "max retries exceeded (likely OOM)", None, "orphans_found"),
             (
                 10,
                 InterruptionHistory(recovered=9, shutdown_marked=True),
                 {"error": "executing interrupted by worker shutdown", "interrupted": True},
                 None,
                 "recovered",
+                "orphans_found_after_shutdown",
             ),
             (
                 11,
@@ -825,6 +858,7 @@ class TestRecoverySweep:
                 None,
                 "max interruptions exceeded (loading stopped 11 times by a worker shutdown)",
                 "cap_exceeded",
+                "orphans_found_after_shutdown",
             ),
         ],
         ids=[
@@ -845,12 +879,14 @@ class TestRecoverySweep:
         expected_error: dict[str, Any] | None,
         expected_fail_reason: str | None,
         expected_metric: str | None,
+        expected_sweep_outcome: str,
     ):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=latest_attempt, created_at=datetime(2026, 1, 1, tzinfo=UTC))
         interruption_history.return_value = history
         outcomes = ("recovered", "cap_exceeded")
         before = {o: consumer._metrics.batch_interruptions_total.labels(outcome=o)._value.get() for o in outcomes}
+        sweeps_before = _sweep_outcome_counts(consumer)
 
         with (
             patch(
@@ -888,6 +924,7 @@ class TestRecoverySweep:
         for outcome in outcomes:
             delta = consumer._metrics.batch_interruptions_total.labels(outcome=outcome)._value.get() - before[outcome]
             assert delta == (1 if outcome == expected_metric else 0)
+        assert _sweep_outcome_delta(sweeps_before, _sweep_outcome_counts(consumer)) == {expected_sweep_outcome: 1}
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
@@ -906,6 +943,7 @@ class TestRecoverySweep:
             return histories[batch_id]
 
         interruption_history.side_effect = history_for
+        sweeps_before = _sweep_outcome_counts(consumer)
 
         with (
             patch(
@@ -927,6 +965,61 @@ class TestRecoverySweep:
 
         assert [c.kwargs["batch_id"] for c in mock_status.call_args_list] == [interrupted.id]
         assert [c.args[0].run_uuid for c in mock_fail.call_args_list] == ["run-2"]
+        # One unmarked orphan makes the whole sweep unexplained, so a crash next to a deploy still alerts.
+        assert _sweep_outcome_delta(sweeps_before, _sweep_outcome_counts(consumer)) == {"orphans_found": 1}
+
+    @pytest.mark.parametrize(
+        "failing_call",
+        ["history", "requeue"],
+    )
+    @pytest.mark.asyncio
+    async def test_sweep_that_stops_early_counts_as_unexplained(
+        self, interruption_history: AsyncMock, failing_call: str
+    ):
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=1)
+        interruption_history.return_value = InterruptionHistory(shutdown_marked=True)
+        if failing_call == "history":
+            interruption_history.side_effect = psycopg.OperationalError("connection lost")
+        sweeps_before = _sweep_outcome_counts(consumer)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+                side_effect=psycopg.OperationalError("connection lost") if failing_call == "requeue" else None,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            pytest.raises(psycopg.OperationalError),
+        ):
+            await consumer._recovery_sweep()
+
+        assert _sweep_outcome_delta(sweeps_before, _sweep_outcome_counts(consumer)) == {"orphans_found": 1}
+
+    def test_every_sweep_outcome_is_exported_before_the_first_sweep(self):
+        metrics = make_consumer_metrics("test_sweep_outcome_export")
+        batch_consumer_module.BatchConsumer(
+            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
+            process_batch=AsyncMock(),
+            adapter=MagicMock(),
+            metrics=metrics,
+        )
+
+        exported = {
+            sample.labels["outcome"]: sample.value
+            for family in metrics.recovery_sweeps_total.collect()
+            for sample in family.samples
+            if sample.name.endswith("_total")
+        }
+        assert exported == dict.fromkeys(RECOVERY_SWEEP_OUTCOMES, 0.0)
 
     @pytest.mark.asyncio
     async def test_sweep_continues_past_terminally_retired_batch(self):
@@ -2580,7 +2673,7 @@ class TestReconcileFailedRuns:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_freshness",
                 new_callable=AsyncMock,
-                return_value=_freshness(1234.5, blocked_batches=7, backlogged_groups=3),
+                return_value=_freshness(1234.5, serialized_age_seconds=5678.0, blocked_batches=7, backlogged_groups=3),
             ) as mock_probe,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_queue_depth",
@@ -2596,6 +2689,7 @@ class TestReconcileFailedRuns:
         ):
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 5678.0
         assert CLAIMABLE_BATCHES._value.get() == 321
         assert BLOCKED_BATCHES._value.get() == 7
         assert BACKLOGGED_GROUPS._value.get() == 3
@@ -2623,6 +2717,7 @@ class TestReconcileFailedRuns:
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
+        assert OLDEST_SERIALIZED_BATCH_SECONDS._value.get() == 0.0
         assert CLAIMABLE_BATCHES._value.get() == 0
         assert CLAIMABLE_GROUPS._value.get() == 0
         assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.0
@@ -4946,20 +5041,20 @@ class TestCoalesceGroup:
     @pytest.mark.parametrize(
         "slot_mb,sizes,expected",
         [
-            # A 64 MiB slice at share 1.0 leaves 32 MiB of Arrow for the two copies the loader holds.
-            (64, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
+            # A 32 MiB slice at share 1.0 leaves 32 MiB of Arrow for the one copy the loader holds.
+            (32, [(10 * _MIB, 1)] * 5, [[0, 1, 2], [3, 4]]),
             # Wide rows that compress badly join past the parquet cap while they fit the memory budget.
-            (64, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
+            (32, [(10 * _MIB, 30 * _MIB)] * 4, [[0, 1, 2], [3]]),
             # A batch bigger than the whole budget still loads, on its own.
-            (64, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
+            (32, [(1 * _MIB, 1), (100 * _MIB, 1), (1 * _MIB, 1)], [[0], [1], [2]]),
             # A large slice is still bounded by the hard ceiling.
             (100_000, [(10 * _MIB, 1)] * 5, [[0, 1, 2, 3], [4]]),
             # Narrow batches still coalesce until the row cap.
-            (64, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
+            (32, [(1024, 1)] * 60, [list(range(50)), list(range(50, 60))]),
             # One batch queued before the producer recorded its size puts the set back on the parquet cap.
-            (64, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [(10 * _MIB, 30 * _MIB), (None, 30 * _MIB), (10 * _MIB, 30 * _MIB)], [[0, 1], [2]]),
             # The metadata is free-form JSON, so any other shape counts as unknown.
-            (64, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
+            (32, [("10", 30 * _MIB), (True, 30 * _MIB), (-1, 30 * _MIB)], [[0, 1], [2]]),
             # An unreadable pod limit gives no slice to size against.
             (None, [(10 * _MIB, 30 * _MIB)] * 3, [[0, 1], [2]]),
             # A slice that leaves no memory gives no Arrow budget.
@@ -5221,6 +5316,29 @@ class TestBatchPhaseTracking:
         consumer._report_health()
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
+    @pytest.mark.parametrize(
+        "ticks, expected_dumps",
+        [
+            pytest.param(["a"], 1, id="first_trip_dumps"),
+            pytest.param(["a", "a", "a"], 1, id="same_batch_dumps_once"),
+            pytest.param(["a", "b"], 2, id="different_batch_dumps_again"),
+        ],
+    )
+    def test_watchdog_trip_dumps_thread_stacks_once_per_stuck_batch(
+        self, ticks: list[str], expected_dumps: int
+    ) -> None:
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        consumer._health_reporter = lambda: None
+
+        with patch.object(batch_consumer_module.faulthandler, "dump_traceback") as dump:
+            for batch_id in ticks:
+                consumer._inflight_started = {batch_id: time.monotonic() - 10}
+                consumer._report_health()
+
+        assert dump.call_count == expected_dumps
+        for call in dump.call_args_list:
+            assert call.kwargs == {"file": sys.stderr, "all_threads": True}
+
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
@@ -5234,8 +5352,9 @@ class TestBatchPhaseTracking:
             consumer._report_health()
 
         assert calls == []  # tripped: liveness withheld
-        logger.error.assert_called_once()
-        kwargs = logger.error.call_args.kwargs
+        tripped = [c for c in logger.error.call_args_list if "stuck_batch_watchdog_tripped" in c.args[0]]
+        assert len(tripped) == 1
+        kwargs = tripped[0].kwargs
         assert kwargs.get("batch_id") == batch.id
         assert kwargs.get("phase") == "write"
         assert kwargs.get("phase_seconds") is not None

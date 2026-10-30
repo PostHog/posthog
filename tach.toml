@@ -194,6 +194,8 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.product_analytics", "products.access_control",
+    # Facade-only: alerts declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -279,10 +281,12 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
+    "posthog", "products.cdp", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
     # depends on products.conversations in turn, so keep this direction on the facade.
     "products.signals",
+    # Facade-only: conversations declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -304,6 +308,8 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    # Facade-only: the metrics_table widget runs its query through the metrics facade.
+    "products.metrics",
     "products.notifications",
     "products.product_analytics",
     "products.conversations",
@@ -406,6 +412,8 @@ path = "products.warehouse_sources"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
+    "products.alerts_platform",
     "products.batch_exports",
     "products.cdp",
     "products.data_modeling",
@@ -487,6 +495,8 @@ depends_on = [
     "products.notifications",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
+    # Facade-only: the built-in bot filter reads the bot user agent patterns.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -518,6 +528,8 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
+    # Facade-only: experiments declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -537,6 +549,8 @@ depends_on = [
     "products.product_tours",
     "products.surveys", "products.access_control",
     "products.notifications",
+    # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -575,6 +589,8 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    # Trace feedback reads trace-linked survey responses through the surveys facade.
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -779,6 +795,7 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "products.cohorts",
+    "products.marketing_analytics",
     "ee",
     "posthog",
     "products.actions",
@@ -861,7 +878,7 @@ depends_on = [
     "products.experiments",
     "products.exports",
     "products.feature_flags",
-    # Facade-only: the watch feed's hourly Jev sweep calls the shared decision-model client.
+    # Facade-only: the highlight feed's hourly Jev sweep calls the shared decision-model client.
     "products.ml_inference",
     "products.notifications",
     "products.signals",
@@ -903,6 +920,8 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    # Facade-only: anomaly scoring spreads insights over the window after each boundary like alert checks.
+    "products.alerts_platform",
     "products.cdp",
     "products.conversations",
     "products.dashboards",
@@ -931,6 +950,8 @@ depends_on = [
     # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
     "products.replay_vision",
     "products.skills",
+    # Facade-only: anomaly scoring counts an insight that an enabled subscription delivers as active.
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
@@ -976,6 +997,9 @@ depends_on = [
     "products.exports",
     # Mention workflows check billing quota limits before they start a task.
     "ee",
+    # Feature tips skip MCP tools and Slack subscriptions that the reader already uses.
+    "products.mcp_store",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -1019,6 +1043,7 @@ depends_on = [
     "products.data_warehouse",
     "products.data_modeling",
     "products.warehouse_sources",
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1029,6 +1054,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.event_definitions",
     "products.analytics_platform", "products.warehouse_sources",
     "products.feature_flags",
 ]
@@ -1070,6 +1096,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # ph.tools calls run on the PostHog MCP server as the viewer (via the webmcp facade).
+    "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
 ]
@@ -1118,6 +1146,10 @@ depends_on = [
     # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
     "products.product_analytics",
     "products.replay_vision",
+    # Facade-only: the rage-click highlight names the error people saw before rage-clicking.
+    "products.error_tracking",
+    # Facade-only: web analytics declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1147,6 +1179,8 @@ depends_on = [
     # Facade-only: the Replay Vision step's endpoint starts a scan through
     # products.replay_vision.backend.facade.api.
     "products.replay_vision",
+    # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1177,11 +1211,14 @@ from = [
     "products.experiments",
 ]
 
-# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker,
+# and its platform evaluation with the alerts platform's evaluation worker.
 
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.PLATFORM_EVALUATION_ACTIVITIES",
+    "backend\\.temporal\\.PLATFORM_EVALUATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
 ]
@@ -1663,17 +1700,11 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
-    "products.alerts",
-    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
-    "products.data_catalog",
-    "products.error_tracking",
     "products.product_analytics",
     "products.signals",
     "products.tasks",
-    "products.web_analytics",
-    "products.workflows",
 ]
 layer = "modules"
 
@@ -1714,6 +1745,13 @@ expose = [
     "backend\\.llm.*",
     "backend\\.markdown_outline.*",
     "backend\\.models.*",
+    "backend\\.offline_evaluation_billing.get_offline_evaluation_usage",
+    "backend\\.offline_evaluation_service.OfflineEvaluationIngestionService",
+    "backend\\.offline_evaluation_service.OfflineExperimentService",
+    "backend\\.offline_evaluation_types.ExperimentSubmission",
+    "backend\\.offline_evaluation_types.ItemSubmission",
+    "backend\\.offline_evaluation_types.ResultSubmission",
+    "backend\\.offline_evaluation_types.UploadSubmission",
     "backend\\.prompt_references.*",
     "backend\\.queries.*",
     "backend\\.summarization.*",
@@ -1759,6 +1797,9 @@ depends_on = [
     "products.access_control",
     "products.data_catalog",
     "products.data_modeling",
+    "products.notifications",
+    # Facade-only: warehouse suggestions declares its Today highlight sources against the Today facade contract.
+    "products.today",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -1806,4 +1847,45 @@ expose = [
 ]
 from = [
     "products.account_audits",
+]
+
+[[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_gateway",
+]
+
+[[modules]]
+path = "products.uptime_monitoring"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.uptime_monitoring",
+]
+
+[[modules]]
+path = "products.authorization"
+depends_on = []
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.authorization",
 ]

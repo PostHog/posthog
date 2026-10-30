@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.signals.backend.artefact_schemas import PullRequestLink, ReportLink
+from products.signals.backend.artefact_schemas import Dismissal, PullRequestLink, ReportLink
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -75,6 +75,14 @@ class TestPlanRollup(BaseTest):
             ("mixed_with_a_resolve", ["resolved", "suppressed"], SignalReport.Status.RESOLVED),
             ("all_suppressed", ["suppressed", "suppressed"], SignalReport.Status.SUPPRESSED),
             (
+                "closed_parent_keeps_failed_attempt",
+                ["resolved"],
+                SignalReport.Status.CLOSED,
+                SignalReport.Status.CLOSED,
+            ),
+            ("archived_closed_parent_keeps_outcome", ["resolved"], "suppressed", "closed", True),
+            ("archived_closed_parent_keeps_archive", ["suppressed"], "suppressed", "closed", True),
+            (
                 "monitoring_parent_needs_manual_verification",
                 ["resolved"],
                 SignalReport.Status.MONITORING,
@@ -83,9 +91,16 @@ class TestPlanRollup(BaseTest):
         ]
     )
     def test_a_plan_takes_the_verdict_of_its_steps(
-        self, _name: str, child_statuses: list[str], expected: str, parent_status: str = SignalReport.Status.READY
+        self,
+        _name: str,
+        child_statuses: list[str],
+        expected: str,
+        parent_status: str = SignalReport.Status.READY,
+        archive_parent: bool = False,
     ) -> None:
         parent = self._report("plan", status=parent_status)
+        if archive_parent:
+            self._close(parent, SignalReport.Status.SUPPRESSED)
         children = [self._report(f"step-{index}") for index in range(len(child_statuses))]
         for child in children:
             self._part_of(child, parent)
@@ -96,10 +111,19 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == expected
+        if archive_parent:
+            assert parent.status_before_suppression == parent_status
+        elif expected == SignalReport.Status.SUPPRESSED:
+            feedback = SignalReportArtefact.latest_content(
+                team_id=self.team.id, report_id=str(parent.id), model=Dismissal
+            )
+            assert feedback is not None
+            assert feedback.state == "suppressed"
 
-    def test_a_plan_stays_open_while_any_step_is(self):
+    @parameterized.expand([("ready",), ("closed",)])
+    def test_a_plan_stays_open_while_a_step_has_not_resolved(self, child_status: str) -> None:
         parent = self._report("plan")
-        done, still_open = self._report("done"), self._report("open")
+        done, still_open = self._report("done"), self._report("unfinished", status=child_status)
         self._part_of(done, parent)
         self._part_of(still_open, parent)
 

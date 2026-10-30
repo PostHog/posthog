@@ -23,8 +23,6 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
-# The legacy child workflow ID branch is gone. deprecate_patch keeps runs that recorded the marker replayable.
-_PATCH_ID_MENTION_PROCESSING_ID_RENAME = "slack-app-mention-processing-id-rename-2026-10"
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
@@ -122,12 +120,12 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     async def _react(self, message: PostHogCodeSlackMentionWorkflowInputs, reaction_activity: Any) -> None:
         """Run one of the reaction activities for a mention or DM. Untagged
-        thread followups get no reactions — they were never addressed to the
-        bot, and most are dropped by the chitchat classifier.
+        thread followups and untagged questions get no reactions,
+        because nobody addressed them to the bot and a classifier drops most of them.
         """
         channel = message.event.get("channel")
         message_ts = message.event.get("ts")
-        if message.untagged_followup or not channel or not message_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not message_ts:
             return
         try:
             await workflow.execute_activity(
@@ -157,7 +155,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         """
         channel = message.event.get("channel")
         thread_ts = message.event.get("thread_ts") or message.event.get("ts")
-        if message.untagged_followup or not channel or not thread_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not thread_ts:
             return
         try:
             await workflow.execute_activity(
@@ -178,7 +176,6 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        workflow.deprecate_patch(_PATCH_ID_MENTION_PROCESSING_ID_RENAME)
         child_id = derive_mention_workflow_id(message)
         try:
             # The default parent close policy (terminate) is deliberate: an

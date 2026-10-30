@@ -629,10 +629,47 @@ class TestDeltaliteCompaction:
 
     @parameterized.expand(
         [
-            ("committed", 1, 152, [152], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
-            ("nothing_to_rewrite", 0, 150, [], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
-            ("table_target", 1, 152, [152], {"delta.targetFileSize": str(32 * _MB)}, 32 * _MB),
-            ("invalid_table_target", 1, 152, [152], {"delta.targetFileSize": "-1"}, DEFAULT_COMPACT_TARGET_SIZE_BYTES),
+            (
+                "committed",
+                1,
+                152,
+                [152],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "nothing_to_rewrite",
+                0,
+                150,
+                [],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": str(32 * _MB)},
+                32 * _MB,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "invalid_table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": "-1"},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            ("row_group_cap_off", 1, 152, [152], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 0, {}),
         ]
     )
     @pytest.mark.asyncio
@@ -644,13 +681,18 @@ class TestDeltaliteCompaction:
         expected_noted: list[int],
         configuration: dict[str, str],
         expected_target: int,
+        row_group_cap: int,
+        expected_row_group_kwargs: dict[str, int],
     ) -> None:
         compact = MagicMock(
             return_value={"commits": commits, "version": version, "numFilesAdded": 3, "numFilesRemoved": 300}
         )
         maintenance, table_ref, fake_class = self._setup(compact, configuration=configuration)
 
-        with patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")):
+        with (
+            patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")),
+            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+        ):
             ran, delta_rs_compact, plan, capture = await self._run(maintenance, fake_class)
 
         assert ran is True
@@ -666,6 +708,7 @@ class TestDeltaliteCompaction:
             min_partition_removable_files=1,
             max_bins_per_commit=COMPACT_MAX_BINS_PER_COMMIT,
             partitions=None,
+            **expected_row_group_kwargs,
         )
         assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
         [done] = self._info_calls(table_ref, "compact: done")
@@ -1442,3 +1485,50 @@ class TestVacuumOnARealTable:
             assert os.path.exists(sibling)
             assert recently_tombstoned <= _parquet_files(root)
             assert deltalake.DeltaTable(root).to_pyarrow_table().num_rows == 1
+
+
+class TestCompactHistoryPartitions:
+    @parameterized.expand(
+        [
+            ("below_the_threshold", 4, 4, _DEFAULT_PLAN, 4, 4),
+            # The month that is still filling takes a file from every close, so it fragments too.
+            ("current_and_month_above_the_threshold", 12, 12, _DEFAULT_PLAN, 1, 1),
+            ("only_the_month_above_the_threshold", 4, 12, _DEFAULT_PLAN, 4, 1),
+            # Every file is larger than the planned bin, so a compaction would remove none of them.
+            (
+                "planned_bin_smaller_than_the_files",
+                12,
+                12,
+                CompactionPlan(target_size=1, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1.0),
+                12,
+                12,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_each_fragmented_partition(
+        self,
+        _name: str,
+        current_files: int,
+        month_files: int,
+        plan: CompactionPlan,
+        current_after: int,
+        month_after: int,
+    ):
+        with tempfile.TemporaryDirectory() as path:
+            for partition, count in (("current", current_files), ("2026-01", month_files)):
+                for i in range(count):
+                    deltalake.write_deltalake(
+                        path,
+                        pa.table({"id": [i], "_ph_history_partition": [partition]}),
+                        mode="append",
+                        partition_by=["_ph_history_partition"],
+                    )
+            maintenance = _make_maintenance(deltalake.DeltaTable(path))
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
+                ran = await maintenance.compact_history_partitions("_ph_history_partition")
+
+            files = deltalake.DeltaTable(path).file_uris()
+            assert ran is (current_after < current_files or month_after < month_files)
+            assert sum("_ph_history_partition=current/" in f for f in files) == current_after
+            assert sum("_ph_history_partition=2026-01/" in f for f in files) == month_after

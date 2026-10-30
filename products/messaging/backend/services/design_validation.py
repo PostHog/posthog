@@ -14,6 +14,7 @@ from products.messaging.backend.unlayer import CUSTOM_TOOL_HTML_OPTIONS
 KNOWN_CONTENT_TYPES = frozenset(
     {
         "text",
+        "paragraph",
         "heading",
         "button",
         "image",

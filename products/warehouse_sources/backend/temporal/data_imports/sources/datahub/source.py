@@ -72,7 +72,7 @@ class DatahubSource(ResumableSource[DatahubSourceConfig, DatahubResumeConfig]):
             name=ExternalDataSourceType.DATAHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DataHub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["acryl", "data catalog", "metadata", "lineage"],
             caption="""Enter your DataHub instance URL and an access token to sync your metadata catalog — datasets, dashboards, charts, pipelines, owners, domains, glossary, and tags — into the PostHog Data warehouse.
 

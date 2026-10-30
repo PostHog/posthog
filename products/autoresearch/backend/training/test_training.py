@@ -380,6 +380,40 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         self.pipeline.refresh_from_db()
         assert self.pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING
 
+    @parameterized.expand(
+        [
+            ("blank_settings", None, None, ("claude", "claude-opus-5-5", "medium")),
+            ("sonnet_override", "claude-sonnet-5-5", "high", ("claude", "claude-sonnet-5-5", "high")),
+            ("codex_override", "gpt-6.1-sol", None, ("codex", "gpt-6.1-sol", "medium")),
+            ("stale_stored_model", "claude-retired-model", "low", ("claude", "claude-opus-5-5", "low")),
+            ("effort_the_model_lacks", "gpt-5", "max", ("codex", "gpt-5", "medium")),
+        ]
+    )
+    def test_dispatch_runs_on_the_pipeline_model(
+        self,
+        facade: MagicMock,
+        _name: str,
+        agent_model: str | None,
+        agent_reasoning_effort: str | None,
+        expected: tuple[str, str, str],
+    ) -> None:
+        self._dispatched(facade)
+        AutoresearchPipeline.objects.filter(pk=self.pipeline.pk).update(
+            agent_model=agent_model, agent_reasoning_effort=agent_reasoning_effort
+        )
+        self.pipeline.refresh_from_db()
+
+        training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+
+        kwargs = facade.create_and_run_task.call_args.kwargs
+        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == expected
+        training_run.refresh_from_db()
+        assert (
+            training_run.agent_runtime_adapter,
+            training_run.agent_model,
+            training_run.agent_reasoning_effort,
+        ) == expected
+
     def test_a_task_run_that_ended_at_dispatch_fails_the_training_run(self, facade: MagicMock) -> None:
         self._dispatched(facade)
         facade.task_run_is_terminal.return_value = True

@@ -83,7 +83,7 @@ class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]
 Your organization name is the first part of your Kustomer URL — for `myorg.kustomerapp.com` enter `myorg`. Create an API key in Kustomer under Settings > Security > API Keys with read roles for the data you want to sync (e.g. `org.user.read`).""",
             iconPath="/static/services/kustomer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kustomer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

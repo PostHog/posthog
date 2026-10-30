@@ -75,7 +75,7 @@ class BlueshiftSource(
 Use a **user API key** from **Account settings > API keys** in Blueshift. Pick the region your account is hosted in.""",
             iconPath="/static/services/blueshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/blueshift",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

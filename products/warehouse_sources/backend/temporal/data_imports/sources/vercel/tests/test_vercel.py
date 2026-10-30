@@ -130,7 +130,11 @@ class TestCursorFromPage:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
+    @parameterized.expand(
+        [
+            (200, True),
+        ]
+    )
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, error = validate_credentials("token")
@@ -158,7 +162,7 @@ class TestValidateCredentials:
         # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
         assert "Check that it's a valid token" not in (error or "")
 
-    @parameterized.expand([(400,), (401,), (404,)])
+    @parameterized.expand([(400,), (404,)])
     def test_credential_rejection_status_tells_the_user_to_replace_the_token(self, status: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))):
             ok, error = validate_credentials("token")

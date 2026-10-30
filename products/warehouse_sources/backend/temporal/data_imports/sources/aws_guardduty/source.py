@@ -122,7 +122,7 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
                 "The members table requires a GuardDuty administrator account. "
                 "Findings use incremental sync through their update time. Other tables use full refresh."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "guardduty", "security", "threat detection"],
             fields=cast(
                 list[FieldType],

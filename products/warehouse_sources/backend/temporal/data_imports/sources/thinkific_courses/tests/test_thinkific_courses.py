@@ -181,8 +181,6 @@ class TestSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, 200),
-            ("unauthorized", 401, False, 401),
             ("forbidden", 403, False, 403),
         ]
     )

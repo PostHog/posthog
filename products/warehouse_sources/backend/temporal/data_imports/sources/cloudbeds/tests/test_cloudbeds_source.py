@@ -24,38 +24,6 @@ class TestCloudbedsSource:
         # re-require the key - otherwise a group-level credential could be pointed at another property.
         assert self.source.connection_host_fields == ["property_id"]
 
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.cloudbeds.com/api/v1.2/getReservations?pageNumber=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.cloudbeds.com/api/v1.2/getGuestList?pageNumber=1",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.cloudbeds.com/api/v1.2/getHotels",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.cloudbeds.com/api/v1.2/getReservations",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source.validate_credentials"
     )

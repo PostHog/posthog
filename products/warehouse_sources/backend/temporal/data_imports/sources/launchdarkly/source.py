@@ -229,7 +229,7 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["feature flags"],
             label="LaunchDarkly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, flag statuses, segments, experiments, holdouts, metrics, metric groups, members, teams, code references, and audit log into the PostHog Data warehouse.
 
 You can create a personal or service access token in your [LaunchDarkly account settings](https://app.launchdarkly.com/settings/authorization). A token with the **Reader** role grants read access to every resource this source syncs.""",

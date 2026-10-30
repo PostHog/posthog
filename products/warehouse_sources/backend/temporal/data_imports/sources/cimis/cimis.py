@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.settings import (
     CIMIS_BASE_URL,
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.sett
     DEFAULT_HOURLY_DATA_ITEMS,
     CimisEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = 60
@@ -113,7 +116,7 @@ def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
     return flat
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((CimisRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),

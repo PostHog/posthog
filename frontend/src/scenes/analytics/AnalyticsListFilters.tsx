@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch, IconTrends } from '@posthog/icons'
-import {
-    Button,
-    InputGroup,
-    InputGroupAddon,
-    InputGroupInput,
-    InputGroupText,
-    ToggleGroup,
-    ToggleGroupItem,
-} from '@posthog/quill'
+import { IconTrends } from '@posthog/icons'
+import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -17,15 +9,17 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 
+import { AnalyticsDisplayMenu } from './AnalyticsDisplayMenu'
 import { AnalyticsFilterOption, AnalyticsFilterPicker } from './AnalyticsFilterPicker'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
+import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
 /** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
 export function AnalyticsListFilters(): JSX.Element {
-    const { filters, filtersActive, searchInput, scope } = useValues(analyticsListLogic)
+    const { filters, filtersActive, searchInput, scope, insightsHidden } = useValues(analyticsListLogic)
     const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
     const { tags: allTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -41,21 +35,13 @@ export function AnalyticsListFilters(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <InputGroup className="h-8 w-56 max-w-full">
-                <InputGroupAddon align="inline-start">
-                    <InputGroupText>
-                        <IconSearch />
-                    </InputGroupText>
-                </InputGroupAddon>
-                <InputGroupInput
-                    type="search"
-                    aria-label="Search analytics"
-                    placeholder="Search"
-                    value={searchInput}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
-                    data-attr="analytics-list-search"
-                />
-            </InputGroup>
+            <AnalyticsSearchInput
+                value={searchInput}
+                onChange={setSearchInput}
+                label="Search analytics"
+                placeholder="Search"
+                dataAttr="analytics-list-search"
+            />
             <ToggleGroup
                 size="lg"
                 variant="default"
@@ -68,7 +54,10 @@ export function AnalyticsListFilters(): JSX.Element {
                     <IconTrends />
                     All
                 </ToggleGroupItem>
-                {ANALYTICS_TYPES.map((info) => (
+                {ANALYTICS_TYPES.filter(
+                    // A link can still open the insight type, so its tab stays while it is the one shown.
+                    (info) => !insightsHidden || info.type !== 'insight' || filters.type === 'insight'
+                ).map((info) => (
                     <ToggleGroupItem
                         key={info.type}
                         value={info.type}
@@ -117,6 +106,9 @@ export function AnalyticsListFilters(): JSX.Element {
                     Clear filters
                 </Button>
             )}
+            <div className="ml-auto">
+                <AnalyticsDisplayMenu />
+            </div>
         </div>
     )
 }

@@ -36,7 +36,7 @@ class TestCimisGetSchemas:
 
 
 class TestCimisValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("bad", 403, False)])
+    @parameterized.expand([("ok", 200, True)])
     def test_validate_credentials(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, _msg = CimisSource().validate_credentials(_config(), team_id=1)

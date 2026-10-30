@@ -49,6 +49,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -68,6 +69,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -874,6 +876,34 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "EventsNode", "event": "$pageview"}},
                 "exposure_criteria.exposure_config.kind must be one of "
                 "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
+            ),
+            (
+                "exposure_config_warehouse_native_not_supported",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
+                        "connection_id": "00000000-0000-0000-0000-000000000000",
+                        "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    }
+                },
+                "exposure_criteria.exposure_config: warehouse-native exposures are not supported yet",
+            ),
+            (
+                "activation_config_warehouse_native_rejected",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
+                        "connection_id": "00000000-0000-0000-0000-000000000000",
+                        "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    }
+                },
+                "exposure_criteria.activation_config.kind must be one of "
+                "['ExperimentEventExposureConfig', 'ActionsNode'], got 'ExperimentWarehouseNativeExposureConfig'",
+            ),
+            (
+                "exposure_config_warehouse_native_missing_query",
+                {"exposure_config": {"kind": "ExperimentWarehouseNativeExposureConfig", "connection_id": "c"}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
             ),
             (
                 "exposure_config_event_kind_missing_event",
@@ -2814,11 +2844,16 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         kwargs.setdefault("allow_unknown_events", True)
+        EventDefinition.objects.get_or_create(
+            team=self.team, project=self.project, name="$pageview", defaults={"last_seen_at": timezone.now()}
+        )
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
     def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:
         experiment = self._create_launchable_experiment(**kwargs)
-        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(created_at=timezone.now() - age)
+        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+            created_at=timezone.now() - age, last_called_at=timezone.now() - timedelta(hours=1)
+        )
         experiment.feature_flag.refresh_from_db()
         return experiment
 
@@ -3931,7 +3966,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, [], [], [])],
+                [("launch_endpoint", 0, False, [], [], [], False)],
             ),
             (
                 "launch_endpoint_with_a_qa_override",
@@ -3943,9 +3978,11 @@ class TestExperimentService(APIBaseTest):
                     (
                         "launch_endpoint",
                         0,
+                        False,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
                         ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
+                        False,
                     )
                 ],
             ),
@@ -3955,7 +3992,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, [], [], [])],
+                [("launch_endpoint", 266400, True, [], [], [], False)],
             ),
             (
                 "create_with_start_date",
@@ -3966,7 +4003,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, ["no_metric"], [], ["no_metric::warning:"])],
+                [("create_request", 0, False, ["no_metric"], [], ["no_metric::warning:"], False)],
             ),
             (
                 "create_draft",
@@ -3982,7 +4019,28 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, [], [], [])],
+                [("update_start_date", 0, False, [], [], [], False)],
+            ),
+            (
+                "update_backdates_start_date_on_draft",
+                lambda self: self._create_launchable_experiment(name="Path B", feature_flag_key="path-backdate-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
+                ),
+                [("update_start_date", 0, False, [], [], [], True)],
+            ),
+            (
+                "update_imports_concluded_draft",
+                lambda self: self._create_launchable_experiment(name="Path I", feature_flag_key="path-import-flag"),
+                lambda service, experiment, request: service.update_experiment(
+                    experiment,
+                    {
+                        "start_date": timezone.now() - timedelta(days=90),
+                        "end_date": timezone.now() - timedelta(days=30),
+                    },
+                    event_source=EventSource.API,
+                ),
+                [],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -4010,9 +4068,11 @@ class TestExperimentService(APIBaseTest):
             (
                 event["launch_path"],
                 event["flag_age_seconds"],
+                event["flag_called_before_launch"],
                 event["health_finding_codes"],
                 event["health_finding_subcodes"],
                 event["health_findings"],
+                event["is_backdated"],
             )
             for event in launched
         ] == expected
@@ -5313,6 +5373,58 @@ class TestExperimentService(APIBaseTest):
         assert cohort.is_static is False
         experiment.refresh_from_db()
         assert experiment.exposure_cohort_id == cohort.id
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
+            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            (
+                "custom_flag_called_after_cutoff",
+                True,
+                7,
+                "$feature_flag_called",
+                ["$feature_flag_called", "$experiment_exposure"],
+            ),
+        ]
+    )
+    def test_create_exposure_cohort_uses_resolved_exposure_event(
+        self,
+        name: str,
+        flag_enabled: bool,
+        start_offset_days: int,
+        custom_exposure_event: str | None,
+        expected_events: list[str],
+    ) -> None:
+        flag_key = f"cohort-resolved-{name}"
+        flag_filter = {"key": "$feature_flag", "value": [flag_key], "operator": "exact", "type": "event"}
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Resolved {name}",
+            feature_flag_key=flag_key,
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            parameters=(
+                {
+                    "custom_exposure_filter": {
+                        "events": [{"id": custom_exposure_event, "order": 0, "properties": [flag_filter]}]
+                    }
+                }
+                if custom_exposure_event
+                else None
+            ),
+        )
+
+        with patch_exposure_event_flag(enabled=flag_enabled):
+            cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == expected_events
+        for criterion in criteria:
+            assert criterion["event_type"] == "events"
+            assert criterion["event_filters"] == [flag_filter]
 
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")

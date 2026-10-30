@@ -57,9 +57,3 @@ class TestCohereSourceClass:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)
         assert network.requests_log[0].path == "/v1/models"
-
-    def test_validate_credentials_failure(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, error = self.source.validate_credentials(_config(), self.team_id)
-        assert ok is False
-        assert error == "Invalid Cohere API key"

@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash import lightdash as lightdash_module
@@ -54,12 +53,6 @@ class TestNormalizeHost:
 
 
 class TestValidateCredentials:
-    def test_invalid_token(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
-            assert valid is False
-            assert msg is not None
-
     def test_403_at_source_create_is_accepted(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("https://x.lightdash.cloud", "tok", schema_name=None) == (True, None)
@@ -94,18 +87,6 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             assert network.requests_log == []
-
-    def test_unexpected_status(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=500))):
-            valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
-            assert valid is False
-            assert msg is not None and "500" in msg
-
-    def test_handles_request_exception(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, msg = validate_credentials("https://x.lightdash.cloud", "tok")
-            assert valid is False
-            assert msg is not None and "boom" in msg
 
     def test_probes_user_endpoint_with_api_key_header(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

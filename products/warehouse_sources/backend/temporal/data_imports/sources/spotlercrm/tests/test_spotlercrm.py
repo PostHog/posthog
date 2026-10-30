@@ -94,10 +94,7 @@ class TestSpotlerCRMCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
             (402, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:

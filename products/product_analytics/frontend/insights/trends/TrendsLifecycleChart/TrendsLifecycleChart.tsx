@@ -66,6 +66,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         lifecycleFilter,
         formula,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         showPercentagesOnSeries,
@@ -113,8 +114,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const {
@@ -260,6 +261,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-lifecycle-graph"

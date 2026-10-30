@@ -6,6 +6,7 @@ skipped with a reason, and a later run picks it up. The command is safe to run a
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
@@ -16,9 +17,9 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import HandbackRefusal, PlatformOwnershipHandover
+from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
+from products.logs.backend.alert_state_machine import ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
@@ -34,8 +35,6 @@ class CutoverSkip(StrEnum):
     """Why an alert stays with the logs stack for now."""
 
     ALREADY_MOVED = "already_moved"
-    # The two stacks key incidents differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The logs scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -67,32 +66,36 @@ def _logs_check_owed(alert_id: UUID, at: datetime) -> bool:
     )
 
 
-def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
+def cut_over_team(team_id: int, *, now: datetime | None = None, dry_run: bool = False) -> tuple[AlertCutover, ...]:
     """Hands every logs alert of one team to the platform, or says why one stays.
 
     No destination holds an alert back: delivery sends a customized one through its HogFunction.
+    A dry run decides each alert exactly as a real run would, then rolls its transaction back.
     """
     return tuple(
-        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in _team_alert_ids(team_id)
+        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now, dry_run=dry_run))
+        for alert_id in _team_alert_ids(team_id)
     )
 
 
-def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
+def _cut_over_alert(alert_id: UUID, now: datetime | None, *, dry_run: bool) -> CutoverSkip | None:
     with transaction.atomic():
-        alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
-        # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
-        at = now or timezone.now()
-        if alert.platform_owned:
-            return CutoverSkip.ALREADY_MOVED
-        if in_an_environment(alert):
-            return CutoverSkip.ENVIRONMENT
-        if alert.state in FIRING_STATES:
-            return CutoverSkip.FIRING
-        if _logs_check_owed(alert.id, at):
-            return CutoverSkip.CHECK_DUE
-
-        if not hand_over(alert, at):
-            return CutoverSkip.PLATFORM_FIRING
+        try:
+            alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
+            # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
+            at = now or timezone.now()
+            if alert.platform_owned:
+                return CutoverSkip.ALREADY_MOVED
+            if in_an_environment(alert):
+                return CutoverSkip.ENVIRONMENT
+            if _logs_check_owed(alert.id, at):
+                return CutoverSkip.CHECK_DUE
+            if not hand_over(alert, at):
+                return CutoverSkip.PLATFORM_FIRING
+        finally:
+            # After the last query, because a block marked for rollback refuses queries.
+            if dry_run:
+                transaction.set_rollback(True)
     return None
 
 
@@ -166,11 +169,14 @@ def in_an_environment(alert: LogsAlertConfiguration) -> bool:
     return alert.team.parent_team_id is not None
 
 
-def hand_over(alert: LogsAlertConfiguration, at: datetime) -> bool:
+def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
     """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
-    on both rows. False, changing nothing, when the platform copy is inside a firing of its own."""
+    on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `grouping` applies only to a copy this creates, because the logs row stores none."""
+    upsert = platform_upsert_of(alert)
     savepoint = transaction.savepoint()
-    upsert_configuration(platform_upsert_of(alert))
+    upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,

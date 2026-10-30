@@ -129,6 +129,7 @@ class TicketmasterSource(ResumableSource[TicketmasterSourceConfig, TicketmasterR
                     ),
                     SourceFieldInputConfig(
                         name="keyword",
+                        sync_setting=True,
                         label="Search keyword",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -137,5 +138,5 @@ class TicketmasterSource(ResumableSource[TicketmasterSourceConfig, TicketmasterR
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

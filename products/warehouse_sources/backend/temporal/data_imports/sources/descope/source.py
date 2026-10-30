@@ -131,7 +131,7 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
             label="Descope",
             caption="Sync users, their authentication history, audit trail events, sign-in analytics, tenants, groups, roles, permissions, and access keys from your Descope project. Requires a Management Key, generated from the [Descope Console](https://app.descope.com) under Project Settings > Company/Management Keys.",
             docsUrl="https://posthog.com/docs/cdp/sources/descope",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/descope.png",
             keywords=["ciam"],
             fields=cast(

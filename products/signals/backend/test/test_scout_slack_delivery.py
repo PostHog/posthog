@@ -17,7 +17,13 @@ from posthog.models.integration import Integration
 from posthog.redis import get_client
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
-from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportSlackThread,
+    SignalScoutEmission,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_DM_TARGETS,
@@ -97,6 +103,91 @@ class TestGetScoutSlackDestination(SimpleTestCase):
 
 
 class TestScoutSlackDelivery(BaseTest):
+    @parameterized.expand([(False, None), (False, "An update"), (True, None), (True, "An update")])
+    def test_trial_report_delivery_checks_side_effect_flag(self, allowed: bool, edit_note: str | None) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        SignalReportArtefact.objects.create(team=self.team, report=report, type="reviewer_corrections", content="{}")
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=allowed),
+            patch.object(deliver_scout_slack_output, "delay") as enqueue,
+            patch("products.signals.backend.tasks.post_scout_report_to_slack") as post,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.get_scout_slack_destination",
+                return_value=ScoutSlackDestination(integration_id=9, targets=("CSCOUTS",)),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                queue_configured_scout_slack_delivery(
+                    run_id=str(emission.scout_run_id),
+                    output_type="report",
+                    output_id=str(report.id),
+                    edit_note=edit_note,
+                )
+            assert enqueue.called is allowed
+            # Exercise a task queued before the flag changed as well.
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                str(uuid.uuid4()),
+                9,
+                "CSCOUTS",
+                edit_note=edit_note,
+            )
+            assert post.called is allowed
+
+    def test_trial_report_thread_retry_stops_when_side_effects_are_disabled(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        SignalReportArtefact.objects.create(team=self.team, report=report, type="reviewer_corrections", content="{}")
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=False),
+            patch("products.signals.backend.tasks.SlackIntegration") as slack,
+        ):
+            deliver_scout_slack_thread_replies.run(
+                team_id=self.team.id,
+                integration_id=9,
+                channel="CSCOUTS",
+                thread_ts="1.2",
+                delivery_id=str(uuid.uuid4()),
+                reply_blocks=[],
+                fallback="Report",
+                chunk_offset=0,
+                report_id=str(report.id),
+            )
+        slack.assert_not_called()
+
+    def test_trial_enrollment_during_render_stops_report_delivery(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+
+        def enroll_during_render(*args, **kwargs):
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type="reviewer_corrections", content="{}"
+            )
+            return [], "Report"
+
+        with (
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=False),
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=enroll_during_render,
+            ),
+        ):
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                str(uuid.uuid4()),
+                integration.id,
+                "CSCOUTS",
+            )
+        slack.assert_not_called()
+
     def _make_emission(self, description: str = "**Checkout** failures") -> SignalScoutEmission:
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -239,6 +330,8 @@ class TestScoutSlackDelivery(BaseTest):
             ("inbox_row_in_channel", "CSCOUTS|#scout-findings", "CSCOUTS", True, None, False),
             # The first message was deleted in Slack, so the report posts again.
             ("message_deleted", "CSCOUTS|#scout-findings", "CSCOUTS", False, "message_not_found", False),
+            # Slack cannot edit a message in an archived or inactive channel, so the report posts again.
+            ("channel_inactive", "CSCOUTS|#scout-findings", "CSCOUTS", False, "is_inactive", False),
         ]
     )
     def test_redelivered_report_updates_its_message_in_place(
@@ -1301,6 +1394,54 @@ class TestScoutSlackDelivery(BaseTest):
             "context",
         ]
         assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions", "context"]
+
+    @parameterized.expand([("shorter_summary_fits", 1, True), ("shorter_summary_still_too_long", 2, False)])
+    def test_report_too_long_for_slack_is_resent_with_a_shorter_summary(
+        self, _name: str, rejections: int, expect_delivered: bool
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout & payments failed. " * 500,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        too_long = SlackApiError(message="too long", response=FakeSlackResponse({"error": "msg_blocks_too_long"}))
+        fake_client.chat_postMessage.side_effect = [too_long] * rejections + [
+            FakeSlackResponse({"ts": "1785418710.000700"})
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.apply(
+                args=(
+                    self.team.id,
+                    "report",
+                    str(report.id),
+                    str(emission.scout_run_id),
+                    "01864f4c-6957-7d3f-8d85-1d775e527266",
+                    integration.id,
+                    "CSCOUTS|#scout-findings",
+                ),
+                throw=True,
+            )
+
+        posts = [call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list]
+        assert len(posts) == 2
+        first_markdown, resent_markdown = (
+            next(block["text"] for block in blocks if block["type"] == "markdown") for blocks in posts
+        )
+        assert len(resent_markdown) < len(first_markdown)
+        assert any(block["type"] == "actions" for block in posts[1])
+        if expect_delivered:
+            capture.assert_not_called()
+        else:
+            assert capture.call_args.args[1]["error_code"] == "msg_blocks_too_long"
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()

@@ -63,7 +63,7 @@ class ListmonkSource(ResumableSource[ListmonkSourceConfig, ListmonkResumeConfig]
 Create an API user in Listmonk under **Admin > Users** and copy its token. Its role needs `subscribers:get_all`, `lists:get_all`, `campaigns:get_all`, `bounces:get` and `campaigns:get_analytics`. Incremental sync of subscribers also needs `subscribers:sql_query`.""",
             iconPath="/static/services/listmonk.png",
             docsUrl="https://posthog.com/docs/cdp/sources/listmonk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

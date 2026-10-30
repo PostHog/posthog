@@ -1,12 +1,12 @@
 import re
 import json
 import dataclasses
-from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
-from typing import Any, Optional
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Optional, TypeVar
 
 from dateutil import parser
-from requests import Request, Response
+from requests import HTTPError, Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -44,11 +44,20 @@ NO_ACCESS_ERROR = (
 UNREACHABLE_ERROR = (
     "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
 )
+SERVER_ERROR_MESSAGE = (
+    "OpenAI Ads had a temporary server error. This can also happen for a few minutes after you create an "
+    "API key. The next sync will try again automatically."
+)
 
-# Floor for the insights window on a full refresh. OpenAI Ads launched to advertisers in 2026, so
-# no reporting data can predate this; the whole window rides a single date_range request, so a
-# generous floor costs nothing while staying within the API's 5-year time-range bound.
-DEFAULT_INSIGHTS_SINCE = date(2025, 1, 1)
+# `requests` writes this prefix for every 403. The source's non-retryable 403 entry matches it.
+_FORBIDDEN_PREFIX = "403 Client Error: Forbidden for url:"
+
+_T = TypeVar("_T")
+
+# OpenAI Ads keeps daily delivery reporting for the most recent 365 days and rejects an earlier
+# `since` with a 400 (https://developers.openai.com/ads/reporting). The window is one day shorter
+# because the API reads dates in the ad account's timezone and this source sends them in UTC.
+INSIGHTS_HISTORY_DAYS = 364
 
 
 @dataclasses.dataclass
@@ -116,6 +125,28 @@ class _ListPaginator(BasePaginator):
         return "_ListPaginator()"
 
 
+class OpenAIAdsServerError(Exception):
+    """A 403 whose error body has the code `server_error`."""
+
+
+def _retry_forbidden_server_errors(pages: Iterable[_T]) -> Iterator[_T]:
+    """Re-raise a 403 with the body code `server_error` as a retryable error.
+
+    OpenAI Ads sends this 403 for a server fault, and for a new API key for some minutes after
+    it is created. The same key then works. The error text must not keep the `requests` 403
+    prefix, because the source's non-retryable 403 entry matches it and disables the schema.
+    """
+    try:
+        yield from pages
+    except HTTPError as error:
+        message = str(error)
+        status = error.response.status_code if error.response is not None else None
+        if status != 403 or "code=server_error" not in message:
+            raise
+        # Built from the message that is already redacted, not from the response URL.
+        raise OpenAIAdsServerError(message.replace(_FORBIDDEN_PREFIX, "Server error (HTTP 403) for", 1)) from error
+
+
 def _headers() -> dict[str, str]:
     # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs
     # and raised errors; only the non-secret accept header is set here.
@@ -157,13 +188,18 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWind
     """The [since, until] ISO date window for one insights sync.
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
-    lookback); full refreshes start at the product-launch floor. `until` is today — the API
-    rejects future dates.
+    lookback); full refreshes start at the oldest day the API still reports. A watermark older than
+    that day is moved up to it too. `until` is yesterday: the API reads a `date_range` `until` as
+    inclusive and moves it to the next midnight, and it rejects a bound in the future with a 400. So
+    `until` set to today asks for a range that ends tomorrow, and every request fails. The trailing
+    lookback re-reads the day once it is complete.
     """
-    until = datetime.now(tz=UTC).date()
-    since = DEFAULT_INSIGHTS_SINCE
+    today = datetime.now(tz=UTC).date()
+    until = today - timedelta(days=1)
+    earliest = today - timedelta(days=INSIGHTS_HISTORY_DAYS)
+    since = earliest
     if db_incremental_field_last_value is not None:
-        since = _to_utc_date(db_incremental_field_last_value)
+        since = max(_to_utc_date(db_incremental_field_last_value), earliest)
     since = min(since, until)
     return SyncWindow(start=since.isoformat(), end=until.isoformat())
 
@@ -201,8 +237,8 @@ def _make_client(api_key: str) -> RESTClient:
 
 
 def _account_currency(api_key: str) -> str:
-    for page in _make_client(api_key).paginate(
-        path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$"
+    for page in _retry_forbidden_server_errors(
+        _make_client(api_key).paginate(path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$")
     ):
         for account in page:
             currency = account.get("currency_code")
@@ -278,9 +314,10 @@ def openai_ads_source(
         # Multi-level fan-out with query-param parents: hand-rolled over the tracked, retrying
         # RESTClient. Not resumable — a retry re-walks the hierarchy and full refresh replaces.
         client = _make_client(api_key)
-        return _source_response(config, lambda: _fan_out_rows(client, endpoint))
+        return _source_response(config, lambda: _retry_forbidden_server_errors(_fan_out_rows(client, endpoint)))
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    can_resume = resumable_source_manager.can_resume() and not config.single_object
+    resume = resumable_source_manager.load_state() if can_resume else None
 
     data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
@@ -300,12 +337,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
+        if config.segment is not None:
+            params["segments[]"] = config.segment
         currency = _account_currency(api_key)
 
         def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
             return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
 
         data_map = enrich_insights
+    elif config.single_object:
+        window = SyncWindow(start="", end="")
+        params = {}
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
@@ -325,8 +367,8 @@ def openai_ads_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
-                    "paginator": _ListPaginator(),
+                    "data_selector": "$" if config.single_object else "data",
+                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
                 },
                 "data_map": data_map,
             }
@@ -356,4 +398,6 @@ def openai_ads_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return _source_response(config, lambda: resource, column_hints=resource.column_hints)
+    return _source_response(
+        config, lambda: _retry_forbidden_server_errors(resource), column_hints=resource.column_hints
+    )

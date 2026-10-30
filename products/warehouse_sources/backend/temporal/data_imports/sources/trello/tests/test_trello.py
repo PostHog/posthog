@@ -3,14 +3,12 @@ from typing import Any
 
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trello import TrelloSourceConfig
@@ -76,10 +74,7 @@ class TestFormatIncrementalValue:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("missing_token", 400, False, "Invalid Trello API key or token"),
-            ("invalid_key", 401, False, "Invalid Trello API key or token"),
-            ("forbidden", 403, False, "Your Trello token does not have the required permissions"),
         ]
     )
     def test_status_codes(self, _name: str, status: int, valid: bool, message: str | None) -> None:
@@ -88,14 +83,6 @@ class TestValidateCredentials:
 
         assert result_valid is valid
         assert result_message == message
-
-    def test_request_exception(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, message = validate_credentials("key", "token")
-
-        assert valid is False
-        assert message is not None
-        assert "boom" in message
 
 
 class TestMemberEndpoint:

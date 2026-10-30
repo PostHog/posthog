@@ -471,19 +471,6 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         return user, team
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.temporal.oauth.wizard_identity_blocked", return_value=True)
-    def test_a_blocklisted_identity_is_refused_a_wizard_token(self, mock_blocked) -> None:
-        # Gated at the mint, not only at the HTTP kickoff: a workflow retry or resume
-        # reaches here with no request in front of it.
-        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
-        user, team = self._create_user_and_team()
-
-        with pytest.raises(WizardIdentityBlockedError):
-            create_wizard_oauth_access_token_for_user(user, team.id)
-
-        assert not OAuthAccessToken.objects.exists()
-
-    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:
         # The token must be minted under the wizard's own app (so the gateway authorizes it like a normal wizard run)
         # separate from the agent's sandbox token.

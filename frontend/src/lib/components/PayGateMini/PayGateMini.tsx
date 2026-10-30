@@ -60,7 +60,7 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
+    const { productWithFeature, gateVariant, isGated, ctaLabel } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -120,7 +120,7 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate && !bypassPaywall) {
+    if (isGated && !overrideShouldShowGate) {
         return (
             <PayGateContent
                 feature={feature}

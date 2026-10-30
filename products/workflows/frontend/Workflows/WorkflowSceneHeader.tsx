@@ -5,6 +5,7 @@ import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import {
     SceneMenuBar,
     SceneMenuBarItem,
     SceneMenuBarMenu,
+    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -22,7 +24,9 @@ import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSugg
 import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
+import { canEditWorkflow } from './workflowAccess'
 import { WorkflowActions } from './WorkflowActions'
+import { workflowBackTo } from './workflowBackTo'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 import { WorkflowScenePanel } from './WorkflowScenePanel'
@@ -39,6 +43,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
+    const canEdit = canEditWorkflow(workflow, workflowUserAccessLevel)
 
     return (
         <>
@@ -147,6 +152,18 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             </>
                         )}
                     </SceneMenuBarMenu>
+                    <SceneMenuBarPopover
+                        label="Metadata"
+                        dataAttr="workflow-menubar-metadata"
+                        contentClassName="w-80 p-2 flex flex-col gap-2"
+                    >
+                        <SceneTagsCombobox
+                            onSave={(tags) => setWorkflowValue('tags', tags)}
+                            canEdit={canEdit}
+                            tags={workflow?.tags ?? []}
+                            dataAttrKey="workflow"
+                        />
+                    </SceneMenuBarPopover>
                 </SceneMenuBar>
             )}
             <SceneTitleSection
@@ -158,12 +175,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
-                // A broadcast isn't in the workflows list, so going back from here returns to the broadcast.
-                forceBackTo={
-                    workflow?.origin_product === 'broadcasts' && props.id && props.id !== 'new'
-                        ? { key: 'broadcast', name: workflow.name || 'the broadcast', path: urls.broadcast(props.id) }
-                        : undefined
-                }
+                forceBackTo={workflowBackTo(workflow, props.id)}
                 actions={
                     <>
                         <WorkflowActions {...props} />

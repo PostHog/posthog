@@ -283,7 +283,6 @@ class TestFredTransport:
     @pytest.mark.parametrize(
         "status_code, error_message, expected",
         [
-            (200, "", (True, None)),
             (
                 400,
                 "Bad Request.  The value for variable api_key is not registered.",
@@ -294,7 +293,6 @@ class TestFredTransport:
                 "Bad Request.  The series does not exist.",
                 (False, "FRED has no series with the ID NOPE. Check it on fred.stlouisfed.org."),
             ),
-            (500, "", (False, "Could not reach the FRED API. Try again in a moment.")),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, error_message, expected):

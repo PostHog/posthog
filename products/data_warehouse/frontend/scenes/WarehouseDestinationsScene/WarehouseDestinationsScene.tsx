@@ -14,6 +14,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { DestinationModal } from '../../shared/components/DestinationModal'
 import { destinationModalLogic } from '../../shared/logics/destinationModalLogic'
 import { warehouseDestinationsSceneLogic } from './warehouseDestinationsSceneLogic'
@@ -28,10 +30,16 @@ export const scene: SceneExport = {
 
 export function WarehouseDestinationsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { destinations, destinationsLoading, loadError, deletingId } = useValues(warehouseDestinationsSceneLogic)
-    const { loadDestinations, deleteDestination } = useActions(warehouseDestinationsSceneLogic)
+    const { destinations, destinationsLoading, loadError, deletingId, hasSources } = useValues(
+        warehouseDestinationsSceneLogic
+    )
+    const { loadDestinations, deleteDestination, destinationCreated } = useActions(warehouseDestinationsSceneLogic)
 
-    const modalProps = { modalKey: MODAL_KEY, onSaved: () => loadDestinations() }
+    const modalProps = {
+        modalKey: MODAL_KEY,
+        onSaved: () => loadDestinations(),
+        onCreated: (destination: ExternalDataDestinationApi) => destinationCreated(destination),
+    }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -55,7 +63,7 @@ export function WarehouseDestinationsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Warehouse destinations"
-                description="Destinations are where your warehouse sources write the rows they sync. Pick which ones a source or a single table uses from that source's Destinations tab."
+                description="Destinations are where your warehouse sources write the rows they sync. Pick which ones a source or a single table uses from that source's Destinations tab. To export PostHog events to a warehouse, use a batch export."
                 resourceType={{ type: 'data_warehouse' }}
                 actions={
                     todayRailNav ? (
@@ -68,6 +76,35 @@ export function WarehouseDestinationsScene(): JSX.Element {
                     )
                 }
             />
+
+            {hasSources === false && (
+                <LemonBanner type="info">
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            Destinations receive data synced from warehouse sources, such as Stripe or Postgres. They do
+                            not receive your PostHog events. To send events to a warehouse, set up a batch export.
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={urls.destinations('batch')}
+                                data-attr="warehouse-destinations-no-sources-batch-exports"
+                            >
+                                Set up a batch export
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={urls.dataWarehouseSourceNew()}
+                                data-attr="warehouse-destinations-no-sources-add-source"
+                            >
+                                Add a warehouse source
+                            </LemonButton>
+                        </div>
+                    </div>
+                </LemonBanner>
+            )}
 
             {loadError ? (
                 <LemonBanner

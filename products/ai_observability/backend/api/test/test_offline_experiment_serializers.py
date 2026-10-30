@@ -79,6 +79,7 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
             ("unknown_source", {"run_source": "cron"}, "run_source"),
             ("unknown_status", {"statuses": "complete"}, "statuses"),
             ("duplicate_status", {"statuses": "completed,completed"}, "statuses"),
+            ("conflicting_authors", {"created_by": "5", "created_by_is_null": "true"}, "created_by"),
             (
                 "reversed_dates",
                 {"date_from": "2026-09-25T10:00:00Z", "date_to": "2026-09-24T10:00:00Z"},

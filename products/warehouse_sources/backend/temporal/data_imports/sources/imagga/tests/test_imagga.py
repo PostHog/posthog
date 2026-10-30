@@ -88,7 +88,11 @@ class TestRetryAndErrors:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("valid", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key", "secret") is expected

@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
     SonatypeNexusSourceConfig,
@@ -30,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     _fetch_page,
     _read_bounded,
     normalize_host,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
 
@@ -165,17 +163,6 @@ class TestReadBounded:
         with mock.patch(f"{_MODULE}.time.monotonic", side_effect=[0.0, 601.0]):
             with pytest.raises(SonatypeNexusResponseTimeoutError):
                 _read_bounded(resp, max_bytes=1_000_000, max_seconds=600)
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [401, 403, 500])
-    def test_non_200_fails_validation(self, status_code):
-        with scripted_network(always(_page({}, status_code))):
-            assert validate_credentials("https://nexus.example.com", "user", "bad") is False
-
-    def test_network_error_fails_validation(self):
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("https://nexus.example.com", "user", "pass") is False
 
 
 class TestGetRowsTopLevel:

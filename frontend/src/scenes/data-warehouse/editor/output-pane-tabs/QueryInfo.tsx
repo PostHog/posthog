@@ -1,17 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/MaterializationStatusPanel'
@@ -47,12 +45,11 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
     // Mounting it loads the lineage for the view being edited.
     const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
     useMountedLogic(infoLogic)
-    const { activeSection, lineageVisited } = useValues(infoLogic)
-    const { setActiveSection } = useActions(infoLogic)
+    const { activeSection, lineageVisited, lineageNodePositions } = useValues(infoLogic)
+    const { setActiveSection, lineageNodeDragStopped, resetLineageNodePositions } = useActions(infoLogic)
     const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
     // The loaded lineage is shared across views, so only use it when it was loaded for this one.
     const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
     const openInEditor = async (node: DataModelingNode): Promise<void> => {
@@ -89,9 +86,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                     tabs={[
                         { key: 'materialization', label: 'Materialization' },
                         { key: 'lineage', label: 'Lineage' },
-                        ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]
-                            ? [{ key: 'quality' as const, label: 'Data quality' }]
-                            : []),
+                        { key: 'quality', label: 'Data quality' },
                     ]}
                 />
             )}
@@ -105,11 +100,9 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                 showRunActions={!tabbed}
                             />
                         </div>
-                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && (
-                            <div className={tabbed && activeSection !== 'quality' ? 'hidden' : undefined}>
-                                <ViewDataQualityChecks view={targetView} />
-                            </div>
-                        )}
+                        <div className={tabbed && activeSection !== 'quality' ? 'hidden' : undefined}>
+                            <ViewDataQualityChecks view={targetView} />
+                        </div>
                     </>
                 ) : (
                     <div>
@@ -295,13 +288,22 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         variant="full"
                                         fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
                                         interactive
+                                        nodesDraggable
+                                        nodePositions={lineageNodePositions}
+                                        onNodeDragStop={(node, position) => lineageNodeDragStopped(node.id, position)}
+                                        onResetNodePositions={resetLineageNodePositions}
                                         showControls
                                         showMinimap
                                         panels={
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                to={urls.models('lineage')}
+                                                to={
+                                                    combineUrl(urls.models('lineage'), {
+                                                        search: `+${targetView.name}+`,
+                                                        node_id: currentNodeId,
+                                                    }).url
+                                                }
                                                 targetBlank
                                                 tooltip="Open the full graph"
                                                 aria-label="Open the full graph"

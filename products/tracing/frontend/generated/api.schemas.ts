@@ -247,12 +247,37 @@ export interface _TracingAggregationQueryBodyApi {
     offset?: number
     /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
     includeImpact?: boolean
+    /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+    groupByEndpoint?: boolean
+    /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+    includeHealth?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
     /** The span aggregation query to execute. */
     query: _TracingAggregationQueryBodyApi
 }
+
+/**
+ * * `silent` - Silent
+ * * `regressed` - Regressed
+ * * `degraded` - Degraded
+ * * `new` - New
+ * * `recovered` - Recovered
+ * * `improved` - Improved
+ * * `ok` - Ok
+ */
+export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
+
+export const ServiceHealthStatusEnumApi = {
+    Silent: 'silent',
+    Regressed: 'regressed',
+    Degraded: 'degraded',
+    New: 'new',
+    Recovered: 'recovered',
+    Improved: 'improved',
+    Ok: 'ok',
+} as const
 
 export interface _AggregatedSpanRowApi {
     /** Service that emitted the spans in this group. */
@@ -295,6 +320,21 @@ export interface _AggregatedSpanRowApi {
      * @nullable
      */
     spans_with_distinct_id: number | null
+    /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    health_status: ServiceHealthStatusEnumApi | null
+    /**
+     * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+     * @nullable
+     */
+    health_reason: string | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -738,6 +778,241 @@ export interface _TracingServiceNamesResponseApi {
     results: _TracingServiceNameApi[]
 }
 
+export interface _ServiceHealthDateRangeApi {
+    /**
+     * Relative (-30m, -6h, -7d) or ISO 8601.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Same format. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+/**
+ * * `none` - None
+ * * `previous_period` - Previous Period
+ * * `previous_day` - Previous Day
+ * * `previous_week` - Previous Week
+ */
+export type ServiceHealthBaselineEnumApi =
+    (typeof ServiceHealthBaselineEnumApi)[keyof typeof ServiceHealthBaselineEnumApi]
+
+export const ServiceHealthBaselineEnumApi = {
+    None: 'none',
+    PreviousPeriod: 'previous_period',
+    PreviousDay: 'previous_day',
+    PreviousWeek: 'previous_week',
+} as const
+
+/**
+ * * `entry` - Entry
+ * * `all` - All
+ */
+export type ServiceHealthSpanScopeEnumApi =
+    (typeof ServiceHealthSpanScopeEnumApi)[keyof typeof ServiceHealthSpanScopeEnumApi]
+
+export const ServiceHealthSpanScopeEnumApi = {
+    Entry: 'entry',
+    All: 'all',
+} as const
+
+/**
+ * * `status` - Status
+ * * `error_rate` - Error Rate
+ * * `p95` - P95
+ * * `throughput` - Throughput
+ * * `error_count` - Error Count
+ */
+export type ServiceHealthOrderByEnumApi = (typeof ServiceHealthOrderByEnumApi)[keyof typeof ServiceHealthOrderByEnumApi]
+
+export const ServiceHealthOrderByEnumApi = {
+    Status: 'status',
+    ErrorRate: 'error_rate',
+    P95: 'p95',
+    Throughput: 'throughput',
+    ErrorCount: 'error_count',
+} as const
+
+export interface _ServiceHealthQueryApi {
+    /** The window to score. Defaults to the last hour. */
+    dateRange?: _ServiceHealthDateRangeApi
+    /** The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.
+     *
+     * * `none` - None
+     * * `previous_period` - Previous Period
+     * * `previous_day` - Previous Day
+     * * `previous_week` - Previous Week */
+    compare?: ServiceHealthBaselineEnumApi
+    /**
+     * Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.
+     * @nullable
+     */
+    environment?: string | null
+    /**
+     * Only these services.
+     * @maxItems 100
+     */
+    serviceNames?: string[]
+    /** entry (default) counts root, server and consumer spans, one per request. all counts every span.
+     *
+     * * `entry` - Entry
+     * * `all` - All */
+    spanScope?: ServiceHealthSpanScopeEnumApi
+    /** status (default) puts silent, regressed and degraded first. The others sort high to low.
+     *
+     * * `status` - Status
+     * * `error_rate` - Error Rate
+     * * `p95` - P95
+     * * `throughput` - Throughput
+     * * `error_count` - Error Count */
+    orderBy?: ServiceHealthOrderByEnumApi
+    /**
+     * Max service rows, 1-200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+}
+
+export interface ServiceHealthRequestApi {
+    /** The service health query. Every field is optional. */
+    query: _ServiceHealthQueryApi
+    /** An explicit baseline window. Overrides query.compare. */
+    baselineDateRange?: _ServiceHealthDateRangeApi
+}
+
+export interface _ServiceHealthTimeRangeApi {
+    /** Start, ISO 8601 UTC, inclusive. */
+    date_from: string
+    /** End, ISO 8601 UTC, exclusive. */
+    date_to: string
+}
+
+export interface _ServiceHealthWindowApi {
+    /** The scored window. Reuse it as dateRange in follow-up calls. */
+    current: _ServiceHealthTimeRangeApi
+    /** The baseline window. Null when compare is none. */
+    baseline: _ServiceHealthTimeRangeApi | null
+    /** Always UTC. */
+    timezone: string
+}
+
+export interface _ServiceHealthSummaryApi {
+    /** Services scored, before the limit. */
+    services: number
+    /** Requests over all scored services. */
+    requests: number
+    /** Services per status. */
+    ok: number
+    /** Services per status. */
+    degraded: number
+    /** Services per status. */
+    regressed: number
+    /** Services per status. */
+    silent: number
+    /** Services per status. */
+    new: number
+    /** Services per status. */
+    recovered: number
+    /** Services per status. */
+    improved: number
+}
+
+export interface _ServiceHealthRowApi {
+    /** Service name. */
+    service: string
+    /** silent: spans stopped. regressed: error rate or p95 worse than the baseline. degraded: error rate 5% or more. new: no spans in the baseline. recovered, improved: the reverse of regressed.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    status: ServiceHealthStatusEnumApi
+    /** Why the service has this status. Empty for ok. */
+    reason: string
+    /** Spans in the window, in the chosen spanScope. */
+    requests: number
+    /** Requests per minute. */
+    throughput_per_min: number
+    /** Requests with OTel status Error. */
+    error_count: number
+    /**
+     * Error share of requests, percent.
+     * @nullable
+     */
+    error_rate_pct: number | null
+    /**
+     * Change from the baseline, points.
+     * @nullable
+     */
+    error_rate_delta_pp: number | null
+    /**
+     * Median duration, ms.
+     * @nullable
+     */
+    p50_ms: number | null
+    /**
+     * 95th percentile duration, ms.
+     * @nullable
+     */
+    p95_ms: number | null
+    /**
+     * p95 change from the baseline, percent.
+     * @nullable
+     */
+    p95_change_pct: number | null
+    /**
+     * 99th percentile duration, ms.
+     * @nullable
+     */
+    p99_ms: number | null
+    /**
+     * Baseline requests. Null without one.
+     * @nullable
+     */
+    baseline_requests: number | null
+    /**
+     * Last span, ISO 8601 UTC.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
+/**
+ * The prefilled query argument.
+ */
+export type _ServiceHealthNextCallApiQuery = { [key: string]: unknown }
+
+export interface _ServiceHealthNextCallApi {
+    /** The tool to call next. */
+    tool: string
+    /** What the call answers. */
+    why: string
+    /** The prefilled query argument. */
+    query: _ServiceHealthNextCallApiQuery
+}
+
+export interface ServiceHealthResponseApi {
+    /** The absolute UTC windows the server used. */
+    window: _ServiceHealthWindowApi
+    /** Counts over all scored services. */
+    summary: _ServiceHealthSummaryApi
+    /** One row per service, in orderBy order. */
+    services: _ServiceHealthRowApi[]
+    /** Prefilled follow-up calls. */
+    next: _ServiceHealthNextCallApi[]
+    /** True when more services matched than limit. */
+    truncated: boolean
+    /** Caveats about this result. */
+    notes: string[]
+}
+
 export interface _TracingSparklineQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -896,13 +1171,30 @@ export interface _SymbolStatsResponseApi {
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
     /**
      * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
      * @minimum 0
      */
     offset?: number
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
 }
 
 /**
@@ -916,7 +1208,7 @@ export type _TraceSpanApiAttributes = { [key: string]: string }
 export type _TraceSpanApiResourceAttributes = { [key: string]: string }
 
 /**
- * A span in a single trace. The trace action adds self time, which the list does not compute.
+ * A span in a single trace. The trace action adds self time and span events, which the list does not return.
  */
 export interface _TraceSpanApi {
     /** Span's own UUID. */
@@ -955,6 +1247,8 @@ export interface _TraceSpanApi {
     resource_attributes: _TraceSpanApiResourceAttributes
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
+    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
 }
 
 export interface _TracingTraceResponseApi {
@@ -1249,6 +1543,21 @@ export type TracingSpansAttributesRetrieveParams = {
      */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType
     /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
+    /**
      * Max results (default: 100).
      * @minimum 1
      * @maximum 100
@@ -1280,10 +1589,20 @@ export const TracingSpansAttributesRetrieveAttributeType = {
 
 export type TracingSpansServiceNamesRetrieveParams = {
     /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
      * @minLength 1
      */
     dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
     /**
      * Search filter for service names.
      * @minLength 1
@@ -1301,6 +1620,21 @@ export type TracingSpansValuesRetrieveParams = {
      * @minLength 1
      */
     attribute_type?: TracingSpansValuesRetrieveAttributeType
+    /**
+     * JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. Or pass date_from and date_to.
+     * @minLength 1
+     */
+    dateRange?: string
+    /**
+     * Range start: -1h, -7d or ISO 8601. Defaults to -1h.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Range end, same format. Omit for "now".
+     * @minLength 1
+     */
+    date_to?: string
     /**
      * The attribute key to get values for.
      * @minLength 1

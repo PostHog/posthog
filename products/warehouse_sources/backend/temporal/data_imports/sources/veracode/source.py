@@ -92,7 +92,7 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

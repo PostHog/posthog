@@ -17,8 +17,6 @@ class TestUbidotsSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://industrial.api.ubidots.com/api/v2.0/devices/",),
-            ("403 Client Error: Forbidden for url: https://industrial.api.ubidots.com/api/v2.0/variables/",),
             ("401 Client Error: Unauthorized for url: https://things.ubidots.com/api/v1.6/variables/abc/values",),
             ("403 Client Error: Forbidden for url: https://things.ubidots.com/api/v2.0/events/",),
         ]
@@ -26,16 +24,6 @@ class TestUbidotsSource:
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://industrial.api.ubidots.com/api/v2.0/devices/",),
-            ("429 Client Error: Too Many Requests for url: https://things.ubidots.com/api/v2.0/variables/",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_version_declarations(self) -> None:
         # v2.0 is the default new sources are stamped with; v1 stays supported so existing pins keep

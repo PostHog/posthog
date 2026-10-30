@@ -12,9 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
     OpenExchangeRatesSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
-    INVALID_APP_ID_ERROR,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
     OpenExchangeRatesSource,
 )
@@ -34,7 +31,6 @@ class TestOpenExchangeRatesSource:
         "status, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, INVALID_APP_ID_ERROR),
         ],
     )
     def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:

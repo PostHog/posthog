@@ -10,7 +10,7 @@ import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,6 +22,7 @@ import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/
 
 import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
+import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -32,7 +33,6 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
-    'widget-preview': 'dashboard-add-widget-preview',
 }
 
 export function getAddTileMenuItems({
@@ -42,7 +42,6 @@ export function getAddTileMenuItems({
     const items: LemonMenuItem[] = getDashboardAddTileOptions(handlers).map((option) => ({
         label: option.label,
         tag: option.tag,
-        tooltip: option.tooltip,
         onClick: () => {
             onBeforeSelect?.()
             option.onClick()
@@ -54,7 +53,7 @@ export function getAddTileMenuItems({
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -63,8 +62,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { push } = useActions(router)
-    const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null
@@ -97,12 +94,10 @@ export function DashboardAddTileButton(): JSX.Element | null {
             >
                 <LemonMenu
                     items={getAddTileMenuItems({
-                        dashboardWidgetsEnabled,
                         onAddInsight: openAddInsightModal,
                         onAddText: openTextTileModal,
                         onAddImage: openImageTileModal,
                         onAddButton: openButtonTileModal,
-                        push,
                         setAddWidgetModalOpen,
                     })}
                     onVisibilityChange={(visible) => {

@@ -22,10 +22,19 @@ TOP_WINDOW_DAYS = 7
 # Each article title costs one request per window, so an unbounded list fans out into an
 # unbounded number of outbound requests. Cap the number of titles synced per source.
 MAX_ARTICLES = 100
+# Same fan-out bound for the per-country top pages table: one request per country per day.
+MAX_COUNTRIES = 10
+
+# The per-country top pages dataset begins 2021-01-01; earlier days always 404.
+COUNTRY_TOP_ARTICLES_START_DATE = date(2021, 1, 1)
 
 PAGEVIEWS_ENDPOINT = "pageviews"
 ARTICLE_PAGEVIEWS_ENDPOINT = "article_pageviews"
 TOP_ARTICLES_ENDPOINT = "top_articles"
+COUNTRY_PAGEVIEWS_ENDPOINT = "country_pageviews"
+COUNTRY_TOP_ARTICLES_ENDPOINT = "country_top_articles"
+UNIQUE_DEVICES_ENDPOINT = "unique_devices"
+MEDIA_REQUESTS_ENDPOINT = "media_requests"
 
 ACCESS_OPTIONS = (
     ("all-access", "All access methods"),
@@ -40,6 +49,15 @@ AGENT_OPTIONS = (
     ("spider", "Spider (crawlers)"),
     ("automated", "Automated (bots)"),
 )
+
+# The unique devices API splits by site rather than by access method and has no app split, so
+# the table syncs every site split instead of mapping the access setting.
+UNIQUE_DEVICES_ACCESS_SITES = ("all-sites", "desktop-site", "mobile-site")
+
+# One series per media type keeps the media type split in the table.
+MEDIA_TYPES = ("image", "video", "audio", "document", "other")
+# Agent types the media requests API accepts; other agent settings fall back to all-agents.
+MEDIA_REQUEST_AGENTS = ("user", "spider", "all-agents")
 
 
 @dataclass
@@ -70,6 +88,32 @@ WIKIPEDIA_PAGEVIEWS_ENDPOINTS: dict[str, WikipediaPageviewsEndpointConfig] = {
         name=TOP_ARTICLES_ENDPOINT,
         primary_keys=["project", "access", "year", "month", "day", "article"],
         description="The 1000 most-viewed articles per day",
+        incremental_fields=[incremental_field("date")],
+    ),
+    COUNTRY_PAGEVIEWS_ENDPOINT: WikipediaPageviewsEndpointConfig(
+        name=COUNTRY_PAGEVIEWS_ENDPOINT,
+        primary_keys=["project", "access", "year", "month", "country"],
+        description="Monthly pageviews for the whole project, split by country",
+        incremental_fields=[incremental_field("date")],
+    ),
+    COUNTRY_TOP_ARTICLES_ENDPOINT: WikipediaPageviewsEndpointConfig(
+        name=COUNTRY_TOP_ARTICLES_ENDPOINT,
+        # Ranks tie, and the ranking spans all Wikimedia projects, so project + article is the
+        # unique key within a country's day.
+        primary_keys=["country", "access", "year", "month", "day", "project", "article"],
+        description="The most-viewed articles per day across all Wikimedia projects, for each configured country",
+        incremental_fields=[incremental_field("date")],
+    ),
+    UNIQUE_DEVICES_ENDPOINT: WikipediaPageviewsEndpointConfig(
+        name=UNIQUE_DEVICES_ENDPOINT,
+        primary_keys=["project", "access_site", "timestamp"],
+        description="Daily unique devices that visited the project, split by site",
+        incremental_fields=[incremental_field("date")],
+    ),
+    MEDIA_REQUESTS_ENDPOINT: WikipediaPageviewsEndpointConfig(
+        name=MEDIA_REQUESTS_ENDPOINT,
+        primary_keys=["referer", "media_type", "agent", "timestamp"],
+        description="Daily requests for media files referred by the project, split by media type",
         incremental_fields=[incremental_field("date")],
     ),
 }
