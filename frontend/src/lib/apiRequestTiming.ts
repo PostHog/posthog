@@ -32,6 +32,9 @@ const FLATTENED_REQUEST_TIMING_FIELDS = [
     'body_read_ms',
     'json_parse_ms',
     'resource_timing_status',
+    'envoy_upstream_ms',
+    'resource_pre_request_ms',
+    'resource_ttfb_ms',
 ] as const
 
 export function flattenRequestTiming(

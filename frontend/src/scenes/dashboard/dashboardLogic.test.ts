@@ -2232,6 +2232,9 @@ describe('dashboardLogic', () => {
                         request_total_ms: 20,
                         http_request_id: requestId,
                         resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
                     })
                     return insight
                 })
@@ -2242,7 +2245,13 @@ describe('dashboardLogic', () => {
 
                 expect(capture).toHaveBeenCalledWith(
                     'dashboard insight refreshed',
-                    expect.objectContaining({ http_request_id: requestId, resource_timing_status: 'matched' })
+                    expect.objectContaining({
+                        http_request_id: requestId,
+                        resource_timing_status: 'matched',
+                        envoy_upstream_ms: 12,
+                        resource_pre_request_ms: 3,
+                        resource_ttfb_ms: 15,
+                    })
                 )
             } finally {
                 refresh.mockRestore()
