@@ -20,5 +20,5 @@ Build every other link with `generate-app-url`, never by hand.
 | Open a scanner or a survey you created                                | `_posthogUrl` from `vision-scanners-create` or `survey-create`                                                                                                                                                                                                    |
 | Anything else                                                         | `generate-app-url` with the page's template from its catalog                                                                                                                                                                                                      |
 
-The flag id is `feature_flag.id` in the `experiment-create`, `experiment-launch` and `experiment-get` responses. Other experiment tools leave it out, so call `experiment-get` for it.
+The flag id is `feature_flag.id` in the `experiment-get` response. `experiment-create`, `experiment-launch` and the other experiment tools leave it out, so call `experiment-get` for it after you create or launch.
 If the `generate-app-url` catalog has no template for a tab, link the experiment's `_posthogUrl` and name the tab.
