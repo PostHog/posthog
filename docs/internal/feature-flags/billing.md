@@ -138,7 +138,7 @@ The workers on that queue need `USAGE_INGESTION_ADDR` with an explicit port, and
 The Python gRPC client connects to port 443 when the address has no port, but the usage-ingestion Service listens on port 80.
 The task discards counts for teams that the allowlist does not enable.
 Delivery is best effort: the shared usage-ingestion client logs a failed send, and the task does not put the counts back.
-This counter is in `RECORD_REALTIME_BLOCKERS`, so its `realtime` mode resolves to `both` and legacy totals stay authoritative during the comparison rollout.
+Usage records from before this task omit the requests that Django served. [Step 4](#step-4-usage-report-generation) lists this gap with the other gaps that keep a counter off `realtime`.
 
 ### Redis pipelining
 
@@ -279,9 +279,9 @@ The team can also agree to bill the usage record count with the gap.
 
 - Events, enhanced person events, and exceptions: usage records use capture time, and the legacy queries use the event timestamp. The switch must not count an event on both dates or on neither date.
 - Feature flag requests: usage records use the flush time of the Rust flags service. The legacy query uses the later Celery export time.
-- Feature flag local evaluation requests: the Django feature flag list endpoint counts personal API key requests in Redis, but it writes no usage records.
+- Feature flag local evaluation requests: usage records from before [#118814](https://github.com/PostHog/posthog/pull/118814) omit the requests that the Django feature flag list endpoint served. Compare both producers over a complete window before you switch this counter.
 - CDP invocations and workflow emails, push, and SMS: usage records and app metrics flush on separate clocks. Each source can put one dispatch on a different date.
-- Workflow invocations: the legacy query counts fetch and push dispatches. Usage records count push dispatches as `workflow_push_sent`. Thus `workflow_billable_invocations` holds only fetches. The clock difference above also applies.
+- Workflow invocations: the legacy query counts fetch and push dispatches. Before [#118809](https://github.com/PostHog/posthog/pull/118809), a push dispatch wrote only a `workflow_push_sent` record, so `workflow_billable_invocations` held only fetches. Now a push dispatch writes both records. The clock difference above also applies.
 - Web and mobile recordings: the replay pipeline marks a session as seen before it parses the first message. When that message fails, the later messages of the session bill nothing. The fix is [#121613](https://github.com/PostHog/posthog/pull/121613), which bills each saved session once.
 - Survey responses: usage records include product tour responses, which the legacy query exempts.
 - AI events: usage records do not apply the legacy exemptions for wallet-billed gateway events and sponsored relay events.
