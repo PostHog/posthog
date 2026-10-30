@@ -597,6 +597,35 @@ export function tabModelPath(tabId: string): string {
     return `tab-${tabId}`
 }
 
+/** The update has landed when this runs, so a refused placement shows a toast instead of throwing, and the caller still syncs its state. */
+async function placeSavedInsightOnDashboard(
+    savedInsight: InsightModel,
+    dashboardId: number | null
+): Promise<{ insight: InsightModel; placed: boolean }> {
+    if (!dashboardId) {
+        return { insight: savedInsight, placed: false }
+    }
+    try {
+        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
+        return {
+            insight: {
+                ...savedInsight,
+                dashboard_tiles: [
+                    ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                    tile,
+                ],
+            },
+            placed: true,
+        }
+    } catch (e) {
+        const detail = e instanceof ApiError ? e.detail : null
+        lemonToast.error(
+            `Insight saved, but it couldn't be added to the dashboard. ${detail ?? 'Add it from the insight page instead.'}`
+        )
+        return { insight: savedInsight, placed: false }
+    }
+}
+
 // Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
 // kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
 // full undo history survives — pushEditOperations adds one more undoable step rather than
@@ -3183,26 +3212,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     throw e
                 }
-                // The update has landed by now, so a refused placement must not skip the state sync below.
-                let placedOnDashboard = false
-                if (dashboardId) {
-                    try {
-                        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
-                        savedInsight = {
-                            ...savedInsight,
-                            dashboard_tiles: [
-                                ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
-                                tile,
-                            ],
-                        }
-                        placedOnDashboard = true
-                    } catch (e) {
-                        const detail = e instanceof ApiError ? e.detail : null
-                        lemonToast.error(
-                            `Insight saved, but it couldn't be added to the dashboard. ${detail ?? 'Add it from the insight page instead.'}`
-                        )
-                    }
-                }
+                const placement = await placeSavedInsightOnDashboard(savedInsight, dashboardId)
+                savedInsight = placement.insight
                 actions.setInsightLoading(false)
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
@@ -3225,7 +3236,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                if (dashboardId && placedOnDashboard) {
+                if (dashboardId && placement.placed) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
