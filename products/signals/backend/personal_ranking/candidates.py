@@ -261,8 +261,9 @@ def _clean(text: str | None, limit: int) -> str:
 
 
 def gather_candidates(
-    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime
+    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, with_sources: bool = True
 ) -> list[Candidate]:
+    """`with_sources=False` skips the ClickHouse read of each report's source, which only the prompt shows."""
     can_view_ranking = can_view_inbox_ranking(user, team)
     merged = merge_pools(_pools(team, user, config, now=now, can_view_ranking=can_view_ranking), config.max_candidates)
     if not merged:
@@ -281,7 +282,7 @@ def gather_candidates(
     predictions = load_predictions(team.id, found) if can_view_ranking else {}
     needs_you = _needs_you(team.id, user, reports)
     try:
-        sources = fetch_source_products_for_reports(team, found)
+        sources = fetch_source_products_for_reports(team, found) if with_sources else {}
     except Exception:
         # The source is context, so a ClickHouse failure must not stop the ranking.
         logger.exception("signals.personal_ranking.source_products_failed", team_id=team.id)
