@@ -104,6 +104,41 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         )
         assert third.config["mail_from_subdomain"] == "returns"
 
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_editing_mail_from_subdomain_leaves_another_organizations_sender_alone(
+        self, mock_create_email_domain, mock_update_mail_from
+    ):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        ours = EmailIntegration.create_native_integration(
+            {"email": "ours@successdomain.com", "name": "Ours", "provider": "ses", "mail_from_subdomain": "bounces"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        # Creating this through the API is refused, but that check is check-then-act, so a row
+        # from another organization can land on the domain anyway.
+        other_organization = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_organization, name="Other Team")
+        theirs = Integration.objects.create(
+            team_id=other_team.id,
+            kind="email",
+            integration_id="theirs@successdomain.com",
+            config={
+                "email": "theirs@successdomain.com",
+                "domain": "successdomain.com",
+                "mail_from_subdomain": "bounces",
+                "provider": "ses",
+                "verified": True,
+            },
+        )
+
+        EmailIntegration(ours).update_native_integration({"mail_from_subdomain": "returns"}, team_id=self.team.id)
+
+        theirs.refresh_from_db()
+        assert theirs.config["mail_from_subdomain"] == "bounces"
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_not_overwritten(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}

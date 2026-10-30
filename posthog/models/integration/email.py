@@ -167,25 +167,34 @@ class EmailIntegration:
         }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
         siblings_by_team: dict[int, list[int]] = {}
         with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
+            to_lock = model.Integration.objects.filter(id=self.integration.id)
             if mail_from_changed:
                 # SES keeps one MAIL FROM per domain identity, so the call above repointed every
                 # sender on this domain. Their rows have to follow, or they keep reporting the old
-                # value and the next sender added to the domain inherits it.
-                siblings = (
-                    model.Integration.objects.select_for_update()
-                    .filter(kind="email", config__domain=domain)
-                    .exclude(id=locked.id)
+                # value and the next sender added to the domain inherits it. A sender from another
+                # organization should not be on this domain, but the check when one is created
+                # cannot rule it out, so stay inside the acting organization.
+                org_team_ids = Team.objects.filter(organization_id=self.integration.team.organization_id).values_list(
+                    "id", flat=True
                 )
-                for sibling in siblings:
-                    sibling.config["mail_from_subdomain"] = mail_from_subdomain
-                    sibling.save(update_fields=["config"])
-                    siblings_by_team.setdefault(sibling.team_id, []).append(sibling.id)
+                to_lock = to_lock | model.Integration.objects.filter(
+                    kind="email", config__domain=domain, team_id__in=org_team_ids
+                )
+
+            # Rows are reread under a lock so a concurrent verification write is not overwritten,
+            # and are locked by id, the order _mark_domain_verified takes them in, so two edits on
+            # one domain cannot deadlock each other.
+            locked = self.integration
+            for row in to_lock.select_for_update().order_by("id"):
+                if row.id == self.integration.id:
+                    row.config.update(changes)
+                    locked = row
+                else:
+                    row.config["mail_from_subdomain"] = mail_from_subdomain
+                    siblings_by_team.setdefault(row.team_id, []).append(row.id)
+                row.save(update_fields=["config"])
         self.integration.config = locked.config
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         for sibling_team_id, sibling_ids in siblings_by_team.items():
