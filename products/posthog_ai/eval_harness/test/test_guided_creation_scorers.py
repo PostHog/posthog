@@ -153,9 +153,11 @@ def test_report_is_the_creation_turn_when_a_later_turn_only_acknowledges() -> No
         (f"Your flag: {FLAG_URL}", 1.0),
         ("Your flag: https://us.posthog.com/project/7/feature_flags/9", 1.0),
         ("Your flag: https://us.posthog.com/project/7/feature-flags/90", 0.0),
+        ("Your flag: https://us.posthog.com/project/999/feature-flags/9", 0.0),
+        ("Your flag: https://eu.posthog.com/project/7/feature-flags/9", 0.0),
         ("Your flag is homepage-headline.", 0.0),
     ],
-    ids=["flag-url", "legacy-path", "other-flag", "key-only"],
+    ids=["flag-url", "legacy-path", "other-flag", "other-project", "other-host", "key-only"],
 )
 def test_flag_url_in_report(message: str, expected_score: float) -> None:
     output = _output(_create(), _text(message), last_message=message, seed={"team_id": 7})

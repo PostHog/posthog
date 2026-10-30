@@ -15,7 +15,8 @@ averages (``engines/braintrust_patches.py``), so the ``score=1.0`` plus ``skippe
 Deterministic:
 
 * ``ExperimentUrlInReport``: the ``_posthogUrl`` from ``experiment-create`` is in the report.
-* ``FlagUrlInReport``: a ``/feature-flags/<id>`` URL for the experiment's own flag is in the report.
+* ``FlagUrlInReport``: a ``/feature-flags/<id>`` URL for the experiment's own flag, on the experiment's
+  host and project, is in the report.
 * ``ExecuteSqlCallsBeforeCreate``: how many ``execute-sql`` calls came before the first
   ``experiment-create``. Informational, so it never counts toward the averages.
 * ``NoUnavailableToolMention``: the report doesn't mention the setup context tool, or any tool that
@@ -141,6 +142,13 @@ def _links_to(url: str, target: str) -> bool:
 def _path_id(url: str, pattern: re.Pattern[str]) -> int | None:
     match = pattern.search(urlsplit(url).path)
     return int(match.group(1)) if match else None
+
+
+def _project_base(url: str, pattern: re.Pattern[str]) -> str | None:
+    """The scheme, host and project path in front of the ``pattern`` match, such as ``https://host/project/7``."""
+    parts = urlsplit(url)
+    match = pattern.search(parts.path)
+    return f"{parts.scheme}://{parts.netloc}{parts.path[: match.start()]}" if match else None
 
 
 def created_experiments(parser: LogParser) -> list[CreatedExperiment]:
@@ -283,7 +291,8 @@ class FlagUrlInReport(AsyncOnlyScorerMixin, Scorer):
 
     The create response leaves out the flag's id, so the scorer reads it from the database through the
     case's ``seed.team_id``. That also covers device-id bucketing, where the agent creates the flag first.
-    ``None`` when no create succeeded or the experiment can't be found.
+    The link must also have the host and project of the experiment's ``_posthogUrl``, when the create
+    response carried one. ``None`` when no create succeeded or the experiment can't be found.
     """
 
     def _name(self) -> str:
@@ -293,7 +302,8 @@ class FlagUrlInReport(AsyncOnlyScorerMixin, Scorer):
         parser = _parser(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        experiment_ids = sorted({e.id for e in created_experiments(parser) if e.id is not None})
+        created = created_experiments(parser)
+        experiment_ids = sorted({e.id for e in created if e.id is not None})
         if not experiment_ids:
             return Score(name=self._name(), score=None, metadata={"reason": f"{CREATE_TOOL} never succeeded"})
         team_id = _seed(output).get("team_id")
@@ -310,11 +320,16 @@ class FlagUrlInReport(AsyncOnlyScorerMixin, Scorer):
                 score=None,
                 metadata={"reason": "The created experiment is not in the database", "experiment_ids": experiment_ids},
             )
-        surfaced = [url for url in _urls(report) if _path_id(url, _FLAG_PATH_RE) in flag_ids]
+        bases = {base for e in created if e.url and (base := _project_base(e.url, _EXPERIMENT_PATH_RE))}
+        surfaced = [
+            url
+            for url in _urls(report)
+            if _path_id(url, _FLAG_PATH_RE) in flag_ids and (not bases or _project_base(url, _FLAG_PATH_RE) in bases)
+        ]
         return Score(
             name=self._name(),
             score=1.0 if surfaced else 0.0,
-            metadata={"flag_ids": sorted(flag_ids), "surfaced": surfaced},
+            metadata={"flag_ids": sorted(flag_ids), "project_bases": sorted(bases), "surfaced": surfaced},
         )
 
     @staticmethod
