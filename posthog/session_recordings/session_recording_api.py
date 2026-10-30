@@ -23,7 +23,7 @@ import requests
 import structlog
 import posthoganalytics
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -623,6 +623,18 @@ class SessionRecordingConsoleLogsResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
+class SessionRecordingListResponseSerializer(serializers.Serializer):
+    results = SessionRecordingSerializer(many=True, help_text="Recordings on this page.")
+    has_next = serializers.BooleanField(help_text="Whether more recordings match the query after this page.")
+    version = serializers.IntegerField(help_text="Version of the listing response format.")
+    next_cursor = serializers.CharField(
+        required=False,
+        help_text="Cursor for the next page. Send it back as `after` to load the next page. "
+        "Absent when the query does not page by cursor or there is no next page.",
+    )
+
+
 @frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
@@ -984,6 +996,7 @@ class SessionRecordingViewSet(
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(responses={200: SessionRecordingListResponseSerializer(many=False)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
