@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { userLogic } from 'scenes/userLogic'
@@ -108,7 +109,9 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Command />
                 <ImpersonationNotice />
                 <ErrorBoundary>
-                    <Suspense fallback={null}>{runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}</Suspense>
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={null}>{runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}</Suspense>
+                    </ChunkLoadErrorBoundary>
                 </ErrorBoundary>
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
                     but the doc dialog must be able to open from any surface. */}
