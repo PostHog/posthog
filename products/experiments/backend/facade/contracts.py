@@ -43,6 +43,36 @@ class StoredPrimaryResult:
 
 
 @frozen
+class ExperimentUnfurlVariant:
+    """One variant of the experiment's flag and its share of the rollout."""
+
+    key: str
+    # As the flag stores it, so a whole number stays an int and prints as `50`, not `50.0`.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentUnfurl:
+    """What a link preview shows for an experiment."""
+
+    id: int
+    # With `id`, the fields that an object access check reads.
+    team_id: int
+    created_by_id: int | None
+    name: str
+    description: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    updated_at: datetime
+    # The name of the first inline primary metric, when that metric has one.
+    primary_metric_name: str | None
+    # The variants of the experiment's flag, in the flag's order. Empty when the flag config can't be read.
+    variants: tuple[ExperimentUnfurlVariant, ...]
+
+
+@frozen
 class ExperimentSummaryData:
     """Result of fetching experiment data for the AI results summary."""
 

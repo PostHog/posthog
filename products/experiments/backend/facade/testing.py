@@ -109,9 +109,16 @@ def create_holdout(
     return holdout.id
 
 
-def create_saved_metric(*, team_id: int, name: str, query: dict[str, Any], created_by_id: int | None = None) -> int:
+def create_saved_metric(
+    *,
+    team_id: int,
+    name: str,
+    query: dict[str, Any],
+    description: str | None = None,
+    created_by_id: int | None = None,
+) -> int:
     saved_metric = ExperimentSavedMetric.objects.create(
-        team_id=team_id, name=name, query=query, created_by_id=created_by_id
+        team_id=team_id, name=name, description=description, query=query, created_by_id=created_by_id
     )
     return saved_metric.id
 
