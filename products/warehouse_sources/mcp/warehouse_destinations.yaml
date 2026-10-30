@@ -50,7 +50,10 @@ tools:
             First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure
             Blob). Returns a browser link where the user enters the credentials in PostHog, plus the next steps in
             `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'.
-            Never ask the user to paste passwords, keys or tokens into the chat.
+            When the destination comes from a warehouse migration item's proposal.destination, pass migration_item_id
+            and the matching destination_type: the page then fills in the non-secret settings from the vendor, and
+            `instructions` give the target config to create the destination with. Never ask the user to paste passwords,
+            keys or tokens into the chat.
         feature_flag: warehouse-multi-destination
     external-data-destinations-create:
         operation: external_data_destinations_create

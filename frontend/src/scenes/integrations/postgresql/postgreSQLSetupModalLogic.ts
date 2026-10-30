@@ -11,6 +11,7 @@ import type { IntegrationType } from '~/types'
 export interface PostgreSQLSetupModalLogicProps {
     isOpen: boolean
     integration?: IntegrationType | null
+    defaults?: Record<string, any>
     onComplete: (integrationId?: number) => void
 }
 
@@ -200,6 +201,7 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
                 ssl_mode: 'no',
                 use_system_ca: false,
                 ssl_root_cert: null as string | null,
+                ...props.defaults,
             },
             errors: ({ host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert }) => ({
                 host: host?.trim() ? undefined : 'Host is required',

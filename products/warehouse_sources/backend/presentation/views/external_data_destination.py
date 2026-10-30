@@ -20,6 +20,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
+from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.destination_health import resume_destination
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
@@ -65,6 +66,24 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
 
+# Target config a migrated destination carries over: PostHog config key -> vendor config key.
+MIGRATION_TARGET_KEYS: dict[str, dict[str, str]] = {
+    str(ExternalDataDestination.Type.POSTGRES): {"database": "database"},
+    str(ExternalDataDestination.Type.REDSHIFT): {"database": "database"},
+    str(ExternalDataDestination.Type.SNOWFLAKE): {"database": "database"},
+    str(ExternalDataDestination.Type.BIGQUERY): {"project": "project_id"},
+    str(ExternalDataDestination.Type.DATABRICKS): {"catalog": "catalog"},
+}
+
+# The config key that names the schema or dataset, so a migrated source does not write into the vendor's tables.
+MIGRATION_SCHEMA_KEYS: dict[str, str] = {
+    str(ExternalDataDestination.Type.POSTGRES): "schema",
+    str(ExternalDataDestination.Type.REDSHIFT): "schema",
+    str(ExternalDataDestination.Type.SNOWFLAKE): "schema",
+    str(ExternalDataDestination.Type.BIGQUERY): "dataset",
+    str(ExternalDataDestination.Type.DATABRICKS): "schema",
+}
+
 # Built from `Type`, so the values cannot drift from the model. django-stubs only types the
 # literal form of the functional API.
 UserCreatableDestinationType = models.TextChoices(  # type: ignore[call-overload]
@@ -87,6 +106,14 @@ class DestinationConnectLinkQuerySerializer(serializers.Serializer):
         help_text=(
             "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' "
             "(the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar."
+        ),
+    )
+    migration_item_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Optional warehouse migration item whose planned destination this link sets up. The page then shows the "
+            "destination's non-secret settings from the vendor, so the user only enters the secret, and the "
+            "instructions give the target config to create the destination with."
         ),
     )
 
@@ -176,6 +203,24 @@ class DestinationConnectionTestResponseSerializer(serializers.Serializer):
     steps = DestinationConnectionTestStepSerializer(
         many=True,
         help_text="The steps of the connection test, in order. The test stops at the first failed step.",
+    )
+
+
+def _migration_target_hint(destination_type: str, vendor_config: dict[str, Any], proposal: dict[str, Any]) -> str:
+    target = {
+        key: vendor_config[vendor_key]
+        for key, vendor_key in MIGRATION_TARGET_KEYS.get(destination_type, {}).items()
+        if vendor_config.get(vendor_key)
+    }
+    schema_key = MIGRATION_SCHEMA_KEYS.get(destination_type)
+    if schema_key and proposal.get("prefix"):
+        target[schema_key] = f"posthog_{proposal['prefix']}"
+    if not target:
+        return ""
+    pairs = ", ".join(f"{key}='{value}'" for key, value in target.items())
+    return (
+        f" The migration item plans this destination, so suggest {pairs} as the target config. The new schema "
+        "keeps PostHog's tables apart from the tables the vendor still writes. The user can pick other values."
     )
 
 
@@ -576,12 +621,26 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             else f"Nothing tests a {destination_type} target before the first sync, so confirm it with the user "
             "before creating the destination."
         )
+        connect_url = (
+            f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination?kind={quote(kind)}"
+        )
+        target_hint = ""
+        item_id = request.validated_query_data.get("migration_item_id")
+        if item_id:
+            item = migrations.find_migration_item(self.team_id, item_id)
+            if item is None:
+                raise ValidationError({"migration_item_id": f"Unknown migration_item_id '{item_id}'."})
+            planned = (item.proposal or {}).get("destination") or {}
+            if planned.get("type") != destination_type:
+                raise ValidationError(
+                    {"migration_item_id": f"This migration item does not plan a {destination_type} destination."}
+                )
+            connect_url += f"&migration_id={item.migration_id}&migration_item_id={item.id}"
+            target_hint = _migration_target_hint(destination_type, planned.get("config") or {}, item.proposal or {})
         data = {
             "destination_type": destination_type,
             "integration_kind": kind,
-            "connect_url": (
-                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination?kind={quote(kind)}"
-            ),
+            "connect_url": connect_url,
             "instructions": (
                 f"Share this link with the user. They enter their {destination_type} credentials directly in "
                 "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page saves the "
@@ -590,7 +649,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 f"kind='{kind}' and take the entry with the latest created_at (the list is oldest first), then "
                 "confirm its display_name with the user. Then call external-data-destinations-create with "
                 f"type='{destination_type}', a name, that integration id, and the target config that tool lists "
-                f"for {destination_type}. {target_check}"
+                f"for {destination_type}.{target_hint} {target_check}"
             ),
         }
         return Response(DestinationConnectLinkSerializer(data).data)

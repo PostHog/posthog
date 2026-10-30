@@ -27,6 +27,7 @@ from products.batch_exports.backend.facade.contracts import (
     DestinationTestStep,
     DestinationTestStepResult,
 )
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedDestination
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
@@ -36,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     FAILURE_MESSAGES,
     CheckFailure,
@@ -1294,6 +1296,49 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert f"kind='{kind}'" in data["instructions"]
         assert f"type='{destination_type}'" in data["instructions"]
         assert ("tests the connection" in data["instructions"]) == tested_on_create
+
+    @parameterized.expand(
+        [
+            ("planned_type", "own", "Postgres", status.HTTP_200_OK),
+            ("other_team", "other", "Postgres", status.HTTP_400_BAD_REQUEST),
+            ("type_mismatch", "own", "Snowflake", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_carries_a_migration_item_for_prefill(
+        self, _name: str, owner: str, destination_type: str, expected_status: int
+    ) -> None:
+        team = self.team if owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = WarehouseMigrationItem.objects.for_team(team.pk).create(
+            team_id=team.pk,
+            migration=WarehouseMigration.objects.for_team(team.pk).create(team_id=team.pk, provider="fivetran"),
+            vendor_connection_id="conn_shop",
+            vendor_service="postgres",
+            name="shop",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.POSTGRES,
+                prefix="shop",
+                prefill={},
+                schemas=None,
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=ProposedDestination(
+                    type="Postgres",
+                    config={"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
+                ),
+            ).to_json(),
+        )
+
+        response = self.client.get(
+            f"{self.base}/connect_link",
+            {"destination_type": destination_type, "migration_item_id": str(item.id)},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            data = response.json()
+            assert data["connect_url"].endswith(f"&migration_id={item.migration_id}&migration_item_id={item.id}")
+            assert "database='analytics', schema='posthog_shop'" in data["instructions"]
 
 
 class TestDestinationAPIKeyScopes(DestinationAPITestBase):

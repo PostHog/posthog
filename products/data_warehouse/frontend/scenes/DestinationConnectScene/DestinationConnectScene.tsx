@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import 'lib/components/CyclotronJob/integrations/integrationSetups'
-import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -24,14 +22,22 @@ export const scene: SceneExport = {
 
 export function DestinationConnectScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { kind, destinationDefinition, isModalOpen, integrationId } = useValues(destinationConnectSceneLogic)
+    const {
+        kind,
+        destinationDefinition,
+        integrationSetup,
+        isModalOpen,
+        integrationId,
+        migrationPrefillLoading,
+        setupDefaults,
+    } = useValues(destinationConnectSceneLogic)
     const { setModalOpen, setIntegrationId } = useActions(destinationConnectSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
     }
 
-    const SetupModal = kind ? getIntegrationSetup(kind)?.SetupModal : undefined
+    const SetupModal = integrationSetup?.SetupModal
     if (!kind || !destinationDefinition || !SetupModal) {
         return (
             <SceneContent>
@@ -44,6 +50,15 @@ export function DestinationConnectScene(): JSX.Element {
                         : "This link doesn't say which connection to set up."}{' '}
                     Add the destination from warehouse destinations instead.
                 </LemonBanner>
+            </SceneContent>
+        )
+    }
+
+    if (migrationPrefillLoading) {
+        // The form reads its defaults once, so it mounts only after the migration prefill loads.
+        return (
+            <SceneContent>
+                <Spinner />
             </SceneContent>
         )
     }
@@ -85,6 +100,7 @@ export function DestinationConnectScene(): JSX.Element {
             <SetupModal
                 isOpen={isModalOpen && integrationId === null}
                 kind={kind}
+                defaults={setupDefaults}
                 // The modals' close button calls onComplete with the click event, so only a number is a saved id.
                 onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
                 onClose={() => setModalOpen(false)}

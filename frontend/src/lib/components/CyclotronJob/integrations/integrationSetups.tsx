@@ -66,9 +66,10 @@ registerIntegrationSetup({
         label: 'Configure new PostgreSQL connection',
         onClick: () => openModal('postgresql'),
     }),
-    SetupModal: ({ isOpen, integration, onComplete }) => (
-        <PostgreSQLSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    SetupModal: ({ isOpen, integration, defaults, onComplete }) => (
+        <PostgreSQLSetupModal isOpen={isOpen} integration={integration} defaults={defaults} onComplete={onComplete} />
     ),
+    vendorConfigKeys: { host: 'host', port: 'port', user: 'user' },
 })
 
 registerIntegrationSetup({

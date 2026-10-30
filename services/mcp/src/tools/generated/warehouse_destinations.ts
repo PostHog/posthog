@@ -61,6 +61,7 @@ const externalDataDestinationsConnectLink = (): ToolBase<
             query: {
                 destination_type: params.destination_type,
                 integration_kind: params.integration_kind,
+                migration_item_id: params.migration_item_id,
             },
         })
         return result

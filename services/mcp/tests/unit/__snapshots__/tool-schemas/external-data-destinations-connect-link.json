@@ -10,6 +10,10 @@
             "description": "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' (the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar.",
             "minLength": 1,
             "type": "string"
+        },
+        "migration_item_id": {
+            "description": "Optional warehouse migration item whose planned destination this link sets up. The page then shows the destination's non-secret settings from the vendor, so the user only enters the secret, and the instructions give the target config to create the destination with.",
+            "type": "string"
         }
     },
     "required": ["destination_type"],
