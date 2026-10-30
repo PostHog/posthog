@@ -5152,6 +5152,20 @@ email@example.org,
                 [{**_FLAG_CALLED_PAST_RETENTION_CRITERION, "time_value": 120}],
                 None,
             ),
+            param(
+                "widens_past_retention_without_rewrite",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                None,
+                rewrite_enabled=False,
+            ),
+            param(
+                "adds_flag_call_without_rewrite",
+                [_PAGEVIEW_CRITERION],
+                [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
+                _HIDDEN_EVENT_REFUSAL,
+                rewrite_enabled=False,
+            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -5163,6 +5177,7 @@ email@example.org,
         expected_refusal,
         patch_capture,
         mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        rewrite_enabled=True,
     ):
         self._set_flag_evaluations_mode(mode)
         # A cohort that filters out test accounts is a batch cohort.
@@ -5173,7 +5188,7 @@ email@example.org,
             filters={"properties": {"type": "OR", "values": stored_criteria}, "filterTestAccounts": True},
         )
 
-        with self._flag_calls_rewrite(True):
+        with self._flag_calls_rewrite(rewrite_enabled):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
                 data={
@@ -8094,18 +8109,29 @@ class TestCohortTypeIntegration(APIBaseTest):
                 {"name": "Renamed", "value": "@posthog.com", "regrouped": True},
                 200,
             ),
+            (
+                "rename_resending_the_same_criteria_stored_without_negation",
+                "active",
+                {"name": "Renamed", "value": "@posthog.com", "stored_without_negation": True},
+                200,
+            ),
         ]
     )
     def test_criteria_edit_is_blocked_by_active_workflows_using_it(self, _name, status, change, expected_status):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, "trigger", status)
-        if "stored_value" in change:
+        if "stored_value" in change or change.get("stored_without_negation"):
             stored_filters = Cohort.objects.get(id=cohort_id).filters
             assert stored_filters is not None
-            stored_filters["properties"]["values"][0]["value"] = change["stored_value"]
+            if "stored_value" in change:
+                stored_filters["properties"]["values"][0]["value"] = change["stored_value"]
+            if change.get("stored_without_negation"):
+                stored_filters["properties"]["values"][0].pop("negation", None)
             Cohort.objects.filter(id=cohort_id).update(filters=stored_filters)
         payload: dict[str, Any] = {
-            key: value for key, value in change.items() if key not in ("value", "regrouped", "stored_value")
+            key: value
+            for key, value in change.items()
+            if key not in ("value", "regrouped", "stored_value", "stored_without_negation")
         }
         if "value" in change:
             condition = {"type": "person", "key": "email", "operator": "icontains", "value": change["value"]}
