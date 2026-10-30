@@ -149,20 +149,12 @@ pub async fn discover_databases(client: &Client) -> Result<Vec<String>> {
 /// Probe what this connection's server/database offers.
 pub async fn capabilities(client: &Client) -> Result<crate::collector::Capabilities> {
     let mut caps = crate::collector::Capabilities::default();
-    // aurora_version() only exists on Aurora. Postgres resolves functions at parse time,
-    // so check pg_proc first rather than guarding the call with WHERE.
-    let has_fn = client
-        .query_opt(
-            "SELECT 1 FROM pg_proc WHERE proname = 'aurora_version'",
-            &[],
-        )
-        .await?
-        .is_some();
-    if has_fn {
-        if let Ok(r) = client.query_one("SELECT aurora_version()::text", &[]).await {
+    match client.query_one("SELECT aurora_version()::text", &[]).await {
+        Ok(r) => {
             caps.aurora = true;
             caps.aurora_version = Some(r.get::<_, String>(0));
         }
+        Err(e) => tracing::debug!(error = %e, "aurora_version() unavailable, not Aurora"),
     }
     for r in client
         .query("SELECT extname, extversion FROM pg_extension", &[])

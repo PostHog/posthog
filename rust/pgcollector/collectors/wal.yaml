@@ -4,6 +4,7 @@ interval: 60s
 scope: cluster
 kind: cumulative
 min_pg_version: 140000
+requires: { aurora: false }
 key: [id]
 query: |
   SELECT 1 AS id,
