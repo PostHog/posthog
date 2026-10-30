@@ -1,4 +1,7 @@
+import { elapsedSecondsFrom } from 'lib/utils/datetime'
+
 import { WizardRunApi, WizardRunStageEnumApi } from '../generated/api.schemas'
+import type { WizardRunTaskApi } from '../generated/api.schemas'
 import { wizardRunErrorDetails } from './wizardRunErrorCatalog'
 
 export const MAX_RENDERED_WIZARD_DIFF_BYTES = 2 * 1024 * 1024
@@ -176,4 +179,46 @@ export function wizardRunCurrentState(run: WizardRunApi): string {
         default:
             return run.status === 'running' ? 'Running the Wizard' : 'Starting the Wizard run'
     }
+}
+
+export function selectWizardInstallRun(
+    runs: WizardRunApi[],
+    onboardingStartedAt: string,
+    savedRun: Pick<WizardRunApi, 'id' | 'created_at'> | null = null
+): WizardRunApi | null {
+    const eligibleRuns = runs.filter(
+        (run) =>
+            run.program.id === 'posthog-integration' && Date.parse(run.created_at) >= Date.parse(onboardingStartedAt)
+    )
+    const newestRun = eligibleRuns.reduce<WizardRunApi | null>(
+        (newest, run) => (!newest || Date.parse(run.created_at) > Date.parse(newest.created_at) ? run : newest),
+        null
+    )
+
+    // Compare creation times so an older run's status update cannot replace the saved installation.
+    if (savedRun && (!newestRun || Date.parse(newestRun.created_at) <= Date.parse(savedRun.created_at))) {
+        return eligibleRuns.find((run) => run.id === savedRun.id) ?? null
+    }
+    return newestRun
+}
+
+export function wizardRunActivityLabel(run: WizardRunApi, tasks: readonly WizardRunTaskApi[]): string {
+    if (run.status === 'running' && wizardRunProgressStep(run) === WizardRunProgressStep.ExecutingWizard) {
+        return tasks.find((task) => task.status === 'running')?.name ?? wizardRunCurrentState(run)
+    }
+    return wizardRunCurrentState(run)
+}
+
+export function wizardRunElapsedSeconds(run: WizardRunApi, now: number): number {
+    const end = run.finished_at ? new Date(run.finished_at).getTime() : now
+    return elapsedSecondsFrom(run.started_at ?? run.created_at, end)
+}
+
+export function formatWizardRunElapsed(seconds: number): string {
+    const minutes = Math.floor(seconds / 60)
+    const remainder = seconds % 60
+    if (minutes >= 60) {
+        return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
 }

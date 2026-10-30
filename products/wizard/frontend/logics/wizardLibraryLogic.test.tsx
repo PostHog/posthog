@@ -1,3 +1,6 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { installMockEventSource } from 'lib/wizard-sync/eventSource.mock'
+
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -16,6 +19,7 @@ import { wizardRegistryList, wizardRunsCreate } from '../generated/api'
 import type { WizardProgramApi, WizardRunApi } from '../generated/api.schemas'
 import { wizardLibraryLogic } from './wizardLibraryLogic'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
+import { wizardRunSyncLogic } from './wizardRunSyncLogic'
 
 jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn(),
@@ -25,6 +29,8 @@ jest.mock('../generated/api', () => ({
     wizardRegistryList: jest.fn(),
     wizardRunsCreate: jest.fn(),
     wizardRunsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
+    getWizardRunsStreamRetrieveUrl: (projectId: string, runId: string) =>
+        `/api/projects/${projectId}/wizard/runs/${runId}/stream/`,
 }))
 
 const mockWizardRegistryList = wizardRegistryList as jest.Mock
@@ -212,23 +218,35 @@ describe('wizardLibraryLogic', () => {
         expect(mockWizardRunsCreate).not.toHaveBeenCalled()
     })
 
-    it('follows the new run after a successful start', async () => {
-        const createdRun = makeRun()
+    it('follows the new run and updates shared run state immediately after a successful start', async () => {
+        const projectId = String(projectLogic.values.currentProjectId)
+        const createdRun = makeRun({ team_id: Number(projectId), created_by_id: MOCK_DEFAULT_USER.id })
         mockWizardRunsCreate.mockResolvedValueOnce(createdRun)
+        const restoreEventSource = installMockEventSource()
+        const sync = wizardRunSyncLogic({ projectId })
+        sync.mount()
+        await expectLogic(sync).toFinishAllListeners()
         const detailsLogic = wizardRunDetailsLogic()
         detailsLogic.mount()
-        logic.actions.openLibrary()
-        logic.actions.selectProgram(program)
-        logic.actions.setRepository('posthog/posthog')
+        try {
+            logic.actions.openLibrary()
+            logic.actions.selectProgram(program)
+            logic.actions.setRepository('posthog/posthog')
 
-        logic.actions.createRun()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.createRun()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(detailsLogic.values.selectedRunSummary?.id).toBe('run-new')
-        expect(posthog.capture).not.toHaveBeenCalledWith('wizard run create succeeded', expect.anything())
-        expect(posthog.capture).not.toHaveBeenCalledWith('setup wizard finished', expect.anything())
-        expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('example/private-project')
-        detailsLogic.unmount()
+            expect(detailsLogic.values.selectedRunSummary?.id).toBe('run-new')
+            expect(sync.values.userRuns).toEqual([createdRun])
+            expect(sync.values.activeUserRuns).toEqual([createdRun])
+            expect(posthog.capture).not.toHaveBeenCalledWith('wizard run create succeeded', expect.anything())
+            expect(posthog.capture).not.toHaveBeenCalledWith('setup wizard finished', expect.anything())
+            expect(JSON.stringify(jest.mocked(posthog.capture).mock.calls)).not.toContain('example/private-project')
+        } finally {
+            detailsLogic.unmount()
+            sync.unmount()
+            restoreEventSource()
+        }
     })
 
     it('selects the retried program after the registry reloads', async () => {
