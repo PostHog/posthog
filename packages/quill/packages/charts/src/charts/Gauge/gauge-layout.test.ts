@@ -82,10 +82,10 @@ describe('gauge layout', () => {
 
     it('clips threshold bands to the range and drops the ones outside it', () => {
         const bands = thresholdBands(steps(0, 70, 90, 200), { min: 0, max: 100 })
-        expect(bands.map(({ index, from, to }) => ({ index, from, to }))).toEqual([
-            { index: 0, from: 0, to: 70 },
-            { index: 1, from: 70, to: 90 },
-            { index: 2, from: 90, to: 100 },
+        expect(bands.map(({ from, to }) => ({ from, to }))).toEqual([
+            { from: 0, to: 70 },
+            { from: 70, to: 90 },
+            { from: 90, to: 100 },
         ])
     })
 

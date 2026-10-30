@@ -1,7 +1,7 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
-import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
-import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
+import { ChartLayoutContext } from '../../core/chart-context'
+import type { ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
@@ -11,6 +11,7 @@ import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
+import { humanFriendlyNumber } from '../../utils/format'
 import { measureLabelWidth } from '../../utils/text-measure'
 import { drawGauge } from './draw-gauge'
 import type { GaugePaint } from './draw-gauge'
@@ -132,10 +133,6 @@ export function Gauge({ onError, ...rest }: GaugeProps): React.ReactElement {
     )
 }
 
-function defaultFormatter(value: number): string {
-    return value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-}
-
 function paintFromScales(scales: ChartScales): GaugePaint | null {
     return (scales._private as { gauge?: GaugePaint } | undefined)?.gauge ?? null
 }
@@ -222,11 +219,11 @@ function GaugeInner({
         [targetValue, targetLabel]
     )
 
-    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({
         margins: ZERO_MARGINS,
     })
 
-    const formatValue = valueFormatter ?? defaultFormatter
+    const formatValue = valueFormatter ?? humanFriendlyNumber
 
     // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint the
     // canvas on every parent render. A threshold list is a handful of steps, so the key is cheap.
@@ -251,7 +248,7 @@ function GaugeInner({
     }, [wrapperRef, sorted, color, trackColorProp, theme])
     const { base: baseColor, thresholds: resolvedThresholds, track: trackColor, ink, fontFamily } = colors
 
-    const targetFraction = value === null ? 0 : gaugeFraction(value, bounds)
+    const targetFraction = gaugeFraction(value, bounds)
     const animatedFraction = useAnimatedNumber(targetFraction, animationMs)
     const settled = animatedFraction === targetFraction
     const colorValue = settled ? value : bounds.min + animatedFraction * (bounds.max - bounds.min)
@@ -323,7 +320,7 @@ function GaugeInner({
             layout,
             trackColor,
             bands: bandPaint,
-            valueAngle: animatedFraction > 0 ? fractionToAngle(animatedFraction, layout.angles) : null,
+            valueAngle: fractionToAngle(animatedFraction, layout.angles),
             valueColor: arcColor,
             targetAngle:
                 targetInRange && target ? fractionToAngle(gaugeFraction(target.value, bounds), layout.angles) : null,
@@ -340,7 +337,7 @@ function GaugeInner({
 
     useChartDraw({
         ctx,
-        overlayCtx,
+        overlayCtx: null,
         dimensions,
         scales,
         series: EMPTY_SERIES,
@@ -361,7 +358,7 @@ function GaugeInner({
         return layoutGaugeText({
             layout,
             measure: measureLabelWidth,
-            fontFamily: fontFamily,
+            fontFamily,
             valueText,
             labelText: label || null,
         })
@@ -455,103 +452,95 @@ function GaugeInner({
             yGutters: [],
         }
     }, [scales, dimensions, theme, canvasBounds])
-    const hovered = hoverRect !== null
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex: hovered ? 0 : -1 }), [hovered])
 
     const ariaLabel = [
         label ? `${label}:` : 'Gauge:',
-        valueText === GAUGE_EMPTY_VALUE ? 'no data' : valueText,
+        value === null ? 'no data' : valueText,
         `of ${minText} to ${maxText}`,
         tooltipThreshold?.threshold.label ? `(${tooltipThreshold.threshold.label})` : '',
     ]
         .filter(Boolean)
         .join(' ')
 
-    const labelColor = theme.axisColor
+    const mutedStyle = theme.axisColor ? { color: theme.axisColor } : MUTED_STYLE
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
-            <ChartHoverContext.Provider value={hoverValue}>
-                <ChartShell
-                    wrapperRef={wrapperRef}
-                    canvasRef={canvasRef}
-                    overlayCanvasRef={overlayCanvasRef}
-                    className={className}
-                    dataAttr={dataAttr}
-                    pointer={false}
-                    ariaLabel={ariaLabel}
-                    handlers={handlers}
-                    showOverlay={!!layout}
-                >
-                    {text ? (
-                        <>
+            <ChartShell
+                wrapperRef={wrapperRef}
+                canvasRef={canvasRef}
+                overlayCanvasRef={overlayCanvasRef}
+                className={className}
+                dataAttr={dataAttr}
+                pointer={false}
+                ariaLabel={ariaLabel}
+                handlers={handlers}
+                showOverlay={!!layout}
+            >
+                {text ? (
+                    <>
+                        <div
+                            aria-hidden="true"
+                            data-attr="hog-chart-gauge-value"
+                            title={text.value.text}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                ...TEXT_BASE_STYLE,
+                                left: text.value.x,
+                                top: text.value.y,
+                                maxWidth: text.value.maxWidth,
+                                fontSize: text.value.fontSize,
+                                fontWeight: value === null ? 400 : GAUGE_VALUE_FONT_WEIGHT,
+                                lineHeight: 1.1,
+                                ...(value === null ? mutedStyle : { color: valueColor }),
+                            }}
+                        >
+                            {text.value.text}
+                        </div>
+                        {text.label ? (
                             <div
                                 aria-hidden="true"
-                                data-attr="hog-chart-gauge-value"
-                                title={text.value.text}
+                                data-attr="hog-chart-gauge-label"
+                                title={text.label.text}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     ...TEXT_BASE_STYLE,
-                                    left: text.value.x,
-                                    top: text.value.y,
-                                    maxWidth: text.value.maxWidth,
-                                    fontSize: text.value.fontSize,
-                                    fontWeight: value === null ? 400 : GAUGE_VALUE_FONT_WEIGHT,
-                                    lineHeight: 1.1,
-                                    ...(value === null
-                                        ? labelColor
-                                            ? { color: labelColor }
-                                            : MUTED_STYLE
-                                        : { color: valueColor }),
+                                    ...mutedStyle,
+                                    left: text.label.x,
+                                    top: text.label.y,
+                                    maxWidth: text.label.maxWidth,
+                                    fontSize: text.label.fontSize,
                                 }}
                             >
-                                {text.value.text}
+                                {text.label.text}
                             </div>
-                            {text.label ? (
-                                <div
-                                    aria-hidden="true"
-                                    data-attr="hog-chart-gauge-label"
-                                    title={text.label.text}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        ...TEXT_BASE_STYLE,
-                                        ...(labelColor ? { color: labelColor } : MUTED_STYLE),
-                                        left: text.label.x,
-                                        top: text.label.y,
-                                        maxWidth: text.label.maxWidth,
-                                        fontSize: text.label.fontSize,
-                                    }}
-                                >
-                                    {text.label.text}
-                                </div>
-                            ) : null}
-                        </>
-                    ) : null}
-                    {ends && layout
-                        ? ends.map((end, i) => (
-                              <div
-                                  key={i}
-                                  aria-hidden="true"
-                                  data-attr={i === 0 ? 'hog-chart-gauge-min' : 'hog-chart-gauge-max'}
-                                  // eslint-disable-next-line react/forbid-dom-props
-                                  style={{
-                                      ...TEXT_BASE_STYLE,
-                                      ...(labelColor ? { color: labelColor } : MUTED_STYLE),
-                                      transform: 'translate(-50%, 0)',
-                                      left: end.x,
-                                      top: layout.bottom + minMaxFont * 0.3,
-                                      fontSize: minMaxFont,
-                                      fontVariantNumeric: 'tabular-nums',
-                                  }}
-                              >
-                                  {end.text}
-                              </div>
-                          ))
-                        : null}
-                    {tooltipCtx && showTooltip ? (
-                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
-                    ) : null}
-                </ChartShell>
-            </ChartHoverContext.Provider>
+                        ) : null}
+                    </>
+                ) : null}
+                {ends && layout
+                    ? ends.map((end, i) => (
+                          <div
+                              key={i}
+                              aria-hidden="true"
+                              data-attr={i === 0 ? 'hog-chart-gauge-min' : 'hog-chart-gauge-max'}
+                              // eslint-disable-next-line react/forbid-dom-props
+                              style={{
+                                  ...TEXT_BASE_STYLE,
+                                  ...mutedStyle,
+                                  transform: 'translate(-50%, 0)',
+                                  left: end.x,
+                                  top: layout.bottom + minMaxFont * 0.3,
+                                  fontSize: minMaxFont,
+                                  fontVariantNumeric: 'tabular-nums',
+                              }}
+                          >
+                              {end.text}
+                          </div>
+                      ))
+                    : null}
+                {tooltipCtx && showTooltip ? (
+                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
+                ) : null}
+            </ChartShell>
         </ChartLayoutContext.Provider>
     )
 }

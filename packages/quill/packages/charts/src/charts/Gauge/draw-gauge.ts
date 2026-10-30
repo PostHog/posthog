@@ -1,4 +1,4 @@
-import { roundCapInset, targetTickSize } from './gauge-layout'
+import { isFullSweep, roundCapInset, targetTickSize } from './gauge-layout'
 import type { GaugeLayout } from './gauge-layout'
 
 export interface GaugePaintBand {
@@ -11,21 +11,16 @@ export interface GaugePaint {
     layout: GaugeLayout
     trackColor: string
     bands: GaugePaintBand[]
-    /** Angle the value arc ends at, or null for an empty arc. */
-    valueAngle: number | null
+    /** Angle the value arc ends at. At the start angle the arc is empty. */
+    valueAngle: number
     valueColor: string
     /** Angle of the target tick, or null when there is no target in range. */
     targetAngle: number | null
     targetColor: string
 }
 
-const FULL_TURN = 2 * Math.PI
 // Gap between adjacent threshold bands, in px along the ring.
 const BAND_GAP_PX = 1.5
-
-function isFullCircle(layout: GaugeLayout): boolean {
-    return layout.angles.sweep >= FULL_TURN - 1e-9
-}
 
 /** Stroke a round-capped arc whose caps land exactly on `from` and `to`. An arc shorter than its
  *  caps paints a dot at `from`, so a small nonzero value stays visible. */
@@ -40,20 +35,12 @@ function strokeRoundArc(
     if (thickness <= 0 || radius <= 0) {
         return
     }
-    if (isFullCircle(layout) && to - from >= FULL_TURN - 1e-9) {
-        ctx.beginPath()
-        ctx.lineCap = 'butt'
-        ctx.lineWidth = thickness
-        ctx.strokeStyle = color
-        ctx.arc(cx, cy, radius, 0, FULL_TURN)
-        ctx.stroke()
-        return
-    }
-    const inset = roundCapInset(radius, thickness)
+    const full = isFullSweep(to - from)
+    const inset = full ? 0 : roundCapInset(radius, thickness)
     const start = from + inset
     const end = Math.max(start, to - inset)
     ctx.beginPath()
-    ctx.lineCap = 'round'
+    ctx.lineCap = full ? 'butt' : 'round'
     ctx.lineWidth = thickness
     ctx.strokeStyle = color
     ctx.arc(cx, cy, radius, start, end)
@@ -111,7 +98,7 @@ export function drawGauge(ctx: CanvasRenderingContext2D, paint: GaugePaint): voi
     const { layout } = paint
     drawBands(ctx, layout, paint.bands)
     strokeRoundArc(ctx, layout, layout.angles.start, layout.angles.end, paint.trackColor)
-    if (paint.valueAngle !== null && paint.valueAngle > layout.angles.start) {
+    if (paint.valueAngle > layout.angles.start) {
         strokeRoundArc(ctx, layout, layout.angles.start, paint.valueAngle, paint.valueColor)
     }
     if (paint.targetAngle !== null) {

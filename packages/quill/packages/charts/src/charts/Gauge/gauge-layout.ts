@@ -15,10 +15,8 @@ export interface GaugeBounds {
     max: number
 }
 
-export interface GaugeBand<T extends GaugeThreshold = GaugeThreshold> {
-    /** Index into the sorted thresholds. */
-    index: number
-    threshold: T
+export interface GaugeBand {
+    threshold: GaugeThreshold
     /** The band clipped to the gauge range. */
     from: number
     to: number
@@ -63,12 +61,14 @@ const MAX_THICKNESS_PX = 28
 const MAX_BAND_PX = 8
 const MAX_BAND_GAP_PX = 6
 
+const FULL_TURN = 2 * Math.PI
+
 const isFiniteNumber = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n)
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi)
 
 /** Thresholds in ascending `value` order, without non-finite steps. Input order does not matter. */
-export function sortThresholds<T extends GaugeThreshold>(thresholds: readonly T[] | undefined): T[] {
+export function sortThresholds(thresholds: readonly GaugeThreshold[] | undefined): GaugeThreshold[] {
     return (thresholds ?? []).filter((t) => isFiniteNumber(t.value)).sort((a, b) => a.value - b.value)
 }
 
@@ -88,7 +88,7 @@ export interface ResolveGaugeBoundsInput {
  *  the value and the target, because a threshold ladder that stops short of the value is a color
  *  scale, not the range. The min and max labels then agree with where the arc ends. */
 export function resolveGaugeBounds({ value, min, max, thresholds, target }: ResolveGaugeBoundsInput): GaugeBounds {
-    const sorted = sortThresholds(thresholds)
+    const steps = (thresholds ?? []).map((t) => t.value).filter(isFiniteNumber)
     const contained = [value, target].filter(isFiniteNumber)
     const explicitMin = isFiniteNumber(min) ? min : undefined
     const explicitMax = isFiniteNumber(max) ? max : undefined
@@ -101,7 +101,7 @@ export function resolveGaugeBounds({ value, min, max, thresholds, target }: Reso
 
     // A value under the lowest threshold widens the range to 0 rather than to the value itself, so a
     // healthy value beneath an alert ladder does not sit at the empty end of the arc.
-    const base = sorted.length ? sorted[0].value : 0
+    const base = steps.length ? Math.min(...steps) : 0
     const lowest = Math.min(base, ...contained)
     let lo = explicitMin ?? (lowest < base ? Math.min(0, lowest) : base)
     if (explicitMax !== undefined && lo >= explicitMax) {
@@ -110,7 +110,7 @@ export function resolveGaugeBounds({ value, min, max, thresholds, target }: Reso
     if (explicitMax !== undefined) {
         return { min: lo, max: explicitMax }
     }
-    const hi = Math.max(sorted.length ? sorted[sorted.length - 1].value : Math.max(lo + 1, 0), ...contained)
+    const hi = Math.max(steps.length ? Math.max(...steps) : Math.max(lo + 1, 0), ...contained)
     return { min: lo, max: hi > lo ? hi : lo + 1 }
 }
 
@@ -145,13 +145,13 @@ export function thresholdIndexAt(value: number | null, sorted: readonly GaugeThr
 
 /** The visible part of each threshold band, clipped to the range. Bands outside the range or with
  *  no width are dropped. */
-export function thresholdBands<T extends GaugeThreshold>(sorted: readonly T[], bounds: GaugeBounds): GaugeBand<T>[] {
-    const bands: GaugeBand<T>[] = []
+export function thresholdBands(sorted: readonly GaugeThreshold[], bounds: GaugeBounds): GaugeBand[] {
+    const bands: GaugeBand[] = []
     for (let i = 0; i < sorted.length; i++) {
         const from = i === 0 ? bounds.min : Math.max(sorted[i].value, bounds.min)
         const to = i + 1 < sorted.length ? Math.min(sorted[i + 1].value, bounds.max) : bounds.max
         if (to > from) {
-            bands.push({ index: i, threshold: sorted[i], from, to })
+            bands.push({ threshold: sorted[i], from, to })
         }
     }
     return bands
@@ -165,9 +165,13 @@ export function clampGaugeSweep(sweepDegrees: number | undefined): number {
 
 /** Start and end angles of an arc of `sweepDegrees`, centered on 12 o'clock so the opening faces down.
  *  A full ring starts at 12 o'clock instead, like a progress ring. */
+export function isFullSweep(sweep: number): boolean {
+    return sweep >= FULL_TURN - 1e-9
+}
+
 export function gaugeAngles(sweepDegrees: number): GaugeAngles {
     const sweep = (clampGaugeSweep(sweepDegrees) * Math.PI) / 180
-    const start = sweep >= 2 * Math.PI ? -Math.PI / 2 : -Math.PI / 2 - sweep / 2
+    const start = isFullSweep(sweep) ? -Math.PI / 2 : -Math.PI / 2 - sweep / 2
     return { start, end: start + sweep, sweep }
 }
 
@@ -183,8 +187,7 @@ interface Box {
 }
 
 function angleInArc(angle: number, angles: GaugeAngles): boolean {
-    const turn = 2 * Math.PI
-    const offset = (((angle - angles.start) % turn) + turn) % turn
+    const offset = (((angle - angles.start) % FULL_TURN) + FULL_TURN) % FULL_TURN
     return offset <= angles.sweep + 1e-9
 }
 
@@ -198,7 +201,7 @@ export function ringSectorBox(angles: GaugeAngles, innerRadius: number, outerRad
     }
     for (let k = 0; k < 4; k++) {
         const angle = (k * Math.PI) / 2
-        if (angles.sweep >= 2 * Math.PI - 1e-9 || angleInArc(angle, angles)) {
+        if (angleInArc(angle, angles)) {
             points.push([Math.cos(angle) * outerRadius, Math.sin(angle) * outerRadius])
         }
     }
@@ -358,13 +361,13 @@ export function layoutGaugeText({
     // The inner edge of the arc ends dips below the center on sweeps past 180°. The text block
     // stays above those ends so the opening stays clear.
     const endDip = Math.max(0, Math.sin((angles.sweep - Math.PI) / 2)) * innerRadius
-    const floorY = angles.sweep >= 2 * Math.PI - 1e-9 ? cy + innerRadius * 0.7 : cy + endDip * 0.9
+    const floorY = isFullSweep(angles.sweep) ? cy + innerRadius * 0.7 : cy + endDip * 0.9
 
-    const place = (withLabel: boolean): GaugeTextBlock => {
+    const place = (label: string | null): GaugeTextBlock => {
         const initialFont = clamp(innerRadius * 0.46, MIN_VALUE_FONT, MAX_VALUE_FONT)
         let valueFont = initialFont
-        const labelFont = withLabel ? clamp(valueFont * 0.3, MIN_LABEL_FONT, MAX_LABEL_FONT) : 0
-        const gap = withLabel ? valueFont * TEXT_GAP_RATIO : 0
+        const labelFont = label ? clamp(valueFont * 0.3, MIN_LABEL_FONT, MAX_LABEL_FONT) : 0
+        const gap = label ? valueFont * TEXT_GAP_RATIO : 0
         const labelHeight = labelFont * LABEL_LINE_HEIGHT
 
         const blockFor = (font: number): { valueY: number; labelY: number; height: number } => {
@@ -402,14 +405,14 @@ export function layoutGaugeText({
             fontSize: valueFont,
             maxWidth: valueWidthAt(valueFont),
         }
-        if (!withLabel || labelText === null) {
+        if (!label) {
             return { value, label: null }
         }
         const dy = Math.max(Math.abs(labelY - labelHeight / 2 - cy), Math.abs(labelY + labelHeight / 2 - cy))
         return {
             value,
             label: {
-                text: labelText,
+                text: label,
                 x: cx,
                 y: labelY,
                 fontSize: labelFont,
@@ -419,12 +422,12 @@ export function layoutGaugeText({
     }
 
     if (labelText) {
-        const block = place(true)
+        const block = place(labelText)
         const top = block.value.y - block.value.fontSize / 2
         const fitsAbove = top >= cy - innerRadius * 0.95
         if (fitsAbove && block.label && block.label.maxWidth >= MIN_LABEL_FONT * 3) {
             return block
         }
     }
-    return place(false)
+    return place(null)
 }

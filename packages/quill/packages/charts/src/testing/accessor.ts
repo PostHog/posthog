@@ -242,6 +242,8 @@ export function getChart<Meta = unknown>(
         }
         return count
     }
+    const gaugePart = (part: string): HTMLElement | null =>
+        wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
 
     return {
         element: wrapper,
@@ -311,13 +313,11 @@ export function getChart<Meta = unknown>(
         },
         gauge: {
             text: () => {
-                const text = (attr: string): string | null =>
-                    wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${attr}"]`)?.textContent ?? null
+                const text = (part: string): string | null => gaugePart(part)?.textContent ?? null
                 const value = text('value')
                 return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
             },
-            valueColor: () =>
-                wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-gauge-value"]')?.style.color ?? null,
+            valueColor: () => gaugePart('value')?.style.color ?? null,
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
