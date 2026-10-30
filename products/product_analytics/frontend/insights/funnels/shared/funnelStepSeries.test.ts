@@ -61,6 +61,30 @@ describe('funnelStepSeries', () => {
             expected: { ...signups, name: 'Sign-ups', custom_name: 'Converted' },
         },
         {
+            case: 'a group with a renamed member to the name the runner gave the step, keeping its custom name',
+            query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.GroupNode,
+                        operator: FilterLogicalOperator.Or,
+                        name: 'Signed up, Paid',
+                        custom_name: 'Converted',
+                        nodes: [signups, { kind: NodeKind.ActionsNode, id: 8, name: 'Paid' }],
+                    },
+                ],
+            },
+            stepIndex: 0,
+            stepName: 'Sign-ups, Paid',
+            expected: {
+                kind: NodeKind.GroupNode,
+                operator: FilterLogicalOperator.Or,
+                name: 'Sign-ups, Paid',
+                custom_name: 'Converted',
+                nodes: [signups, { kind: NodeKind.ActionsNode, id: 8, name: 'Paid' }],
+            },
+        },
+        {
             case: 'an action series saved without a name to the name the runner gave the step',
             query: { kind: NodeKind.FunnelsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] },
             stepIndex: 0,

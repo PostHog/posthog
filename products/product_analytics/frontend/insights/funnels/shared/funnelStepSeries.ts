@@ -53,16 +53,16 @@ export function isRepeatedFunnelStep(series: SeriesNode | null, previousSeries: 
     return seriesNodeKey(series) === seriesNodeKey(previousSeries)
 }
 
-// The query holds the action name saved with the funnel, and the runner names the step from the database. So an action,
-// and a group without a name, take the step's name.
+// The query holds action and group names composed when the funnel was saved, and the runner composes them from the
+// database on each run, so actions and groups take the step's name.
 function withDisplayName(node: SeriesNode, step: Pick<FunnelStep, 'name'>): SeriesNode {
     const stepName = ensureStringIsNotBlank(step.name)
-    if (isActionsSeriesNode(node) && stepName) {
+    if ((isActionsSeriesNode(node) || isGroupSeriesNode(node)) && stepName) {
         return { ...node, name: stepName }
     }
     if (ensureStringIsNotBlank(node.name)) {
         return node
     }
-    const name = isEventsSeriesNode(node) ? node.event : isWarehouseSeriesNode(node) ? node.table_name : step.name
+    const name = isEventsSeriesNode(node) ? node.event : isWarehouseSeriesNode(node) ? node.table_name : null
     return name ? { ...node, name } : node
 }
