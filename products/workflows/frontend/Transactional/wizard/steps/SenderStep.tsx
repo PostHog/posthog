@@ -4,9 +4,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import { EmailSenderForm } from 'scenes/hog-functions/email-templater/EmailSenderForm'
+import { EmailSenderPicker } from 'scenes/hog-functions/email-templater/EmailSenderPicker'
 import { urls } from 'scenes/urls'
 
 import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
@@ -49,13 +51,24 @@ export function SenderStep(): JSX.Element {
         )
     }
 
+    const from = senderFrom(draft.email)
+
     return (
-        <div className="max-w-160 [&>div]:w-full [&>div]:p-0">
+        <div className="max-w-160 flex flex-col gap-3 [&>div]:w-full [&>div]:p-0">
+            <LemonField.Pure label="Sender">
+                <EmailSenderPicker
+                    from={from}
+                    senders={senders}
+                    dataAttrPrefix="transactional-email"
+                    onChangeFrom={(next) => updateEmail({ from: next })}
+                />
+            </LemonField.Pure>
             <EmailSenderForm
-                from={senderFrom(draft.email)}
+                from={from}
                 replyTo={draft.email.replyTo}
                 senders={senders}
-                onChangeFrom={(from) => updateEmail({ from })}
+                dataAttrPrefix="transactional-email"
+                onChangeFrom={(next) => updateEmail({ from: next })}
                 onChangeReplyTo={(replyTo) => updateEmail({ replyTo })}
             />
         </div>
