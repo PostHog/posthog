@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     UnmappableTableError,
     needs_preserved_column_names,
     parse_self_managed_url,
+    refuse_columns_an_import_changes,
     source_format_for,
     table_definition_for,
 )
@@ -539,11 +540,18 @@ class TestTableDefinition:
             table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
 
     @parameterized.expand([("Date",), ("Nullable(Date32)",), ("DateTime",), ("Nullable(DateTime64(9))",)])
-    def test_json_dates_and_times_are_refused(self, column_type: str) -> None:
+    def test_json_dates_and_times_are_cast_not_refused(self, column_type: str) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"id": "Int64", "created": column_type}
 
-        with pytest.raises(UnmappableTableError, match="'created'"):
-            table_definition_for("orders", location, "JSONEachRow", {"id": "Int64", "created": column_type}, None)
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["created"]
+
+    def test_json_nested_columns_are_still_refused(self) -> None:
+        with pytest.raises(UnmappableTableError, match="'tags'"):
+            refuse_columns_an_import_changes({"tags": "Array(String)", "day": "Date"}, "jsonl")
 
     def test_csv_header_names_with_surrounding_spaces_are_refused(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")

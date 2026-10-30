@@ -1052,7 +1052,7 @@ class TestSignalSideMission:
         assert signal.description == clean
 
     def test_signal_headline_strips_markers_and_holds_its_length(self) -> None:
-        # The headline shares the description's marker leak, and a watch feed card lists three of them on one
+        # The headline shares the description's marker leak, and a highlight feed card lists three of them on one
         # line, so a model that answers with a sentence instead of a phrase must not reflow the card.
         marked = SignalFinding.model_validate({**self._VALID_SIGNAL, "headline": "Checkout CTA (t 844) does nothing"})
         assert marked.headline == "Checkout CTA does nothing"

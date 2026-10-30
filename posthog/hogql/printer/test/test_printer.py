@@ -227,14 +227,21 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (84,)])
+    @parameterized.expand(
+        [
+            (12, "events", "events"),
+            (84, "events", "events"),
+            (12, "posthog.flag_evaluations", "flag_evaluations"),
+        ]
+    )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-    def test_events_retention_floor_applied(self, months: int):
+    def test_events_retention_floor_applied(self, months: int, table: str, printed_table: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        sql = self._select("select count() from events", context=context)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert f"greater({printed_table}.timestamp, minus(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
@@ -3330,6 +3337,24 @@ class TestPrinter(BaseTest):
     def test_date_conversion_of_an_array_join_item_uses_the_item_type(self, _name: str, query: str, expected: str):
         printed = self._select(query)
         assert expected in printed, printed
+
+    @parameterized.expand(
+        [
+            ("toStartOfMinute",),
+            ("toStartOfHour",),
+            ("toStartOfDay",),
+            ("toStartOfWeek",),
+            ("toStartOfMonth",),
+            ("toStartOfQuarter",),
+            ("toStartOfYear",),
+            ("toStartOfISOYear",),
+        ]
+    )
+    def test_to_datetime_of_start_of_interval_uses_the_plain_constructor(self, trunc_func: str):
+        # Funnel trends wrap the interval bucket in toDateTime, and the parser rejects a Date (code 43).
+        printed = self._expr(f"toDateTime({trunc_func}(timestamp))")
+        assert "parseDateTime64BestEffort" not in printed, printed
+        assert printed.startswith(f"toDateTime({trunc_func}("), printed
 
     def test_window_functions(self):
         self.assertEqual(

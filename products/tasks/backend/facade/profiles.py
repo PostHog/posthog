@@ -56,6 +56,12 @@ class GithubAccess(StrEnum):
     WRITE = "write"
 
 
+class NetworkAccess(StrEnum):
+    TRUSTED = "trusted"
+    FULL = "full"
+    CUSTOM = "custom"
+
+
 class SourceKind(StrEnum):
     SIGNAL_REPORT = "signal_report"
     HOG_FLOW = "hog_flow"
@@ -79,6 +85,17 @@ class WarmPolicy:
     per_org_cap: int
     # Feature flag checked for the user and their organization before warming. None warms for every user.
     feature_flag: str | None
+
+
+@frozen
+class NetworkPolicy:
+    levels: tuple[NetworkAccess, ...]
+    allowed_domains: tuple[str, ...] = ()
+    include_default_domains: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.levels:
+            raise TaskProfileError("A network policy needs at least one level")
 
 
 @frozen
@@ -133,6 +150,8 @@ class TaskProfile:
     runtimes: tuple[str, ...]
     # The sandbox templates a task may boot from. The first one is the default.
     sandbox_templates: tuple[str, ...]
+    # A user-picked sandbox environment overrides this, so it covers internal environments and runs without one.
+    network: NetworkPolicy
     # True applies the creator's and the team's default model settings to each run.
     inherit_user_defaults: bool
     # True also installs the creator's personal MCP servers. It has no effect when
@@ -161,6 +180,9 @@ class TaskProfile:
     user_authorable_prs: bool
     # Who authors pull requests when the run does not set TaskRunOptions.pr_authorship_mode.
     default_pr_authorship: PrAuthorship
+    # True lets a run open a pull request when it finishes. A caller can still turn it off for one
+    # run. False means runs never open one, whatever the caller passes.
+    create_pr: bool
     # True gives the agent a finish tool that moves the task to done.
     finish_tool: bool
     # True moves the task to done when a turn closes, including a failed turn. Use it for work that

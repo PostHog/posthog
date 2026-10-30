@@ -38,4 +38,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the campaign was created.",
         },
     },
+    "events": {
+        "description": "An activity in your PersistIQ account, such as a lead being created, a message being sent, opened, clicked, or replied to, or a campaign change.",
+        "docs_url": "https://apidocs.persistiq.com",
+        "columns": {
+            "id": "The unique ID of the event.",
+            "kind": "The type of event (e.g. lead_created, message_sent, message_opened, message_received).",
+            "event_at": "When the event happened.",
+            "user_id": "The ID of the user who performed the event.",
+            "user": "The user who performed the event (id, name, email).",
+            "campaign": "The campaign the event relates to (id, name), if any.",
+            "lead": "The lead the event relates to (id, email, first and last name), if any.",
+            "params": "The attributes supplied with the event, if any.",
+            "diff": "The changes made by the event, if any.",
+        },
+    },
+    "lead_statuses": {
+        "description": "A lead status defined for your PersistIQ account (e.g. engaged, working, unresponsive).",
+        "docs_url": "https://apidocs.persistiq.com",
+        "columns": {
+            "id": "The unique ID of the lead status.",
+            "name": "The name of the lead status.",
+        },
+    },
+    "lead_fields": {
+        "description": "A lead field defined for your PersistIQ account, including custom fields.",
+        "docs_url": "https://apidocs.persistiq.com",
+        "columns": {
+            "id": "The unique ID of the lead field.",
+            "name": "The key of the field in a lead's data.",
+            "label": "The display label of the field.",
+        },
+    },
+    "dnc_domains": {
+        "description": "A Do Not Contact domain. PersistIQ does not send email to addresses at this domain.",
+        "docs_url": "https://apidocs.persistiq.com",
+        "columns": {
+            "id": "The unique ID of the Do Not Contact domain.",
+            "name": "The domain name.",
+        },
+    },
 }

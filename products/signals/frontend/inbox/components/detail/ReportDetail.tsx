@@ -22,6 +22,8 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -215,6 +217,21 @@ export function InboxDetailFrame({
     pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const reportContextGroup = `inbox_report:${report.id}`
+    useAttachedContext([
+        { type: 'inbox_report', key: report.id, label: 'Self-driving Inbox Report', dismissGroup: reportContextGroup },
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: reportContextGroup,
+            value:
+                'The inbox_report item identifies the open Self-driving report. ' +
+                'Use inbox-reports-retrieve for report details and inbox-report-artefacts-list for evidence, notes, ' +
+                'code references, and task_run links. Read individual artefacts with inbox-report-artefacts-retrieve. ' +
+                'Follow task_id and run_id from task_run entries with tasks-retrieve, tasks-runs-retrieve, and ' +
+                'tasks-runs-session-logs-retrieve as needed. Load the signals skill for raw contributing signals.',
+        },
+    ])
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.

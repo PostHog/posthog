@@ -26,10 +26,9 @@ import type { SourceProductDataStatus, SourceProductStatus } from '../../signalS
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
-import { SourceCatalogModal } from './SourceCatalogModal'
-import { SourceRecommendations } from './SourceRecommendations'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -619,8 +618,8 @@ export function AgentsRoster(): JSX.Element {
     const {
         externalSourceStates,
         rosterGroups,
-        visibleSourceRecommendations,
         sourcesLoadError,
+        dataWarehouseSources,
         dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
@@ -649,8 +648,6 @@ export function AgentsRoster(): JSX.Element {
         linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
-        openSourceCatalog,
-        hideSourceRecommendations,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -976,53 +973,22 @@ export function AgentsRoster(): JSX.Element {
 
             {rosterGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <AgentRosterGroupHeader group={group} />
-                        {group.id === 'external' && (
-                            <div className="flex flex-wrap items-center gap-1">
-                                {group.agents.length === 0 && visibleSourceRecommendations.length > 0 && (
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        onClick={hideSourceRecommendations}
-                                        data-attr="signal-source-recommendations-hide"
-                                    >
-                                        Hide recommendations
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPlus />}
-                                    onClick={openSourceCatalog}
-                                    data-attr="signal-source-catalog-open"
-                                >
-                                    Add source
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
+                    <AgentRosterGroupHeader group={group} />
                     {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
-                    {group.id === 'external' && group.agents.length > 0 && visibleSourceRecommendations.length > 0 && (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h4 className="m-0 text-sm font-semibold">Recommended for you</h4>
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                onClick={hideSourceRecommendations}
-                                data-attr="signal-source-recommendations-hide"
-                            >
-                                Hide recommendations
-                            </LemonButton>
-                        </div>
-                    )}
-                    {group.id === 'external' && <SourceRecommendations />}
+                    {group.id === 'external' &&
+                        group.agents.length === 0 &&
+                        dataWarehouseSources !== null &&
+                        sourceConfigs !== null && (
+                            <p className="m-0 text-xs text-secondary">
+                                Connect external tools from the available sources below.
+                            </p>
+                        )}
                 </div>
             ))}
 
-            <SourceCatalogModal />
+            <DataSourceSetupModal />
 
             {linearTeamsPicker && (
                 <LinearTeamsModal

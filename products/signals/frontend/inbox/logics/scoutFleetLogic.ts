@@ -1308,8 +1308,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
+        // visit opens the roster as the user left it. Search does not persist, the same as the report list.
         selectedScoutTags: [
             [] as string[],
+            { persist: true },
             {
                 setScoutTagFilter: (_, { tags }) => tags,
                 hydrateRosterFilters: (_, { tags }) => tags,
@@ -1324,6 +1327,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
+            { persist: true },
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
                 hydrateRosterFilters: (_, { filter }) => filter,
@@ -1331,6 +1335,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutOwner: [
             null as string | null,
+            { persist: true },
             {
                 setScoutOwnerFilter: (_, { owner }) => owner,
                 hydrateRosterFilters: (_, { owner }) => owner,
@@ -1338,6 +1343,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
+            { persist: true },
             {
                 setScoutRosterSort: (_, { sort }) => sort,
             },
@@ -2148,7 +2154,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             _: unknown,
             searchParams: Record<string, any>,
             __: unknown,
-            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+            { method, initial }: { method: 'PUSH' | 'REPLACE' | 'POP'; initial?: boolean }
         ): void => {
             const hasRosterParams =
                 'scoutSearch' in searchParams ||
@@ -2159,7 +2165,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
                 // the filters and leave the URL bare so a second Back can still reach the entries
                 // beneath it. Reflecting the persisted filters back here would undo the navigation.
-                if (method === 'POP') {
+                // kea-router also reports the location at mount as a POP, flagged `initial`. That is a
+                // fresh visit, not a Back, so it keeps the persisted filters.
+                if (method === 'POP' && !initial) {
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
@@ -2175,7 +2183,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // replaces the bare URL to restore its own params while a Back is still being
                 // handled, and writing the roster filters there would leave the URL filtered after
                 // that Back resets the controls.
-                if (method !== 'PUSH') {
+                if (method !== 'PUSH' && !initial) {
                     return
                 }
                 const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))

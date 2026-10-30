@@ -5,7 +5,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -941,7 +943,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["id"] for row in response.json()["results"]} == {str(mine.id)}
 
-    def test_assignee_mine_matches_claims_by_the_user_their_agents_and_their_tasks(self):
+    def test_assignee_mine_matches_claims_by_the_user_and_their_agents_but_not_their_tasks(self):
         Task = apps.get_model("tasks", "Task")
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         own_task = Task.objects.create(
@@ -950,12 +952,12 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         teammate_task = Task.objects.create(
             team=self.team, created_by=teammate, title="Teammate task", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        mine = [self._create_report(title=title) for title in ("By me", "By my agent", "By my task")]
-        theirs = [self._create_report(title=title) for title in ("By teammate", "By teammate task")]
+        mine = [self._create_report(title=title) for title in ("By me", "By my agent")]
+        theirs = [self._create_report(title=title) for title in ("By teammate", "By teammate task", "By my task")]
         for report, headers in [
             (mine[0], {}),
             (mine[1], self._agent_headers("codex")),
-            (mine[2], {"X-PostHog-Task-Id": str(own_task.id)}),
+            (theirs[2], {"X-PostHog-Task-Id": str(own_task.id)}),
             (theirs[1], {"X-PostHog-Task-Id": str(teammate_task.id)}),
         ]:
             assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
@@ -986,6 +988,97 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert len(users) == len(reports)
         assert {user.id for user in users.values()} == {self.user.id}
+
+    def _bulk_claim_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/bulk_claim/"
+
+    def test_bulk_claim_reports_each_id_without_reaching_other_teams(self):
+        ready = self._create_report()
+        dismissed = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign = self._create_report(team=other_team)
+        unknown = "00000000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            self._bulk_claim_url(),
+            data={"ids": [str(ready.id), str(dismissed.id), str(foreign.id), unknown, str(ready.id)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(row["id"], row["outcome"]) for row in body["results"]] == [
+            (str(ready.id), "claimed"),
+            (str(dismissed.id), "conflict"),
+            (str(foreign.id), "not_found"),
+            (unknown, "not_found"),
+        ]
+        assert (body["claimed_count"], body["conflict_count"], body["not_found_count"]) == (1, 1, 2)
+        claim = get_active_claim(team_id=self.team.id, report_id=ready.id)
+        assert claim is not None and claim.actor_user_id == self.user.id
+        assert get_active_claim(team_id=other_team.id, report_id=foreign.id) is None
+
+    @parameterized.expand(
+        [
+            ("an agent, without takeover", "agent", False, "conflict", SignalActorKind.AGENT),
+            ("an agent, with takeover", "agent", True, "claimed", SignalActorKind.USER),
+            ("a person, with takeover", "person", True, "conflict", SignalActorKind.USER),
+        ]
+    )
+    def test_bulk_claim_takes_over_only_agent_claims_on_request(
+        self, _name: str, holder: str, takeover: bool, outcome: str, kind_after: str
+    ) -> None:
+        report = self._create_report()
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        if holder == "agent":
+            self.client.post(self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex"))
+        else:
+            self.client.force_login(teammate)
+            self.client.post(self._claim_url(report), data={}, format="json")
+            self.client.force_login(self.user)
+
+        response = self.client.post(
+            self._bulk_claim_url(), data={"ids": [str(report.id)], "takeover_agent_claims": takeover}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["outcome"] == outcome
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None and claim.actor_kind == kind_after
+        assert claim.actor_user_id == (teammate.id if holder == "person" else self.user.id)
+
+    def test_claim_with_a_pull_request_logs_the_implementation_pr_change(self):
+        report = self._create_report()
+        pr_url = "https://github.com/example/app/pull/7"
+
+        response = self.client.post(self._claim_url(report), data={"pr_url": pr_url}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="SignalReport", item_id=str(report.id), activity="assignment_changed"
+        )
+        assert log.detail is not None
+        pr_change = next(change for change in log.detail["changes"] if change["field"] == "implementation_pr")
+        assert pr_change["before"] is None
+        assert pr_change["after"]["url"] == pr_url
+
+    def test_bulk_claim_adds_a_fixed_number_of_queries_per_report(self):
+        def queries_for(count: int) -> int:
+            ids = [str(self._create_report(title=f"Report {i}").id) for i in range(count)]
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.post(self._bulk_claim_url(), data={"ids": ids}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["claimed_count"] == count
+            return len(ctx.captured_queries)
+
+        # The first call fills caches the later ones reuse, so it is not measured.
+        queries_for(1)
+        for_two, for_three, for_four = (queries_for(n) for n in (2, 3, 4))
+
+        per_report = for_three - for_two
+        assert for_four - for_three == per_report
+        assert per_report <= 11
+        assert for_two - 2 * per_report <= 15
 
     def test_claimed_report_remains_in_default_actionable_list(self):
         report = self._create_report()

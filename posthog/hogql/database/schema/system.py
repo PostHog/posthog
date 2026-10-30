@@ -1074,6 +1074,16 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum training iterations the agent loop may spend."
         ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model override for the training agent (NULL uses the autoresearch default model).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort override for the training agent (NULL uses the autoresearch default).",
+        ),
         "iteration_budget_remaining": IntegerDatabaseField(
             name="iteration_budget_remaining",
             nullable=True,
@@ -1109,6 +1119,26 @@ autoresearch_training_runs: PostgresTable = PostgresTable(
             name="task_run_id", nullable=True, description="Task run of the agent sandbox; joins to task_runs.id."
         ),
         "status": StringDatabaseField(name="status", description="One of pending, running, completed, failed."),
+        "kickoff_reason": StringDatabaseField(
+            name="kickoff_reason",
+            nullable=True,
+            description="Why the run started: explore, scheduled, rescue, or manual (NULL for older runs).",
+        ),
+        "agent_runtime_adapter": StringDatabaseField(
+            name="agent_runtime_adapter",
+            nullable=True,
+            description="Agent runtime the run was dispatched with, for example claude or codex (NULL for older runs).",
+        ),
+        "agent_model": StringDatabaseField(
+            name="agent_model",
+            nullable=True,
+            description="Model the training agent ran on, for example claude-opus-5-5 (NULL for older runs).",
+        ),
+        "agent_reasoning_effort": StringDatabaseField(
+            name="agent_reasoning_effort",
+            nullable=True,
+            description="Reasoning effort the training agent ran with (NULL for older runs or when the model has none).",
+        ),
         "iteration_budget": IntegerDatabaseField(
             name="iteration_budget", description="Maximum iterations the run may record."
         ),

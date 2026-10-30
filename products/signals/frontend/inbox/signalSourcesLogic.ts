@@ -31,9 +31,10 @@ import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { signalsOnboardingList } from '../generated/api'
+import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from '../generated/api'
 import type {
     InboxOnboardingStateApi,
+    PatchedSignalSourceConfigApi,
     SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
@@ -140,6 +141,7 @@ export interface SourceCatalogItem {
     syncFailed: boolean
     loading: boolean
     blockedReason?: string
+    recommendation?: SourceRecommendation
 }
 
 export interface SourceCatalogGroup {
@@ -335,7 +337,6 @@ export interface signalSourcesLogicValues {
     rosterGroups: AgentRosterGroup[]
     scannerInventoryKnown: boolean
     sourceCatalog: SourceCatalogGroup[]
-    sourceCatalogOpen: boolean
     sourceCategory: string
     sourceCategoryOptions: {
         label: string
@@ -363,9 +364,6 @@ export interface signalSourcesLogicActions {
         value: true
     }
     closeLinearTeamsPicker: () => {
-        value: true
-    }
-    closeSourceCatalog: () => {
         value: true
     }
     closeSourcesModal: () => {
@@ -468,9 +466,6 @@ export interface signalSourcesLogicActions {
         source: WarehouseBackedSource
     }
     openLinearTeamsPicker: (state: LinearTeamsPickerState) => LinearTeamsPickerState
-    openSourceCatalog: () => {
-        value: true
-    }
     openSourcesModal: () => {
         value: true
     }
@@ -526,6 +521,9 @@ export interface signalSourcesLogicActions {
     }
     setSourceSearchQuery: (query: string) => {
         query: string
+    }
+    sourceCatalogViewed: () => {
+        value: true
     }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -716,7 +714,8 @@ export interface signalSourcesLogicMeta {
             ciSignalsIsFullyEnabled: boolean,
             isCiSignalsToggling: boolean,
             sourceConfigs: SignalSourceConfig[] | null,
-            sourceConfigsLoading: boolean
+            sourceConfigsLoading: boolean,
+            visibleSourceRecommendations: SourceRecommendation[]
         ) => SourceCatalogGroup[]
         sourceCategoryOptions: (externalAgents: AgentRosterDefinition[]) => {
             label: string
@@ -1014,8 +1013,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         setScannerInventoryKnown: (known: boolean) => ({ known }),
         setSourceSearchQuery: (query: string) => ({ query }),
         setSourceCategory: (category: string) => ({ category }),
-        openSourceCatalog: true,
-        closeSourceCatalog: true,
+        sourceCatalogViewed: true,
         selectCatalogSource: (source: WarehouseBackedSource, origin: SignalSourceCatalogOrigin) => ({
             source,
             origin,
@@ -1164,21 +1162,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             null as boolean | null,
             { setErrorTrackingHasIssues: (_, { hasIssues }) => hasIssues },
         ],
-        sourceSearchQuery: ['', { setSourceSearchQuery: (_, { query }) => query, closeSourceCatalog: () => '' }],
-        sourceCategory: ['', { setSourceCategory: (_, { category }) => category, closeSourceCatalog: () => '' }],
-        // The connect form is a step inside the catalog, so resuming one after OAuth reopens the catalog
-        // around it. The Linear teams picker is a modal of its own, so the catalog yields to it.
-        sourceCatalogOpen: [
-            false,
-            {
-                openSourceCatalog: () => true,
-                openDataSourceSetup: () => true,
-                closeSourceCatalog: () => false,
-                openLinearTeamsPicker: () => false,
-                closeSourcesModal: () => false,
-            },
-        ],
-        // Remember existing synced sources so only a new connection can undo a dismissal.
+        sourceSearchQuery: ['', { setSourceSearchQuery: (_, { query }) => query }],
+        sourceCategory: ['', { setSourceCategory: (_, { category }) => category }],
         sourceRecommendationsDismissal: [
             null as string[] | null,
             { ...buildUserScopedPersistenceConfig(), storageKey: SOURCE_RECOMMENDATIONS_DISMISSAL_STORAGE_KEY },
@@ -1196,7 +1181,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
-                closeSourceCatalog: () => null,
                 closeSourcesModal: () => null,
             },
         ],
@@ -1383,6 +1367,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 s.isCiSignalsToggling,
                 s.sourceConfigs,
                 s.sourceConfigsLoading,
+                s.visibleSourceRecommendations,
             ],
             (
                 agents: AgentRosterDefinition[],
@@ -1393,7 +1378,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 ciEnabled: boolean,
                 ciToggling: boolean,
                 sourceConfigs: SignalSourceConfig[] | null,
-                sourceConfigsLoading: boolean
+                sourceConfigsLoading: boolean,
+                recommendations: SourceRecommendation[]
             ): SourceCatalogGroup[] => {
                 const needle = query.trim().toLowerCase()
                 // Without the config rows a synced tool reads as never turned on, and a click would
@@ -1403,7 +1389,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         ? undefined
                         : sourceConfigsLoading
                           ? 'Loading your signal sources'
-                          : "Couldn't load your signal sources. Close this and select Retry."
+                          : "Couldn't load your signal sources. Select Retry above to try again."
                 const items = agents
                     .filter(
                         (agent) =>
@@ -1420,6 +1406,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 syncFailed: state.config?.status === SignalSourceConfigStatus.FAILED,
                                 loading: state.loading,
                                 blockedReason: state.blockedReason ?? configsBlockedReason,
+                                recommendation: recommendations.find((item) => item.agent.source === agent.source),
                             }
                         }
                         return {
@@ -1428,12 +1415,22 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             enabled: ciEnabled,
                             syncFailed: ciConfig?.sync_status === 'failed',
                             loading: ciToggling,
+                            recommendation: recommendations.find((item) => item.agent.source === agent.source),
                         }
                     })
-                return CATALOG_CATEGORY_ORDER.map((groupCategory) => ({
-                    category: groupCategory,
-                    items: items.filter((item) => item.agent.category === groupCategory),
-                })).filter((group) => group.items.length > 0)
+                    .filter((item) => !item.connected && !item.enabled)
+                return [
+                    {
+                        category: 'Recommended for you',
+                        items: recommendations.flatMap((recommendation) =>
+                            items.filter((item) => item.agent.source === recommendation.agent.source)
+                        ),
+                    },
+                    ...CATALOG_CATEGORY_ORDER.map((groupCategory) => ({
+                        category: groupCategory,
+                        items: items.filter((item) => !item.recommendation && item.agent.category === groupCategory),
+                    })),
+                ].filter((group) => group.items.length > 0)
             },
         ],
         sourceCategoryOptions: [
@@ -1545,18 +1542,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 )
             },
         ],
-        // Hidden means hidden, except for a tool synced after the person hid the strip: a fresh
-        // warehouse connection is the strongest hint the strip ever has.
         visibleSourceRecommendations: [
             (s) => [s.recommendedSources, s.sourceRecommendationsDismissal],
             (recommendations: SourceRecommendation[], dismissal: string[] | null): SourceRecommendation[] =>
-                (dismissal === null
+                dismissal === null
                     ? recommendations
-                    : recommendations.filter(
-                          (recommendation) =>
-                              recommendation.reason === 'synced' && !dismissal.includes(recommendation.agent.source)
-                      )
-                ).slice(0, MAX_SOURCE_RECOMMENDATIONS),
+                          .filter((recommendation) => recommendation.reason !== 'synced')
+                          .slice(0, MAX_SOURCE_RECOMMENDATIONS)
+                    : [],
         ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
@@ -1908,19 +1901,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
         return {
             closeDataSourceSetup: forgetResumedSetup,
-            closeSourceCatalog: forgetResumedSetup,
-            openSourceCatalog: () => {
+            sourceCatalogViewed: () => {
                 captureSignalSourceCatalogOpened({
                     recommendationCount: values.visibleSourceRecommendations.length,
                     connectedCount: values.rosterGroups.find((group) => group.id === 'external')?.agents.length ?? 0,
                 })
             },
             hideSourceRecommendations: () => {
-                actions.setSourceRecommendationsDismissed(
-                    values.recommendedSources
-                        .filter((recommendation) => recommendation.reason === 'synced')
-                        .map((recommendation) => recommendation.agent.source)
-                )
+                actions.setSourceRecommendationsDismissed([])
             },
             selectCatalogSource: ({ source, origin }) => {
                 const reason = values.recommendedSources.find(
@@ -1931,18 +1919,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.initiateDataWarehouseSourceToggle(source)
                 } else {
                     actions.toggleCiSignals()
-                }
-            },
-            // A source that turned on from the catalog shows up in the roster, so the catalog gets out of
-            // the way. A connect form stays: its own completion closes the catalog below.
-            toggleSignalSourceSuccess: ({ params }) => {
-                if (params.enabled && values.sourceCatalogOpen && values.dataSourceSetupSource === null) {
-                    actions.closeSourceCatalog()
-                }
-            },
-            loadCiSignalsConfigSuccess: ({ ciSignalsConfig }) => {
-                if (ciSignalsConfig.enabled && values.sourceCatalogOpen && values.dataSourceSetupSource === null) {
-                    actions.closeSourceCatalog()
                 }
             },
             loadSourceConfigs: () => {
@@ -2014,7 +1990,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             onDataSourceSetupComplete: () => {
                 const source = values.dataSourceSetupSource
-                actions.closeSourceCatalog()
+                actions.closeDataSourceSetup()
                 actions.loadSources()
                 if (source === null) {
                     return
@@ -2038,7 +2014,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             // No breakpoint here: every call settles its own source, and a breakpoint would let a
             // toggle on another source cancel this one, leaving its spinner up and its error unshown.
             toggleSignalSource: async ({ params }) => {
-                const { sourceProduct, sourceType, enabled, config } = params
+                const { sourceProduct, sourceType, enabled, config, configSet } = params
                 if (values.sourceConfigs === null) {
                     actions.toggleSignalSourceFailure(params, SOURCE_CONFIGS_UNAVAILABLE_MESSAGE)
                     failSignalSourceToggle(
@@ -2057,17 +2033,24 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     )
 
                     if (existing && !existing.id.startsWith('new_')) {
-                        const updateData: Partial<SignalSourceConfig> = { enabled }
+                        const updateData: PatchedSignalSourceConfigApi = { enabled }
                         if (config !== undefined) {
                             updateData.config = config
                         }
-                        await api.signalSourceConfigs.update(existing.id, updateData)
+                        if (configSet !== undefined) {
+                            updateData.config_set = configSet
+                        }
+                        await signalsSourceConfigsPartialUpdate(
+                            String(ApiConfig.getCurrentProjectId()),
+                            existing.id,
+                            updateData
+                        )
                     } else if (enabled) {
-                        await api.signalSourceConfigs.create({
+                        await signalsSourceConfigsCreate(String(ApiConfig.getCurrentProjectId()), {
                             source_product: sourceProduct,
-                            source_type: sourceType,
+                            source_type: sourceType as SignalSourceConfigSourceTypeEnumApi,
                             enabled,
-                            config: config ?? {},
+                            config: config ?? configSet ?? {},
                         })
                     }
                     actions.toggleSignalSourceSuccess(params)

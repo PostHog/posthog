@@ -14,10 +14,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.temporal.activities.create_observation import _build_scanner_snapshot
-from products.replay_vision.backend.watch_rank import ANCHORS, WatchCategory
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ANCHORS, WatchCategory
 
 
 def snapshot_for(scanner: ReplayScanner) -> dict[str, Any]:
@@ -93,3 +95,21 @@ def axis_anchors() -> dict[WatchCategory, np.ndarray]:
         "routine": [0.0, 0.0, 1.0],
     }
     return {category: np.array([axes[category]] * len(ANCHORS[category])) for category in ANCHORS}
+
+
+def set_rank(
+    observation: ReplayObservation,
+    *,
+    category: str = "failure",
+    contrast: float = 0.5,
+    group: Any = None,
+    theme: Any = None,
+    anchor_version: int = ANCHOR_VERSION,
+) -> None:
+    """Give an observation the rank row the rank consumer would write, replacing any it has."""
+    ranks = ReplayObservationRank.objects.for_team(observation.team_id)
+    ranks.filter(observation_id=observation.id).delete()
+    record_ranks(
+        observation.team_id, anchor_version, {str(observation.id): NewRank(contrast=contrast, category=category)}
+    )
+    ranks.filter(observation_id=observation.id).update(feed_group_id=group, search_theme_id=theme)
