@@ -2,6 +2,13 @@
 import { formatBytes, formatDelta } from './ci-report/format.mjs'
 import { resolvePrAndBaseReport } from './ci-report/report-files.mjs'
 import { postSection } from './ci-report/update-ci-report.mjs'
+import {
+    GROWTH_APPROVAL_LABEL,
+    GROWTH_THRESHOLD_BYTES,
+    approvalHint,
+    eagerGrowth,
+    readPrLabels,
+} from './eagerGrowthGate.mjs'
 
 const resolved = resolvePrAndBaseReport('eager-graph-report', 'eager graph')
 if (!resolved) {
@@ -20,17 +27,43 @@ function budgetBar(bytes, budgetBytes) {
 const errorCount = report.errors?.length ?? 0
 const overBudgetRoots = report.roots.filter((r) => r.overBudget).length
 const forbiddenCount = report.roots.reduce((n, r) => n + r.forbiddenHits.length, 0)
+const growth = eagerGrowth(report, baseReport)
+const growthApproved = readPrLabels()?.includes(GROWTH_APPROVAL_LABEL) ?? false
+const unapprovedGrowth = growthApproved ? 0 : growth.filter((g) => g.overThreshold).length
 const anyFailure = Boolean(errorCount || overBudgetRoots || forbiddenCount)
 
 const problems = [
+    unapprovedGrowth && `${unapprovedGrowth} root(s) grew past the limit`,
     overBudgetRoots && `${overBudgetRoots} over budget`,
     forbiddenCount && `${forbiddenCount} forbidden import(s)`,
 ].filter(Boolean)
 const summary = errorCount ? `${errorCount} error(s)` : problems.join(', ') || 'within budget'
 
+function growthLines() {
+    const limit = formatBytes(GROWTH_THRESHOLD_BYTES)
+    if (!baseReport) {
+        return [`ℹ️ No base build to compare against, so the ${limit} growth limit was not checked.`, '']
+    }
+    const lines = []
+    for (const g of growth) {
+        const change = formatDelta(g.bytes, g.baseBytes)
+        if (!g.overThreshold) {
+            lines.push(`🟢 **${g.label}**: ${change}, within the ${limit} growth limit.`)
+        } else if (growthApproved) {
+            lines.push(
+                `✅ **${g.label}**: ${change}, over the ${limit} growth limit. The \`${GROWTH_APPROVAL_LABEL}\` label approves it.`
+            )
+        } else {
+            lines.push(`❌ **${g.label}**: ${change}, over the ${limit} growth limit. ${approvalHint}`)
+        }
+    }
+    return [...lines, '']
+}
+
 const lines = [
     'How much code each root ships on the *eager* path — downloaded and parsed before the surface is interactive. Measured from the esbuild output chunks (post-tree-shake, static imports only); lazy `import()` / `React.lazy` chunks are not counted.',
     '',
+    ...growthLines(),
     '| Root | Eager (shipped) | Δ vs base | Budget |',
     '| --- | --- | --- | --- |',
 ]
@@ -71,7 +104,7 @@ lines.push(
 
 await postSection({
     id: 'eager-graph',
-    status: anyFailure ? 'warn' : 'ok',
+    status: unapprovedGrowth ? 'fail' : anyFailure ? 'warn' : 'ok',
     summary,
     body: lines.join('\n'),
 })

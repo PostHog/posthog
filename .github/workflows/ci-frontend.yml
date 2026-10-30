@@ -546,8 +546,15 @@ jobs:
               continue-on-error: true
               if: github.event_name == 'pull_request'
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  # Compare against the first parent of the merge commit that was built, which is
+                  # the base branch tip GitHub merged the PR into. The event's base sha can lag
+                  # that tip, and then every change merged in between shows up in this PR's
+                  # delta and can trip the eager growth gate. cat-file reads the parent from the
+                  # commit object, which a depth-1 checkout keeps.
+                  BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+                  BASE_SHA=${BASE_SHA:-$EVENT_BASE_SHA}
                   git fetch -n origin "$BASE_SHA"
                   git reset --hard "$BASE_SHA"
                   # dist/ is untracked so it survives the reset. Without a clean, the base
@@ -577,10 +584,28 @@ jobs:
                       echo "Skipping legacy CI comment cleanup — script not present on this checkout"
                   fi
 
+            # The eager-growth-approved label is read live, so a re-run of this job sees a label
+            # added after the push. When no file is written, the growth gate warns instead of
+            # failing. That is the case when the read fails, and on the merge queue's
+            # trunk-merge/** pull request, which does not carry the labels of the pull request
+            # it tests. The pull request's own run already enforced the gate.
+            - name: Read PR labels for the eager growth gate
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name'); then
+                      printf '%s\n' "$labels" > "$RUNNER_TEMP/pr-labels.txt"
+                  else
+                      echo "::notice::Could not read the PR labels. The eager growth gate will only warn."
+                  fi
+
             - name: Post CI report — eager graph
               if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  PR_LABELS_FILE: ${{ runner.temp }}/pr-labels.txt
               run: |
                   if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
                       node frontend/bin/post-eager-graph-comment.mjs
@@ -623,8 +648,13 @@ jobs:
                       echo "Skipping toolbar bundle section — script not present on this checkout"
                   fi
 
-            - name: Check eager graph budgets and forbidden imports
+            # The tree is on the base branch here, so the base's script and growth limit apply,
+            # and a pull request cannot loosen the gate it is checked against. A base script
+            # that predates the growth gate ignores --base-report.
+            - name: Check eager graph budgets, growth and forbidden imports
               if: always() && github.event_name == 'pull_request'
+              env:
+                  PR_LABELS_FILE: ${{ runner.temp }}/pr-labels.txt
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
                       echo "Skipping eager graph check — script not present on this checkout"
@@ -638,7 +668,8 @@ jobs:
                       echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
-                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits
+                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT" --fail-forbidden-hits \
+                      --base-report frontend/eager-graph-report.json
 
             - name: Calculate dist folder size
               id: dist-size

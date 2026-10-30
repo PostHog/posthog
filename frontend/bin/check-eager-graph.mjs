@@ -5,6 +5,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { AUTHENTICATED_SHELL, ENTRY, LOGGED_OUT_BOOT } from './bootEntries.mjs'
+import { formatBytes } from './ci-report/format.mjs'
+import {
+    GROWTH_APPROVAL_LABEL,
+    GROWTH_THRESHOLD_BYTES,
+    approvalHint,
+    eagerGrowth,
+    readBaseReport,
+    readPrLabels,
+} from './eagerGrowthGate.mjs'
 import { planCssGroups, stableCssBytes } from './stableCssPlan.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -20,6 +29,7 @@ const reportOnly = process.argv.includes('--report-only')
 // --assert-report <path>: skip measuring; read a previously written report and surface any
 // recorded violations as warnings (GitHub Actions annotations) without failing CI — the
 // bundle-size Signals scout tracks regressions from the PR comment, so the check informs.
+// With --base-report <path> it also runs the growth gate in eagerGrowthGate.mjs, which can fail.
 const assertReportIndex = process.argv.indexOf('--assert-report')
 const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 
@@ -296,11 +306,50 @@ function assertReport(reportFilePath) {
     return { violations, forbiddenHits, analysisErrors: topLevelErrors.length }
 }
 
+function assertGrowth(reportFilePath, baseReportPath) {
+    if (!fs.existsSync(reportFilePath)) {
+        return 0
+    }
+    const report = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
+    const baseReport = readBaseReport(baseReportPath, report)
+    if (!baseReport) {
+        console.info(`\nNo base build report to compare against. Skipping the eager growth gate.`)
+        return 0
+    }
+    const labels = readPrLabels()
+    const approved = labels?.includes(GROWTH_APPROVAL_LABEL) ?? false
+    let blocking = 0
+    for (const row of eagerGrowth(report, baseReport)) {
+        const summary =
+            `'${row.label}' grows by ${formatBytes(row.delta)} against the base build ` +
+            `(${formatBytes(row.baseBytes)} -> ${formatBytes(row.bytes)}). ` +
+            `The limit is ${formatBytes(GROWTH_THRESHOLD_BYTES)}.`
+        if (!row.overThreshold) {
+            console.info(`🟢 ${summary}`)
+        } else if (approved) {
+            console.info(`🟢 ${summary} The '${GROWTH_APPROVAL_LABEL}' label approves it.`)
+        } else if (labels === null) {
+            warnViolation(`${summary} The pull request labels could not be read, so this does not fail CI.`)
+        } else {
+            console.error(`\n❌ ${summary}\n${approvalHint}`)
+            console.info(`::error title=Eager graph growth::${summary} ${approvalHint}`)
+            blocking++
+        }
+    }
+    return blocking
+}
+
 if (assertReportIndex !== -1) {
-    const { violations, forbiddenHits, analysisErrors } = assertReport(process.argv[assertReportIndex + 1])
+    const reportFilePath = process.argv[assertReportIndex + 1]
+    const { violations, forbiddenHits, analysisErrors } = assertReport(reportFilePath)
+    const baseReportIndex = process.argv.indexOf('--base-report')
+    const unapprovedGrowth = assertGrowth(
+        reportFilePath,
+        baseReportIndex === -1 ? null : process.argv[baseReportIndex + 1]
+    )
     if (violations) {
         console.warn(
-            `\n⚠️ Eager graph check — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
+            `\n⚠️ Eager graph check — ${violations} issue(s) above. Budget warnings do not fail CI: the bundle-size ` +
                 `Signals scout tracks eager-graph regressions from the PR comment. Trim the eager closure when you can.`
         )
     } else {
@@ -312,6 +361,9 @@ if (assertReportIndex !== -1) {
         console.error(
             `\n❌ Eager graph check found ${forbiddenHits} forbidden eager import(s) and ${analysisErrors} analysis error(s).`
         )
+        process.exit(1)
+    }
+    if (unapprovedGrowth > 0) {
         process.exit(1)
     }
     process.exit(0)
