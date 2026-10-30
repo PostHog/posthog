@@ -58,6 +58,13 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
+interface GaugeSummary {
+    value: string
+    label: string | null
+    min: string | null
+    max: string | null
+}
+
 interface PieSliceLabelSummary {
     text: string
     /** One entry per rendered line (label and/or value). */
@@ -112,6 +119,9 @@ export interface ChartAccessor<Meta = unknown> {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
     }
+    /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+     *  hidden, for example when the min and max labels would overlap. */
+    gauge(): GaugeSummary | null
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
@@ -294,6 +304,12 @@ export function getChart<Meta = unknown>(
                         lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
                     })
                 ),
+        },
+        gauge: () => {
+            const text = (attr: string): string | null =>
+                wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${attr}"]`)?.textContent ?? null
+            const value = text('value')
+            return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),

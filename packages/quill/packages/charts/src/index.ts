@@ -115,6 +115,14 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Gauge
+export { Gauge } from './charts/Gauge/Gauge'
+export type { GaugeConfig, GaugeProps, GaugeTarget } from './charts/Gauge/Gauge'
+export { GaugeTooltip } from './charts/Gauge/GaugeTooltip'
+export type { GaugeTooltipContext, GaugeTooltipThreshold } from './charts/Gauge/GaugeTooltip'
+export { resolveGaugeBounds } from './core/gauge-layout'
+export type { GaugeBounds, GaugeThreshold, ResolveGaugeBoundsInput } from './core/gauge-layout'
+
 // Proportion bar
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
