@@ -262,7 +262,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_cloud_preflight_limited_db_queries(self):
         with self.is_cloud(True):
             # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
-            with self.assertNumQueries(5):  # session, user, team, organization and slack instance setting.
+            with self.assertNumQueries(4):  # session, user with organization, team and slack instance setting.
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
 
