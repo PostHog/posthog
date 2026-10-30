@@ -4576,20 +4576,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         // Each write answers with the saved schedule, so the editor rebaselines from
                         // the response. Re-reading the list instead would leave a created schedule
                         // unknown whenever that read failed, and the next save would add a second one.
+                        // A workflow can hold several schedules, so each write only swaps the one it touched.
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
-                            actions.setSchedules([])
+                            actions.setSchedules(values.schedules.filter((s) => s.id !== existingScheduleId))
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            actions.setSchedules([
-                                // The generated client answers with HogFlowScheduleApi, whose untyped
-                                // `variables` does not satisfy the HogFlowSchedule the editor holds.
-                                // nosemgrep: prefer-codegen-api-namespaced-workflows
-                                await api.hogFlows.updateHogFlowSchedule(
-                                    workflowId,
-                                    existingScheduleId,
-                                    pendingSchedule
-                                ),
-                            ])
+                            // The generated client answers with HogFlowScheduleApi, whose untyped
+                            // `variables` does not satisfy the HogFlowSchedule the editor holds.
+                            // nosemgrep: prefer-codegen-api-namespaced-workflows
+                            const updated = await api.hogFlows.updateHogFlowSchedule(
+                                workflowId,
+                                existingScheduleId,
+                                pendingSchedule
+                            )
+                            actions.setSchedules(values.schedules.map((s) => (s.id === updated.id ? updated : s)))
                         } else if (pendingSchedule !== null) {
                             actions.setSchedules([
                                 // nosemgrep: prefer-codegen-api-namespaced-workflows
