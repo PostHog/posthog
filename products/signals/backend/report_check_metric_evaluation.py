@@ -55,7 +55,10 @@ def _rate_denominator_index(config: MetricThresholdConfig) -> int | None:
         formula = trends_filter.get("formula")
     if not isinstance(formula, str):
         return None
-    expression = ast.parse(formula.strip().lower(), mode="eval").body
+    tree = ast.parse(formula.strip().lower())
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
+        return None
+    expression = tree.body[0].value
     match expression:
         case (
             ast.BinOp(left=ratio, op=ast.Mult(), right=ast.Constant(value=100))

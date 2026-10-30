@@ -38,6 +38,7 @@ class TestMetricEvidenceAdapter(SimpleTestCase):
     @parameterized.expand(
         [
             ("ratio", "formula", "A / B", "total", "rate"),
+            ("trailing_semicolon", "formula", "A / B;", "total", "rate"),
             ("percentage", "formulas", "(A / B) * 100", "total", "rate"),
             ("reverse_percentage", "formulaNodes", "100 * (B / A)", "total", "rate"),
             ("sum_ratio", "formula", "A / B", "sum", "unsupported"),
@@ -197,6 +198,7 @@ class TestFinalMetricExecution(BaseTest):
             ("zero_sum", "sum", 0, "inconclusive"),
             ("negative_sum", "sum", -1, "inconclusive"),
             ("rate_pass", "total", 0.01, "passed", "A / B", 100),
+            ("terminated_rate", "total", 0.01, "passed", "A / B;", 100),
             ("rate_fail", "total", 0.03, "failed", "A / B", 100),
             ("zero_rate_with_activity", "total", 0, "passed", "A / B", 1),
             ("zero_rate_without_activity", "total", 0, "inconclusive", "A / B", 0),
