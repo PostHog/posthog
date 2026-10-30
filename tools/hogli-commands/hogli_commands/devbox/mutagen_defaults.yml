@@ -56,6 +56,7 @@ sync:
                 - '.dagster_home'
                 - 'mprocs.log'
                 - 'bin/start.lock'
+                - '.env'
                 - '.env.local'
 
                 # Editor / OS.
