@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import {
   type InlineExtension,
   SessionManager,
@@ -20,8 +21,13 @@ import {
   readPersistedPiQueue,
 } from "./queue-persistence";
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
+import { resolveRequestedModel } from "./requested-model";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
+
+// pi-ai loads its OAuth flows (a ChatGPT login's token refresh) through a variable import that no bundler can
+// follow. This host is one bundle, so the flows are registered statically as pi's own standalone binary does.
+registerBunOAuthFlows();
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
@@ -132,16 +138,14 @@ runtime.session.subscribe((event) => {
   );
 });
 
-const requestedModel = argumentValue("--model")?.replace(/^posthog\//, "");
+const requestedModel = argumentValue("--model");
 if (requestedModel) {
-  const model = runtime.services.modelRuntime.getModel(
-    "posthog",
-    requestedModel,
+  await runtime.session.setModel(
+    resolveRequestedModel(
+      (provider, id) => runtime.services.modelRuntime.getModel(provider, id),
+      requestedModel,
+    ),
   );
-  if (!model) {
-    throw new Error(`PostHog model not found: ${requestedModel}`);
-  }
-  await runtime.session.setModel(model);
 }
 
 process.on("message", (message: unknown) => {

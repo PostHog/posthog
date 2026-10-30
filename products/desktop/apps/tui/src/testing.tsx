@@ -1,0 +1,40 @@
+import { PassThrough } from "node:stream";
+import { type Instance, render } from "ink";
+import type { ReactElement } from "react";
+
+// Renders into a real Ink instance on fake terminal streams, so tests can type raw bytes at it.
+export function renderInTerminal(element: ReactElement): {
+  instance: Instance;
+  type: (bytes: string) => void;
+  output: () => string;
+} {
+  const stdin = Object.assign(new PassThrough(), {
+    isTTY: true,
+    setRawMode: () => stdin,
+    ref: () => stdin,
+    unref: () => stdin,
+  });
+  const stdout = Object.assign(new PassThrough(), {
+    isTTY: true,
+    columns: 100,
+    rows: 30,
+  });
+  let written = "";
+  stdout.on("data", (chunk) => {
+    written += String(chunk);
+  });
+  const instance = render(element, {
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    exitOnCtrlC: false,
+    patchConsole: false,
+    kittyKeyboard: { mode: "enabled" },
+    // Ink treats CI as a non-interactive terminal and writes only the final frame, which these tests never see.
+    interactive: true,
+  });
+  return {
+    instance,
+    type: (bytes) => stdin.write(bytes),
+    output: () => written,
+  };
+}

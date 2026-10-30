@@ -261,7 +261,9 @@ export function acpNotificationToAgentConversationEvent(
         errorType: String(params.errorType ?? ""),
         message: String(params.message ?? ""),
       };
+    // A wake-up or task-notification turn settles through its own completion, since it never activates a turn.
     case "_posthog/turn_complete":
+    case "_posthog/background_turn_complete":
       return {
         ...params,
         type: "turn_completed",
