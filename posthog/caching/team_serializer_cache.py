@@ -27,8 +27,18 @@ if TYPE_CHECKING:
 TEAM_APP_CONTEXT_CACHE_TTL_SECONDS = 10 * 60
 TEAM_CACHE_VERSION_TTL_SECONDS = 24 * 60 * 60
 
-# Built on every request: each one is minted per request or reads its own cache.
-PER_REQUEST_FIELDS = ("live_events_token", "group_types", "has_group_types", "product_intents", "flag_evaluations_mode")
+# Built on every request: each one is minted per request, reads its own cache, or reads the
+# request's permissions. Permissions can be read before a membership change and the versions after it.
+PER_REQUEST_FIELDS = (
+    "live_events_token",
+    "group_types",
+    "has_group_types",
+    "product_intents",
+    "flag_evaluations_mode",
+    "effective_membership_level",
+    "user_access_level",
+    "heatmaps_screenshot_secret",
+)
 
 
 def _team_cache_version_key(team_id: int) -> str:
