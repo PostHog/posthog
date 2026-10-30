@@ -15,6 +15,8 @@ from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from posthog.schema import MaxExperimentSummaryContext
 
 # Metrics per section (primary/secondary) included in the AI results summary
@@ -421,6 +423,33 @@ class FeatureFlag:
     active: bool
     created_at: datetime
     name: str | None = None
+
+
+@frozen
+class ExperimentCreator:
+    """The user who created an experiment, with the fields that core's `UserBasicSerializer` renders. A caller
+    serializes it through that serializer, so the response keeps the `UserBasic` shape."""
+
+    id: int
+    uuid: "UUID"
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    # The stored value. `UserBasicSerializer` shapes it when it renders.
+    hedgehog_config: dict[str, Any] | None
+    role_at_organization: str | None
+
+
+@frozen
+class ExperimentActionReference:
+    """An experiment whose stored metrics, filters or configuration reference an action."""
+
+    id: int
+    name: str
+    created_at: datetime
+    created_by: ExperimentCreator | None
 
 
 @dataclass(frozen=True)
