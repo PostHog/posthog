@@ -3,7 +3,13 @@ import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLogger, createServer, createServerModuleRunner } from "vite";
+
+// React's development build records a timing entry for every render, and Node keeps them all until they are cleared,
+// so a long session runs out of memory. Vite would set development when nothing is set, so this comes first.
+process.env.NODE_ENV ||= "production";
+const { createLogger, createServer, createServerModuleRunner } = await import(
+  "vite"
+);
 
 // Runs the TUI through Vite so edits under src/ hot-swap into the running app.
 const LOG_PATH = join(tmpdir(), "posthog-tui.log");
