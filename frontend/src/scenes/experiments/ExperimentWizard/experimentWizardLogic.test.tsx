@@ -323,6 +323,20 @@ describe('experimentWizardLogic', () => {
             expect(logic.values.currentStep).not.toEqual('variants')
         })
 
+        it.each(['constructor', 'toString', '__proto__'])(
+            'stays on the step while a screenshot uploads for a variant keyed %s',
+            async (variantKey) => {
+                logic.actions.setStep('variants')
+                logic.actions.setVariantUploadPending(variantKey, true)
+
+                logic.actions.nextStep()
+                await expectLogic(logic).toMatchValues({ currentStep: 'variants', hasPendingVariantUploads: true })
+
+                logic.actions.setVariantUploadPending(variantKey, false)
+                expect(logic.values.hasPendingVariantUploads).toBe(false)
+            }
+        )
+
         it('nextStep advances and prevStep goes back', async () => {
             expect(logic.values.currentStep).toBe('about')
 

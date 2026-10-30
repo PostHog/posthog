@@ -314,7 +314,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             {} as Record<string, number>,
             {
                 setVariantUploadPending: (state, { variantKey, pending }) => {
-                    const count = (state[variantKey] ?? 0) + (pending ? 1 : -1)
+                    // Own properties only: a key such as `constructor` would otherwise read an inherited function
+                    const count = (Object.hasOwn(state, variantKey) ? state[variantKey] : 0) + (pending ? 1 : -1)
                     const { [variantKey]: _, ...rest } = state
                     return count > 0 ? { ...rest, [variantKey]: count } : rest
                 },
