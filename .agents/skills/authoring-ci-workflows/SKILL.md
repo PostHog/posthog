@@ -416,13 +416,14 @@ Gates chain, so a gate's queue also delays the telemetry job behind it.
 
 So a light job belongs on `depot-ubuntu-24.04` when later jobs wait on it: a required gate, a telemetry job behind a gate, a test selector, or a `changes` job that every other job needs.
 Keep a light job GitHub-hosted when nothing waits on it.
-`ci-storybook.yml`, `ci-frontend.yml`, `ci-e2e-playwright.yml` and `ci-security.yaml` follow this rule for their gates, selectors and telemetry jobs.
+`ci-storybook.yml`, `ci-frontend.yml`, `ci-e2e-playwright.yml` and `ci-security.yaml` follow this rule for their `changes` jobs, gates, selectors and telemetry jobs.
 
 Three exceptions keep a light job GitHub-hosted, or need a fork fallback:
 
 - **A job that restores a cached executable and then runs it with a secret** stays GitHub-hosted (`vr-setup`, `vr-complete`).
   Depot Cache has no branch isolation, so fork-PR code on Depot can plant the entry. GitHub's cache only lets a master run restore what master saved.
-- **A job that checks out the fork head** takes the fork fallback that `select-stories` and `frontend-typescript-checks` use, because Depot runners inject shared cache credentials.
+- **A job that checks out the fork head** takes the fork fallback that `select-stories`, `frontend-typescript-checks` and the four `changes` jobs use, because Depot runners inject shared cache credentials:
+  `runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}`.
 - **A wait that measures a time window** (a debounce `sleep`) must measure from the run's `created_at`, not from job start. A faster runner otherwise shrinks the window.
 
 Depot minutes are billed and GitHub-hosted minutes on this public repo are not, so do not move a job that nothing waits on.

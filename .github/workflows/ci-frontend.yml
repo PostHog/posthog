@@ -74,7 +74,11 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-24.04
+        # Depot: every later job waits on this one, and a GitHub-hosted runner queued a
+        # median 78-104s (p90 up to 190s) for it. Forks get GitHub-hosted because this job
+        # runs the paths-filter action out of the checkout. See "Runners" in
+        # /authoring-ci-workflows.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.

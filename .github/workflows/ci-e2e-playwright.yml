@@ -101,8 +101,10 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        # Depot: every later job waits on this one. See "Runners" in /authoring-ci-workflows.
-        runs-on: depot-ubuntu-24.04
+        # Depot: every later job waits on this one, and a GitHub-hosted runner queued a
+        # median 10s (p90 113s) for it. Forks get GitHub-hosted because this job runs the
+        # paths-filter action out of the checkout. See "Runners" in /authoring-ci-workflows.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         # 7 not 5: the debounce step below sleeps up to 120s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
@@ -271,9 +273,9 @@ jobs:
               # stack. Hold here on the small runner until 120s after the run was created.
               # The window starts at run creation, not job start, so a fast runner pickup
               # does not shrink it. If a newer push cancels this run mid-wait, the expensive
-              # job never launches. After the wait, if the PR head has already moved past this run's
-              # SHA, skip: the newer run is the real gate (and always runs, since the tip
-              # is never stale against itself). Single pushes just pay the short wait.
+              # job never launches. After the wait, skip if the PR head has moved past this
+              # run's SHA: the newer run is the real gate, and it always runs because the
+              # tip is never stale against itself. One push pays the short wait.
               id: debounce
               if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
               env:

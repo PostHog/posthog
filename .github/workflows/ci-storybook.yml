@@ -66,7 +66,11 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: ubuntu-24.04
+        # Depot: every later job waits on this one, and a GitHub-hosted runner queued a
+        # median 78-104s (p90 up to 190s) for it. Forks get GitHub-hosted because this job
+        # runs the paths-filter action out of the checkout. See "Runners" in
+        # /authoring-ci-workflows.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -1261,6 +1265,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
+                  runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
@@ -1272,6 +1277,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
+                  runner: 'depot'
 
     capture-story-selection:
         name: Capture story selection
@@ -1317,7 +1323,7 @@ jobs:
         name: Story selection
         # Depot: every VR job waits on this selector. Forks get GitHub-hosted, because this
         # job checks out the fork head and Depot runners inject shared cache credentials.
-        runs-on: ${{ github.event.pull_request.head.repo.fork == false && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |
