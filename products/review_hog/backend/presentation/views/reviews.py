@@ -919,7 +919,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         data = ReviewReviewsTablePageSerializer(page).data
         offset, limit = filters["offset"], filters["limit"]
         next_offset = _next_table_offset(offset, limit, page.count)
-        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset))
+        # Past the last row, `previous` points at the last page that holds rows, or is null when no row matches.
+        links_offset = min(offset, page.count)
+        data.update(offset_page_links(request, offset=links_offset, limit=limit, next_offset=next_offset))
         return Response(data)
 
     @extend_schema(

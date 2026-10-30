@@ -1369,6 +1369,8 @@ class TestRecentReviewsAPI(APIBaseTest):
             second_page = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 1}).json()
             last_page = self.client.get(second_page["next"]).json()
             first_page = self.client.get(second_page["previous"]).json()
+            past_end = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 10}).json()
+            back_from_past_end = self.client.get(past_end["previous"]).json()
             everyone = self.client.get(f"{self.url}table/", {"scope": "everyone"}).json()
 
         assert [row["pr_number"] for row in mine["results"]] == [4, 2, 1, 3]
@@ -1379,6 +1381,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert last_page["next"] is None
         assert [row["pr_number"] for row in first_page["results"]] == [4, 2]
         assert first_page["previous"] is None
+        assert past_end["results"] == []
+        assert [row["pr_number"] for row in back_from_past_end["results"]] == [1, 3]
         assert [row["pr_number"] for row in everyone["results"]] == [4, 6, 2, 1, 3]
         assert self.client.get(f"{self.url}table/", {"limit": 101}).status_code == 400
 
