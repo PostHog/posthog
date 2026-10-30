@@ -1,6 +1,6 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Composer, isAppKey, isTyping } from "./composer";
 
 describe("isAppKey", () => {
@@ -51,7 +51,7 @@ describe("Composer", () => {
     );
     for (const key of ["h", "e", "y", "\x1b[D", "!"]) composer.handleInput(key);
 
-    const lines = composer.render(30, true);
+    const lines = composer.render(30, true).editor;
     expect(lines.join("\n")).not.toContain("\x1b_pi:c");
     expect(lines.map((line) => stripTerminalSequences(line).trim())).toContain(
       "he!y",
@@ -71,7 +71,7 @@ describe("Composer", () => {
     expect(
       composer
         .render(30, true)
-        .map((line) => stripTerminalSequences(line).trim()),
+        .editor.map((line) => stripTerminalSequences(line).trim()),
     ).not.toContain("hi");
   });
 
@@ -83,10 +83,29 @@ describe("Composer", () => {
     composer.handleInput("x");
     const lines = composer
       .render(30, true)
-      .map((line) => stripTerminalSequences(line).trim());
+      .editor.map((line) => stripTerminalSequences(line).trim());
 
     expect(lines[0]).toMatch(/^─+$/);
     expect(lines.slice(1).some((line) => /^─+$/.test(line))).toBe(false);
     expect(lines).toContain("x");
+  });
+
+  it("hands back slash suggestions apart from the input, so they can float over the chat", async () => {
+    let repaints = 0;
+    const composer = new Composer(
+      () => repaints++,
+      () => {},
+    );
+    composer.handleInput("/");
+    await vi.waitFor(() =>
+      expect(composer.render(40, true).popup.length).toBeGreaterThan(0),
+    );
+
+    const { editor, popup } = composer.render(40, true);
+    const text = (lines: string[]) =>
+      lines.map((line) => stripTerminalSequences(line)).join("\n");
+    expect(text(popup)).toContain("model");
+    expect(text(editor)).not.toContain("model");
+    expect(text(editor)).toContain("/");
   });
 });

@@ -2,7 +2,7 @@ import type { Task } from "@posthog/shared";
 import { Box, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
-import type { ChatView } from "../chatView";
+import { type ChatView, overlayBottom } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
 import {
@@ -134,8 +134,12 @@ export function Pane({
 
   // Panes without focus fade back, so the eye lands on the one being typed into.
   const shade = (line: string): string => (focused ? line : faint(line));
-  const composerLines =
-    width > 0 ? composer.render(width, focused).map(shade) : [];
+  const drawn =
+    width > 0 ? composer.render(width, focused) : { editor: [], popup: [] };
+  const composerLines = drawn.editor.map(shade);
+  // A blank row on top separates floating suggestions from the chat they cover.
+  const popupLines =
+    drawn.popup.length > 0 ? [" ", ...drawn.popup.map(shade)] : [];
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
     view.entries.some((entry) => entry.type === "pi_run_started");
@@ -159,9 +163,24 @@ export function Pane({
   const bottomLines = modal ? sheetLines : [...sheetLines, ...composerLines];
   const chatHeight = height - bottomLines.length - (view.error ? 1 : 0);
 
+  const popupContent = (
+    <>
+      {popupLines.map((line, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+        <Text key={`popup-${index}`} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+    </>
+  );
   let content: ReactElement;
   if (!paneTaskId && !pending)
-    content = <Text dimColor>Type a message to start a cloud run.</Text>;
+    content =
+      popupLines.length > 0 ? (
+        popupContent
+      ) : (
+        <Text dimColor>Type a message to start a cloud run.</Text>
+      );
   else if (paneTaskId && !task && !pending)
     content = <Spinner label="Loading chat" />;
   else if (task && !run)
@@ -175,7 +194,7 @@ export function Pane({
     content = (
       <>
         {(width > 0 && chatHeight > 0
-          ? chat.render(width, chatHeight).map(shade)
+          ? overlayBottom(chat.render(width, chatHeight).map(shade), popupLines)
           : []
         ).map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen

@@ -188,3 +188,10 @@ export class ChatView {
     this.scroll.scrollToEnd();
   }
 }
+
+// Draws floating rows, such as composer suggestions, over the bottom of the chat instead of pushing it up.
+export function overlayBottom(lines: string[], popup: string[]): string[] {
+  if (popup.length === 0) return lines;
+  const shown = popup.slice(-lines.length);
+  return [...lines.slice(0, lines.length - shown.length), ...shown];
+}
