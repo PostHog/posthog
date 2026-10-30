@@ -188,6 +188,7 @@ class _Recorder:
         gate_answers: dict[str, bool] | None = None,
         # Signals returned by successive fetches; the last entry repeats once exhausted.
         fetch_results: list[list[SignalData]] | None = None,
+        fetch_failures: int = 0,
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
@@ -214,6 +215,9 @@ class _Recorder:
         self.github_optional = github_optional
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.fetch_failures = fetch_failures
+        self.fetch_required_ids: list[str | None] = []
+        self.preserved_pending: list[bool] = []
         self.claimed_before_fetch: list[bool] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
@@ -229,6 +233,7 @@ class _Recorder:
         self.failures = 0
         self.pending_inputs: list[MarkReportPendingInput] = []
         self.ready_inputs: list[MarkReportReadyInput] = []
+        self.processed_pending_signal_id: str | None = None
 
 
 def _signal_data() -> SignalData:
@@ -277,8 +282,13 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
+        recorder.fetch_required_ids.append(input.required_signal_id)
         recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
-        return FetchSignalsForReportOutput(signals=signals)
+        if recorder.fetches <= recorder.fetch_failures:
+            raise ApplicationError("Required signal is not visible yet", type="RequiredReportSignalNotVisible")
+        return FetchSignalsForReportOutput(
+            signals=signals, processed_pending_signal_id=recorder.processed_pending_signal_id
+        )
 
     @activity.defn(name="report_has_assigned_signals_activity")
     async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
@@ -294,6 +304,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         recorder.marks_in_progress += 1
+        recorder.preserved_pending.append(input.preserve_pending_refresh)
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -532,6 +543,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
     recorder.checks_summary = "Expected impact matches the reconciled checks."
     recorder.checks_monitoring_enabled = True
+    recorder.processed_pending_signal_id = str(uuid.uuid4())
 
     await _run_summary_workflow(recorder)
 
@@ -541,6 +553,8 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     assert inputs[0].checks_snapshot == snapshot
     assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
+    if target == "ready":
+        assert recorder.ready_inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
 
 
 @pytest.mark.asyncio
@@ -587,10 +601,26 @@ async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
 
 
 @pytest.mark.asyncio
-async def test_empty_first_fetch_is_retried_and_run_proceeds():
-    recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
+@pytest.mark.parametrize("fetch_failures", [0, 4, 1000])
+async def test_incomplete_first_snapshot_is_retried_before_research(fetch_failures: int) -> None:
+    recorder = _Recorder(
+        fetch_results=[[_signal_data()]] if fetch_failures else [[], [], [_signal_data()]],
+        fetch_failures=fetch_failures,
+    )
+    if fetch_failures == 1000:
+        with pytest.raises(WorkflowFailureError):
+            await _run_summary_workflow(recorder)
+        assert recorder.failures == 1
+        assert recorder.researches == 0
+        assert recorder.safety_checks == 0
+        assert recorder.assigned_signal_checks == 0
+        return
     await _run_summary_workflow(recorder)
-    assert recorder.fetches == 3
+    assert recorder.fetches == (5 if fetch_failures else 3)
+    if fetch_failures:
+        assert all(recorder.fetch_required_ids)
+        assert len(set(recorder.fetch_required_ids)) == 1
+        assert all(recorder.preserved_pending)
     assert all(recorder.claimed_before_fetch)
     assert recorder.researches == 1
     assert recorder.spend_publications == 1
