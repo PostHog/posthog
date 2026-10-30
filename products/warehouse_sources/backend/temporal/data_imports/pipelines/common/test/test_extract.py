@@ -288,9 +288,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_non_dict_job_inputs_is_a_noop(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
     @parameterized.expand(
         [
@@ -313,11 +313,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_json_string_job_inputs_is_decoded_and_saved(self, _name: str, job_inputs, expected) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs == expected
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, expected)
 
     @parameterized.expand(
         [
@@ -332,28 +330,25 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_unreadable_string_job_inputs_fails_non_retryably(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             with pytest.raises(NonRetryableException) as caught:
                 await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
         assert str(caught.value.cause) == UNREADABLE_JOB_INPUTS_MESSAGE
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
         source = MagicMock(job_inputs={"host": " example.com ", "port": "5432"}, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs["host"] == "example.com"
-        assert source.job_inputs["port"] == "5432"
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, {"host": "example.com", "port": "5432"})
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_without_padding_does_not_save(self) -> None:
         source = MagicMock(job_inputs={"host": "example.com"}, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):

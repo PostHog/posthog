@@ -316,6 +316,7 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 # is the order of the message.
 _USAGE_TYPE_LABELS: dict[str, str] = {
     "warehouse_source": "data warehouse sources",
+    "unreadable_warehouse_source": "data warehouse sources with unreadable settings",
     "workflow": "active workflows",
     "hog_function": "enabled data pipelines",
     "batch_export": "batch exports",

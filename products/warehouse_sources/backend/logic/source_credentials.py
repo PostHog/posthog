@@ -28,11 +28,14 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations import AuthAccessor, IntegrationNotFound, IntegrationUsage
-from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, AuthAccessor, IntegrationNotFound, IntegrationUsage
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
+    SharedCredentialsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -84,6 +87,20 @@ class WarehouseSourceCredentialsStore:
         return fields
 
     @staticmethod
+    def usable_by(source: ExternalDataSource, ref: int | str | None) -> bool:
+        """True when `ref` points at a row that the source can use: a warehouse source row of the source's
+        team and kind, with the auth type of the source's typed-in credentials."""
+        pk = _pk(ref)
+        rows = _accessor_or_none(source)
+        if pk is None or rows is None:
+            return False
+        try:
+            rows.get(source.team_id, pk)
+        except IntegrationNotFound:
+            return False
+        return True
+
+    @staticmethod
     def get_many(
         pairs: Iterable[tuple[ExternalDataSource, int | str | None]],
     ) -> dict[UUID, dict[str, Any] | CredentialsUnreadable]:
@@ -125,7 +142,7 @@ class WarehouseSourceCredentialsStore:
             # Opaque, so a typed-in row never takes the natural key of a row that other code writes.
             external_id=uuid4().hex,
             config={
-                WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: source_type,
+                SOURCE_MARKER_CONFIG_KEY: source_type,
                 "display_name": f"{source_type} ({source.prefix})" if source.prefix else source_type,
             },
             sensitive_config={"fields": dict(fields)},
@@ -143,7 +160,8 @@ class WarehouseSourceCredentialsStore:
         When other sources or products also use the row, a change to an identifying field (host,
         account) makes a new row, so the other users keep their connection. A change to the other
         fields (a secret rotation) raises `SharedCredentialsError` with the other users, unless
-        `allow_shared` confirms it. Raises `CredentialsNotFoundError` when there is no row.
+        `allow_shared` confirms it. A write that changes no field writes nothing and needs no
+        confirmation. Raises `CredentialsNotFoundError` when there is no row.
         """
         pk = _pk(ref)
         if pk is None:
@@ -152,11 +170,24 @@ class WarehouseSourceCredentialsStore:
         rows = credentials_accessor(source_type)
         try:
             row = rows.get(source.team_id, pk)
-            others = _other_usages(rows, source, row.id)
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        current = _fields_of(row.sensitive_config)
+        # Each save of a source writes all its inputs again, so most writes change no field. Such a
+        # write needs no confirmation, also when the row is shared.
+        if current is not None and same_connection_fields(current, fields):
+            return pk
+        try:
+            # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
+            # edit shared: else one broken source of the kind would block every edit of every row of the kind.
+            others = [
+                usage
+                for usage in _other_usages(rows, source, row.id)
+                if usage.type != UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE
+            ]
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         if others:
-            current = _fields_of(row.sensitive_config)
             if current is None or _identity(source_type, current) != _identity(source_type, fields):
                 return WarehouseSourceCredentialsStore.create(source, fields)
             if not allow_shared:
@@ -337,6 +368,18 @@ def _normalized(value: Any) -> Any:
     if isinstance(value, list):
         return [_normalized(item) for item in value]
     return "" if value is None else str(value)
+
+
+def same_connection_fields(first: Mapping[str, Any], second: Mapping[str, Any]) -> bool:
+    """True when two sets of connection fields hold the same values. A missing key, None and a blank value
+    are equal, and `5432` equals `"5432"`, because encrypted fields store each leaf as a string. Every compare
+    of a row with `job_inputs` uses this rule, so a row that `update` does not rewrite also compares equal."""
+    return _set_values(first) == _set_values(second)
+
+
+def _set_values(fields: Mapping[str, Any]) -> dict[str, Any]:
+    # A parsed config writes its unset optional fields as None, so a missing key and an empty value match.
+    return {key: value for key, value in _normalized(fields).items() if value not in ("", {}, [])}
 
 
 def _fields_of(sensitive_config: Any) -> dict[str, Any] | None:

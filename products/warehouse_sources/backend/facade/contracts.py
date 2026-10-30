@@ -19,6 +19,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime, time, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -35,6 +36,8 @@ UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
 # The `IntegrationUsage.type` of a warehouse source that uses an integration row.
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+# A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
+UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
 
 
 class SharedCredentialsError(Exception):
@@ -48,6 +51,22 @@ class SharedCredentialsError(Exception):
         super().__init__(f"Integration {integration_id} is also used by {len(usages)} other objects")
         self.integration_id = integration_id
         self.usages = tuple(usages)
+
+
+class UnusableCredentialsReferenceError(ValueError):
+    """An edit points a source at a credentials row that the source cannot use: a row of another team,
+    another kind or another auth type, or a row that no warehouse source made."""
+
+
+class SharedCredentialsEdit(StrEnum):
+    """What a write of a source's inputs does when other sources or products also use its credentials row."""
+
+    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    SKIP = "skip"
+    # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
+    REFUSE = "refuse"
+    # The person confirmed the edit: write the shared row.
+    CONFIRMED = "confirmed"
 
 
 class UnsupportedSyncTypeError(ValueError):

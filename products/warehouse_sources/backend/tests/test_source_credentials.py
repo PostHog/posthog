@@ -322,7 +322,9 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             ("shared_host_change", "source", {**PG_FIELDS, "host": "new.example.com"}, False, "new_row"),
             ("shared_user_change", "source", {**PG_FIELDS, "user": "writer"}, True, "new_row"),
             ("shared_tunnel_change", "source", {**PG_FIELDS, "ssh_tunnel": {"enabled": "False"}}, False, "new_row"),
-            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "conflict"),
+            # A write that changes no stored value needs no confirmation.
+            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "in_place"),
+            ("shared_unset_optional_field", "source", {**PG_FIELDS, "database": None}, False, "in_place"),
         ]
     )
     def test_update_of_a_shared_row_needs_confirmation_or_makes_a_new_row(
@@ -357,7 +359,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             assert new_pk != pk
             assert WarehouseSourceCredentialsStore.get(source, pk) == PG_FIELDS
         assert WarehouseSourceCredentialsStore.get(source, new_pk) == {
-            key: str(value) if key == "port" else value for key, value in new_fields.items()
+            key: str(value) if key == "port" else value for key, value in new_fields.items() if value is not None
         }
         assert _row(new_pk).config[WAREHOUSE_SOURCE_TYPE_CONFIG_KEY] == "Postgres"
 
@@ -603,7 +605,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             ("encrypted_pointer_other_kind", ExternalDataSourceType.STRIPE, False, True),
         ]
     )
-    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
+    def test_a_source_with_unreadable_inputs_blocks_a_delete_of_a_row_of_its_kind_but_not_an_edit(
         self, _name: str, broken_type: ExternalDataSourceType, counted: bool, encrypted_pointer: bool
     ) -> None:
         editor = self._source()
@@ -617,14 +619,13 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         broken.save()
         new_fields = {**PG_FIELDS, "password": "new"}
 
-        if not counted:
-            assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
-            return
-        with self.assertRaises(SharedCredentialsError) as raised:
-            WarehouseSourceCredentialsStore.update(editor, pk, new_fields)
-        assert [(usage.id, usage.name) for usage in raised.exception.usages] == [
-            (str(broken.id), "unreadable source: Postgres")
-        ]
+        assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
+        assert WarehouseSourceCredentialsStore.get(editor, pk) == new_fields
+        assert IntegrationManager.any.with_source_rows().usages(self.team.id, pk) == (
+            [IntegrationUsage(type="unreadable_warehouse_source", id=str(broken.id), name="Postgres")]
+            if counted
+            else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()

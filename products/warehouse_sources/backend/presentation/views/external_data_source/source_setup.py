@@ -40,6 +40,12 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
 )
 from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -96,7 +102,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     api_version_deprecation_payload,
 )
 
-from . import base, connection_options, credential_store, helpers, webhook_setup
+from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -599,6 +605,24 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
+        # A client may point the source at another credentials row only when the source can use that row.
+        # The check runs for every team, also while the dual-write flag is off, because it keeps a client
+        # from attaching credentials of another team. The source then uses the credentials of that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(
+                instance, existing_job_inputs, incoming_job_inputs
+            )
+            if requested_reference is not None:
+                new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
+
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -632,6 +656,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
+        # The parsed config has no credentials reference, so the store keeps the stored one.
+        if requested_reference is not None:
+            validated_job_inputs[CREDENTIALS_REFERENCE_KEY] = requested_reference
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
@@ -706,9 +733,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        if "job_inputs" in validated_data:
-            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        # One transaction for the credentials row and the source, so a failed source save also undoes the
+        # row write, and the source lock of the copy holds until the source save commits.
+        with transaction.atomic():
+            if "job_inputs" in validated_data:
+                # An edit of credentials that other sources or products use raises `SharedCredentialsError`
+                # (a 409) unless the request confirms it.
+                SourceInputsStore.assign(
+                    instance,
+                    validated_data.pop("job_inputs"),
+                    shared_credentials=SharedCredentialsEdit.CONFIRMED
+                    if helpers.update_shared_credentials_confirmed(request)
+                    else SharedCredentialsEdit.REFUSE,
+                )
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -1100,6 +1138,13 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
             resolved.credential.delete()
         return response
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Runs for both PUT and PATCH.
+        try:
+            return super().update(request, *args, **kwargs)
+        except SharedCredentialsError as error:
+            return shared_credentials.shared_credentials_conflict_response(error)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).

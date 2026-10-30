@@ -10,9 +10,20 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_KEY,
+    SharedCredentialsEdit,
+    UnreadableSourceInputsError,
+)
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    mirror_connection_fields,
+    shadow_compare,
+    shadow_compare_many,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -31,7 +42,9 @@ class SourceInputsStore:
 
         The result is a new dict, so a change to it has no effect until a write method saves it.
         """
-        return _decode(source.job_inputs)
+        inputs = _decode(source.job_inputs)
+        shadow_compare(source, inputs)
+        return inputs
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -41,12 +54,14 @@ class SourceInputsStore:
         A source whose inputs do not decode is left out, so one bad row does not fail a whole list.
         A caller that needs that source calls `load` and handles the error.
         """
+        sources = list(sources)
         loaded: dict[UUID, dict[str, Any]] = {}
         for source in sources:
             try:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
+        shadow_compare_many(sources, loaded)
         return loaded
 
     @staticmethod
@@ -75,13 +90,29 @@ class SourceInputsStore:
         return isinstance(source.job_inputs, str)
 
     @staticmethod
-    def assign(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+    def assign(
+        source: ExternalDataSource,
+        inputs: Mapping[str, Any],
+        *,
+        shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+    ) -> None:
         """Stage all inputs on the source without a database write. The caller must save the model.
 
         Use it when the caller saves the model for other reasons too, for example a DRF serializer
-        update, so that the source row gets one write.
+        update, so that the source row gets one write. The connection fields go to the credentials row
+        now (behind the dual-write flag), before the caller saves the source. The staged inputs keep the
+        stored reference to that row when ``inputs`` has none, and get a reference when the copy creates
+        the row. Inputs without connection fields keep no reference. ``shared_credentials`` decides what an
+        edit of a row that other objects use does.
         """
-        source.job_inputs = dict(inputs)
+        if not _has_connection_fields(source.source_type, inputs):
+            # The write removes the typed-in credentials (a select switched to its OAuth option, or a managed
+            # source that now gets its credentials elsewhere). A kept reference would leave the source a user
+            # of its old row, so the row could not be deleted.
+            _stage(source, {key: value for key, value in inputs.items() if key != CREDENTIALS_REFERENCE_KEY})
+            return
+        staged = mirror_connection_fields(source, inputs, shared_credentials=shared_credentials)
+        _stage(source, _with_stored_reference(source, staged))
 
     @staticmethod
     def save(
@@ -91,15 +122,22 @@ class SourceInputsStore:
         extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
     ) -> None:
         """Replace all inputs of the source and save them."""
-        SourceInputsStore.assign(source, inputs)
-        source.save(update_fields=["job_inputs", *extra_update_fields])
+        # One transaction, so a failed save also undoes the copy to the credentials row.
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(update_fields=["job_inputs", *extra_update_fields])
 
     @staticmethod
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:
-        """Create a source with these inputs in one insert. ``fields`` are the other model fields."""
+        """Create a source with these inputs in one insert. ``fields`` are the other model fields.
+
+        The credentials row is created before the insert, so the insert saves the reference to it. Both
+        writes are in one transaction, so a failed insert leaves no row.
+        """
         source = ExternalDataSource(**fields)
-        SourceInputsStore.assign(source, inputs)
-        source.save(force_insert=True)
+        with transaction.atomic():
+            SourceInputsStore.assign(source, inputs)
+            source.save(force_insert=True)
         return source
 
     @staticmethod
@@ -123,7 +161,8 @@ class SourceInputsStore:
         inputs.update(updates)
         for key in remove:
             inputs.pop(key, None)
-        SourceInputsStore.save(source, inputs, extra_update_fields=extra_update_fields)
+        _stage(source, inputs)
+        source.save(update_fields=["job_inputs", *extra_update_fields])
         return inputs
 
     @staticmethod
@@ -140,6 +179,23 @@ class SourceInputsStore:
         await database_sync_to_async_pool(SourceInputsStore.save)(
             source, inputs, extra_update_fields=extra_update_fields
         )
+
+
+def _stage(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+    source.job_inputs = dict(inputs)
+
+
+def _with_stored_reference(source: ExternalDataSource, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    # Many writers build the inputs from a parsed config, which has no reference key. The stored value
+    # decides the row, so such a write cannot drop the reference and make a second row. The copy reads
+    # the value from the database; this covers a write that skips the copy (for example, the flag is off).
+    if CREDENTIALS_REFERENCE_KEY in inputs:
+        return inputs
+    try:
+        stored = _decode(source.job_inputs).get(CREDENTIALS_REFERENCE_KEY)
+    except UnreadableSourceInputsError:
+        return inputs
+    return inputs if stored is None else {**inputs, CREDENTIALS_REFERENCE_KEY: stored}
 
 
 def _decode(raw: Any) -> dict[str, Any]:
@@ -167,6 +223,14 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
     )
 
     return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+
+
+def _has_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> bool:
+    try:
+        return bool(_split(source_type, inputs).connection)
+    except ValueError:
+        # An unknown source type: keep the reference, because nothing can tell what its inputs hold.
+        return True
 
 
 def _has_runtime_prefix(key: str) -> bool:

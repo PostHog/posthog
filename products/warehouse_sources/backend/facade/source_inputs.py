@@ -5,7 +5,10 @@ through the model field. Each method delegates to the store in ``logic/source_in
 """
 
 from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
-from products.warehouse_sources.backend.logic import source_inputs as _store
+from products.warehouse_sources.backend.logic import (
+    source_credentials_rollout as _rollout,
+    source_inputs as _store,
+)
 
 
 class SourceInputsStore:
@@ -19,6 +22,8 @@ class SourceInputsStore:
     update_runtime = staticmethod(_store.SourceInputsStore.update_runtime)
     aload = staticmethod(_store.SourceInputsStore.aload)
     asave = staticmethod(_store.SourceInputsStore.asave)
+    requested_credentials_reference = staticmethod(_rollout.requested_credentials_reference)
+    with_credentials_of = staticmethod(_rollout.with_credentials_of)
 
 
 __all__ = ["SourceInputsStore", "UnreadableSourceInputsError"]
