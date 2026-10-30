@@ -73,7 +73,11 @@ DAY = datetime.timedelta(days=1)
 _BOUND_CHARS_PER_TOKEN = 2
 # The cost bound when the model has no price. One update of the default model costs far less.
 _UNPRICED_UPDATE_COST_USD = 0.05
-_CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
+_CALLED_MODEL = (
+    UserActivitySummary.Status.OK,
+    UserActivitySummary.Status.FAILED,
+    UserActivitySummary.Status.EMPTY_PROFILE,
+)
 
 SOURCE_ACTIVITY_LOG = "activity_log"
 SOURCE_TASKS = "tasks"

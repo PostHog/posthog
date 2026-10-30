@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import FROZEN_POSTHOG_VERSION
@@ -23,6 +24,7 @@ from posthog.plugins.access import can_configure_plugins, can_globally_manage_pl
 from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
+from products.cdp.backend.api.plugin import SECRET_FIELD_VALUE
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -1109,6 +1111,29 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "deleted": False,
                 },
             ],
+        )
+
+    @parameterized.expand(
+        [
+            ("list_schema", [{"key": "api_key", "secret": True}, {"key": "host"}]),
+            ("dict_schema", {"api_key": {"secret": True}, "host": {}}),
+        ]
+    )
+    def test_plugin_config_masks_secret_fields(self, mock_get, mock_reload, _name, config_schema):
+        plugin = Plugin.objects.create(organization=self.organization, config_schema=config_schema)
+        PluginConfig.objects.create(
+            plugin=plugin,
+            team=self.team,
+            enabled=True,
+            order=1,
+            config={"api_key": "sk_test_123", "host": "example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/plugin_configs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"][0]["config"], {"api_key": SECRET_FIELD_VALUE, "host": "example.com"}
         )
 
     def test_create_hog_function_from_plugin_config(self, mock_get, mock_reload):

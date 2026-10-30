@@ -45,7 +45,7 @@ export function InboxSetupFlow(): JSX.Element {
                 <GuidedWizardStepper
                     steps={[
                         { step: 'signals', label: 'Sources' },
-                        { step: 'scouts', label: 'Background agents' },
+                        { step: 'scouts', label: 'Scouts' },
                         { step: 'github', label: 'Review and activate' },
                     ]}
                     currentStep={draft.step}

@@ -35,6 +35,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.sett
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
+def _schema_description(endpoint: str) -> str | None:
+    config = PENDO_ENDPOINTS[endpoint]
+    if not config.is_events:
+        return None
+    lookback = f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
+    return f"Daily event buckets. {lookback}" if config.grouped_events else lookback
+
+
 @SourceRegistry.register
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
     codebase_detection = detect(
@@ -145,11 +153,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
                 supports_incremental=PENDO_ENDPOINTS[endpoint].is_events,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=(
-                    f"Daily event buckets. Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
-                    if PENDO_ENDPOINTS[endpoint].is_events
-                    else None
-                ),
+                description=_schema_description(endpoint),
             )
             for endpoint in ENDPOINTS
         ]

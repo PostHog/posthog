@@ -4,7 +4,10 @@ import posthog from 'posthog-js'
 
 import { RecordingSnapshot } from '@posthog/replay-shared'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as appContext from 'lib/utils/getAppContext'
 import {
     PlayerInspectorLogicProps,
     playerInspectorLogic,
@@ -16,7 +19,13 @@ import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotData
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { RecordingEventType, RRWebRecordingConsoleLogPayload, SessionRecordingType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    RecordingEventType,
+    RRWebRecordingConsoleLogPayload,
+    SessionRecordingType,
+} from '~/types'
 
 import { makeExperimentSessionContextItem } from '../../__mocks__/experiment_session_context'
 import { BLOB_SOURCE_V2, overrideSessionRecordingMocks, setupSessionRecordingTest } from '../__mocks__/test-setup'
@@ -722,6 +731,38 @@ describe('playerInspectorLogic', () => {
 
             const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
             expect(seekbarMarkers).toHaveLength(1)
+        })
+    })
+
+    describe('backend logs', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['sends the logs query when the user can read logs', AccessControlLevel.Viewer, 1],
+            ['skips the logs query when logs access is none', AccessControlLevel.None, 0],
+        ])('%s', (_name, logsAccess, expectedCalls) => {
+            jest.spyOn(appContext, 'getAppContext').mockReturnValue({
+                effective_resource_access_control: { [AccessControlResourceType.Logs]: logsAccess },
+            } as ReturnType<typeof appContext.getAppContext>)
+            const querySpy = jest
+                .spyOn(api.logs, 'query')
+                .mockResolvedValue({ results: [], hasMore: false, nextCursor: 'cursor', maxExportableLogs: 0 })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS], {
+                [FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS]: true,
+            })
+
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+            dataLogic.actions.loadEventsSuccess([])
+
+            expect(querySpy).toHaveBeenCalledTimes(expectedCalls)
+            expect(logic.values.logsAccessDenied).toBe(logsAccess === AccessControlLevel.None)
         })
     })
 

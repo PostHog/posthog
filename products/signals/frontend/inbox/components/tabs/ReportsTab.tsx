@@ -108,7 +108,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
         useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -142,7 +142,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
@@ -152,7 +152,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,
@@ -169,11 +169,13 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     timestampField,
+    hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -182,6 +184,7 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -409,6 +412,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
                         </Fragment>
                     ))}

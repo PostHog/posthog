@@ -89,6 +89,11 @@ class PlanetScalePostgresSource(PostgresSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLANETSCALEPOSTGRES
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "planetscale-postgres"
+
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
         if not isinstance(field, SourceFieldInputConfig):

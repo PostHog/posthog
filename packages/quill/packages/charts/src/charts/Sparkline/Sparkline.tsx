@@ -3,6 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
 import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
@@ -17,7 +18,8 @@ export interface SparklineProps {
     /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
      *  the hovered index against their own labels. */
     labels?: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     color?: string
     /** `line` (default) draws a gradient-filled trend line; `bar` draws stacked bars. */
     type?: 'line' | 'bar'
@@ -67,7 +69,7 @@ function SparklineInner({
     data,
     series,
     labels,
-    theme,
+    theme: themeProp,
     color,
     type = 'line',
     height = 120,
@@ -81,6 +83,7 @@ function SparklineInner({
     dataAttr,
     onError,
 }: SparklineProps): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const resolvedColor = color ?? theme.colors[0]
     const chartSeries = useMemo<Series[]>(() => {
         if (series) {

@@ -349,7 +349,7 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         const totalRows = 20
         const manyBreakdowns = {
             results: Array.from({ length: totalRows }, (_, i) => ({
-                action: { id: '$napped', type: 'events', name: 'Napped', order: 0 },
+                order: 0,
                 label: `value ${i}`,
                 count: totalRows - i,
                 aggregated_value: totalRows - i,

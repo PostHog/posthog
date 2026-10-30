@@ -519,6 +519,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "github_issue_writeback_enabled": "comment back on GitHub issues",
         "pull_request_label_enabled": "label self-driving PRs",
         "pull_request_label": "self-driving PR label",
+        "anomaly_scoring_enabled": "anomaly scoring",
         "scout_instructions": "scout instructions",
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",

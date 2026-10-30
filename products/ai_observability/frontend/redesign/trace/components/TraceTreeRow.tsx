@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -18,6 +20,10 @@ export interface TraceTreeRowProps {
     evalOutcomes: Record<string, EvalRollupOutcome>
     /** Feedback entries per step id, trace-level ones on the root. */
     feedbackCountByNodeId?: Record<string, number>
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
+    /** Changes on each step to a match, which scrolls the selected row into view. */
+    matchStepCount?: number
 }
 
 export function TraceTreeRow({
@@ -28,8 +34,16 @@ export function TraceTreeRow({
     onPrefetchNode,
     evalOutcomes,
     feedbackCountByNodeId,
+    matchingNodeIds = null,
+    matchStepCount = 0,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    const rowRef = useRef<HTMLButtonElement>(null)
+    useEffect(() => {
+        if (isSelected && matchStepCount > 0) {
+            rowRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [isSelected, matchStepCount])
     // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
     const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
     const feedbackCount =
@@ -37,6 +51,7 @@ export function TraceTreeRow({
     return (
         <li>
             <button
+                ref={rowRef}
                 type="button"
                 onClick={() => onSelectNode(node.id)}
                 onMouseEnter={() => onPrefetchNode(node.id)}
@@ -45,7 +60,8 @@ export function TraceTreeRow({
                 data-attr="trace-view-tree-node"
                 className={cn(
                     'flex w-full min-w-0 items-start gap-2 rounded py-1 pr-1.5 text-left hover:bg-fill-button-tertiary-hover',
-                    isSelected && 'bg-fill-button-tertiary-active'
+                    isSelected && 'bg-fill-button-tertiary-active',
+                    matchingNodeIds && !matchingNodeIds.has(node.id) && 'opacity-50'
                 )}
                 // Depth is data, so the indent cannot be a static Tailwind class.
                 style={{ paddingLeft: `${0.375 + depth * 0.75}rem` }}
@@ -79,6 +95,8 @@ export function TraceTreeRow({
                             onPrefetchNode={onPrefetchNode}
                             evalOutcomes={evalOutcomes}
                             feedbackCountByNodeId={feedbackCountByNodeId}
+                            matchingNodeIds={matchingNodeIds}
+                            matchStepCount={matchStepCount}
                         />
                     ))}
                 </ul>

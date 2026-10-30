@@ -140,12 +140,16 @@ jobs:
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/mobile/src/features/chat/objectKinds.generated.ts'
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        # Formatter inputs can change the generated mobile projection.
+                        - 'products/mobile/biome.json'
+                        - 'products/mobile/pnpm-lock.yaml'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -508,6 +512,12 @@ jobs:
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+
+                  - name: Run semgrep ratchet script tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_semgrep_ratchet.py -v
 
                   - name: Run granian shared socket tests
                     shell: bash

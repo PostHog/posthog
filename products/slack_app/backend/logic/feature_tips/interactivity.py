@@ -11,7 +11,6 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG
@@ -24,6 +23,7 @@ from products.slack_app.backend.logic.feature_tips.offer import (
 )
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, TipRecord, update_state
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
+from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -73,11 +73,7 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
         post_response_url(response_url, {"delete_original": True})
         return HttpResponse(status=200)
     value = found.value
-    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind="slack",
-        integration_id=slack_team_id,
-    ).first()
+    integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None or value.get("feature") not in SlackFeature:
         post_response_url(response_url, {"delete_original": True})
         return HttpResponse(status=200)

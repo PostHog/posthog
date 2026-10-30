@@ -64,6 +64,18 @@ class AccountsTableAggregation(StrEnum):
     MEDIAN = "median"
 
 
+class AccountsTableCustomPropertyDisplayType(StrEnum):
+    TEXT = "text"
+    LINK = "link"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    DATE = "date"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -237,6 +249,12 @@ class DisplayType(StrEnum):
     LINE = "line"
     BAR = "bar"
     AREA = "area"
+
+
+class ValueLabels(StrEnum):
+    AUTO = "auto"
+    SHOW = "show"
+    HIDE = "hide"
 
 
 class YAxisPosition(StrEnum):
@@ -2148,6 +2166,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
 class Breakdown1(StrEnum):
     KEYWORD = "keyword"
     PAGE = "page"
+    SEARCH_TERM = "search_term"
 
 
 class Platform(StrEnum):
@@ -3022,6 +3041,16 @@ class SnapchatAdsConversionValueFields(StrEnum):
 
 class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
+
+
+class SpanHealthStatus(StrEnum):
+    SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
+    RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"
 
 
 class SpanPropertyFilterType(StrEnum):

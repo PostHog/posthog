@@ -553,6 +553,9 @@ class CustomerIOImportService:
                 suppressed_at=details.suppressed_at or now,
                 last_bounce_at=details.suppressed_at if is_bounce else None,
                 last_bounce_diagnostic=details.diagnostic,
+                # Customer.io lists an address under bounces or invalid emails only when it can't receive
+                # mail, so these block transactional email the way our own hard bounces do.
+                hard_bounced_at=(details.suppressed_at or now) if is_bounce else None,
                 created_by_id=self.created_by_id,
             )
             for email, details in sorted(imported.items())

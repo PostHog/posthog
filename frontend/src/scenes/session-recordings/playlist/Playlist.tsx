@@ -29,11 +29,13 @@ import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
+import { splitOngoingRecordings } from 'scenes/session-recordings/playlist/playlistUtils'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
-import { isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
+import { SessionRecordingPreviewFeed } from 'scenes/session-recordings/playlist/SessionRecordingPreviewFeed'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
@@ -91,6 +93,7 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const newLayout = watchLayout && isNewReplayLayout(replayLayout)
+    const feedLayout = newLayout && isFeedReplayLayout(replayLayout)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -115,7 +118,8 @@ export function Playlist({
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
     const watchListHeader = newLayout && !notebookNode
-    const watchFilterBar = watchListHeader && type !== 'collection'
+    // The feed layout hosts the filter bar above both columns, so the list only keeps its header.
+    const watchFilterBar = watchListHeader && type !== 'collection' && !feedLayout
 
     // bound outside here
     const {
@@ -159,16 +163,18 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        newLayout ? (
+        feedLayout ? (
+            <SessionRecordingPreviewFeed recording={item} isActive={isActive} selectable={selectMode} />
+        ) : newLayout ? (
             <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
 
-    // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
-    const ongoingRecordings = newLayout ? otherRecordings.filter((r) => r.ongoing) : []
-    const finishedRecordings =
-        ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
+    const { ongoing: ongoingRecordings, finished: finishedRecordings } = splitOngoingRecordings(
+        otherRecordings,
+        newLayout
+    )
 
     const sections: PlaylistSection[] = []
 
@@ -276,7 +282,22 @@ export function Playlist({
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
     const emptyState =
-        type === 'collection' ? (
+        ongoingRecordings.length > 0 ? (
+            <div className="flex flex-col items-center gap-2 p-4 text-secondary text-sm">
+                <span>Only live recordings so far</span>
+                {hasNext && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        loading={sessionRecordingsResponseLoading}
+                        onClick={() => maybeLoadSessionRecordings('older')}
+                        data-attr="list-load-older"
+                    >
+                        Load more
+                    </LemonButton>
+                )}
+            </div>
+        ) : type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
             <ListEmptyState listEmptyState={listEmptyState} />
@@ -314,7 +335,7 @@ export function Playlist({
                     />
                 </div>
             )}
-            {!watchFilterBar && !notebookNode && type !== 'collection' && (
+            {!watchListHeader && !notebookNode && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton
@@ -403,6 +424,7 @@ export function Playlist({
                             <OngoingRecordingsGroup
                                 count={ongoingRecordings.length}
                                 holdsActive={ongoingRecordings.some((r) => r.id === activeItemId)}
+                                defaultOpen={finishedRecordings.length === 0}
                             >
                                 <ListSection
                                     key="ongoing"
