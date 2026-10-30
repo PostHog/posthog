@@ -55,3 +55,12 @@ def copy_enterprise_fields(
         return None
     requested = set(update_fields)
     return requested | {copies[name] for name in copies if name in requested or _attname(instance, name) in requested}
+
+
+def saves_updated_at(update_fields: Iterable[str] | None) -> bool:
+    """Whether a save writes `updated_at`, so its copy must follow.
+
+    The enterprise `updated_at` uses auto_now, which Django fills while it writes the enterprise row,
+    after the base row is already written. So the copy has to be written after the save.
+    """
+    return update_fields is None or "updated_at" in update_fields
