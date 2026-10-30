@@ -120,6 +120,7 @@ It proves a broken capture path only when the flow had the opportunity to send t
   - **A failed controlled test** — a person ran the success path and the event did not arrive, as an inbox report, notebook, or scratchpad entry records. Do not run that test yourself.
 
   Without that evidence, write an inconclusive `watch:observability_gaps:dead-insight-<insight_id>` entry: the empty series, the missing evidence, and the observation that would settle it. Elapsed time never makes the entry a finding; only new evidence does. An insight built ahead of a launch is the most frequent example.
+
 - **Exclude** the campaign, incident-scaffolding, and legacy-union disqualifiers below, and intentional archives: a fixed past date range, or a name, description, or dashboard that marks the insight as archived, legacy, or deprecated.
 
 Recommend investigation or repair: confirm the event is gone on purpose, then update or retire the insight. Do not name a replacement event unless the rename check found one, and never recommend deleting the insight. Bundle a run's dead insights into one report under `report:observability_gaps:dead-insights`, and add later finds to it with `append_evidence`.
