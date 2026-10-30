@@ -424,6 +424,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.MarketingAnalytics,
+    [Scene.MarketingAnalyticsSettings]: AccessControlResourceType.MarketingAnalytics,
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,

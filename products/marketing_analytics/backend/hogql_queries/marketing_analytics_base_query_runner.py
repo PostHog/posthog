@@ -31,10 +31,8 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import User
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     TtlSchedule,
@@ -59,6 +57,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
+from .access_control import MarketingAnalyticsAccessMixin
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
@@ -174,7 +173,9 @@ def _session_start_day(expr: ast.Expr) -> ast.Expr:
     return ast.Call(name="toStartOfDay", args=[expr])
 
 
-class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
+class MarketingAnalyticsBaseQueryRunner(
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]
+):
     """Base class for marketing analytics query runners with shared functionality."""
 
     def __init__(self, *args, **kwargs):
@@ -202,10 +203,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Oldest precompute `computed_at` across the read's conversion goals, collected while building the
         # query. Surfaced on the response as "data as of X". None when nothing precomputed was read.
         self._precompute_computed_at: Optional[datetime] = None
-
-    def validate_query_runner_access(self, user: User) -> bool:
-        user_access_control = UserAccessControl(user=user, team=self.team)
-        return user_access_control.assert_access_level_for_resource("marketing_analytics", "viewer")
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()

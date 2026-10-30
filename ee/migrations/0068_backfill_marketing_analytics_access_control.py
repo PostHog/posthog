@@ -11,16 +11,23 @@ def backfill_marketing_analytics_access_control(apps, schema_editor):
     # analytics' access resolution, so they're excluded.
     AccessControl = apps.get_model("ee", "AccessControl")
 
+    # `marketing_analytics` was already a valid resource choice while it inherited from
+    # web_analytics, so stray resource-wide rows may exist that nothing ever read. They are
+    # removed first so the result mirrors web_analytics exactly instead of keeping a stale level
+    # or making an orphan row live.
+    AccessControl.objects.filter(resource="marketing_analytics", resource_id__isnull=True).delete()
+
     for row in AccessControl.objects.filter(resource="web_analytics", resource_id__isnull=True).iterator(
         chunk_size=CHUNK_SIZE
     ):
-        AccessControl.objects.get_or_create(
+        AccessControl.objects.create(
             resource="marketing_analytics",
             resource_id=None,
             team_id=row.team_id,
             organization_member_id=row.organization_member_id,
             role_id=row.role_id,
-            defaults={"access_level": row.access_level, "created_by_id": row.created_by_id},
+            access_level=row.access_level,
+            created_by_id=row.created_by_id,
         )
 
 

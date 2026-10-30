@@ -25,11 +25,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-
+from .access_control import MarketingAnalyticsAccessMixin
 from .attribution_base import ConversionGoal
 from .conversion_goal_conditions import conversion_goal_match_expr
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -38,14 +36,12 @@ from .search_conversion_query_runner import SearchConversionQueryRunner
 MAX_POSTHOG_CONVERSION_GOALS = 5
 
 
-class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]):
+class MarketingAnalyticsSearchQueryRunner(
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]
+):
     query: MarketingAnalyticsSearchQuery
     response: MarketingAnalyticsSearchQueryResponse
     cached_response: CachedMarketingAnalyticsSearchQueryResponse
-
-    def validate_query_runner_access(self, user: User) -> bool:
-        user_access_control = UserAccessControl(user=user, team=self.team)
-        return user_access_control.assert_access_level_for_resource("marketing_analytics", "viewer")
 
     @cached_property
     def now(self) -> datetime:

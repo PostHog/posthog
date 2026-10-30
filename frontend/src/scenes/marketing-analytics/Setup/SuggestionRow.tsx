@@ -11,7 +11,10 @@ import {
     marketingAnalyticsLogic,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
-import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+import {
+    CONFIG_WRITE_OPS,
+    setupPlanLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -98,6 +101,7 @@ export function SuggestionRow({
     const settlesInTab = suggestion.apply?.op === 'open_settings' && !!section
     const ctaLabel = suggestion.apply && !settlesInTab ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     const sectionCta = !ctaLabel && section && section !== currentSection ? section : null
+    const writesConfig = !!suggestion.apply && CONFIG_WRITE_OPS.has(suggestion.apply.op)
 
     return (
         <div className="flex items-start gap-3 py-3 px-3 border-b last:border-b-0">
@@ -141,7 +145,7 @@ export function SuggestionRow({
                         type="primary"
                         size="small"
                         loading={isApplying}
-                        disabledReason={editDisabledReason}
+                        disabledReason={writesConfig ? editDisabledReason : undefined}
                         onClick={() => onReview(suggestion)}
                     >
                         {ctaLabel}
