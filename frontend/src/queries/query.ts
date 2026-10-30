@@ -328,6 +328,7 @@ async function executeQuery<N extends DataNode>(
                                 if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
                                     submitTelemetry.submit_request_timings.push(timing)
                                 }
+                                methodOptions?.onRequestTiming?.(timing)
                             },
                         },
                         clientQueryId,
