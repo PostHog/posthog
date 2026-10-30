@@ -738,6 +738,27 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "posthog_events_qualified_without_an_alias",
+                "SELECT count(posthog.events.uuid) FROM posthog.events "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY",
+                [(1,)],
+            ),
+            (
+                "posthog_events_as_one_quoted_name",
+                f"SELECT count(`posthog.events`.uuid) FROM `posthog.events` WHERE {FLAG_CALL_CONJUNCTS}",
+                [(1,)],
+            ),
+            (
+                "posthog_events_qualified_with_a_join",
+                "SELECT count() FROM posthog.events JOIN (SELECT 'probe-distinct-id' AS d) AS s "
+                "ON posthog.events.distinct_id = s.d WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY",
+                [(1,)],
+            ),
+            (
                 "alias_named_flag_key_read_back",
                 "SELECT properties.$feature_flag AS flag_key, count() FROM events "
                 f"WHERE {FLAG_CALL_CONJUNCTS} GROUP BY flag_key",
@@ -745,6 +766,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
             ("element_column", f"SELECT elements_chain FROM events WHERE {FLAG_CALL_CONJUNCTS}", [("",)]),
             ("subquery_in_from", f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})", [(1,)]),
+            (
+                "beside_a_qualified_read_of_a_cte_named_posthog_events",
+                f"WITH `posthog.events` AS (SELECT uuid FROM events WHERE {PAGEVIEW_CONJUNCTS}) "
+                f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                "AND uuid NOT IN (SELECT posthog.events.uuid FROM posthog.events)",
+                [(1,)],
+            ),
             (
                 "cte",
                 f"WITH calls AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM calls",
@@ -917,6 +945,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 PersonsOnEventsMode.DISABLED,
             ),
             (
+                "posthog_events_person_id_through_distinct_ids",
+                f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+            ),
+            (
+                "posthog_events_qualifier_that_a_joined_column_takes",
+                "SELECT count() FROM posthog.events "
+                "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
+                "starts with posthog.events reads another table",
+            ),
+            (
                 "current_person_properties",
                 f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
@@ -994,6 +1036,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "flag_calls_and_other_events_next_to_a_join",
                 f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id "
                 "WHERE event IN ('$feature_flag_called', '$pageview') AND timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "cte_named_posthog_events",
+                "WITH `posthog.events` AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
+                f"SELECT uuid FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
             ),
         ]
     )
@@ -1281,6 +1328,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("flag_calls", f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}", "saved_calls"),
+            (
+                "posthog_events_flag_calls",
+                f"SELECT uuid FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
+                "saved_calls",
+            ),
             ("view_of_a_flag_call_view", "SELECT uuid FROM inner_calls", "inner_calls"),
             ("pageviews", f"SELECT uuid FROM events WHERE {PAGEVIEW_CONJUNCTS}", None),
             (
