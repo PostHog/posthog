@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
+from posthog.api.pagination import PageLinksSerializer, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -395,7 +396,7 @@ class ReviewsTableParamsSerializer(serializers.Serializer):
     )
 
 
-class ReviewReviewsTablePageSerializer(serializers.Serializer):
+class ReviewReviewsTablePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
     running_count = serializers.IntegerField(
         help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
@@ -738,6 +739,13 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     )
 
 
+def _next_table_offset(offset: int, limit: int, count: int) -> int | None:
+    next_offset = offset + limit
+    if next_offset >= count or next_offset > MAX_REVIEWS_TABLE_OFFSET:
+        return None
+    return next_offset
+
+
 class _PageEnvelopeSchema(AutoSchema):
     """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
 
@@ -908,7 +916,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             limit=filters["limit"],
             offset=filters["offset"],
         )
-        return Response(ReviewReviewsTablePageSerializer(page).data)
+        data = ReviewReviewsTablePageSerializer(page).data
+        data["next"] = page_link(request, "offset", _next_table_offset(filters["offset"], filters["limit"], page.count))
+        data["previous"] = page_link(request, "offset", previous_offset(filters["offset"], filters["limit"]))
+        return Response(data)
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],
