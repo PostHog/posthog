@@ -214,7 +214,8 @@ class TestZeroExposures(TestCase):
                 "running",
                 RUNNING_CONTEXT,
                 1200,
-                {"exposed_without_test_account_filter": 1200, "reason": "test_account_filter"},
+                "test_account_filter",
+                {"exposed_without_test_account_filter": 1200},
                 "No users exposed: the test account filter removes all of them",
                 "The exposure criteria filter out test accounts, and the project's test account filters match all 1,200 "
                 'users that got a variant of the feature flag "checkout-test" during the experiment, so nobody is '
@@ -225,7 +226,8 @@ class TestZeroExposures(TestCase):
                 "ended_one_user",
                 replace(RUNNING_CONTEXT, **ENDED),
                 1,
-                {"exposed_without_test_account_filter": 1, "reason": "test_account_filter"},
+                "test_account_filter",
+                {"exposed_without_test_account_filter": 1},
                 "No users exposed: the test account filter removed all of them",
                 "No users were exposed while the experiment ran, because the exposure criteria filter out test "
                 "accounts, and the project's test account filters matched the only user that got a variant of the "
@@ -236,6 +238,7 @@ class TestZeroExposures(TestCase):
                 "nobody_without_the_filter",
                 RUNNING_CONTEXT,
                 0,
+                None,
                 {"exposed_without_test_account_filter": 0},
                 "No users exposed, although the feature flag is called",
                 'PostHog has recorded calls of the feature flag "checkout-test" during the experiment, but none of them '
@@ -246,7 +249,14 @@ class TestZeroExposures(TestCase):
         ]
     )
     def test_counts_the_users_that_the_test_account_filter_removes(
-        self, _name: str, base: HealthContext, exposed: int, evidence: dict[str, int | str], title: str, detail: str
+        self,
+        _name: str,
+        base: HealthContext,
+        exposed: int,
+        reason: str | None,
+        evidence: dict[str, int | str],
+        title: str,
+        detail: str,
     ) -> None:
         ctx = replace(
             base,
@@ -260,8 +270,8 @@ class TestZeroExposures(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
-            (finding.subcode, finding.title, finding.detail, finding.evidence),
-            (CALLS_NOT_COUNTED, title, detail, {"hours_since_launch": 48, **evidence}),
+            (finding.subcode, finding.reason, finding.title, finding.detail, finding.evidence),
+            (CALLS_NOT_COUNTED, reason, title, detail, {"hours_since_launch": 48, **evidence}),
         )
 
 

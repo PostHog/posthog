@@ -212,6 +212,8 @@ class ExperimentHealthFinding:
 
     code: ExperimentHealthFindingCode
     subcode: str | None
+    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
+    reason: str | None = None
     severity: ExperimentHealthFindingSeverity
     title: str
     detail: str
