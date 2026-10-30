@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -59,7 +59,7 @@ from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.contracts import WorkflowAccessDenied
-from products.workflows.backend.facade.writes import update_workflow
+from products.workflows.backend.facade.writes import save_validated_workflow, update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -8563,12 +8563,14 @@ class TestT3CodeStepOwnership(APIBaseTest):
             return self.owner
         level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
         teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
-        if who == "shared_editor":
+        if who in ("shared_editor", "shared_with_everyone"):
             AccessControl.objects.create(
                 team=self.team,
                 resource="hog_flow",
                 resource_id=str(self.flow.id),
-                organization_member=OrganizationMembership.objects.get(user=teammate),
+                organization_member=(
+                    OrganizationMembership.objects.get(user=teammate) if who == "shared_editor" else None
+                ),
                 access_level="editor",
             )
         self.client.force_login(teammate)
@@ -8576,22 +8578,42 @@ class TestT3CodeStepOwnership(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("owner", status.HTTP_200_OK),
-            ("shared_editor", status.HTTP_200_OK),
-            ("admin", status.HTTP_200_OK),
-            ("teammate", status.HTTP_403_FORBIDDEN),
+            ("owner", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
+            ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+            ("teammate", {"status": "archived"}, status.HTTP_200_OK),
         ]
     )
-    def test_only_the_owner_or_someone_they_share_with_can_change_it(self, who: str, expected: int) -> None:
+    def test_only_the_owner_or_someone_they_share_with_can_change_it(
+        self, who: str, change: dict, expected: int
+    ) -> None:
         self._log_in_as(who)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", {"name": "Fix every error"}, format="json"
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", change, format="json")
 
         assert response.status_code == expected, response.json()
-        if who == "teammate":
+        if expected == status.HTTP_403_FORBIDDEN:
             assert "T3 Code step" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("publish", {"confirm": True}),
+            ("revisions/1/restore", {"overwrite": True}),
+            ("proposals/00000000-0000-4000-8000-000000000000/approve", {"overwrite": True}),
+        ]
+    )
+    def test_a_teammate_cannot_replace_its_content(self, path: str, body: dict) -> None:
+        HogFlow.objects.filter(id=self.flow.id).update(draft={"actions": self.flow.actions})
+        self._log_in_as("teammate")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/{path}", body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "T3 Code step" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -8622,11 +8644,77 @@ class TestT3CodeStepOwnership(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    def test_a_teammate_cannot_turn_it_on_from_a_canvas(self) -> None:
+    def test_a_teammate_can_turn_it_off_but_not_on_from_a_canvas(self) -> None:
         teammate = self._log_in_as("teammate")
 
         with pytest.raises(WorkflowAccessDenied):
             set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
+        HogFlow.objects.filter(id=self.flow.id).update(status="active")
+        assert (
+            set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=False)
+            == "draft"
+        )
+
+    @parameterized.expand([("rename",), ("enable_from_a_canvas",)])
+    def test_a_teammate_cannot_change_it_while_the_owner_adds_a_t3_code_step(self, change: str) -> None:
+        trigger, t3_code_step = self.flow.actions
+        HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger])
+        teammate = self._log_in_as("teammate")
+
+        def add_the_t3_code_step_first(write: Callable[..., Any]) -> Callable[..., Any]:
+            def write_after_the_owner(**kwargs: Any) -> Any:
+                HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger, t3_code_step])
+                return write(**kwargs)
+
+            return write_after_the_owner
+
+        views = "products.workflows.backend.presentation.views.hog_flow"
+        if change == "rename":
+            with patch(f"{views}.update_workflow", side_effect=add_the_t3_code_step_first(update_workflow)):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", {"name": "Renamed"}, format="json"
+                )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        else:
+            with (
+                patch(
+                    f"{views}.save_validated_workflow",
+                    side_effect=add_the_t3_code_step_first(save_validated_workflow),
+                ),
+                pytest.raises(WorkflowAccessDenied),
+            ):
+                set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
+
+        flow = HogFlow.objects.get(id=self.flow.id)
+        assert (flow.name, flow.status) == ("Fix signup errors", "draft")
+
+    def test_a_transactional_email_workflow_cannot_have_a_t3_code_step(self) -> None:
+        template = deepcopy(webhook_template)
+        template["id"] = "template-t3-code"
+        sync_template_to_db(template)
+        trigger, t3_code_step = self.flow.actions
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {
+                    "name": "Welcome email",
+                    "origin_product": "transactional_emails",
+                    "actions": [
+                        trigger,
+                        {
+                            **t3_code_step,
+                            "config": {**t3_code_step["config"], "inputs": {"url": {"value": "https://example.com"}}},
+                        },
+                    ],
+                    "edges": [],
+                },
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "transactional email workflow" in str(response.json())
 
 
 class TestRunScoutActionValidation(APIBaseTest):
