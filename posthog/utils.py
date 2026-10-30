@@ -899,7 +899,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
     from posthog.user_permissions import UserPermissions
 
     from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
-    from products.tasks.backend.facade.access import get_posthog_ai_access_decision
+    from products.tasks.backend.facade.access import get_cached_posthog_ai_access_decision
 
     user = cast("User", request.user)
 
@@ -968,7 +968,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
         # The frontend picks PostHog AI 2.0 or classic from this before it renders anything.
         with tracer.start_as_current_span("template.posthog_ai_access"):
             try:
-                posthog_ai_access = get_posthog_ai_access_decision(user, user.team.organization).allowed
+                posthog_ai_access = get_cached_posthog_ai_access_decision(user, user.team.organization).allowed
             except Exception as error:
                 capture_exception(error)
                 posthog_ai_access = False

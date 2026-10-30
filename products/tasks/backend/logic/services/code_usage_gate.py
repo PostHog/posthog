@@ -137,7 +137,15 @@ def code_access_required_response(
     checks Desktop access checks that too. Pass `origin_product` when no task exists yet."""
     if _task_bound_internal_run(request, task_id):
         return None
+    # A Desktop fail-open must not skip the AI gate, which resolves on its own.
+    if desktop_response := _desktop_access_required_response(request, organization, fail_open_on_resolution_error):
+        return desktop_response
+    return posthog_ai_access_required_response(request, organization, task_id=task_id, origin_product=origin_product)
 
+
+def _desktop_access_required_response(
+    request: Request, organization: "Organization", fail_open_on_resolution_error: bool
+) -> Response | None:
     try:
         decision = get_desktop_access_decision(cast("User", request.user), organization)
     except DesktopAccessResolutionError:
@@ -159,9 +167,7 @@ def code_access_required_response(
         )
 
     if decision.allowed:
-        return posthog_ai_access_required_response(
-            request, organization, task_id=task_id, origin_product=origin_product
-        )
+        return None
 
     messages = {
         DesktopAccessReason.STARTUP_PLAN: (

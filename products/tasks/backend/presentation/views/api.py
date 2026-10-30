@@ -84,6 +84,7 @@ from products.tasks.backend.facade import (
 from products.tasks.backend.facade.access import (
     code_access_required_response,
     compute_quota_limit_response,
+    posthog_ai_access_required_response,
     usage_limit_response,
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
@@ -3703,6 +3704,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
             if access_response := code_access_required_response(request, self.organization):
+                return access_response
+            # Called on its own so a sandbox token bound to this task does not also skip the Desktop gate above.
+            if access_response := posthog_ai_access_required_response(request, self.organization, task_id=task_id):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response

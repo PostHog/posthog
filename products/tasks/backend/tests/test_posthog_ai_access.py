@@ -3,6 +3,7 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -10,7 +11,11 @@ from posthoganalytics.types import FeatureFlagResult
 
 from posthog.models import Organization, User
 
-from products.tasks.backend.access import PostHogAIAccessDecision, get_posthog_ai_access_decision
+from products.tasks.backend.access import (
+    PostHogAIAccessDecision,
+    get_cached_posthog_ai_access_decision,
+    get_posthog_ai_access_decision,
+)
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
 
@@ -138,3 +143,35 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             decision = get_posthog_ai_access_decision(user, organization)
 
         self.assertEqual(decision, expected)
+
+    @parameterized.expand(
+        [
+            ("resolved_decision_is_reused", True, 1),
+            ("unresolved_decision_is_not_cached", False, 2),
+        ]
+    )
+    def test_cached_decision(self, _name: str, beta_has_rules: bool, expected_evaluations: int) -> None:
+        cache.clear()
+        organization = Organization(name="Fixture org", created_at=datetime(2025, 1, 1, tzinfo=UTC))
+        user = User(pk=1, email="fixture@example.com", distinct_id="fixture-distinct-id")
+        beta = FeatureFlagResult(
+            key="phai-2-beta", enabled=True, variant=None, payload=RULES if beta_has_rules else None, reason=None
+        )
+
+        with (
+            patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=False),
+            patch(
+                "products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta
+            ) as mock_beta,
+            patch(
+                "products.tasks.backend.access._get_funding_status",
+                return_value=OrganizationFundingStatus(
+                    startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+                ),
+            ),
+        ):
+            first = get_cached_posthog_ai_access_decision(user, organization)
+            second = get_cached_posthog_ai_access_decision(user, organization)
+
+        self.assertEqual(first, second)
+        self.assertEqual(mock_beta.call_count, expected_evaluations)
