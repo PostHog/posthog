@@ -35,6 +35,7 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
+        migrations.RunSQL("SET LOCAL lock_timeout = '1s'", reverse_sql=migrations.RunSQL.noop),
         AddConstraintNotValid(
             model_name="signalspend",
             constraint=models.CheckConstraint(

@@ -5,9 +5,12 @@ from threading import Event
 from uuid import UUID, uuid4
 
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError, close_old_connections, connection, transaction
+
+from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.signals.backend.facade.trial import TaskTrialAdmission
 from products.signals.backend.models import SignalReport, SignalSpend
@@ -15,16 +18,23 @@ from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.facade.api import iter_trial_task_runs
+from products.tasks.backend.max_tools import RunTaskTool
 from products.tasks.backend.models import Task, TaskRun
 
 
 class TestTrialExecutionConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_waiting_for_report_does_not_lock_its_task(self) -> None:
+    @parameterized.expand([("model",), ("tool",)])
+    def test_waiting_for_report_does_not_lock_its_task(self, entrypoint: str) -> None:
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
         task = Task.objects.create(
-            team=self.team, title="Implementation", origin_product="signal_report", signal_report=report, internal=True
+            team=self.team,
+            title="Implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            internal=True,
+            created_by=self.user,
         )
         report_requested = Event()
 
@@ -39,11 +49,18 @@ class TestTrialExecutionConcurrency(NonAtomicBaseTest):
             close_old_connections()
             try:
                 with connection.execute_wrapper(observe):
-                    task.create_run()
+                    if entrypoint == "tool":
+                        tool = RunTaskTool(team=self.team, user=self.user, config={})
+                        async_to_sync(tool._arun_impl)(task_id=str(task.id))
+                    else:
+                        task.create_run()
             finally:
                 close_old_connections()
 
-        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+        with (
+            patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async", new_callable=AsyncMock),
+        ):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             with ThreadPoolExecutor(max_workers=1) as pool:
                 with transaction.atomic():
