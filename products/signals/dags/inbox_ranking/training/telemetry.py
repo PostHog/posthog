@@ -145,40 +145,67 @@ def promotion_event(
 _DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
 
 
+# What a pair event grades: the personal score, or the cold score at report grain (`cold_path`).
+PERSONAL_GRADE = "personal"
+COLD_PATH_GRADE = "cold_path"
+
+
 def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head, scope and slice of a pair experiment's `vs_baseline` block, so a chart
     filters to one slice (such as `non_dogfood` users with 10 or more prior views) and reads its
-    within-user deltas against the baseline and the reference."""
+    within-user deltas against the baseline, the reference and the cold score. A `cold_path` block
+    adds one event per head and scope with `grade` set to `cold_path`. `group` says what the
+    `within_user` reads group by: a user, or a team for a per-report grade."""
     events: list[TrainingEvent] = []
-    for head, grade in (block.get("heads") or {}).items():
-        for scope, slices in (grade.get("scopes") or {}).items():
-            for slice_name, cell in slices.items():
-                properties: dict[str, Any] = {
-                    **context,
-                    "grain": block.get("grain"),
-                    "baseline_model_name": block.get("baseline"),
-                    "reference_model_name": block.get("reference"),
-                    "seeds": len(block.get("seeds", [])),
-                    "head": head,
-                    **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
-                    "scope": scope,
-                    "slice": slice_name,
-                    **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
-                }
-                for comparison in ("vs_baseline", "vs_reference"):
-                    deltas = cell.get(comparison) or {}
-                    for read in ("macro", "pooled"):
-                        properties |= {
-                            f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key)
-                            for key in _DELTA_KEYS
-                        }
-                    interval = deltas.get("macro_team_interval") or {}
-                    properties |= {
-                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key)
-                        for key in ("low", "high", "teams")
-                    }
-                events.append(TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties))
+    grades = (
+        (PERSONAL_GRADE, block.get("heads") or {}),
+        (COLD_PATH_GRADE, (block.get("cold_path") or {}).get("heads") or {}),
+    )
+    for grade_name, heads in grades:
+        for head, grade in heads.items():
+            for scope, slices in (grade.get("scopes") or {}).items():
+                for slice_name, cell in slices.items():
+                    events.append(
+                        _pair_comparison_event(block, context, grade_name, head, grade, scope, slice_name, cell)
+                    )
     return events
+
+
+def _pair_comparison_event(
+    block: Mapping[str, Any],
+    context: Mapping[str, Any],
+    grade_name: str,
+    head: str,
+    grade: Mapping[str, Any],
+    scope: str,
+    slice_name: str,
+    cell: Mapping[str, Any],
+) -> TrainingEvent:
+    properties: dict[str, Any] = {
+        **context,
+        "grain": block.get("grain"),
+        "baseline_model_name": block.get("baseline"),
+        "reference_model_name": block.get("reference"),
+        "seeds": len(block.get("seeds", [])),
+        "grade": grade_name,
+        "group": grade.get("group", "user"),
+        "head": head,
+        **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+        "scope": scope,
+        "slice": slice_name,
+        **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
+    }
+    for comparison in ("vs_baseline", "vs_reference", "vs_cold"):
+        deltas = cell.get(comparison) or {}
+        for read in ("macro", "pooled"):
+            properties |= {
+                f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key) for key in _DELTA_KEYS
+            }
+        interval = deltas.get("macro_team_interval") or {}
+        properties |= {
+            f"{comparison}_within_user_macro_interval_{key}": interval.get(key) for key in ("low", "high", "teams")
+        }
+    return TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties)
 
 
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:

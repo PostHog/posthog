@@ -25,9 +25,16 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_VECTOR_KINDS, VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import ProjectContext
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn import pair_lane
 from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
-from products.signals.dags.inbox_ranking.nn.pair_lane import load_user_history, pair_example_table, pair_network_inputs
+from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES
+from products.signals.dags.inbox_ranking.nn.pair_lane import (
+    load_user_history,
+    pair_example_table,
+    pair_network_inputs,
+    report_head_frame,
+)
 from products.signals.dags.inbox_ranking.nn.pairs import (
     IMPRESSIONS_SOURCE,
     NN_PAIR_EXAMPLES_TABLE,
@@ -312,3 +319,51 @@ def test_each_pair_arm_builds_its_own_inputs_and_only_the_user_arm_reads_history
     assert not offsets[row["u5"]].any()
     # Without history the user reads as the longest time since a view, and nothing else.
     np.testing.assert_allclose(user.reports[row["u5"], width:reviewer], [0.0, 0.0, 1.0, 0.0])
+
+
+def test_a_broadcast_head_takes_its_reports_own_label_and_weighs_one_per_report() -> None:
+    reports = pd.DataFrame(
+        {"report_id": ["a", "b"], "snapshot_date": [BIRTH] * 2, "report_team_id": [2, 2], "priority": ["P1", "P2"]}
+    )
+    # Report a's `fixed` label is 1 and in its own holdout; report b's has not matured.
+    report_labels = np.full((2, len(NN_HEAD_NAMES)), np.nan, dtype=np.float32)
+    report_holdout = np.zeros((2, len(NN_HEAD_NAMES)), dtype=bool)
+    fixed = NN_HEAD_NAMES.index("fixed")
+    report_labels[0, fixed], report_holdout[0, fixed] = 1.0, True
+    report_table = ExampleTable(rows=reports, labels=report_labels, holdout=report_holdout)
+    pairs = pd.DataFrame(
+        [
+            {
+                "report_id": report_id,
+                "snapshot_date": BIRTH,
+                "report_team_id": 2,
+                "user_distinct_id": user,
+                "holdout": False,
+                "open_label": float(user == "u1"),
+                "action_label": 0.0,
+                "user_open_reports": 0,
+                "user_dismiss_reports": 0,
+                "prior_views": 0,
+                "days_since_last_view": 90.0,
+                "has_history": False,
+                "is_suggested_reviewer": False,
+            }
+            for report_id, user in (("a", "u1"), ("a", "u2"), ("a", "u3"), ("b", "u1"))
+        ]
+    )
+    heads = ("open", "action", "fixed")
+
+    table = pair_example_table(pairs, reports, heads, report_head_frame(report_table, heads))
+
+    assert table.weights is not None
+    by_report = table.rows["report_id"].to_numpy()
+    np.testing.assert_allclose(table.labels[by_report == "a", 2], [1.0, 1.0, 1.0])
+    assert np.isnan(table.labels[by_report == "b", 2]).all()
+    np.testing.assert_allclose(table.labels[:, 0], [1.0, 0.0, 0.0, 1.0])
+    # Report a's three pairs share its one unit of weight in `fixed`; every per-viewer pair weighs one.
+    assert table.weights[by_report == "a", 2].sum() == pytest.approx(1.0)
+    np.testing.assert_array_equal(table.weights[:, :2], np.ones((4, 2)))
+    # The broadcast head reads the report's own holdout, the per-viewer heads the pair's.
+    np.testing.assert_array_equal(table.holdout[:, 2], [True, True, True, False])
+    assert not table.holdout[:, :2].any()
+    assert pair_example_table(pairs, reports, ("open", "action")).weights is None

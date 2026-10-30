@@ -26,6 +26,40 @@ class NetworkConfig:
 
 
 @frozen
+class PairTrainingConfig:
+    """How a pair network trains its cold path and holds back its user branch, beside its
+    `NetworkConfig`. A pair family without one trains as the report lane does.
+
+    The cold path is the same network with every user input at zero. User-input dropout zeroes the
+    user offsets and the user-history columns of a share of each batch's rows, so the network learns
+    to score a row without them. It keeps `is_suggested_reviewer` and the report inputs.
+
+    Early stopping holds out the newest train days as a validation split, keeps the weights of the
+    epoch with the lowest validation loss, and refits on every labeled row for that many epochs.
+    """
+
+    user_input_dropout: float = 0.2
+    # Dropout on the projected user offsets and their products with the report, apart from the
+    # trunk's own dropout, because the user branch overfits first.
+    user_dropout: float = 0.5
+    # The share of train days, newest first, that the validation split takes.
+    validation_share: float = 0.15
+    patience: int = 3
+    max_epochs: int = 30
+
+    def __post_init__(self) -> None:
+        for name, share in (
+            ("user_input_dropout", self.user_input_dropout),
+            ("user_dropout", self.user_dropout),
+            ("validation_share", self.validation_share),
+        ):
+            if not 0.0 <= share < 1.0:
+                raise ValueError(f"{name} is {share}; pick a share in [0, 1)")
+        if self.patience < 1 or self.max_epochs < 1:
+            raise ValueError("patience and max_epochs must be at least 1")
+
+
+@frozen
 class ProjectContext:
     """The team's project vectors per (team, moment), shared by every report of that pair."""
 

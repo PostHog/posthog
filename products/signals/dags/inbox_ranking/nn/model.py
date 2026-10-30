@@ -30,7 +30,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ON
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
-from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily
+from products.signals.dags.inbox_ranking.training.families import PAIR_BROADCAST_HEAD_NAMES, PAIR_GRAIN, ModelFamily
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
@@ -43,6 +43,43 @@ HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 class NetworkHead:
     metrics: HeadMetrics
     calibration: tuple[CalibrationBucket, ...]
+
+
+@frozen
+class HeadFitAucs:
+    """One head's AUC on the train-only fit's own fit rows, its validation rows and its holdout,
+    each row weighted by its loss weight, so a broadcast head reads one unit per report."""
+
+    head: str
+    train_auc: float | None
+    validation_auc: float | None
+    holdout_auc: float | None
+
+
+@frozen
+class PairFitRecord:
+    """How a pair network with `PairTrainingConfig` fit: the epochs its early stopping kept, which
+    the refit on every row runs for, and the gap from train to validation to holdout per head."""
+
+    epochs_kept: int
+    fit_rows: int
+    validation_rows: int
+    heads: tuple[HeadFitAucs, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "epochs_kept": self.epochs_kept,
+            "fit_rows": self.fit_rows,
+            "validation_rows": self.validation_rows,
+            "heads": {
+                head.head: {
+                    "train_auc": head.train_auc,
+                    "validation_auc": head.validation_auc,
+                    "holdout_auc": head.holdout_auc,
+                }
+                for head in self.heads
+            },
+        }
 
 
 @frozen
@@ -61,6 +98,8 @@ class TrainedNetwork:
     vector_kinds: tuple[str, ...]
     # The user-history kinds the graphs take, empty for a network without a `user` input.
     user_vector_kinds: tuple[str, ...] = ()
+    # Only a pair network fit with a `PairTrainingConfig` has one.
+    pair_fit: PairFitRecord | None = None
 
 
 def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
@@ -104,6 +143,9 @@ def network_recipe(
         learner_params=dataclasses.asdict(config),
         project_vector_kinds=vector_kinds,
     )
+    if family.pair_training is not None:
+        # Only a family that sets it carries the key, so the first pair families keep their hashes.
+        recipe = {**recipe, "pair_training": dataclasses.asdict(family.pair_training)}
     if family.grain == PAIR_GRAIN:
         recipe = {
             **recipe,
@@ -161,8 +203,11 @@ def candidate_metadata(
             head.metrics.as_dict()
             | {
                 "cohort": HEADS_BY_NAME[head.metrics.head].cohort.__name__,
-                "horizon_days": (pair_settings or {}).get(
-                    "label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days
+                # A broadcast head keeps its report label, and so the report head's horizon.
+                "horizon_days": (
+                    HEADS_BY_NAME[head.metrics.head].horizon_days
+                    if head.metrics.head in PAIR_BROADCAST_HEAD_NAMES
+                    else (pair_settings or {}).get("label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days)
                 ),
                 "example_window_start": windows.get(head.metrics.head, {}).get("example_window_start"),
                 "example_cap_bound": windows.get(head.metrics.head, {}).get("example_cap_bound"),
@@ -176,6 +221,8 @@ def candidate_metadata(
     if family.grain == PAIR_GRAIN:
         metadata["grain"] = PAIR_GRAIN
         metadata["user_vector_kinds"] = list(trained.user_vector_kinds)
+    if trained.pair_fit is not None:
+        metadata["pair_fit"] = trained.pair_fit.as_dict()
     return with_recipe(
         metadata,
         network_recipe(

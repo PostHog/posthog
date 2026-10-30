@@ -22,10 +22,16 @@ default of zero, the graph is the vector-only one.
 A label is NaN where the head has no example for the row, and a NaN label adds no gradient, so one
 network trains every head on rows that only some heads cover.
 
+A pair network can train with a `PairTrainingConfig`: per-row label weights (a broadcast head's
+1/pairs), user-input dropout so the zeroed-user cold path is trained, its own dropout on the user
+parts of the trunk input, and early stopping on validation rows. Every one of them acts in training
+only, so the exported graph has the same inputs and outputs.
+
 torch is not a main dependency: it comes from the `inbox-ranking` dependency group. Import this
 module only from dev code, never from a module on the Django, Temporal or Dagster import path.
 """
 
+import copy
 import math
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -37,7 +43,13 @@ from torch import nn
 from torch.nn import functional as F
 
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
-from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
+from products.signals.dags.inbox_ranking.multihead.inputs import (
+    ONNX_INPUTS,
+    ONNX_OUTPUT,
+    NetworkConfig,
+    NetworkInputs,
+    PairTrainingConfig,
+)
 
 # text-embedding-3 vectors are unit length, so each component is about 1/sqrt(D). Scaling by
 # sqrt(D) gives the projection unit-variance inputs, which is what its initialization assumes.
@@ -48,7 +60,14 @@ ONNX_OPSET = 17
 
 class _Model(nn.Module):
     def __init__(
-        self, *, heads: int, kinds: int, config: NetworkConfig, report_features: int = 0, user_kinds: int = 0
+        self,
+        *,
+        heads: int,
+        kinds: int,
+        config: NetworkConfig,
+        report_features: int = 0,
+        user_kinds: int = 0,
+        user_dropout: float | None = None,
     ) -> None:
         super().__init__()
         self.kinds = kinds
@@ -57,6 +76,9 @@ class _Model(nn.Module):
         k, h = config.projection_dim, config.trunk_dim
         self.projection = nn.Linear(EMBEDDING_DIMENSIONS, k)
         self.input_dropout = nn.Dropout(config.dropout)
+        # A dropout module holds no weights and draws nothing at construction, so a network without
+        # one initializes and exports as before.
+        self.user_dropout = nn.Dropout(user_dropout) if user_dropout is not None and user_kinds else None
         self.trunk = nn.Linear(k + report_features + kinds * (2 * k + 1) + user_kinds * 2 * k, h)
         self.output_dropout = nn.Dropout(config.dropout)
         self.heads = nn.Linear(h, heads)
@@ -92,7 +114,10 @@ class _Model(nn.Module):
             if user is None:
                 raise ValueError("a network built with user history needs user offsets")
             projected_user = self.projection(user * INPUT_SCALE)
-            parts += [projected_user.flatten(1), (projected.unsqueeze(1) * projected_user).flatten(1)]
+            user_parts = torch.cat(
+                [projected_user.flatten(1), (projected.unsqueeze(1) * projected_user).flatten(1)], dim=1
+            )
+            parts.append(self.user_dropout(user_parts) if self.user_dropout is not None else user_parts)
         trunk_input = torch.cat(parts, dim=1) if len(parts) > 1 else projected
         trunk_out = F.relu(self.trunk(self.input_dropout(trunk_input)))
         return self.heads(self.output_dropout(trunk_out))
@@ -109,12 +134,31 @@ class _Probabilities(nn.Module):
         return torch.sigmoid(self.model(*inputs))
 
 
-def masked_binary_cross_entropy(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    """The mean binary cross-entropy over the labels that are not NaN."""
+def masked_binary_cross_entropy(
+    logits: torch.Tensor, labels: torch.Tensor, weights: torch.Tensor | None = None
+) -> torch.Tensor:
+    """The mean binary cross-entropy over the labels that are not NaN, weighted by `weights`
+    (rows, heads) when given."""
     observed = ~torch.isnan(labels)
     # The NaN labels are replaced before the loss, not masked after it: 0 * NaN is NaN, also in the gradient.
     losses = F.binary_cross_entropy_with_logits(logits, torch.where(observed, labels, 0.0), reduction="none")
-    return (losses * observed).sum() / observed.sum().clamp(min=1)
+    if weights is None:
+        return (losses * observed).sum() / observed.sum().clamp(min=1)
+    weighted = observed * weights
+    # A batch can hold less than one unit of weight, such as one report's broadcast rows alone.
+    return (losses * weighted).sum() / weighted.sum().clamp(min=1e-8)
+
+
+def drop_user_inputs(
+    tensors: tuple[torch.Tensor, ...], dropped: torch.Tensor, user_columns: Sequence[int]
+) -> tuple[torch.Tensor, ...]:
+    """`tensors` with every user input of the `dropped` rows at zero: the `user_columns` of the
+    report input and the user offsets. The project inputs and every other report column stay."""
+    report, project, has_history, user = tensors
+    columns = torch.zeros(report.shape[1], dtype=torch.bool)
+    columns[list(user_columns)] = True
+    report = report.masked_fill(dropped[:, None] & columns[None, :], 0.0)
+    return report, project, has_history, user.masked_fill(dropped[:, None, None], 0.0)
 
 
 class MultiHeadNetwork:
@@ -127,7 +171,11 @@ class MultiHeadNetwork:
         config: NetworkConfig,
         report_features: int = 0,
         user_kinds: int = 0,
+        pair: PairTrainingConfig | None = None,
+        user_columns: Sequence[int] = (),
     ) -> None:
+        """`pair` and `user_columns` are for a pair network: `user_columns` are the report-input
+        columns that user-input dropout zeroes beside the user offsets."""
         if user_kinds and not with_context:
             raise ValueError("a network that reads user history needs project vectors")
         self.head_names = tuple(heads)
@@ -136,6 +184,10 @@ class MultiHeadNetwork:
         self.report_features = report_features
         self.user_kinds = user_kinds
         self.config = config
+        self.pair = pair
+        self.user_columns = tuple(user_columns)
+        # The epochs the last fit kept: its best validation epoch when it stopped early.
+        self.epochs_kept = 0
         # Every random draw (initialization, shuffle, dropout) comes from this seeded state, and the
         # global torch state stays as it was.
         self._rng_state = torch.Generator().manual_seed(config.seed).get_state()
@@ -146,6 +198,7 @@ class MultiHeadNetwork:
                 config=config,
                 report_features=report_features,
                 user_kinds=user_kinds,
+                user_dropout=pair.user_dropout if pair is not None else None,
             )
         weights = [parameter for name, parameter in self.model.named_parameters() if name.endswith("weight")]
         biases = [parameter for name, parameter in self.model.named_parameters() if name.endswith("bias")]
@@ -158,23 +211,72 @@ class MultiHeadNetwork:
             lr=config.learning_rate,
         )
 
-    def fit(self, inputs: NetworkInputs, labels: np.ndarray, rows: np.ndarray) -> list[float]:
-        """Train on `rows` for the configured epochs; returns the mean loss per epoch."""
+    def fit(
+        self,
+        inputs: NetworkInputs,
+        labels: np.ndarray,
+        rows: np.ndarray,
+        *,
+        weights: np.ndarray | None = None,
+        validation_rows: np.ndarray | None = None,
+        epochs: int | None = None,
+    ) -> list[float]:
+        """Train on `rows`; returns the mean loss per epoch.
+
+        Without `validation_rows` the fit runs `epochs`, by default the configured ones. A pair
+        network with validation rows runs up to its `max_epochs`, stops after `patience` epochs
+        without a lower validation loss, and keeps the weights of its best epoch."""
+        stopping = self.pair is not None and validation_rows is not None and len(validation_rows) > 0
+        if epochs is None:
+            epochs = self.pair.max_epochs if stopping and self.pair is not None else self.config.epochs
         history: list[float] = []
-        self.model.train()
+        best_loss, best_state, best_epoch = math.inf, None, 0
         with self._seeded():
-            for _ in range(self.config.epochs):
+            for epoch in range(1, epochs + 1):
+                self.model.train()
                 losses = []
                 for batch in self._batches(rows, shuffle=True):
                     loss = masked_binary_cross_entropy(
-                        self.model(*self._tensors(inputs, batch)), torch.from_numpy(labels[batch]).float()
+                        self.model(*self._train_tensors(inputs, batch)),
+                        torch.from_numpy(labels[batch]).float(),
+                        torch.from_numpy(weights[batch]).float() if weights is not None else None,
                     )
                     self._optimizer.zero_grad()
                     loss.backward()
                     self._optimizer.step()
                     losses.append(loss.item())
                 history.append(float(np.mean(losses)) if losses else float("nan"))
+                if not stopping or validation_rows is None or self.pair is None:
+                    continue
+                validation_loss = self.loss(inputs, labels, validation_rows, weights=weights)
+                if validation_loss < best_loss:
+                    best_loss, best_epoch = validation_loss, epoch
+                    best_state = copy.deepcopy(self.model.state_dict())
+                elif epoch - best_epoch >= self.pair.patience:
+                    break
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
+        self.epochs_kept = best_epoch if best_state is not None else len(history)
         return history
+
+    def loss(
+        self, inputs: NetworkInputs, labels: np.ndarray, rows: np.ndarray, *, weights: np.ndarray | None = None
+    ) -> float:
+        """The masked loss of `rows`, without dropout, over the whole of `rows` at once."""
+        if len(rows) == 0:
+            return math.nan
+        self.model.eval()
+        with torch.no_grad():
+            logits = torch.cat(
+                [self.model(*self._tensors(inputs, batch)) for batch in self._batches(rows, shuffle=False)]
+            )
+            return float(
+                masked_binary_cross_entropy(
+                    logits,
+                    torch.from_numpy(labels[rows]).float(),
+                    torch.from_numpy(weights[rows]).float() if weights is not None else None,
+                )
+            )
 
     def predict(self, inputs: NetworkInputs, rows: np.ndarray) -> np.ndarray:
         """(len(rows), heads) probabilities, without dropout."""
@@ -188,6 +290,13 @@ class MultiHeadNetwork:
                     for batch in self._batches(rows, shuffle=False)
                 ]
             )
+
+    def _train_tensors(self, inputs: NetworkInputs, rows: np.ndarray) -> tuple[torch.Tensor, ...]:
+        tensors = self._tensors(inputs, rows)
+        if self.pair is None or not self.pair.user_input_dropout or not self.user_kinds:
+            return tensors
+        dropped = torch.rand(len(rows)) < self.pair.user_input_dropout
+        return drop_user_inputs(tensors, dropped, self.user_columns)
 
     def _tensors(self, inputs: NetworkInputs, rows: np.ndarray) -> tuple[torch.Tensor, ...]:
         report = torch.from_numpy(inputs.reports[rows]).float()
