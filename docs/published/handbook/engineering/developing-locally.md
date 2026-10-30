@@ -68,8 +68,11 @@ This is the recommended option for most developers.
 Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
 On macOS 26 or later, `hogli git:signing-key` can create a signing key in the Mac's Secure Enclave instead.
-The key can't be copied off the Mac.
-With `--protection none` it also signs while the screen is locked, so agents can commit while you're away.
+It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
+The key can't be copied off the Mac, so each Mac needs its own key.
+It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
+Keep your previous signing key on GitHub, so commits you already pushed stay verified.
+A devbox signs through your forwarded SSH agent, which can't hold this key, so use `--repo` rather than `--global` if you use a devbox.
 
 PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
