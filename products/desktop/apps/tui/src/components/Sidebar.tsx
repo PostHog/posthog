@@ -110,7 +110,8 @@ export function Sidebar({
       flexShrink={0}
       flexDirection="column"
       borderStyle="single"
-      borderColor={focused ? "white" : "gray"}
+      borderColor="gray"
+      borderDimColor
       borderTop={false}
       borderBottom={false}
       borderLeft={false}

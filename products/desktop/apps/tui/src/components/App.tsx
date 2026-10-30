@@ -61,6 +61,7 @@ function dividerProps(divider: "left" | "top" | null) {
     ? {
         borderStyle: "single" as const,
         borderColor: "gray",
+        borderDimColor: true,
         borderTop: divider === "top",
         borderLeft: divider === "left",
         borderRight: false,
