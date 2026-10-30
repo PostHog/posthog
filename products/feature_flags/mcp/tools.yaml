@@ -371,8 +371,11 @@ tools:
             `feature-flag-unarchive` if the user wants it back in the flag list.
 
 
-            Returns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Restoring a flag
-            that is not deleted succeeds and leaves it as it was, so retrying is safe.
+            Returns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Returns 400 under
+            `filters` when a release condition targets a cohort that has been deleted: name that condition to the user,
+            and if they agree, remove it with `update-feature-flag` and retry. Returns 404 when the flag was removed for
+            good, for example because a new flag took its key after the delete. Restoring a flag that is not deleted
+            succeeds and leaves it as it was, so retrying is safe.
         include_params: []
         inject_body:
             deleted: false
