@@ -1,9 +1,17 @@
+import pytest
 from posthog.test.base import BaseTest
 
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
+from markdown_it import MarkdownIt
+
+from posthog.temporal.ai.anomaly_investigation.notebook import (
+    NotebookRenderContext,
+    _summary_content,
+    build_investigation_markdown,
+)
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -74,3 +82,16 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "## Recommendations" not in markdown
         assert "## What this metric measures" not in markdown
         assert "## Verdict" in markdown
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "See [the report](https://evil.example/collect) now.",
+        "See ``x` [click](https://evil.example/collect) `y`` now.",
+    ],
+)
+def test_summary_links_never_render_as_links(summary: str) -> None:
+    markdown = convert_notebook_content_to_markdown({"type": "doc", "content": _summary_content(summary)})
+
+    assert "<a " not in MarkdownIt("commonmark").render(markdown)

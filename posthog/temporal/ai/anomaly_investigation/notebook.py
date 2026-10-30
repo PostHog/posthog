@@ -122,7 +122,10 @@ def _inline_content(children: list[Token]) -> TipTapContent:
             marks.pop()
         elif child.type in ("text", "html_inline", "code_inline", "softbreak", "hardbreak"):
             text = " " if child.type in ("softbreak", "hardbreak") else child.content
-            node_marks = [*marks, "code"] if child.type == "code_inline" else marks
+            # A backslash does not escape a backtick inside a code span, so a backtick in the content
+            # would close the span and release the rest as live markdown. Such text stays plain.
+            is_code = child.type == "code_inline" and "`" not in text
+            node_marks = [*marks, "code"] if is_code else marks
             if text:
                 node: dict[str, Any] = {"type": "text", "text": text}
                 if node_marks:
