@@ -532,6 +532,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=profile is not None,
             profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
@@ -663,6 +664,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            has_profile=False,
             profile_agent_key=None,
         )
         assert configs == [
@@ -709,6 +711,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=False,
             profile_agent_key=None,
         )
 
