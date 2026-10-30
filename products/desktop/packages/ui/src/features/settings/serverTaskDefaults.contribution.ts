@@ -56,11 +56,7 @@ export class ServerTaskDefaultsContribution implements Contribution {
     if (!settings._hasHydrated || projectId == null) return;
     const synced = settings.taskDefaultsOnServer[String(projectId)];
     const local = settings.autoPublishCloudRuns;
-    if (
-      !fetchAlways &&
-      synced?.planModeOffered &&
-      synced.autoPublishCloudRuns === local
-    ) {
+    if (!fetchAlways && synced?.autoPublishCloudRuns === local) {
       return;
     }
     if (this.inFlight.has(projectId)) {
@@ -86,7 +82,6 @@ export class ServerTaskDefaultsContribution implements Contribution {
       const sync = nextTaskDefaultsSync({
         server: taskDefaults,
         localAutoPublishCloudRuns: local,
-        localInitialTaskMode: settings.defaultInitialTaskMode,
         synced,
       });
       if (Object.keys(sync.upload).length > 0) {
