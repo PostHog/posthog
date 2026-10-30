@@ -10,10 +10,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
 
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
@@ -33,10 +35,16 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
+)
 
 # A recalculation of the experiment can hold the daily window under its own fingerprint. The daily write must take
 # that row over instead of failing on the (experiment, metric_uuid, query_to) unique constraint.
 _WINDOW_HOLDERS = [("free_window", None), ("window_held_by_another_fingerprint", "recalculation-fingerprint")]
+
+_TRANSIENT_ERRORS = [("server_error", False), ("clickhouse_at_capacity", True)]
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -433,8 +441,22 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert result_row.status == ExperimentMetricResult.Status.FAILED
         mock_event.assert_called_once()
 
+    def _assert_retry_delay(self, error: BaseException, at_capacity: bool) -> None:
+        if not at_capacity:
+            assert not isinstance(error, ApplicationError)
+            return
+        assert isinstance(error, ApplicationError)
+        assert not error.non_retryable
+        assert error.next_retry_delay is not None
+        assert (
+            CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS
+            <= error.next_retry_delay.total_seconds()
+            <= CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS
+        )
+
+    @parameterized.expand(_TRANSIENT_ERRORS)
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_regular_metric_activity_still_raises_transient_errors(self):
+    def test_regular_metric_activity_still_raises_transient_errors(self, _name: str, at_capacity: bool):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -451,13 +473,16 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
             patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
         ):
-            mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
+            mock_runner_class.return_value.run.side_effect = (
+                ClickHouseAtCapacity() if at_capacity else Exception("transient query failure")
+            )
 
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception) as raised:
                 _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
                     experiment.id, metric_dict["uuid"], "fingerprint", attempt=1
                 )
             mock_event.assert_not_called()
+            self._assert_retry_delay(raised.exception, at_capacity)
 
             with self.assertRaises(Exception):
                 _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
@@ -465,8 +490,9 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
                 )
             mock_event.assert_called_once()
 
+    @parameterized.expand(_TRANSIENT_ERRORS)
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_saved_metric_activity_still_raises_transient_errors(self):
+    def test_saved_metric_activity_still_raises_transient_errors(self, _name: str, at_capacity: bool):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -493,13 +519,16 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
             patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
         ):
-            mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
+            mock_runner_class.return_value.run.side_effect = (
+                ClickHouseAtCapacity() if at_capacity else Exception("transient query failure")
+            )
 
-            with self.assertRaises(Exception):
+            with self.assertRaises(Exception) as raised:
                 _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
                     experiment.id, metric_dict["uuid"], "fingerprint", attempt=1
                 )
             mock_event.assert_not_called()
+            self._assert_retry_delay(raised.exception, at_capacity)
 
             with self.assertRaises(Exception):
                 _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
