@@ -31,10 +31,14 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 # the bare-URL rule skips — defang it here as a safety net.
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
-_BARE_URL_RE = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
-# The same URL shape with no lookbehind: what the renderer drew is already past the question of
-# which markdown rule the URL came from.
-_ANY_URL_RE = re.compile(r"((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+# `\w@` is the domain of an email address, which Slack renders as a mailto link rather than a URL. A
+# bare `@` in front of a URL is not, so that one is still defanged.
+_BARE_URL_RE = re.compile(r"(?<!\]\()(?<!\w@)((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+# The same URL shape without the link lookbehind: what the renderer drew is already past the question
+# of which markdown rule the URL came from.
+_ANY_URL_RE = re.compile(r"(?<!\w@)((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
+# The backtick or tilde run that opens or closes a fenced code block.
+_FENCE_RE = re.compile(r"^( {0,3}(?:`{3,}|~{3,}))")
 
 
 def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) -> bool:
@@ -161,6 +165,12 @@ def _neutralize_urls_outside_code(markdown: str) -> str:
     """
     lines: list[str] = []
     for line in markdown.splitlines(keepends=True):
+        # A fence's own backticks open no code span on the line, so they would read as stray and be
+        # dropped, flattening the block. Keep the run and defang the info string after it like any text.
+        fence = _FENCE_RE.match(line)
+        if fence:
+            lines.append(fence.group(1) + _neutralize_urls_outside_code(line[fence.end() :]))
+            continue
         line = _drop_stray_backticks(line)
         parts: list[str] = []
         cursor = 0
