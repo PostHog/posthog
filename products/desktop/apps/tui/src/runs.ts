@@ -354,13 +354,12 @@ export function runNotice(
   }
   if (lastTurn && !waiting) {
     const worked = `Worked for ${formatDuration(lastTurn.durationMs)}`;
-    // The agent sleeps until its wake-up, so the chat counts down to it instead of calling the turn done.
+    // The agent sleeps until its wake-up, so the chat says what it waits on instead of calling the turn done.
     if (wake && running) {
-      const wait = wake.at - Date.now();
       return {
-        text: `${worked} · ${wait > 0 ? `waking in ${formatDuration(wait)}` : "waking up…"}`,
+        text: `${worked} · waiting${wake.reason ? ":" : ""}`,
         ...(wake.reason ? { subject: wake.reason } : {}),
-        tone: "working",
+        tone: "done",
       };
     }
     const done = new Date(lastTurn.endedAt).toLocaleTimeString("en-US", {
