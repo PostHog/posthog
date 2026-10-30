@@ -15,6 +15,9 @@ Usage:
     python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --limit 10
     python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --resume <actions file>
 
+    # Move distinct ids off a live person onto persons of their own (no scan needed):
+    python manage.py person_consistency split --team-id 2 --person-uuid <uuid> --distinct-id <id> --apply
+
 Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
 key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
 A repair writes nothing without --apply, and records one action per key in an actions file.
@@ -31,6 +34,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.person.divergence.detach import SplitError, split_distinct_ids
 from posthog.models.person.divergence.team_scan import (
     PLAN_FILE,
     SUMMARY_FILE,
@@ -149,6 +153,17 @@ class Command(BaseCommand):
             help="bury: tombstone new persons even past the share limit that protects a team needing a restore.",
         )
 
+        split = actions.add_parser(
+            "split",
+            help="DRY RUN unless --apply. Move distinct ids off a live person onto persons of their own.",
+        )
+        split.add_argument("--team-id", type=int, required=True, help="Team of the person.")
+        split.add_argument("--person-uuid", required=True, help="The live person that owns the distinct ids.")
+        split.add_argument(
+            "--distinct-id", action="append", required=True, help="Distinct id to move off the person. Repeatable."
+        )
+        split.add_argument("--apply", action="store_true", help="Split. Without it the command only checks.")
+
         final = actions.add_parser("finalize", help="Join every run's rows into report.jsonl and summary.json.")
         self._add_dir(final)
         final.add_argument(
@@ -201,9 +216,17 @@ class Command(BaseCommand):
                     self._scan(options)
                 elif options["action"] == "repair":
                     self._repair(options)
+                elif options["action"] == "split":
+                    split_distinct_ids(
+                        options["team_id"],
+                        options["person_uuid"],
+                        options["distinct_id"],
+                        apply=options["apply"],
+                        log=self._log,
+                    )
                 else:
                     self._finalize(options["dir"], partial=options["partial"])
-            except (ScanError, VerbError) as exc:
+            except (ScanError, VerbError, SplitError) as exc:
                 raise CommandError(str(exc)) from exc
 
     def _plan(self, options: dict[str, Any], *, chunks: int) -> None:

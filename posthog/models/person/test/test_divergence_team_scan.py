@@ -106,7 +106,7 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             "x2": ("diverged", "ambiguous", None, f"ambiguous:{keys['holder']}", ()),
             keys["unseen"]: ("missing_in_ch", None, "republish", None, ()),
             "unseen-1": ("missing_in_ch", None, "republish", None, ()),
-            "stray-1": ("stray", None, None, None, ()),
+            "stray-1": ("stray", None, "detach", None, ()),
             keys["lonely"]: ("no_live_mappings", None, None, None, ()),
         }
         summary = json.loads((scan_dir / team_scan.SUMMARY_FILE).read_text())
