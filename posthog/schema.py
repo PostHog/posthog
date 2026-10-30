@@ -5913,6 +5913,13 @@ class ExperimentExposureHealthFinding(BaseModel):
             "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
         ),
     )
+    reason: str | None = Field(
+        ...,
+        description=(
+            "A stable qualifier below the subcode, for example where a sample ratio"
+            " mismatch is located. Null when the finding names none."
+        ),
+    )
     severity: ExperimentExposureHealthFindingSeverity = Field(
         ...,
         description=("How much the problem affects the results: critical, warning, or info."),
