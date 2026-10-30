@@ -1,12 +1,17 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.models import CHANGE, LogEntry
+from django.contrib.auth.models import Group
 from django.urls import reverse
-from django.utils import timezone
 
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.models import UploadedMedia
 from posthog.storage.object_storage import ObjectStorageError
+
+_STOPPED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class TestUploadedMediaAdminServingActions(BaseTest):
@@ -50,9 +55,28 @@ class TestUploadedMediaAdminServingActions(BaseTest):
             "Resumed serving at the public URL.",
         ]
 
+    def _authorize_deletion(self) -> None:
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
+
+    @patch("posthog.admin.admins.uploaded_media_admin.MAX_IMAGES_PER_ACTION", 1)
+    def test_action_over_the_selection_cap_changes_nothing(self) -> None:
+        self._run_action("disable_serving", self.target, self.bystander)
+
+        assert not UploadedMedia.objects.filter(serving_disabled_at__isnull=False).exists()
+
+    @patch("posthog.models.uploaded_media.object_storage.delete")
+    def test_delete_needs_the_deletion_group(self, delete_object) -> None:
+        UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=_STOPPED_AT)
+
+        self.client.post(self.changelist, {"action": "delete_stored_file", "_selected_action": [str(self.target.id)]})
+
+        delete_object.assert_not_called()
+        assert UploadedMedia.objects.get(id=self.target.id).media_location == "media_uploads/target"
+
     @patch("posthog.models.uploaded_media.object_storage.delete")
     def test_delete_removes_the_bytes_of_stopped_images_only(self, delete_object) -> None:
-        UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=timezone.now())
+        self._authorize_deletion()
+        UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=_STOPPED_AT)
 
         self._run_action("delete_stored_file", self.target, self.bystander)
 
@@ -65,7 +89,8 @@ class TestUploadedMediaAdminServingActions(BaseTest):
 
     @patch("posthog.models.uploaded_media.object_storage.delete", side_effect=ObjectStorageError("delete failed"))
     def test_failed_delete_keeps_the_location_so_staff_can_retry(self, _delete_object) -> None:
-        UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=timezone.now())
+        self._authorize_deletion()
+        UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=_STOPPED_AT)
 
         self._run_action("delete_stored_file")
 

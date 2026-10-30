@@ -1,4 +1,8 @@
+from typing import Any
+
 from django.contrib import admin, messages
+from django.contrib.admin import ActionLocation
+from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
@@ -6,10 +10,15 @@ from django.utils.html import format_html
 
 import structlog
 
+from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.models import UploadedMedia
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# Takedowns cover a handful of images. The cap stops a "select all" from changing every row in the
+# table in one request.
+MAX_IMAGES_PER_ACTION = 50
 
 
 @admin.register(UploadedMedia)
@@ -52,6 +61,25 @@ class UploadedMediaAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request: HttpRequest, obj: UploadedMedia | None = None) -> bool:
         return False
 
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
+        actions = super().get_actions(request, action_location=action_location)
+        if not can_trigger_admin_deletion(request):
+            actions.pop("delete_stored_file", None)
+        return actions
+
+    def _bounded(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> list[UploadedMedia] | None:
+        media = list(queryset[: MAX_IMAGES_PER_ACTION + 1])
+        if len(media) > MAX_IMAGES_PER_ACTION:
+            self.message_user(
+                request,
+                f"Select at most {MAX_IMAGES_PER_ACTION} images at a time. Nothing was changed.",
+                messages.ERROR,
+            )
+            return None
+        return media
+
     @admin.display(description="Team")
     def team_link(self, obj: UploadedMedia) -> str:
         url = reverse("admin:posthog_team_change", args=[obj.team_id])
@@ -88,7 +116,9 @@ class UploadedMediaAdmin(admin.ModelAdmin):
 
     @admin.action(description="Stop serving the selected images at their public URL")
     def disable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
-        media = list(queryset)
+        media = self._bounded(request, queryset)
+        if media is None:
+            return
         for item in media:
             if item.stop_serving():
                 self.log_change(request, item, "Stopped serving at the public URL.")
@@ -98,7 +128,10 @@ class UploadedMediaAdmin(admin.ModelAdmin):
 
     @admin.action(description="Serve the selected images at their public URL again")
     def enable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
-        changed = list(queryset.filter(serving_disabled_at__isnull=False, media_location__isnull=False))
+        media = self._bounded(request, queryset)
+        if media is None:
+            return
+        changed = [item for item in media if item.serving_disabled_at is not None and item.media_location is not None]
         for item in changed:
             item.serving_disabled_at = None
             item.save(update_fields=["serving_disabled_at"])
@@ -112,9 +145,14 @@ class UploadedMediaAdmin(admin.ModelAdmin):
 
     @admin.action(description="Delete the stored file of the selected images permanently")
     def delete_stored_file(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
+        if not can_trigger_admin_deletion(request):
+            raise PermissionDenied
+        media = self._bounded(request, queryset)
+        if media is None:
+            return
         # Stopping serving first is the confirmation step, because this delete can't be undone.
-        stopped = list(queryset.filter(serving_disabled_at__isnull=False))
-        skipped = queryset.filter(serving_disabled_at__isnull=True).count()
+        stopped = [item for item in media if item.serving_disabled_at is not None]
+        skipped = len(media) - len(stopped)
         deleted: list[UploadedMedia] = []
         failed = 0
         for item in stopped:
