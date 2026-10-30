@@ -689,6 +689,7 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 - A font reference uses the same hash, image URL key and URL policy as an image URL reference. A font job goes to the `ai_research_v4_image_fetch` topic in the same shape, keyed by registrable domain, so fonts share the image jobs' partitions, politeness limits and crawl history rules.
 - An Embedded OpenType or SVG font file gets a reference but no fetch job, because Chromium loads neither format.
 - When one URL is both an image and a font, the block holds its image reference.
+- Font URLs have their own budget per block: 4,096 URLs and 256 KiB. Past it, a font URL stays as the page wrote it. Font URLs never count toward the image URL limits above.
 
 The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
 

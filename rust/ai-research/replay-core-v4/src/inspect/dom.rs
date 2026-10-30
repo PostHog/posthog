@@ -32,6 +32,9 @@ pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
 /// the build takes memory in proportion to their bytes.
 pub const MAX_BLOCK_REMOTE_URLS: usize = 10_000;
 pub const MAX_BLOCK_REMOTE_URL_BYTES: usize = 2 * 1024 * 1024;
+/// Font URLs have a budget of their own and never set the block's URL limit, so with fonts turned off they change nothing.
+pub const MAX_BLOCK_FONT_URLS: usize = 4096;
+pub const MAX_BLOCK_FONT_URL_BYTES: usize = 256 * 1024;
 /// Windows tracked per session. A new window past this evicts the window used least recently.
 pub const MAX_WINDOWS: usize = 16;
 /// Evicted windows remembered, so that one that comes back is known to have lost its DOM.
@@ -219,6 +222,8 @@ pub struct RemoteUrl {
 pub struct RemoteUrls {
     urls: HashMap<String, RemoteKind>,
     bytes: usize,
+    font_urls: u16,
+    font_bytes: u32,
     pub limit: Option<UrlLimit>,
     /// Each image-slot srcset value, and whether it belongs to a source of a type the fetcher does not store. The
     /// writer rebuilds each from the candidates it keeps, and it builds one matcher over them as over `urls`, so they
@@ -250,12 +255,23 @@ impl RemoteUrls {
             *known = (*known).max(kind);
             return;
         }
+        if kind != RemoteKind::Image {
+            let font_bytes = self.font_bytes as usize + url.len();
+            if usize::from(self.font_urls) < MAX_BLOCK_FONT_URLS
+                && font_bytes <= MAX_BLOCK_FONT_URL_BYTES
+            {
+                self.font_urls += 1;
+                self.font_bytes = font_bytes as u32;
+                self.urls.insert(url.to_owned(), kind);
+            }
+            return;
+        }
         if self.limit.is_some() {
             return;
         }
         // A URL of any length is named: the policy declines one too long to fetch, and its bytes count toward the
         // block's budget.
-        self.limit = if self.urls.len() >= MAX_BLOCK_REMOTE_URLS {
+        self.limit = if self.urls.len() - usize::from(self.font_urls) >= MAX_BLOCK_REMOTE_URLS {
             Some(UrlLimit::UrlCount)
         } else if self.bytes + url.len() > MAX_BLOCK_REMOTE_URL_BYTES {
             Some(UrlLimit::UrlBytes)
@@ -2174,6 +2190,13 @@ mod tests {
         ] {
             assert_eq!(limit(&mut urls.into_iter()), expected);
         }
+        // A page full of fonts never stops the naming of its images.
+        let mut remote = RemoteUrls::default();
+        (0..=MAX_BLOCK_FONT_URLS).for_each(|i| remote.insert(&url(i, 40), RemoteKind::Font));
+        remote.insert(&url(MAX_BLOCK_FONT_URLS + 1, 40), RemoteKind::Image);
+        assert_eq!(remote.limit, None);
+        assert_eq!(remote.into_urls().len(), MAX_BLOCK_FONT_URLS + 1);
+
         // Srcset values share the byte budget, past which the writer falls back to replacing each URL.
         let mut remote = RemoteUrls::default();
         // A value counts its raw and its unescaped form.

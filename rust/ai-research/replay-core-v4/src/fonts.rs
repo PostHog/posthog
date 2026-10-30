@@ -5,8 +5,8 @@ use std::sync::LazyLock;
 
 const BUNDLED_FONTS: &str = include_str!("bundled_fonts.txt");
 
-/// A descriptor longer than the longest name the list can hold is not lowercased, because a page controls its length.
-const MAX_FAMILY_DESCRIPTOR_LEN: usize = 128;
+/// A longer descriptor is not read, because a page controls its length and the recorder reads it once per `src` URL.
+const MAX_FAMILY_DESCRIPTOR_LEN: usize = 256;
 
 static BUNDLED_FAMILIES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
     parse_bundled_fonts(BUNDLED_FONTS)
@@ -41,8 +41,11 @@ fn comparable_name(name: &str) -> String {
 
 /// `None` for an escape or a list of families, which an `@font-face` descriptor does not allow.
 fn family_name(descriptor: &str) -> Option<&str> {
+    if descriptor.len() > MAX_FAMILY_DESCRIPTOR_LEN {
+        return None;
+    }
     let value = descriptor.trim();
-    if value.len() > MAX_FAMILY_DESCRIPTOR_LEN || value.contains('\\') {
+    if value.contains('\\') {
         return None;
     }
     match value.chars().next()? {
@@ -99,6 +102,7 @@ mod tests {
                 "{descriptor:?}"
             );
         }
+        let padded = format!("{}Inter", " ".repeat(MAX_FAMILY_DESCRIPTOR_LEN));
         for descriptor in [
             "Open Sans, sans-serif",
             "\"Open Sans",
@@ -106,6 +110,7 @@ mod tests {
             "Brand Sans",
             "Font Awesome 6 Free",
             "",
+            &padded,
         ] {
             assert_eq!(bundled_font(descriptor), None, "{descriptor:?}");
         }
