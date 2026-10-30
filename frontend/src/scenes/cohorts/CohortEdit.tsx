@@ -15,7 +15,7 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonMenu, LemonSnack, LemonTabs, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -383,6 +383,23 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
                                 name={cohort.name}
+                                nameSuffix={
+                                    !isNewCohort ? (
+                                        <Tooltip
+                                            title={
+                                                cohort.is_static
+                                                    ? staticCohortMode === 'criteria'
+                                                        ? 'This cohort is a fixed list, snapshotted from criteria when it was created. It will not update as people change. Create a new cohort to use a different type.'
+                                                        : 'This cohort is a fixed list, populated by uploading a CSV or adding people individually. Create a new cohort to use a different type.'
+                                                    : 'This cohort updates automatically as people and their data change. Create a new cohort to use a different type.'
+                                            }
+                                        >
+                                            <LemonTag size="small" data-attr="cohort-type-tag">
+                                                {cohort.is_static ? 'Static' : 'Dynamic'}
+                                            </LemonTag>
+                                        </Tooltip>
+                                    ) : undefined
+                                }
                                 description={cohort.description || ''}
                                 // When the SceneMenuBar renders above the title, the title's default
                                 // negative top margin pulls it up under the bar — drop it in that case.
@@ -555,81 +572,41 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 )}
                                             </LemonField>
                                         ) : (
-                                            <div className="flex items-center gap-x-2" data-attr="cohort-type">
-                                                <span className="text-sm text-secondary">
-                                                    Type:{' '}
-                                                    <strong className="font-medium text-default">
-                                                        {cohort.is_static ? 'Static' : 'Dynamic'}
-                                                    </strong>
-                                                </span>
-                                                <Tooltip title="Create a new cohort to use a different type of cohort.">
-                                                    <IconInfo className="text-secondary text-base" />
-                                                </Tooltip>
-                                                {usedIn && usedIn.workflows.total > 0 && (
-                                                    <>
-                                                        <span className="text-secondary">·</span>
-                                                        <Link
-                                                            className="text-sm"
-                                                            onClick={() =>
-                                                                openBlockingWorkflowsModal({
-                                                                    action: 'view',
-                                                                    workflows: usedIn.workflows,
-                                                                })
-                                                            }
-                                                            data-attr="cohort-used-in-workflows"
-                                                        >
-                                                            Used in {usedIn.workflows.total}{' '}
-                                                            {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
-                                                        </Link>
-                                                    </>
-                                                )}
-                                            </div>
+                                            usedIn &&
+                                            usedIn.workflows.total > 0 && (
+                                                <div className="flex items-center gap-x-2">
+                                                    <Link
+                                                        className="text-sm"
+                                                        onClick={() =>
+                                                            openBlockingWorkflowsModal({
+                                                                action: 'view',
+                                                                workflows: usedIn.workflows,
+                                                            })
+                                                        }
+                                                        data-attr="cohort-used-in-workflows"
+                                                    >
+                                                        Used in {usedIn.workflows.total}{' '}
+                                                        {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
+                                                    </Link>
+                                                </div>
+                                            )
                                         )}
 
-                                        {cohort.is_static && (
+                                        {cohort.is_static && isNewCohort && (
                                             <div className="flex flex-col gap-y-2">
-                                                {isNewCohort ? (
-                                                    <>
-                                                        <h2 className="text-base mb-0">Populate from</h2>
-                                                        <p className="text-sm text-secondary my-0 max-w-prose">
-                                                            {staticCohortMode === 'criteria'
-                                                                ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
-                                                                : 'Manually add people via CSV upload or by selecting them individually.'}
-                                                        </p>
-                                                        <LemonSelect
-                                                            options={POPULATE_FROM_OPTIONS}
-                                                            value={staticCohortMode}
-                                                            onChange={(value) => setStaticCohortMode(value)}
-                                                            fullWidth
-                                                            data-attr="static-cohort-mode"
-                                                        />
-                                                    </>
-                                                ) : (
-                                                    <div
-                                                        className="flex items-center gap-x-2"
-                                                        data-attr="static-cohort-mode"
-                                                    >
-                                                        <span className="text-sm text-secondary">
-                                                            Populate from:{' '}
-                                                            <strong className="font-medium text-default">
-                                                                {
-                                                                    POPULATE_FROM_OPTIONS.find(
-                                                                        (option) => option.value === staticCohortMode
-                                                                    )?.label
-                                                                }
-                                                            </strong>
-                                                        </span>
-                                                        <Tooltip
-                                                            title={
-                                                                staticCohortMode === 'criteria'
-                                                                    ? 'This cohort was snapshotted from criteria at creation time and will not update as people change. Create a new cohort to change how a static cohort is populated.'
-                                                                    : 'This cohort was populated by uploading a CSV or selecting people individually. Create a new cohort to change how a static cohort is populated.'
-                                                            }
-                                                        >
-                                                            <IconInfo className="text-secondary text-base" />
-                                                        </Tooltip>
-                                                    </div>
-                                                )}
+                                                <h2 className="text-base mb-0">Populate from</h2>
+                                                <p className="text-sm text-secondary my-0 max-w-prose">
+                                                    {staticCohortMode === 'criteria'
+                                                        ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                        : 'Manually add people via CSV upload or by selecting them individually.'}
+                                                </p>
+                                                <LemonSelect
+                                                    options={POPULATE_FROM_OPTIONS}
+                                                    value={staticCohortMode}
+                                                    onChange={(value) => setStaticCohortMode(value)}
+                                                    fullWidth
+                                                    data-attr="static-cohort-mode"
+                                                />
                                             </div>
                                         )}
 

@@ -1184,12 +1184,12 @@ describe('cohortEditLogic', () => {
         )
     })
 
-    describe('locked type and populate-from controls on existing cohorts', () => {
+    describe('type tag on existing cohorts', () => {
         afterEach(() => {
             cleanup()
         })
 
-        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
+        it('shows the type as a tag next to the title instead of body rows', async () => {
             const cohortId = 10
 
             useMocks({
@@ -1211,19 +1211,13 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            // The current value is always visible in plain text; the "why can't I change this"
-            // explanation lives in an info tooltip instead of being repeated inline.
-            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
-            const populateFromContainer = screen
-                .getByText('Criteria · One-time snapshot')
-                .closest('[data-attr="static-cohort-mode"]')
-            expect(typeContainer).toBeInTheDocument()
-            expect(populateFromContainer).toBeInTheDocument()
+            // The type is a tag in the title row; the populate-from detail lives in its tooltip.
+            const typeTag = (await screen.findByText('Static')).closest('[data-attr="cohort-type-tag"]')
+            expect(typeTag).toBeInTheDocument()
 
-            // The locked controls are read-only text, not interactive select buttons (the dead click):
-            // a LemonSelect would render the data-attr onto a <button>
-            expect(typeContainer?.tagName).not.toBe('BUTTON')
-            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+            // The old read-only body rows are gone, so the persons table is not pushed down.
+            expect(document.querySelector('[data-attr="cohort-type"]')).not.toBeInTheDocument()
+            expect(document.querySelector('[data-attr="static-cohort-mode"]')).not.toBeInTheDocument()
         })
     })
 
