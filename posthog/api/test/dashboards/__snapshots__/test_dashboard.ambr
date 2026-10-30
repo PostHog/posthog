@@ -25960,15 +25960,10 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.47
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystemshortcut"
-  INNER JOIN "posthog_team" ON ("posthog_filesystemshortcut"."team_id" = "posthog_team"."id")
-  WHERE (("posthog_filesystemshortcut"."surface" IS NULL
-          OR "posthog_filesystemshortcut"."surface" = 'web')
-         AND "posthog_team"."project_id" = 99999
-         AND "posthog_filesystemshortcut"."user_id" = 99999
-         AND "posthog_filesystemshortcut"."ref" IS NULL
-         AND NOT ("posthog_filesystemshortcut"."type" = 'folder'))
+  SELECT "posthog_team"."organization_id" AS "organization_id"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  ORDER BY "posthog_team"."id" ASC
   LIMIT 1
   '''
 # ---
@@ -26258,10 +26253,15 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.48
   '''
-  SELECT "posthog_team"."organization_id" AS "organization_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  ORDER BY "posthog_team"."id" ASC
+  SELECT 1 AS "a"
+  FROM "posthog_filesystemshortcut"
+  INNER JOIN "posthog_team" ON ("posthog_filesystemshortcut"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_filesystemshortcut"."surface" IS NULL
+          OR "posthog_filesystemshortcut"."surface" = 'web')
+         AND "posthog_team"."project_id" = 99999
+         AND "posthog_filesystemshortcut"."user_id" = 99999
+         AND "posthog_filesystemshortcut"."ref" IS NULL
+         AND NOT ("posthog_filesystemshortcut"."type" = 'folder'))
   LIMIT 1
   '''
 # ---
