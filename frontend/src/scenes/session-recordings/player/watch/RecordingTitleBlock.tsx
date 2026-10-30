@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -21,13 +22,20 @@ import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-export function RecordingTitleBlock(): JSX.Element {
+export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))
     const { recordingPropertiesById } = useValues(sessionRecordingsListPropertiesLogic)
     // The playlist host binds this logic, so the filter lands on the list beside the player.
     const { filterByPerson } = useActions(sessionRecordingsPlaylistLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+
+    const actionBar = (
+        <div className="ml-auto flex items-center gap-2 flex-wrap" data-attr="watch-panel-title-actions">
+            {actions}
+            <PinToPlaylistButton size="small" type="secondary" labelled />
+        </div>
+    )
 
     if (loading) {
         return (
@@ -37,6 +45,7 @@ export function RecordingTitleBlock(): JSX.Element {
                     <LemonSkeleton className="w-1/3 h-5" />
                     <LemonSkeleton className="w-1/2 h-4" />
                 </div>
+                {actionBar}
             </div>
         )
     }
@@ -57,9 +66,9 @@ export function RecordingTitleBlock(): JSX.Element {
     }
 
     return (
-        <div className="flex items-start gap-3 min-w-0" data-attr="watch-panel-title">
+        <div className="flex items-start gap-3 min-w-0 flex-wrap" data-attr="watch-panel-title">
             {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1 basis-72">
                 <h2 className="text-base font-semibold truncate m-0 ph-no-capture">
                     {personHref ? (
                         <Link to={personHref} subtle data-attr="watch-panel-title-person">
@@ -96,9 +105,7 @@ export function RecordingTitleBlock(): JSX.Element {
                     <PlayerMetaExperimentTags />
                 </div>
             </div>
-            <div className="shrink-0">
-                <PinToPlaylistButton />
-            </div>
+            {actionBar}
         </div>
     )
 }

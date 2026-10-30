@@ -3,9 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxMocks } from 'scenes/max/testUtils'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'

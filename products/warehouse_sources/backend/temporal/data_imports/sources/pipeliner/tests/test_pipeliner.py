@@ -62,9 +62,18 @@ class TestFormatIncrementalValue:
 
 
 class TestPipelinerSourceTransport:
-    def test_paginates_with_after_cursor_until_last_page(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, entity",
+        [
+            ("accounts", "Accounts"),
+            ("oppty_product_relations", "OpptyProductRelations"),
+            ("sales_unit_client_relations", "SalesUnitClientRelations"),
+            ("currency_exchange_rates_lists", "CurrencyExchangeRatesLists"),
+        ],
+    )
+    def test_paginates_with_after_cursor_until_last_page(self, endpoint: str, entity: str) -> None:
         result = _driver().run(
-            "accounts",
+            endpoint,
             [
                 _response([{"id": "1"}, {"id": "2"}], end_cursor="cur1", has_next_page=True),
                 _response([{"id": "3"}], end_cursor="cur2", has_next_page=False),
@@ -75,6 +84,7 @@ class TestPipelinerSourceTransport:
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         assert result.params("after") == [None, "cur1"]
         assert result.params("first") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.paths == [f"/api/v100/rest/spaces/space-1/entities/{entity}"] * 2
         # The last page still has an end cursor. The has_next_page flag ends the walk.
         assert len(result.requests) == 2
 

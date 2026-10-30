@@ -1,4 +1,4 @@
-import { memo, type ReactElement, useCallback, useMemo, useState } from 'react'
+import { memo, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     type LayoutChangeEvent,
     ScrollView,
@@ -24,6 +24,7 @@ import type { ChartAccessibilityAction, ChartTrackingContext } from './types'
 const HEAD_HEIGHT = 30
 // Fixed, because the pinned column and the scrolling columns draw each row in separate stacks that must line up.
 const ROW_HEIGHT = 36
+const CELL_PADDING = 6
 
 interface SqlTableProps {
     table: SqlTableView
@@ -65,17 +66,18 @@ interface ColumnStyle {
 
 function columnStyles(
     part: readonly SqlColumnView[],
+    widths: readonly number[],
     fixed: boolean,
     growText: boolean,
     styles: SqlTableStyles
 ): ColumnStyle[] {
-    return part.map((column) => {
+    return part.map((column, index) => {
         const right = alignRight(column)
         const box: ViewStyle = fixed
-            ? { width: columnWidth(column) }
+            ? { width: widths[index] }
             : // Text columns take the room left when the columns fit; numbers and dates stay at their minimum width.
-              { flexBasis: columnWidth(column), flexGrow: growText && right ? 0 : 1, flexShrink: 0 }
-        const text = right ? [styles.cellText, styles.right, styles.numeric] : [styles.cellText]
+              { flexBasis: widths[index], flexGrow: growText && right ? 0 : 1, flexShrink: 0 }
+        const text: TextStyle[] = right ? [styles.cellText, styles.right, styles.numeric] : [styles.cellText]
         return {
             box: [box, styles.cell],
             text,
@@ -129,7 +131,7 @@ const SqlRow = memo(function SqlRow({
 
 /**
  * The rows of a SQL insight in the server's order. Columns share the width when they fit. When they do not, the first
- * column stays put and the others scroll sideways. A tap on a row highlights it across both parts.
+ * column stays put if it leaves room to scroll the others. A tap on a row highlights it across both parts.
  */
 export function SqlTable({
     table,
@@ -149,21 +151,61 @@ export function SqlTable({
     // Only a tile has "+N more". A screen cut at the drawing cap says so in the footer and its caption.
     const capped = maxRows === undefined && more > 0
     const [width, setWidth] = useState(0)
+    const [measured, setMeasured] = useState<ReadonlyMap<string, number>>(() => new Map())
+    const pending = useRef(new Map<string, number>())
+    const measureFrame = useRef<number | null>(null)
+    useEffect(
+        () => () => {
+            if (measureFrame.current !== null) {
+                cancelAnimationFrame(measureFrame.current)
+                measureFrame.current = null
+            }
+        },
+        []
+    )
+    const onMeasure = useCallback(
+        (index: number, event: LayoutChangeEvent) => {
+            const column = columns[index]
+            if (!column) {
+                return
+            }
+            const measuredWidth = Math.ceil(event.nativeEvent.layout.width) + CELL_PADDING * 2
+            if (measuredWidth <= (pending.current.get(column.name) ?? columnWidth(column))) {
+                return
+            }
+            pending.current.set(column.name, measuredWidth)
+            // Headers and values measure separately; publish their widths together to keep the grid aligned.
+            if (measureFrame.current === null) {
+                measureFrame.current = requestAnimationFrame(() => {
+                    measureFrame.current = null
+                    setMeasured(new Map(pending.current))
+                })
+            }
+        },
+        [columns]
+    )
     const shown = useMemo(() => {
         const now = Date.now()
         return rows
             .slice(0, limit)
             .map((row) => columns.map((column, index) => formatSqlCell(row[index] ?? null, column, now)))
     }, [rows, columns, limit])
-    const totalWidth = columns.reduce((sum, column) => sum + columnWidth(column), 0)
-    const pinned = columns.length > 1 && width > 0 && totalWidth > width
+    const widths = useMemo(
+        () => columns.map((column) => Math.max(columnWidth(column), measured.get(column.name) ?? 0)),
+        [columns, measured]
+    )
+    const totalWidth = widths.reduce((sum, column) => sum + column, 0)
+    const overflowing = width > 0 && totalWidth > width
+    const firstWidth = widths[0] ?? 0
+    const pinned = columns.length > 1 && overflowing && firstWidth <= width / 2
     const layout = useMemo(() => {
         const growText = columns.some((column) => !alignRight(column))
+        const all = columnStyles(columns, widths, overflowing, growText, styles)
         return {
-            pinned: columnStyles(columns.slice(0, 1), true, growText, styles),
-            scrolling: columnStyles(pinned ? columns.slice(1) : columns, pinned, growText, styles),
+            pinned: all.slice(0, 1),
+            scrolling: pinned ? all.slice(1) : all,
         }
-    }, [columns, pinned, styles])
+    }, [columns, widths, overflowing, pinned, styles])
     // Each row's cells split once per layout, so the memoized rows get the same arrays on every render.
     const parts = useMemo(
         () => shown.map((row) => (pinned ? { pinned: row.slice(0, 1), scrolling: row.slice(1) } : { scrolling: row })),
@@ -208,9 +250,7 @@ export function SqlTable({
 
     const first = columns[0]
     const scrolling = pinned ? columns.slice(1) : columns
-    // Inside a horizontal scroll view the rows size to their longest text, so the table takes the container's width
-    // when the columns fit, and the scrolling columns keep their minimum widths when they do not.
-    const tableWidth = pinned || width === 0 ? undefined : width
+    const tableWidth = Math.max(totalWidth, width) - (pinned ? firstWidth : 0)
     const rowTestID = (index: number, suffix: string): string | undefined =>
         testID ? `${testID}-row-${index}${suffix}` : undefined
     const head = (column: SqlColumnView, style: ColumnStyle | undefined, key: string): ReactElement => (
@@ -229,9 +269,37 @@ export function SqlTable({
             testID={testID}
             {...a11y}
         >
+            {/* A horizontal scroll view measures native text without wrapping it to the grid's current widths. */}
+            <ScrollView
+                horizontal
+                scrollEnabled={false}
+                pointerEvents="none"
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={styles.measurement}
+            >
+                {columns.map((column, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: columns have a fixed order within a table.
+                    <View key={index}>
+                        <Text style={styles.headText} onLayout={(event) => onMeasure(index, event)}>
+                            {column.name}
+                        </Text>
+                        {column.isNumerical && (
+                            <Text
+                                style={[styles.cellText, styles.numeric]}
+                                onLayout={(event) => onMeasure(index, event)}
+                                testID={testID ? `${testID}-measure-${index}` : undefined}
+                            >
+                                {shown.map((row) => row[index] ?? '–').join('\n')}
+                            </Text>
+                        )}
+                    </View>
+                ))}
+            </ScrollView>
             <View style={styles.grid}>
                 {pinned && first ? (
-                    <View style={[styles.pinned, { width: columnWidth(first) }]}>
+                    <View style={[styles.pinned, { width: firstWidth }]}>
                         <View style={styles.headRow}>{head(first, layout.pinned[0], 'pinned')}</View>
                         {parts.map((part, index) => (
                             <SqlRow
@@ -249,13 +317,13 @@ export function SqlTable({
                 ) : null}
                 <ScrollView
                     horizontal
-                    scrollEnabled={pinned}
-                    showsHorizontalScrollIndicator={false}
+                    scrollEnabled={overflowing}
+                    showsHorizontalScrollIndicator
                     style={styles.scroll}
                     contentContainerStyle={styles.scrollContent}
                     testID={testID ? `${testID}-scroll` : undefined}
                 >
-                    <View style={[styles.table, tableWidth !== undefined && { width: tableWidth }]}>
+                    <View style={[styles.table, { width: tableWidth }]}>
                         <View style={styles.headRow}>
                             {scrolling.map((column, at) => head(column, layout.scrolling[at], `${at}`))}
                         </View>
@@ -301,6 +369,13 @@ export function SqlTable({
 type SqlTableStyles = ReturnType<typeof useStyles>
 
 const useStyles = createStyles(({ colors }) => ({
+    measurement: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        height: 1,
+        opacity: 0,
+    },
     grid: {
         flexDirection: 'row',
     },
@@ -334,7 +409,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     cell: {
         justifyContent: 'center',
-        paddingHorizontal: 6,
+        paddingHorizontal: CELL_PADDING,
     },
     headText: {
         fontSize: 11,

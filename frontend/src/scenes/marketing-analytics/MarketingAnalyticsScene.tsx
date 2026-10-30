@@ -217,14 +217,6 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                 Ad performance
             </h2>
             <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
-            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
-                !dataWarehouseSources?.results.some((source) =>
-                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-                ) && (
-                    <DashboardSetupPrompt kind="sources">
-                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
-                    </DashboardSetupPrompt>
-                )}
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
@@ -233,6 +225,14 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                     ))}
                 </div>
             )}
+            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+                !dataWarehouseSources?.results.some((source) =>
+                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
+                ) && (
+                    <DashboardSetupPrompt kind="sources">
+                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
+                    </DashboardSetupPrompt>
+                )}
         </>
     )
 }
