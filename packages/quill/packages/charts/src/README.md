@@ -150,6 +150,6 @@ import { Sparkline } from '@posthog/quill-charts'
 - Bars: layouts, per-bar overrides, `minBarSize`, `trackData` → [docs/bars.md](./docs/bars.md)
 - Tooltips → [docs/tooltips.md](./docs/tooltips.md); legend → [docs/legend.md](./docs/legend.md)
 - Overlays, built-in and custom → [docs/overlays.md](./docs/overlays.md)
-- Clicks, drag-to-zoom, brush → [docs/interactions.md](./docs/interactions.md)
+- Clicks, drag-to-zoom, brush → [docs/interactions.md](./docs/interactions.md); a crosshair shared across charts (`ChartHoverSync`) → [docs/interactions.md#shared-crosshair](./docs/interactions.md#shared-crosshair)
 - Building a new chart type, library architecture, conventions → [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
 - Writing tests against a chart, or against code that uses one → [docs/TESTING.md](./docs/TESTING.md)

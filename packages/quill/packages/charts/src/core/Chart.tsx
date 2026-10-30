@@ -48,6 +48,8 @@ import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// A synced chart draws only the crosshair, with no point highlights.
+const DRAW_NOTHING = (): boolean => true
 // Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
 const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
@@ -127,9 +129,6 @@ export interface ChartProps<Meta = unknown> {
      *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
      *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
     resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
-    /** Share the hovered label inside a `ChartHoverSync`. Defaults to true; chart types whose labels
-     *  are not x values (heatmap columns, scatter point indices) turn it off. */
-    syncHover?: boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -157,7 +156,6 @@ export function Chart<Meta = unknown>({
     valueRangeSeries,
     wrapClickData,
     resolveHoverIndex,
-    syncHover = true,
 }: ChartProps<Meta>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
     const {
@@ -170,6 +168,7 @@ export function Chart<Meta = unknown>({
         yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        syncHover = false,
         showTickMarks = false,
         axisOrientation = 'vertical',
         isPercent = false,
@@ -415,7 +414,7 @@ export function Chart<Meta = unknown>({
     const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
     const drawSyncedCrosshair = useMemo(
         () =>
-            composeDrawHoverWithCrosshair(() => () => true, {
+            composeDrawHoverWithCrosshair(() => DRAW_NOTHING, {
                 crosshairColor: syncedCrosshairColor,
                 crosshairDash: theme.crosshairDashPattern,
                 showCrosshair: true,
@@ -516,6 +515,7 @@ export function Chart<Meta = unknown>({
                     contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}
+                    syncedIndex={showSyncedCrosshair ? syncedIndex : undefined}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

@@ -9,6 +9,9 @@ interface HoverSyncStore {
 
 function createHoverSyncStore(): HoverSyncStore {
     const listeners = new Set<() => void>()
+    // Every chart that holds a label, newest last. A pinned tooltip keeps its chart's label, so when
+    // a newer hover ends the crosshair returns to the pinned chart.
+    const active = new Map<string, string>()
     const store: HoverSyncStore = {
         sourceId: null,
         label: null,
@@ -17,15 +20,16 @@ function createHoverSyncStore(): HoverSyncStore {
             return () => listeners.delete(listener)
         },
         publish: (sourceId, label) => {
-            // A chart clearing its hover must not wipe another chart's newer hover.
-            if (label == null && store.sourceId !== sourceId) {
+            active.delete(sourceId)
+            if (label != null) {
+                active.set(sourceId, label)
+            }
+            const [newestId = null, newestLabel = null] = Array.from(active).at(-1) ?? []
+            if (store.sourceId === newestId && store.label === newestLabel) {
                 return
             }
-            if (store.sourceId === sourceId && store.label === label) {
-                return
-            }
-            store.sourceId = label == null ? null : sourceId
-            store.label = label
+            store.sourceId = newestId
+            store.label = newestLabel
             listeners.forEach((listener) => listener())
         },
     }
@@ -69,14 +73,26 @@ function noopSubscribe(): () => void {
     return () => {}
 }
 
-/** Epoch ms of an ISO date label (`2026-03-01`, `2026-03-01T10:00:00Z`), else NaN. Other strings
- *  such as `'2'` are categories, even where `Date.parse` would read them as a year. */
+const HAS_OFFSET = /([Zz]|[+-]\d{2}:?\d{2})$/
+
+/** Epoch ms of an ISO date label (`2026-03-01`, `2026-03-01 10:00:00`, `2026-03-01T10:00:00Z`),
+ *  else NaN. A label without an offset reads as UTC, so date-only and date-time labels share one
+ *  clock whatever the browser's timezone. Other strings such as `'2'` are categories, even where
+ *  `Date.parse` would read them as a year. */
 function parseDateLabel(label: string): number {
-    return /^\d{4}-\d{2}-\d{2}/.test(label) ? Date.parse(label) : NaN
+    if (!/^\d{4}-\d{2}-\d{2}/.test(label)) {
+        return NaN
+    }
+    if (HAS_OFFSET.test(label)) {
+        return Date.parse(label)
+    }
+    const iso = label.replace(' ', 'T')
+    return Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : `${iso}Z`)
 }
 
-/** Resolves a label from another chart to an index here: an exact label match, else the nearest
- *  date when both sides are ISO dates and the date falls inside this chart's range. */
+/** Resolves a label from another chart to an index here: an exact label match, else, when both
+ *  sides are ISO dates, the bucket that contains the date. Labels are bucket starts, and the last
+ *  bucket is as wide as the step before it. */
 export function buildSyncedIndexFinder(labels: readonly string[]): (label: string) => number {
     const exact = new Map(labels.map((label, i) => [label, i]))
     const times = labels.map(parseDateLabel)
@@ -87,8 +103,13 @@ export function buildSyncedIndexFinder(labels: readonly string[]): (label: strin
             return match
         }
         const t = parseDateLabel(label)
-        if (!sortedByTime || !isFinite(t) || times.length === 0 || t < times[0] || t > times[times.length - 1]) {
+        if (!sortedByTime || !isFinite(t) || times.length === 0 || t < times[0]) {
             return -1
+        }
+        const last = times.length - 1
+        if (t >= times[last]) {
+            const lastStep = last > 0 ? times[last] - times[last - 1] : 0
+            return t === times[last] || t < times[last] + lastStep ? last : -1
         }
         let lo = 0
         let hi = times.length - 1
@@ -100,6 +121,6 @@ export function buildSyncedIndexFinder(labels: readonly string[]): (label: strin
                 hi = mid
             }
         }
-        return t - times[lo] <= times[hi] - t ? lo : hi
+        return lo
     }
 }

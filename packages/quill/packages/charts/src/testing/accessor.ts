@@ -88,6 +88,8 @@ export interface ChartAccessor<Meta = unknown> {
     canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
     readonly seriesCount: number
+    /** Label index where another chart in a `ChartHoverSync` draws its crosshair here, or null. */
+    syncedIndex(): number | null
     /** Visible y-axis tick labels (left axis). */
     yTicks(): string[]
     /** Visible right y-axis tick labels (multi-axis charts). */
@@ -261,6 +263,10 @@ export function getChart<Meta = unknown>(
     return {
         element: wrapper,
         canvas,
+        syncedIndex: () => {
+            const raw = wrapper.dataset.hogChartsSyncedIndex
+            return raw == null ? null : Number(raw)
+        },
         get seriesCount(): number {
             const match = SERIES_COUNT_RE.exec(canvas.getAttribute('aria-label') ?? '')
             return match ? Number(match[1]) : 0

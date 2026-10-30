@@ -45,6 +45,8 @@ export interface TimeSeriesBarChartConfig {
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -121,6 +123,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         barCornerRadius,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
@@ -181,6 +184,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barLayout,
         axisOrientation,
         showCrosshair,
+        syncHover,
         tooltip: timeSeriesTooltipConfig,
         animateHover,
         yAxes,

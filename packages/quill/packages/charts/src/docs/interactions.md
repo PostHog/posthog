@@ -71,7 +71,12 @@ See [TESTING.md](./TESTING.md).
 
 Wrap charts in `<ChartHoverSync>` to share the hovered x between them, as a dashboard's shared crosshair does.
 Hovering one chart draws a crosshair at the same x on every other chart in the provider.
-A chart finds that x by an identical label, or for ISO date labels by the nearest point in time inside its own range, so charts on different time grids still line up.
-`Heatmap` and `ScatterChart` do not take part, because their labels are column and point indices rather than x values.
+A chart finds that x by an identical label, or for ISO date labels by the bucket that contains that time, so an hourly and a daily chart still line up.
+Date labels without a timezone offset read as UTC on both sides.
+The time-series charts join by default; set `config.syncHover: false` to leave one out.
+Other charts join only with `config.syncHover: true`, because many of them pass labels that are not x values, such as funnel steps or point indices.
 Only the hovered chart shows its tooltip and point highlights.
+The other charts draw the crosshair even with `showCrosshair` off.
+A pinned tooltip keeps its chart's x, so the crosshair returns to it when a later hover elsewhere ends.
+`chart.syncedIndex()` in the test helpers reads where the crosshair is drawn.
 Charts in different providers do not sync, so wrap each group that should move together, and leave a chart outside to keep it independent.
