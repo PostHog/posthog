@@ -19,7 +19,7 @@ import { z } from 'zod'
 
 import posthog from 'lib/posthog-typed'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
-import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -363,10 +363,7 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
                 sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
                     observation.session_id
                 )
-                // The URL tab above is skipped when it matches the viewer's last tab.
-                replayListColumnLogic
-                    .findMounted({ logicKey: props.playlistLogicProps.logicKey ?? 'playlist' })
-                    ?.actions.setSegment('moments', 'observations')
+                playerSettingsLogic.findMounted()?.actions.openWatchPanelSection('observations')
                 if (!markViewed) {
                     return
                 }
