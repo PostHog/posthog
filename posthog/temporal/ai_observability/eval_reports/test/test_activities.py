@@ -308,7 +308,7 @@ async def test_store_strips_nul_from_report_content() -> None:
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 

@@ -45,6 +45,7 @@ def create_generated_ai_event(
                 usage_key=AI_EVENTS_USAGE_KEY,
                 unit="events",
                 quantity=1,
+                timestamp_ms=int(timestamp.timestamp() * 1000),
             )
         ],
         site="ai_observability_generated_event",
