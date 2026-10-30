@@ -427,6 +427,8 @@ def WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL() -> str:
 # Consumer-lag bookkeeping: one row per Kafka partition, read the same way as logs_kafka_metrics.
 def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
     db = _db()
+    # A failed view fails the whole Kafka insert. Clock skew between capture and ClickHouse can put
+    # observed_timestamp in the future, so the lag is clamped at zero before the cast to UInt64.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS_KAFKA_METRICS_TABLE_NAME} TO {db}.{WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME}
 AS SELECT
@@ -436,7 +438,7 @@ AS SELECT
     maxSimpleState(observed_timestamp) AS max_observed_timestamp,
     maxSimpleState(timestamp) AS max_timestamp,
     maxSimpleState(now()) AS max_created_at,
-    maxSimpleState(now() - observed_timestamp) AS max_lag
+    maxSimpleState(toUInt64(greatest(dateDiff('second', observed_timestamp, now()), 0))) AS max_lag
 FROM {db}.{METRICS4_INPUT_TABLE_NAME}
 GROUP BY _partition, _topic
 """

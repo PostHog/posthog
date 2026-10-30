@@ -2063,7 +2063,7 @@ SELECT
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
+  maxSimpleState(toUInt64(greatest(dateDiff('second', observed_timestamp, now()), 0))) AS max_lag
 FROM posthog.metrics4_input
 GROUP BY
   _partition, _topic
@@ -2088,7 +2088,7 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "max_lag" {
-      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
+      type = "SimpleAggregateFunction(max, UInt64)"
     }
   }
 

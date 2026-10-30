@@ -311,6 +311,6 @@ database "posthog" {
     column "max_observed_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
     column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
     column "max_created_at" { type = "SimpleAggregateFunction(max, DateTime)" }
-    column "max_lag" { type = "SimpleAggregateFunction(max, Decimal(18, 6))" }
+    column "max_lag" { type = "SimpleAggregateFunction(max, UInt64)" }
   }
 }

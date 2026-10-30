@@ -650,14 +650,14 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics_kafka_metrics TO posthog.writable_metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics_kafka_metrics TO posthog.writable_metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, UInt64)) AS SELECT
   _partition,
   _topic,
   maxSimpleState(_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
+  maxSimpleState(toUInt64(greatest(dateDiff('second', observed_timestamp, now()), 0))) AS max_lag
 FROM posthog.metrics4_input
 GROUP BY
   _partition, _topic;
