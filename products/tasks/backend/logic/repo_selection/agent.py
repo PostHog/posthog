@@ -86,6 +86,14 @@ class RepoSelectionUsageLimitError(Exception):
         super().__init__(message)
 
 
+# Sent once when the agent ends its first turn with prose, often a progress note about a cache
+# query it started, instead of the selection JSON.
+REPO_SELECTION_JSON_RETRY_PROMPT = (
+    "Your last reply did not contain the JSON object the task asks for. "
+    "If a cache query or another step is still running, wait for it and finish your checks first. "
+    "Then reply with only that JSON object, matching the schema above. Do not add prose or code fences."
+)
+
 # The agent prints a refused model call as `API Error: <status> <body>`. The gateway answers a
 # team with no credits left with a 402.
 _USAGE_LIMIT_REPLY = re.compile(r"\s*API Error: 402\b")
@@ -775,6 +783,7 @@ async def select_repository(
             # An unreadable end turn used to fail the whole selection, and the caller then dropped the
             # user into a manual repository picker. Read the pick out of the raw reply instead.
             fallback_from_text=_salvage,
+            json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,
         )
     except Exception as e:
         if usage_limit_reply is not None:
