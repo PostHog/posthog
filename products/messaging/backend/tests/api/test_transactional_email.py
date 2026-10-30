@@ -77,9 +77,17 @@ class TestTransactionalEmail(APIBaseTest):
 
     def _send(self, client: APIClient, route: str, body: dict, **kwargs: Any) -> Any:
         if route == "send_email":
+            return client.post(self.send_email_url, self._flat(body), format="json", **kwargs)
+        if route == "send_email_nested":
             body = {**body, "template": {"id": str(self.template.id)}}
             return client.post(self.send_email_url, body, format="json", **kwargs)
         return client.post(self.url, body, format="json", **kwargs)
+
+    def _flat(self, body: dict) -> dict:
+        flat = {k: v for k, v in body.items() if k != "identifiers"}
+        if "identifiers" in body:
+            flat["distinct_id"] = body["identifiers"]["distinct_id"]
+        return {**flat, "template_id": str(self.template.id)}
 
     def _psak_client(self, scopes: list[str]) -> APIClient:
         raw_token = generate_random_token_secret()
@@ -101,6 +109,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("email_only", "template", None, "user@example.com"),
             ("with_distinct_id_on_send_email", "send_email", {"distinct_id": "user-1"}, "user-1"),
             ("email_only_on_send_email", "send_email", None, "user@example.com"),
+            ("with_distinct_id_on_send_email_nested", "send_email_nested", {"distinct_id": "user-1"}, "user-1"),
+            ("email_only_on_send_email_nested", "send_email_nested", None, "user@example.com"),
         ]
     )
     def test_runs_the_templates_workflow_for_the_recipient(
@@ -123,7 +133,7 @@ class TestTransactionalEmail(APIBaseTest):
             stages_after, 1
         )
         assert response.json() == {"message_id": "invocation-1", "replayed": False}
-        assert capture.call_args.kwargs["properties"]["route"] == route
+        assert capture.call_args.kwargs["properties"]["route"] == route.removesuffix("_nested")
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
         )
@@ -167,7 +177,7 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         self._cdp_accepts(mock_post)
         if suffix == "send_email":
-            url, body = self.send_email_url, {**self.body, "template": {"id": str(self.template.id)}}
+            url, body = self.send_email_url, self._flat(self.body)
         else:
             url, body = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}", self.body
 
@@ -333,7 +343,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/{path.format(template_id=self.template.id)}",
-            {**self.body, "template": {"id": str(self.template.id)}},
+            self._flat(self.body),
             format="json",
         )
 
@@ -342,10 +352,10 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_template", lambda test: {"id": str(uuid4())}, status.HTTP_404_NOT_FOUND),
+            ("unknown_template", lambda test: str(uuid4()), status.HTTP_404_NOT_FOUND),
             (
                 "another_projects_template",
-                lambda test: {"id": str(test._other_team_template().id)},
+                lambda test: str(test._other_team_template().id),
                 status.HTTP_404_NOT_FOUND,
             ),
             ("no_template", lambda test: None, status.HTTP_400_BAD_REQUEST),
@@ -356,7 +366,7 @@ class TestTransactionalEmail(APIBaseTest):
     ):
         self._cdp_accepts(mock_post)
         ref = template(self)
-        body = {**self.body, "template": ref} if ref else self.body
+        body = {**self.body, "template_id": ref} if ref else self.body
 
         response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
 

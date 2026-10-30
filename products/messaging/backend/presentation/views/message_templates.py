@@ -1,5 +1,5 @@
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
@@ -394,23 +394,21 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 
 
+DISTINCT_ID_HELP_TEXT = (
+    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
+    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
+    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+)
+
+
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=400,
-        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
-        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
-        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
     )
 
 
-class SendTransactionalEmailSerializer(serializers.Serializer):
+class TransactionalEmailMessageSerializer(serializers.Serializer):
     to = serializers.EmailField(help_text="Email address of the recipient.")
-    identifiers = TransactionalEmailIdentifiersSerializer(
-        required=False, help_text="Who the email is for, used to attribute engagement events."
-    )
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -420,14 +418,30 @@ class SendTransactionalEmailSerializer(serializers.Serializer):
     )
 
 
-class SendEmailTemplateSerializer(serializers.Serializer):
-    id = serializers.UUIDField(
-        help_text="ID of the email template to send. The template must be made transactional first."
+class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
     )
 
 
-class SendEmailSerializer(SendTransactionalEmailSerializer):
-    template = SendEmailTemplateSerializer(help_text="The transactional email template to send.")
+class SendEmailSerializer(TransactionalEmailMessageSerializer):
+    template_id = serializers.UUIDField(
+        help_text="ID of the email template to send. The template must be made transactional first."
+    )
+    distinct_id = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
+    )
+
+    def to_internal_value(self, data: Any) -> Any:
+        # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
+        # stays accepted. It is left out of the schema so that new callers use the flat fields.
+        if isinstance(data, Mapping):
+            template, identifiers = data.get("template"), data.get("identifiers")
+            if "template_id" not in data and isinstance(template, Mapping):
+                data = {**data, "template_id": template.get("id")}
+            if "distinct_id" not in data and isinstance(identifiers, Mapping):
+                data = {**data, "distinct_id": identifiers.get("distinct_id")}
+        return super().to_internal_value(data)
 
 
 class MakeTransactionalSerializer(serializers.Serializer):
@@ -603,7 +617,7 @@ class TransactionalEmailSendMixin:
                 self.team,
                 template.id,
                 to=data["to"],
-                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
+                distinct_id=data.get("distinct_id") or (data.get("identifiers") or {}).get("distinct_id") or None,
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
             )
@@ -973,7 +987,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         responses=SEND_RESPONSES,
         summary="Send a transactional email",
         description=(
-            "Send one transactional email to one recipient from the template named in `template.id`. The template "
+            "Send one transactional email to one recipient from the template named in `template_id`. The template "
             "must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
             "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
             "safely without sending the email twice."
@@ -987,7 +1001,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             try:
-                template = get_template(self.team_id, request.validated_data["template"]["id"])
+                template = get_template(self.team_id, request.validated_data["template_id"])
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)
