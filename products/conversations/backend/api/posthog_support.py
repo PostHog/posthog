@@ -19,6 +19,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.rate_limit import PostHogSupportTicketCreateBurstThrottle, PostHogSupportTicketCreateSustainedThrottle
@@ -166,6 +167,13 @@ def build_ticket_message(data: dict[str, Any]) -> str:
     return "\n".join(sections)
 
 
+@frozen
+class _SupportCaller:
+    client: PostHogSupportClient
+    identity: SupportIdentity
+    user: User
+
+
 class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "posthog_support"
     pagination_class = None
@@ -176,7 +184,7 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return [PostHogSupportTicketCreateBurstThrottle(), PostHogSupportTicketCreateSustainedThrottle()]
         return super().get_throttles()
 
-    def _support(self) -> tuple[PostHogSupportClient, SupportIdentity, User]:
+    def _support(self) -> _SupportCaller:
         user = self.request.user
         if not isinstance(user, User):
             raise PermissionDenied("PostHog support tickets need a signed-in user, not a project key.")
@@ -190,7 +198,7 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             distinct_id=str(user.distinct_id),
             verified_email=user.email if user.is_email_verified is True else None,
         )
-        return client, identity, user
+        return _SupportCaller(client=client, identity=identity, user=user)
 
     @validated_request(
         request_serializer=CreatePostHogSupportTicketSerializer,
@@ -208,12 +216,13 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        client, identity, user = self._support()
-        data = cast(dict[str, Any], request.validated_data)  # type: ignore[attr-defined]
+        caller = self._support()
+        user = caller.user
+        data = cast(dict[str, Any], request.validated_data)
         team = self.team
         try:
-            result = client.create_ticket(
-                identity,
+            result = caller.client.create_ticket(
+                caller.identity,
                 message=build_ticket_message(data),
                 traits={"name": user.first_name or "", "email": user.email},
                 session_context={

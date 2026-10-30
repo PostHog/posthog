@@ -22,11 +22,13 @@ from products.conversations.backend.models import SigningSecret, Ticket
 SUPPORT_WIDGET_TOKEN = "support_widget_token"
 SIGNING_SECRET = "support_signing_secret"
 
+DELETION_QUERY = "SELECT uuid FROM events\nWHERE event = 'test_event' AND timestamp < '2026-10-01'"
+
 DELETION_REQUEST = {
     "request_type": "data_deletion",
     "subject": "Delete test events",
     "description": "Test events sent from a staging build reached production.",
-    "deletion_query": "SELECT uuid FROM events\nWHERE event = 'test_event' AND timestamp < '2026-10-01'",
+    "deletion_query": DELETION_QUERY,
     "expected_event_count": 120,
     "deletion_consent": True,
 }
@@ -122,7 +124,8 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
         assert ticket.session_context["project_id"] == str(self.team.id)
         assert ticket.session_context["request_type"] == "data_deletion"
         message = Comment.objects.get(team=self.support_team, item_id=str(ticket.id)).content
-        assert DELETION_REQUEST["deletion_query"] in message
+        assert message is not None
+        assert DELETION_QUERY in message
         assert "Expected event count: 120" in message
 
     @parameterized.expand(
