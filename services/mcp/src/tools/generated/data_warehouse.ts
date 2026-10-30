@@ -457,6 +457,32 @@ const viewMaterialize = (): ToolBase<ReturnType<typeof ViewMaterializeSchema>, u
     },
 })
 
+const ViewResumeSchema = () => {
+    const WarehouseSavedQueriesResumeCreateBody = orvalSchemas.WarehouseSavedQueriesResumeCreateBody()
+    const WarehouseSavedQueriesResumeCreateParams = orvalSchemas.WarehouseSavedQueriesResumeCreateParams()
+    return WarehouseSavedQueriesResumeCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesResumeCreateBody.shape
+    )
+}
+
+const viewResume = (): ToolBase<ReturnType<typeof ViewResumeSchema>, WithPostHogUrl<Schemas.SavedQueryResume>> => ({
+    name: 'view-resume',
+    schema: ViewResumeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewResumeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.engine !== undefined) {
+            body['engine'] = params.engine
+        }
+        const result = await context.api.request<Schemas.SavedQueryResume>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/resume/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
+    },
+})
+
 const ViewRunSchema = () => {
     const WarehouseSavedQueriesRunCreateBody = orvalSchemas.WarehouseSavedQueriesRunCreateBody()
     const WarehouseSavedQueriesRunCreateParams = orvalSchemas.WarehouseSavedQueriesRunCreateParams()
@@ -483,32 +509,6 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Sc
         const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
-    },
-})
-
-const ViewResumeSchema = () => {
-    const WarehouseSavedQueriesResumeCreateBody = orvalSchemas.WarehouseSavedQueriesResumeCreateBody()
-    const WarehouseSavedQueriesResumeCreateParams = orvalSchemas.WarehouseSavedQueriesResumeCreateParams()
-    return WarehouseSavedQueriesResumeCreateParams.omit({ project_id: true }).extend(
-        WarehouseSavedQueriesResumeCreateBody.shape
-    )
-}
-
-const viewResume = (): ToolBase<ReturnType<typeof ViewResumeSchema>, WithPostHogUrl<Schemas.SavedQueryResume>> => ({
-    name: 'view-resume',
-    schema: ViewResumeSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewResumeSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.engine !== undefined) {
-            body['engine'] = params.engine
-        }
-        const result = await context.api.request<Schemas.SavedQueryResume>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/resume/`,
             body,
         })
         return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
@@ -849,8 +849,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-get': viewGet,
     'view-list': viewList,
     'view-materialize': viewMaterialize,
-    'view-run': viewRun,
     'view-resume': viewResume,
+    'view-run': viewRun,
     'view-run-history': viewRunHistory,
     'view-unmaterialize': viewUnmaterialize,
     'view-update': viewUpdate,
