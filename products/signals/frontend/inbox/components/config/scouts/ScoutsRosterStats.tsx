@@ -2,11 +2,14 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCRATCHPAD_WINDOW_PAGE_SIZE, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL } from '../../../utils/scoutRunsWindow'
+import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
 
 type StatTone = 'muted' | 'warning' | 'danger'
 
@@ -62,6 +65,9 @@ export function ScoutsRosterStats(): JSX.Element {
 
     return (
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1" data-attr="inbox-scout-stats">
+            <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
+                <ScoutSpendLabel />
+            </FlaggedFeature>
             {pauseAttentionCounts.pausingSoon > 0 && (
                 <Stat
                     value={String(pauseAttentionCounts.pausingSoon)}

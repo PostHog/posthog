@@ -5153,6 +5153,25 @@ export interface ReportSignalsResponseApi {
     signals: SignalNodeApi[]
 }
 
+export interface SpendAmountApi {
+    /**
+     * Recorded customer spend in USD cents, before billing exemptions; null when untracked.
+     * @nullable
+     */
+    total_spend: number | null
+    /** Whether spend is still settling or accounting is incomplete. */
+    incomplete: boolean
+}
+
+export interface ReportSpendApi {
+    /** Spend on the report's backing signals, research and repository selection. */
+    generation: SpendAmountApi
+    /** Spend on implementation tasks owned by the report. */
+    implementation: SpendAmountApi
+    /** Full spend of scout runs that authored this report. Shared with all other output of those runs. */
+    shared_scout_runs: SpendAmountApi
+}
+
 /**
  * * `suppressed` - suppressed
  * * `potential` - potential
@@ -10415,6 +10434,35 @@ export interface PatchedSignalSourceConfigApi {
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
     readonly status?: SignalSourceSyncStatusEnumApi | null
+}
+
+export interface SourceSpendApi {
+    /** Product that emitted the signals. */
+    source_product: string
+    /** Type of signals emitted by the source. */
+    source_type: string
+    /** Number of signals received in the last 30 days. */
+    signal_count: number
+    /** Accumulated processing spend on these signals, including later processing. */
+    spend: SpendAmountApi
+}
+
+export interface ScoutSpendApi {
+    /** Name of the scout skill. */
+    skill_name: string
+    /** Accumulated spend for this scout's runs in the period. */
+    spend: SpendAmountApi
+}
+
+export interface SpendOverviewApi {
+    /** Inclusive start of the rolling 30-day run window. */
+    period_start: string
+    /** Exclusive end of the rolling 30-day run window. */
+    period_end: string
+    /** Spend for each scout with runs in the period. */
+    scouts: ScoutSpendApi[]
+    /** Total scout run spend in the period. */
+    scout_spend: SpendAmountApi
 }
 
 export interface SignalUserAutonomyConfigApi {

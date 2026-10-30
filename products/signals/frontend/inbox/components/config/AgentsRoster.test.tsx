@@ -47,6 +47,7 @@ describe('AgentsRoster', () => {
         initKeaTests()
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/source_spend/': () => [200, []],
                 '/api/projects/:team_id/signals/source_configs/': () => [200, { results: [] }],
                 '/api/projects/:team_id/vision/scanners/': () => [
                     200,
@@ -65,6 +66,56 @@ describe('AgentsRoster', () => {
         })
     })
     afterEach(cleanup)
+
+    it.each([true, false])('gates source usage and its request when enabled=%s', async (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.SELF_DRIVING_USAGE]: enabled,
+        })
+        const usageRequests = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_spend/': () => {
+                    usageRequests()
+                    return [
+                        200,
+                        [
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_created',
+                                signal_count: 1,
+                                spend: { total_spend: 125, incomplete: false },
+                            },
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_spiking',
+                                signal_count: 1,
+                                spend: { total_spend: 25, incomplete: false },
+                            },
+                            {
+                                source_product: 'conversations',
+                                source_type: 'ticket',
+                                signal_count: 1,
+                                spend: { total_spend: null, incomplete: true },
+                            },
+                        ],
+                    ]
+                },
+            },
+        })
+        render(<AgentsRoster />)
+        const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
+        expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
+        if (enabled) {
+            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            const support = document.querySelector('[data-source="conversations"]') as HTMLElement
+            expect(within(support).getByText('Not tracked')).toBeInTheDocument()
+            expect(usageRequests).toHaveBeenCalledTimes(1)
+        } else {
+            expect(document.querySelector('[data-attr="source-spend"]')).toBeNull()
+            expect(usageRequests).not.toHaveBeenCalled()
+        }
+    })
 
     // The roster lists what the project runs; the other forty tools wait in the catalog. A regression
     // that lists the whole registry again, or loses a connected tool from the roster, fails here.

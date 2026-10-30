@@ -29,6 +29,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportPullRequest,
+    SignalSpend,
 )
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
@@ -790,3 +791,87 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
             call.kwargs["start_signal_args"] == [SignalMetadataChange(deleted=True, clear_content=True)]
             for call in calls
         )
+
+
+class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
+    def test_sources_use_latest_receipt_and_distinguish_missing_spend(self) -> None:
+        for inserted_at, amount in [(self.base, 2.5), (self.base + timedelta(hours=1), 17.125)]:
+            self._emit_version(
+                document_id="source-spend",
+                report_id="report",
+                source_product="github",
+                inserted_at=inserted_at,
+                spend_metadata={"total_spend": amount},
+            )
+        self._emit_version(
+            document_id="untracked",
+            report_id="report",
+            source_product="github",
+            inserted_at=self.base,
+            spend_metadata={"total_spend": None},
+        )
+        self._emit_version(
+            document_id="old",
+            report_id="report",
+            source_product="linear",
+            inserted_at=self.base - timedelta(days=40),
+            spend_metadata={"total_spend": 999},
+        )
+        self._emit_version(
+            document_id="other-model",
+            report_id="report",
+            source_product="linear",
+            inserted_at=self.base,
+            model=EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072,
+            spend_metadata={"total_spend": 999},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        assert response.status_code == 200, response.content
+        assert response.json() == [
+            {
+                "source_product": "github",
+                "source_type": "some_type",
+                "signal_count": 2,
+                "spend": {"total_spend": 17.125, "incomplete": True},
+            }
+        ]
+
+    def test_report_prices_only_current_signals_and_own_implementation(self) -> None:
+        report = SignalReport.objects.create(team=self.team)
+        other_report = SignalReport.objects.create(team=self.team)
+        signal_id, moved_id = str(uuid.uuid4()), str(uuid.uuid4())
+        for signal, owner, inserted_at in [
+            (signal_id, report.id, self.base),
+            (moved_id, report.id, self.base),
+            (moved_id, other_report.id, self.base + timedelta(hours=1)),
+        ]:
+            self._emit_version(
+                document_id=signal, report_id=str(owner), source_product="github", inserted_at=inserted_at
+            )
+        for signal, amount in [(signal_id, 12.125), (moved_id, 999)]:
+            SignalSpend.objects.for_team(self.team.id).create(
+                team=self.team, kind="ad-hoc", signal_id=signal, spend=amount, finalized_at=timezone.now()
+            )
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind="research",
+            signal_id=signal_id,
+            task_run_id=uuid.uuid4(),
+            spend=20,
+            accounting_failed=True,
+        )
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind="reviewer_triggered_implementation",
+            report=report,
+            task_run_id=uuid.uuid4(),
+            spend=50,
+            finalized_at=timezone.now(),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "generation": {"total_spend": 32.125, "incomplete": True},
+            "implementation": {"total_spend": 50, "incomplete": False},
+            "shared_scout_runs": {"total_spend": None, "incomplete": False},
+        }

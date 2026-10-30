@@ -99,10 +99,24 @@ describe('mergeSignalRuns', () => {
 
     it('tags kind and title per source (scout → skill_name, signal → report title)', () => {
         const [scoutRow, signalRow] = mergeSignalRuns(
-            [scoutRun({ task_id: 'scout', skill_name: 'signals-scout-surveys', created_at: '2026-06-11T11:00:00Z' })],
+            [
+                scoutRun({
+                    task_id: 'scout',
+                    skill_name: 'signals-scout-surveys',
+                    created_at: '2026-06-11T11:00:00Z',
+                    total_spend: 125.25,
+                    status: 'in_progress',
+                }),
+            ],
             [signalTask({ id: 'signal', title: 'Slow query', created_at: '2026-06-11T08:00:00Z' })]
         )
-        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys', report_id: null })
+        expect(scoutRow).toMatchObject({
+            kind: 'scout',
+            title: 'signals-scout-surveys',
+            report_id: null,
+            total_spend: 125.25,
+            spend_incomplete: true,
+        })
         expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })
 

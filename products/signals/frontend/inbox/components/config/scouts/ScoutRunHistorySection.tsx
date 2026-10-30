@@ -30,6 +30,7 @@ import {
     SCOUT_RUN_HISTORY_UNAVAILABLE,
     SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
+import { RecordedSpend } from '../../spend/RecordedSpend'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
 // This pill matches any run that produced output, either a signal finding or report activity, so its
@@ -198,6 +199,15 @@ function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; sk
                         <span className="whitespace-nowrap text-[11px] text-warning">· timed out</span>
                     )}
                     <span className="min-w-0 flex-1 text-secondary">{scoutRunFailureLine(run, now)}</span>
+                    <RecordedSpend
+                        spend={{
+                            total_spend: run.total_spend ?? null,
+                            incomplete:
+                                ['in_progress', 'queued', 'not_started'].includes(run.status) ||
+                                (Array.isArray(run.metadata?.spend_accounting_failed_stages) &&
+                                    run.metadata.spend_accounting_failed_stages.length > 0),
+                        }}
+                    />
                     <RunOutputTag run={run} />
                     {run.task_url && (
                         <Link
@@ -277,6 +287,15 @@ const ScoutRunRow = memo(function ScoutRunRow({
                     </span>
                 )}
                 <span className="flex-1" />
+                <RecordedSpend
+                    spend={{
+                        total_spend: run.total_spend ?? null,
+                        incomplete:
+                            ['in_progress', 'queued', 'not_started'].includes(run.status) ||
+                            (Array.isArray(run.metadata?.spend_accounting_failed_stages) &&
+                                run.metadata.spend_accounting_failed_stages.length > 0),
+                    }}
+                />
                 <RunOutputTag run={run} />
             </button>
 

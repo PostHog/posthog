@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { RecordedSpend } from '../spend/RecordedSpend'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { resolveRunVariant, RunStatusIndicator } from './runStatusVariant'
 
@@ -47,6 +48,14 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                             {isScout ? 'Scout' : 'Signal'}
                         </LemonTag>
                         <RunStatusIndicator variant={resolveRunVariant(run.status)} />
+                        {isScout && (
+                            <RecordedSpend
+                                spend={{
+                                    total_spend: run.total_spend ?? null,
+                                    incomplete: run.spend_incomplete ?? false,
+                                }}
+                            />
+                        )}
                         <span aria-hidden>·</span>
                         <span>
                             Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />

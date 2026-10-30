@@ -104248,6 +104248,25 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    export interface SpendAmount {
+      /**
+         * Recorded customer spend in USD cents, before billing exemptions; null when untracked.
+         * @nullable
+         */
+      total_spend: number | null;
+      /** Whether spend is still settling or accounting is incomplete. */
+      incomplete: boolean;
+    }
+
+    export interface ReportSpend {
+      /** Spend on the report's backing signals, research and repository selection. */
+      generation: SpendAmount;
+      /** Spend on implementation tasks owned by the report. */
+      implementation: SpendAmount;
+      /** Full spend of scout runs that authored this report. Shared with all other output of those runs. */
+      shared_scout_runs: SpendAmount;
+    }
+
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
@@ -108422,6 +108441,13 @@ export namespace Schemas {
       name: string;
       /** Every scope a token minted from this preset carries, including the internal ones. */
       scopes: string[];
+    }
+
+    export interface ScoutSpend {
+      /** Name of the scout skill. */
+      skill_name: string;
+      /** Accumulated spend for this scout's runs in the period. */
+      spend: SpendAmount;
     }
 
     export interface ScoutSuggestionRefresh {
@@ -116390,6 +116416,17 @@ export namespace Schemas {
       webhook?: SourceSetupWebhook;
     }
 
+    export interface SourceSpend {
+      /** Product that emitted the signals. */
+      source_product: string;
+      /** Type of signals emitted by the source. */
+      source_type: string;
+      /** Number of signals received in the last 30 days. */
+      signal_count: number;
+      /** Accumulated processing spend on these signals, including later processing. */
+      spend: SpendAmount;
+    }
+
     /**
      * Validation errors keyed by the source or mapped table ID. Valid sources are omitted.
      */
@@ -116444,6 +116481,17 @@ export namespace Schemas {
       Count: 'count',
       Bytes: 'bytes',
     } as const;
+
+    export interface SpendOverview {
+      /** Inclusive start of the rolling 30-day run window. */
+      period_start: string;
+      /** Exclusive end of the rolling 30-day run window. */
+      period_end: string;
+      /** Spend for each scout with runs in the period. */
+      scouts: ScoutSpend[];
+      /** Total scout run spend in the period. */
+      scout_spend: SpendAmount;
+    }
 
     /**
      * Raw cached payload as stored in Redis, or null on a miss.

@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,6 +19,7 @@ import {
     ScoutRollup,
     SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
@@ -61,13 +64,13 @@ export function ScoutHealthStrip({
     learnedCount: number
 }): JSX.Element {
     const { scoutCostRollups } = useValues(scoutFleetLogic)
+    const costRollup = scoutCostRollups.get(config.skill_name)
     const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName: config.skill_name }))
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
 
     const runs = rollup?.runs ?? []
     const failed = rollup?.failedCount ?? 0
-    const costRollup = scoutCostRollups.get(config.skill_name)
     // Shared with the run rows, so the strip cannot word the same report activity differently.
     const reportLabel = filedOrAddedLabel(rollup?.authoredReportIds ?? [], rollup?.editedReportIds ?? [])
     // Only an enabled scout has a next run; a paused one would otherwise carry an empty dash.
@@ -104,7 +107,7 @@ export function ScoutHealthStrip({
             <Segment tooltip={`Runs this scout made in the ${SCOUT_RUNS_PER_SCOUT_LABEL}, quiet ones included.`}>
                 {runs.length > 0 ? (
                     <>
-                        <ScoutRosterRunBoxes skillName={config.skill_name} runs={runs} />
+                        <ScoutRosterRunBoxes runs={runs} />
                         <span className="whitespace-nowrap tabular-nums">{pluralize(runs.length, 'run')}</span>
                         {/* The counts here and below change while the page is open, so each number
                             gets its own element — see "Rule 7" in frontend/src/AGENTS.md for what a
@@ -136,13 +139,24 @@ export function ScoutHealthStrip({
                 </Segment>
             )}
 
-            {costRollup && (
-                <Segment
-                    tooltip={`What this scout spent on model calls in the ${scoutCostWindowLabel(costRollup.windowDays)}, and what that buys per run and per report.`}
-                >
-                    <span className="whitespace-nowrap tabular-nums">{scoutCostLineParts(costRollup).join(' · ')}</span>
-                </Segment>
-            )}
+            <FlaggedFeature
+                flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}
+                fallback={
+                    <>
+                        {costRollup && (
+                            <Segment
+                                tooltip={`Model usage for this scout in the ${scoutCostWindowLabel(costRollup.windowDays)}, with rates per run and per report.`}
+                            >
+                                <span className="whitespace-nowrap tabular-nums">
+                                    {scoutCostLineParts(costRollup).join(' · ')}
+                                </span>
+                            </Segment>
+                        )}
+                    </>
+                }
+            >
+                <ScoutSpendLabel skillName={config.skill_name} />
+            </FlaggedFeature>
 
             <Segment tooltip="Notes the team has left this scout, and entries it has written for itself.">
                 <span className="whitespace-nowrap tabular-nums">

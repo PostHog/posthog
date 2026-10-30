@@ -56,6 +56,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
@@ -6099,3 +6100,31 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
         assert refused.status_code == status.HTTP_404_NOT_FOUND
         browserless_for_sibling.assert_not_called()
         assert self._spent(sibling_run) == 0
+
+
+class TestScoutSpendOverview(APIBaseTest):
+    def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self) -> None:
+        run = _make_run(self.team)
+        _make_run(self.team)
+        private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
+        old = _make_run(self.team)
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=old.id).update(
+            created_at=timezone.now() - timedelta(days=40)
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other = _make_run(other_team)
+        for row, amount in [(run, 125.25), (private, 999), (old, 999), (other, 999)]:
+            SignalSpend.objects.for_team(row.team_id).create(
+                team_id=row.team_id,
+                scout_run=row,
+                task_run_id=row.task_run_id,
+                kind="scout_run",
+                spend=amount,
+                finalized_at=timezone.now(),
+            )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json()["scout_spend"] == {"total_spend": 125.25, "incomplete": True}
+        assert response.json()["scouts"] == [
+            {"skill_name": "signals-scout-general", "spend": {"total_spend": 125.25, "incomplete": True}}
+        ]

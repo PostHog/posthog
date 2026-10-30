@@ -61,6 +61,7 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReportSpendApi,
     ReviewerExclusionApi,
     ReviewerExclusionCreateApi,
     ReviewerExclusionCreateResultApi,
@@ -180,6 +181,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceSpendApi,
+    SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
     SubmitMonitoringResultResponseApi,
 } from './api.schemas'
@@ -1135,6 +1138,21 @@ export const signalsReportsSignalsRetrieve = async (
     options?: RequestInit
 ): Promise<ReportSignalsResponseApi> => {
     return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportSpendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/spend/`
+}
+
+export const signalsReportSpend = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSpendApi> => {
+    return apiMutator<ReportSpendApi>(getSignalsReportSpendUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -3331,6 +3349,28 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsSourceSpendUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_spend/`
+}
+
+export const signalsSourceSpend = async (projectId: string, options?: RequestInit): Promise<SourceSpendApi[]> => {
+    return apiMutator<SourceSpendApi[]>(getSignalsSourceSpendUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSpendOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/spend/`
+}
+
+export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
+    return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

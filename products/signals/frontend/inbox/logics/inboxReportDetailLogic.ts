@@ -88,6 +88,7 @@ import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement
 import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -929,6 +930,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         String(teamLogic.values.currentTeamId),
                         props.reportId
                     )
+                    const spendLogic = reportSpendLogic({
+                        teamId: teamLogic.values.currentTeamId ?? 0,
+                        reportId: props.reportId,
+                    })
+                    if (spendLogic.isMounted()) {
+                        spendLogic.actions.loadSpend()
+                    }
                     return response.signals
                 },
             },

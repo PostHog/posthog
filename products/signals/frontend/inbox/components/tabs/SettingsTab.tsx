@@ -1,5 +1,6 @@
 import { useMountedLogic, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
 import { InstallationSetupSection } from '../shell/InstallationSetupSection'
+import { ScoutSpendLabel } from '../spend/ScoutSpendLabel'
 import { SettingsSection } from './SettingsSection'
 
 /**
@@ -21,6 +23,7 @@ import { SettingsSection } from './SettingsSection'
  * meter follow.
  */
 export function SettingsTab(): JSX.Element {
+    const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE')
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
     // The usage widget renders nothing without the billing product, so the section title
@@ -42,6 +45,16 @@ export function SettingsTab(): JSX.Element {
             >
                 <SelfDrivingSection />
             </SettingsSection>
+            {usageEnabled && (
+                <SettingsSection title="Usage" description="Recorded usage over the last 30 days.">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="mb-0 text-sm font-semibold">Scout runs</h3>
+                            <ScoutSpendLabel />
+                        </div>
+                    </div>
+                </SettingsSection>
+            )}
             <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
@@ -58,7 +71,10 @@ export function SettingsTab(): JSX.Element {
                 <SlackNotificationsSection />
             </SettingsSection>
             {(inboxUsageProduct != null || inboxUsageLoading) && (
-                <SettingsSection title="Usage" description="Pull requests agents opened this billing period.">
+                <SettingsSection
+                    title={usageEnabled ? 'Pull request usage' : 'Usage'}
+                    description="Pull requests agents opened this billing period."
+                >
                     <InboxUsageWidget />
                 </SettingsSection>
             )}

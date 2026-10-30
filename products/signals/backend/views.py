@@ -155,6 +155,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.presentation.spend import ReportSpendSerializer
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.access import can_view_inbox_ranking
@@ -295,6 +296,7 @@ from products.signals.backend.slack_notification_targets import (
     validate_slack_notification_target,
 )
 from products.signals.backend.source_suggestions import current_source_suggestion
+from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
@@ -2697,6 +2699,12 @@ class SignalReportViewSet(
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
+
+    @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
+    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    def spend(self, request: Request, **kwargs: object) -> Response:
+        report = self.get_object()
+        return Response(ReportSpendSerializer(SpendReporting(self.team).report(report)).data)
 
     def retrieve(self, request, *args, **kwargs):
         with trial_state_errors():

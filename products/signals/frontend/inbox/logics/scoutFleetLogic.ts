@@ -64,6 +64,7 @@ import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import { selfDrivingSpendLogic } from './selfDrivingSpendLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
@@ -1734,6 +1735,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
         loadScoutRunsSuccess: () => {
+            const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
+            if (spendLogic.isMounted()) {
+                spendLogic.actions.loadOverview()
+            }
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
             if (values.isStaff) {
