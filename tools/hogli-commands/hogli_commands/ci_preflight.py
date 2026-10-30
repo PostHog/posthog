@@ -293,6 +293,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("python-env",),
     ),
     DiffCheck(
+        key="frontend-layers",
+        label="new static import from a lower frontend layer into a higher one",
+        triggers=[
+            "frontend/src/*",
+            "products/*/frontend/*",
+            "frontend/bin/layers.mjs",
+            "frontend/bin/layer-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-layers"],
+        # Prune, never update: --update-baseline would grandfather the upward import the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-layers", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],

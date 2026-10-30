@@ -778,6 +778,16 @@ jobs:
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
 
+            # Warn-only until the baseline has settled on master; then drop continue-on-error.
+            - name: Check frontend layer imports
+              continue-on-error: true
+              run: |
+                  if [ ! -f frontend/bin/check-layers.mjs ]; then
+                      echo "Skipping frontend layer check, script not present on this checkout"
+                      exit 0
+                  fi
+                  node frontend/bin/check-layers.mjs
+
             # A field removed from a model that a cached query response stores makes every old
             # cache entry that holds it fail to parse. The author acknowledges the removal with a
             # cache-impact label, which is read live so a re-run of this job sees a new label.
