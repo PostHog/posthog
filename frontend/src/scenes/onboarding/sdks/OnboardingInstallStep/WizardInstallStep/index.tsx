@@ -75,6 +75,7 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
     const canContinue = props.installationComplete || (!!run && (wizardRunIsActive(run) || run.status === 'completed'))
     return (
         <WizardInstallShell
+            fullWidth={!!run}
             continueDisabledReason={canContinue ? undefined : 'Installation is not complete'}
             showSkip={!canContinue}
             props={props}
@@ -103,7 +104,7 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
                         <div className="max-w-xl mx-auto">
                             <OnboardingInstallOptions wizardOverrides={props.wizardOverrides} />
                         </div>
-                        <div className="flex justify-center">
+                        <div>
                             <LemonButton
                                 type="tertiary"
                                 size="small"
@@ -122,11 +123,13 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
 
 function WizardInstallShell({
     children,
+    fullWidth,
     continueDisabledReason,
     showSkip,
     props,
 }: {
     children: React.ReactNode
+    fullWidth: boolean
     continueDisabledReason: string | undefined
     showSkip: boolean
     props: VariantProps
@@ -152,8 +155,8 @@ function WizardInstallShell({
 
     return (
         <OnboardingStep
+            fullWidth={fullWidth}
             title={props.installTitle}
-            subtitle={props.installSubtitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={continueDisabledReason}
             showSkip={showSkip}
