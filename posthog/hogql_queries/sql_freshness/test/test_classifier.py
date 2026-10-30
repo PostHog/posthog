@@ -144,6 +144,22 @@ class TestClassify(BaseTest):
             ),
             ("yesterday_expires_at_midnight", YESTERDAY, SqlWindowClass.FIXED_PAST, {"fresh_until": NEXT_MIDNIGHT}),
             (
+                "today_expires_at_midnight",
+                "select count() from events where toDate(timestamp) = today()",
+                SqlWindowClass.UP_TO_NOW_SHORT,
+                {"now": datetime(2026, 10, 29, 23, 55, tzinfo=UTC), "fresh_until": NEXT_MIDNIGHT},
+            ),
+            (
+                "relative_window_up_to_now_expires_at_midnight",
+                "select count() from events where timestamp >= '2026-10-22'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {
+                    "now": datetime(2026, 10, 29, 23, 30, tzinfo=UTC),
+                    "relative_date_range": True,
+                    "fresh_until": NEXT_MIDNIGHT,
+                },
+            ),
+            (
                 "now_anchored_past_window_moves",
                 "select count() from events where timestamp > now() - interval 9 day and timestamp < now() - interval 2 day",
                 SqlWindowClass.FIXED_PAST,
