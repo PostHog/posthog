@@ -32,6 +32,7 @@ REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -196,8 +197,9 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
 
 @pytest.mark.django_db
 def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_waits_then_joins_it(
-    team, writer_env, django_capture_on_commit_callbacks
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
