@@ -155,8 +155,8 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                         }
                         return null
                     } catch {
-                        // Consumers work without wizard context: a tasks API failure is non-fatal
-                        return null
+                        // Keep the last status so transient failures do not stop polling.
+                        return values.discoveredRun
                     }
                 },
             },
@@ -177,8 +177,11 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
         // the team id arrives or changes. kea-subscriptions' initial mount call (prev undefined) is
         // skipped since afterMount already covers it.
         currentTeamId: (teamId: number | null, prevTeamId: number | null | undefined) => {
-            if (teamId !== null && prevTeamId !== undefined && teamId !== prevTeamId) {
-                actions.loadDiscoveredRun()
+            if (prevTeamId !== undefined && teamId !== prevTeamId) {
+                actions.loadDiscoveredRunSuccess(null)
+                if (teamId !== null) {
+                    actions.loadDiscoveredRun()
+                }
             }
         },
     })),

@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -39,6 +42,11 @@ describe('setupWizardStatusLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.setupStatus).toEqual({ kind: 'installing' })
 
+            mockTasksList.mockRejectedValueOnce(new Error('temporarily unavailable'))
+            jest.advanceTimersByTime(10_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.setupStatus).toEqual({ kind: 'installing' })
+
             const output = status === 'completed' ? { pr_url: 'https://github.com/example/project/pull/12' } : null
             mockTasksList.mockResolvedValue({
                 results: [{ ...task, latest_run: { ...task.latest_run, status, output } }],
@@ -64,6 +72,11 @@ describe('setupWizardStatusLogic', () => {
             jest.advanceTimersByTime(20_000)
             await expectLogic(logic).toFinishAllListeners()
             expect(mockTasksList).toHaveBeenCalledTimes(requests)
+
+            mockTasksList.mockRejectedValueOnce(new Error('temporarily unavailable'))
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.setupStatus).toBeNull()
         } finally {
             logic.unmount()
         }

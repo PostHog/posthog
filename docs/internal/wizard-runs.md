@@ -279,3 +279,4 @@ The existing `/api/wizard/cloud_run` onboarding flow remains Tasks-backed.
 The app no longer starts these runs or shows their progress.
 The insights sample-data placeholder still finds the newest onboarding task through the tasks API, so it can show that setup is running or link the setup pull request.
 It refreshes every 10 seconds while setup runs or its pull request remains unmerged, and pauses in hidden tabs.
+Transient API failures retain the last status for retry; switching projects clears it.
