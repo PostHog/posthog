@@ -259,20 +259,20 @@ export function SnapshotDiffViewer({
     const variant = parts.slice(1).join(' · ')
 
     return (
-        <div>
+        <div className="@container/snapshot-review w-full min-w-0">
             {/* Title + status + actions — full width above content+sidebar */}
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-baseline gap-2">
-                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+                    <h3 className="text-lg font-semibold capitalize break-words min-w-0">{pageName}</h3>
                     {variant && (
-                        <span className="text-sm text-muted">
+                        <span className="text-sm text-muted break-all">
                             @ {variant}
                             {width && height && ` · ${width}×${height}`}
                         </span>
                     )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}
                         reviewState={snapshot.review_state}
@@ -331,7 +331,7 @@ export function SnapshotDiffViewer({
             </div>
 
             {/* Content + sidebar */}
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-4 @4xl/snapshot-review:flex-row">
                 <div className="flex-1 min-w-0 overflow-hidden">
                     {isQuarantined && quarantineEntry && (
                         <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt flex items-center gap-1.5">
@@ -375,7 +375,7 @@ export function SnapshotDiffViewer({
                 </div>
 
                 {/* Right sidebar */}
-                <div className="w-[250px] shrink-0 border-l pl-4 space-y-4">
+                <div className="w-full min-w-0 border-t pt-4 space-y-4 @4xl/snapshot-review:w-64 @4xl/snapshot-review:shrink-0 @4xl/snapshot-review:border-t-0 @4xl/snapshot-review:border-l @4xl/snapshot-review:pt-0 @4xl/snapshot-review:pl-4">
                     {/* === Diff minimap === */}
                     {snapshot.diff_artifact?.download_url && (
                         <DiffMinimap

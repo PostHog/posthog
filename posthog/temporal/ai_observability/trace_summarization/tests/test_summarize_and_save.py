@@ -1,6 +1,7 @@
 """Tests for unified summarize_and_save activity."""
 
 import uuid
+import threading
 import dataclasses
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -184,6 +185,37 @@ class TestSummarizeAndSaveActivity:
                 "job_id": input_data.job_id,
             }
             assert embed_kwargs["document_id"] == f"{generation_id}::{input_data.job_id}"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_llm_call_runs_on_the_slot_sized_pool(self, mock_team, asyncify_executor):
+        threads: list[str] = []
+
+        def record_thread(**kwargs):
+            threads.append(threading.current_thread().name)
+            return _make_mock_summary()
+
+        asyncify_executor(2)
+        with (
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.get_async_client"),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.load_text_repr",
+                return_value="text_repr content",
+            ),
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.delete_text_repr"),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize",
+                side_effect=record_thread,
+            ),
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.create_event"),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
+            ),
+        ):
+            await _run_activity(_make_input(mock_team))
+
+        assert len(threads) == 1
+        assert threads[0].startswith("asyncify")
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

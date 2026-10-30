@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -19,9 +20,11 @@ import {
 } from '~/types'
 
 import { dataModelingNodesLineageRetrieve } from 'products/data_modeling/frontend/generated/api'
+import type { LineageResponseApi, NodeApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import {
     warehouseSavedQueriesList,
     warehouseSavedQueriesMaterializeCreate,
+    warehouseSavedQueriesPartialUpdate,
 } from 'products/data_warehouse/frontend/generated/api'
 
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
@@ -39,6 +42,45 @@ export const DEFAULT_MATERIALIZE_SYNC_FREQUENCY: DataModelingSyncInterval = '24h
 
 export type DataWarehouseSavedQuerySummary = Omit<DataWarehouseSavedQuery, 'columns' | 'query'>
 
+export type DataWarehouseSavedQueryDownstreamReference = Pick<NodeApi, 'id' | 'name' | 'type'>
+
+export interface DataWarehouseSavedQueryDownstreamReferenceState {
+    error: boolean
+    loading: boolean
+    references: DataWarehouseSavedQueryDownstreamReference[]
+}
+
+function getDataWarehouseSavedQueryDownstreamReferences(
+    lineage: LineageResponseApi,
+    viewId: string
+): DataWarehouseSavedQueryDownstreamReference[] {
+    const source = lineage.nodes.find((node) => node.saved_query_id === viewId)
+    if (!source) {
+        return []
+    }
+
+    const downstreamBySource = new Map<string, string[]>()
+    for (const edge of lineage.edges) {
+        downstreamBySource.set(edge.source_id, [...(downstreamBySource.get(edge.source_id) ?? []), edge.target_id])
+    }
+
+    const downstreamIds = new Set<string>([source.id])
+    const queue = [source.id]
+    while (queue.length > 0) {
+        const currentId = queue.shift()!
+        for (const downstreamId of downstreamBySource.get(currentId) ?? []) {
+            if (!downstreamIds.has(downstreamId)) {
+                downstreamIds.add(downstreamId)
+                queue.push(downstreamId)
+            }
+        }
+    }
+
+    return lineage.nodes
+        .filter((node) => node.id !== source.id && downstreamIds.has(node.id))
+        .map(({ id, name, type }) => ({ id, name, type }))
+}
+
 export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSavedQuery> {
     id: string
     types?: string[][]
@@ -48,6 +90,10 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
+}
+
+export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
+    await warehouseSavedQueriesPartialUpdate(String(ApiConfig.getCurrentTeamId()), viewId, { name })
 }
 
 // A plain function, not a logic action: the toast that calls it can outlive the logic, and an
@@ -93,6 +139,7 @@ export interface dataWarehouseViewsLogicValues {
     dataWarehouseSavedQueriesFailed: boolean
     dataWarehouseSavedQueriesLoaded: boolean
     dataWarehouseSavedQueriesLoading: boolean
+    dataWarehouseSavedQueryDownstreamReferences: Record<string, DataWarehouseSavedQueryDownstreamReferenceState>
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
     dataWarehouseSavedQueryFoldersLoading: boolean
@@ -232,6 +279,19 @@ export interface dataWarehouseViewsLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: any
+    }
+    loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => {
+        viewId: string
+    }
+    loadDataWarehouseSavedQueryDownstreamReferencesFailure: (viewId: string) => {
+        viewId: string
+    }
+    loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (
+        viewId: string,
+        references: DataWarehouseSavedQueryDownstreamReference[]
+    ) => {
+        references: DataWarehouseSavedQueryDownstreamReference[]
+        viewId: string
     }
     loadDataWarehouseSavedQueryFolders: () => any
     loadDataWarehouseSavedQueryFoldersFailure: (
@@ -427,6 +487,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 updateDataWarehouseSavedQueryFailure: () => false,
             },
         ],
+        dataWarehouseSavedQueryDownstreamReferences: [
+            {} as Record<string, DataWarehouseSavedQueryDownstreamReferenceState>,
+            {
+                loadDataWarehouseSavedQueryDownstreamReferences: (state, { viewId }) => ({
+                    ...state,
+                    [viewId]: { error: false, loading: true, references: [] },
+                }),
+                loadDataWarehouseSavedQueryDownstreamReferencesFailure: (state, { viewId }) => ({
+                    ...state,
+                    [viewId]: { error: true, loading: false, references: [] },
+                }),
+                loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (state, { viewId, references }) => ({
+                    ...state,
+                    [viewId]: { error: false, loading: false, references },
+                }),
+            },
+        ],
         // Views whose materialization is in flight. Reactive so the sidebar can show a spinner in
         // place of the view icon while it materializes (a stable state, unlike the transient list
         // loading flag), then flip to the materialized icon once it settles.
@@ -439,6 +516,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
+        loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => ({ viewId }),
+        loadDataWarehouseSavedQueryDownstreamReferencesFailure: (viewId: string) => ({ viewId }),
+        loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (
+            viewId: string,
+            references: DataWarehouseSavedQueryDownstreamReference[]
+        ) => ({ viewId, references }),
         updateDataWarehouseSavedQueryFailed: (viewId: string) => ({ viewId }),
         materializationChanged: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuerySuccess: (viewId: string) => ({ viewId }),
@@ -630,6 +713,23 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
+        loadDataWarehouseSavedQueryDownstreamReferences: async ({ viewId }) => {
+            try {
+                const lineage = await dataModelingNodesLineageRetrieve(String(ApiConfig.getCurrentTeamId()), {
+                    saved_query_id: viewId,
+                })
+                actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess(
+                    viewId,
+                    getDataWarehouseSavedQueryDownstreamReferences(lineage, viewId)
+                )
+            } catch (error) {
+                if (isUnavailableEndpointError(error)) {
+                    actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess(viewId, [])
+                } else {
+                    actions.loadDataWarehouseSavedQueryDownstreamReferencesFailure(viewId)
+                }
+            }
+        },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             const materializing = values.materializingViewIds
             if (materializing.length === 0) {

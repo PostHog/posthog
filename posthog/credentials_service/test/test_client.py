@@ -10,16 +10,17 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.client import (
     CredentialsServiceClient,
+    _warn_half_configured,
     credentials_service_enabled,
     credentials_service_signing_keys,
 )
 from posthog.credentials_service.errors import (
     CredentialsServiceFailure,
-    CredentialsServiceMisconfiguredError,
     CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
@@ -36,6 +37,7 @@ CALLER = CredentialsCaller.WAREHOUSE_SOURCES
 
 FLAG = "posthog.credentials_service.client.posthoganalytics.feature_enabled"
 POST = "posthog.credentials_service.client.internal_requests.post"
+SLEEP = "posthog.credentials_service.client.time.sleep"
 
 
 class FakeResponse:
@@ -53,6 +55,23 @@ def body(secrets: dict[str, Any] | None = None, missing: list[str] | None = None
     return {"secrets": secrets or {}, "missing": missing or []}
 
 
+def http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"{status} Error", response=response)
+
+
+class ErrorResponse:
+    def __init__(self, raised: Exception) -> None:
+        self._raised = raised
+
+    def raise_for_status(self) -> None:
+        raise self._raised
+
+    def json(self) -> dict[str, Any]:
+        return {}
+
+
 def steady(value: str) -> dict[str, Any]:
     return {"state": "steady", "value": value, "version_id": "v1", "fetched_at": "now"}
 
@@ -64,6 +83,9 @@ class TestCredentialsServiceClient(SimpleTestCase):
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+        sleep = patch(SLEEP)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def test_returns_the_value_the_service_resolved(self) -> None:
         with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
@@ -135,31 +157,53 @@ class TestCredentialsServiceClient(SimpleTestCase):
     # raised — and callers act on that difference. The 404 is the case that bites: a misrouted
     # CREDENTIALS_SERVICE_URL is our deploy error, but a caller seeing a raw 404 reads it as the
     # user's endpoint being gone and can stop their work over it.
+    #
+    # The attempt count is the retry contract. A dropped connection or a gateway status is sent
+    # again, and anything else fails on the first answer: a 4xx will not change on a repeat, and a
+    # repeated read timeout only multiplies the wait in front of the same failure.
     @parameterized.expand(
         [
-            ("404 misrouted url", requests.HTTPError("404 Client Error", response=requests.Response())),
-            ("401 unaccepted signing key", requests.HTTPError("401 Unauthorized", response=requests.Response())),
-            ("connection refused", requests.ConnectionError("connection refused")),
-            ("read timeout", requests.Timeout("timed out")),
+            ("404 misrouted url", http_error(404), 1),
+            ("401 unaccepted signing key", http_error(401), 1),
+            ("read timeout", requests.Timeout("timed out"), 1),
+            ("connection refused", requests.ConnectionError("connection refused"), 3),
+            ("503 from a pod without secrets", http_error(503), 3),
         ]
     )
-    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception) -> None:
-        class ErrorResponse:
-            def raise_for_status(self) -> None:
-                raise raised
-
-            def json(self) -> dict[str, Any]:
-                return {}
-
+    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception, attempts: int) -> None:
         # Raised from the call itself for a connection failure, from raise_for_status for a status.
         side_effect = raised if isinstance(raised, requests.ConnectionError | requests.Timeout) else None
-        patched = patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse())
-        with patched:
+        patched = (
+            patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse(raised))
+        )
+        with patched as post:
             with pytest.raises(CredentialsServiceUnreachableError) as exc_info:
                 self.secrets.get(KEY, CALLER)
         # The cause is kept so error tracking and logs still show what actually went wrong.
         assert exc_info.value.__cause__ is raised
         assert not isinstance(exc_info.value, requests.RequestException)
+        assert post.call_count == attempts
+
+    # The keep-alive race: the server closes an idle pooled connection just as a request goes out
+    # on it. The read never reached the service, so the next attempt on a new connection succeeds.
+    @parameterized.expand(
+        [
+            (
+                "a closed keep-alive connection",
+                requests.ConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed connection'))"),
+                "connection_error",
+            ),
+            ("a 503", ErrorResponse(http_error(503)), "503"),
+            ("a 502", ErrorResponse(http_error(502)), "502"),
+        ]
+    )
+    def test_answers_after_a_retry_following(self, _name: str, first: Any, reason: str) -> None:
+        labels = {"reason": reason}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_retry_total", labels) or 0
+        with patch(POST, side_effect=[first, FakeResponse(body({KEY: steady("sec")}))]) as post:
+            assert self.secrets.get(KEY, CALLER) == "sec"
+        assert post.call_count == 2
+        assert REGISTRY.get_sample_value("posthog_credentials_service_retry_total", labels) == before + 1
 
     # A body that isn't JSON is the same class of failure as no answer at all: something is
     # between us and the service, or the service is broken. It must not surface as a missing key.
@@ -194,13 +238,34 @@ class TestCredentialsServiceClient(SimpleTestCase):
             with pytest.raises(CredentialsServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
 
+    @parameterized.expand(
+        [
+            ("answered", None, "ok"),
+            ("unreachable", requests.ConnectionError("credentials service is down"), "error"),
+        ]
+    )
+    def test_records_request_latency_by_result(self, _name: str, raised: Exception | None, result: str) -> None:
+        labels = {"caller": str(CALLER), "result": result}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_request_duration_seconds_count", labels) or 0
+        patched = (
+            patch(POST, side_effect=raised)
+            if raised
+            else patch(POST, return_value=FakeResponse(body({KEY: steady("sec")})))
+        )
+        with patched:
+            try:
+                self.secrets.get(KEY, CALLER)
+            except CredentialsServiceUnreachableError:
+                pass
+        after = REGISTRY.get_sample_value("posthog_credentials_service_request_duration_seconds_count", labels)
+        assert after == before + 1
+
     # The base type is the whole contract a caller depends on: catch one thing, and a subclass
     # added later is covered without every call site being revisited.
     @parameterized.expand(
         [
             ("missing", SecretMissingError(KEY), True),
             ("in recovery", SecretInRecoveryError(KEY), False),
-            ("half-configured", CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
             ("unreachable", CredentialsServiceUnreachableError("no answer"), False),
         ]
     )
@@ -274,41 +339,45 @@ class TestUnconfigured(SimpleTestCase):
 
 
 class TestHalfConfigured(SimpleTestCase):
-    """One variable without the other: refuse, rather than silently reading the environment."""
+    """One variable without the other reads the environment, as if neither were set, and says so."""
+
+    def setUp(self) -> None:
+        _warn_half_configured.cache_clear()
 
     @parameterized.expand(
         [
-            ("url without a signing key", "http://svc", "", "CREDENTIALS_SERVICE_JWT_SECRET"),
-            ("signing key without a url", "", "signing-key", "CREDENTIALS_SERVICE_URL"),
+            ("url without a signing key, flag on", "http://svc", "", True, "CREDENTIALS_SERVICE_JWT_SECRET"),
+            ("url without a signing key, flag off", "http://svc", "", False, "CREDENTIALS_SERVICE_JWT_SECRET"),
+            ("signing key without a url, flag on", "", "signing-key", True, "CREDENTIALS_SERVICE_URL"),
+            ("signing key without a url, flag off", "", "signing-key", False, "CREDENTIALS_SERVICE_URL"),
         ]
     )
-    def test_raises_naming_the_variable_still_needed(self, _name: str, url: str, key: str, missing: str) -> None:
+    def test_reads_the_environment_instead_of_raising(
+        self, _name: str, url: str, key: str, flag_on: bool, missing: str
+    ) -> None:
+        labels = {"reason": "half_configured"}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_env_fallback_total", labels) or 0
         with (
             override_settings(CREDENTIALS_SERVICE_URL=url, CREDENTIALS_SERVICE_JWT_SECRET=key),
+            patch.dict(os.environ, {KEY: "from-env"}),
             patch(POST) as post,
-            patch(FLAG, return_value=True),
+            patch(FLAG, return_value=flag_on),
+            patch("posthog.credentials_service.client.logger") as log,
         ):
-            with pytest.raises(CredentialsServiceMisconfiguredError) as excinfo:
-                CredentialsServiceClient().get(KEY, CALLER)
-            assert missing in str(excinfo.value)
-            post.assert_not_called()
+            client = CredentialsServiceClient()
+            assert client.get(KEY, CALLER) == "from-env"
+            assert client.get(KEY, CALLER) == "from-env"
+
+        post.assert_not_called()
+        log.warning.assert_called_once()
+        assert log.warning.call_args.kwargs["missing"] == missing
+        after = REGISTRY.get_sample_value("posthog_credentials_service_env_fallback_total", labels)
+        assert after == before + 2
 
     @override_settings(CREDENTIALS_SERVICE_URL="http://svc", CREDENTIALS_SERVICE_JWT_SECRET="")
-    def test_a_mounted_environment_variable_does_not_paper_over_it(self) -> None:
-        # The failure this exists to catch. Half-configured, the fallback would have returned the
-        # value from the pod's environment and the deployment would look wired up — until someone
-        # asks for a credential that only exists in the service.
-        with patch.dict(os.environ, {KEY: "still-mounted-on-the-pod"}):
-            with pytest.raises(CredentialsServiceMisconfiguredError):
-                CredentialsServiceClient().get(KEY, CALLER)
-
-    @override_settings(CREDENTIALS_SERVICE_URL="http://svc", CREDENTIALS_SERVICE_JWT_SECRET="")
-    def test_the_flag_does_not_rescue_a_half_configured_deployment(self) -> None:
-        # Turning the flag off is how you disable the client deliberately; it is not a way to make
-        # a misconfiguration legal, or the rollout gate would hide it.
-        with patch(FLAG, return_value=False):
-            with pytest.raises(CredentialsServiceMisconfiguredError):
-                CredentialsServiceClient().get(KEY, CALLER)
+    def test_service_is_not_enabled(self) -> None:
+        with patch(FLAG, return_value=True):
+            assert credentials_service_enabled() is False
 
 
 @override_settings(**SERVICE_SETTINGS)

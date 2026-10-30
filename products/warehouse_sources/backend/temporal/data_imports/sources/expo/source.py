@@ -66,7 +66,7 @@ Find the project ID by running `eas project:info`, or in the project's page on e
             iconPath="/static/services/expo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/expo",
             keywords=["eas", "react native", "mobile builds"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

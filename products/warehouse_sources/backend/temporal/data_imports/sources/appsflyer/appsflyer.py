@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     AppsFlyerEndpointConfig,
     AppsFlyerReportKind,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
@@ -248,7 +251,7 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
         window_start = window_end + timedelta(days=1)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AppsFlyerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=5, max=120),
@@ -300,6 +303,12 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
             "The AppsFlyer app id looks invalid. Use your app's identifier from the dashboard "
             "(e.g. 'id123456789' for iOS or the package name for Android)."
         ) from None
+    # http.client encodes headers as latin-1, so a smart quote pasted with the token would crash the request.
+    if not _normalize_token(api_token).isascii():
+        raise AppsFlyerCredentialsError(
+            "The AppsFlyer API token contains an unsupported character, such as a smart quote pasted along with it. "
+            "Paste only the API token (V2) and try again."
+        )
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     response = _get_session(api_token).get(
         f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
@@ -404,7 +413,6 @@ def appsflyer_source(
         partition_mode="datetime",
         partition_format=config.partition_format,
         partition_keys=[config.partition_key],
-        sort_mode="asc",
         # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
         # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag
         # tells validate_incremental_sync to block incremental syncing altogether. The merge's own

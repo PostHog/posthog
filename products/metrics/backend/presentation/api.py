@@ -24,7 +24,7 @@ from rest_framework.response import Response
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -374,6 +374,12 @@ class _MetricSeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text='UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.',
     )
+    histogram_bounds = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        allow_null=True,
+        help_text="Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.",
+    )
 
 
 class _MetricQueryResponseSerializer(serializers.Serializer):
@@ -644,6 +650,13 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
+    )
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit values to. Omit to list values across all metrics.",
     )
     value = serializers.CharField(
         required=False,
@@ -1101,7 +1114,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def attribute_values(self, request: Request, *args, **kwargs) -> Response:
         """Observed values for one metric attribute key, most frequent first.
-        Backs the filter bar's value autocomplete."""
+        Backs the filter bar's value autocomplete. `metricName` limits choices
+        to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeValuesParamsSerializer(data=request.query_params)
@@ -1111,6 +1125,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
@@ -1178,7 +1193,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_to=data["dateTo"],
             )
         except ConcurrencyLimitExceeded as exc:
-            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
+            raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except ValueError as exc:
             raise ParseError(str(exc))
 

@@ -49,7 +49,7 @@ You can create an organization API key in your env0 [Organization Settings > API
 Environment cost data is only available for environments with [cost monitoring](https://docs.envzero.com/docs/cost-monitoring) configured.""",
             iconPath="/static/services/env0.png",
             docsUrl="https://posthog.com/docs/cdp/sources/env0",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["env zero", "iac", "terraform"],
             fields=cast(
                 list[FieldType],

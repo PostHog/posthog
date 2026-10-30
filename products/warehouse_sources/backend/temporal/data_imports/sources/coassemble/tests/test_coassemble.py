@@ -227,6 +227,19 @@ class TestClientUsagePagination:
         assert "Required data_selector" in str(result.raised)
 
 
+class TestWorkspaceAllowances:
+    def test_reads_one_unpaged_request(self) -> None:
+        # The endpoint documents no page/length params, so the request must carry none.
+        rows = [{"metric": "ir", "limit": 500, "currentUsage": 12}, {"metric": "imageUsage", "limit": None}]
+        result = _driver().run("workspace_allowances", [ScriptedResponse(json=rows)])
+
+        assert result.raised is None
+        assert result.rows == rows
+        assert result.paths == ["/api/v1/headless/usage/allowances"]
+        assert result.params("page") == [None]
+        assert result.params("length") == [None]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

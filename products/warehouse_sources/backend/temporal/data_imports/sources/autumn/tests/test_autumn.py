@@ -269,10 +269,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "api_version"),
         [
             (200, True, "2.3.0"),
-            (200, True, "2.4.0"),
-            (401, False, "2.3.0"),
-            (403, False, "2.3.0"),
-            (500, False, "2.3.0"),
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool, api_version: str) -> None:

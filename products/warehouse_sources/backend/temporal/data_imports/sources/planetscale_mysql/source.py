@@ -122,6 +122,11 @@ class PlanetScaleMySQLSource(MySQLSource):
         return ExternalDataSourceType.PLANETSCALEMYSQL
 
     @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `MySQLSource`.
+        return "planetscale-mysql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.PLANETSCALEMYSQL,
@@ -178,6 +183,7 @@ class PlanetScaleMySQLSource(MySQLSource):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -186,7 +192,7 @@ class PlanetScaleMySQLSource(MySQLSource):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

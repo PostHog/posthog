@@ -1,4 +1,6 @@
 import uuid
+import threading
+from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -29,14 +31,19 @@ def _set_ai_consent(subscription: Subscription, approved: bool) -> None:
 
 
 @sync_to_async
-def _create_subscription(team, user, *, summary_enabled: bool = True) -> Subscription:
+def _create_subscription(
+    team, user, *, summary_enabled: bool = True, target_type: str = Subscription.SubscriptionTarget.EMAIL
+) -> Subscription:
+    target_value = "test@posthog.com"
+    if target_type == Subscription.SubscriptionTarget.SLACK:
+        target_value = "C12345"
     insight = Insight.objects.create(team=team, name="Pageviews", created_by=user)
     return Subscription.objects.create(
         team=team,
         insight=insight,
         created_by=user,
-        target_type=Subscription.SubscriptionTarget.EMAIL,
-        target_value="test@posthog.com",
+        target_type=target_type,
+        target_value=target_value,
         frequency=Subscription.SubscriptionFrequency.WEEKLY,
         start_date=datetime(2022, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
         summary_enabled=summary_enabled,
@@ -108,8 +115,9 @@ async def test_skips_summary_when_org_has_not_approved_ai(team, user):
     assert result.summary_skipped_over_budget is False
 
 
-async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
-    subscription = await _create_subscription(team, user)
+@pytest.mark.parametrize("target_type", [Subscription.SubscriptionTarget.EMAIL, Subscription.SubscriptionTarget.SLACK])
+async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch, target_type):
+    subscription = await _create_subscription(team, user, target_type=target_type)
     await _set_ai_consent(subscription, approved=True)
     delivery = await _create_delivery(
         subscription,
@@ -125,9 +133,22 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
     )
 
     called = {}
+    summary_running = threading.Event()
+    heartbeat_received = threading.Event()
+
+    def on_heartbeat(*details: object) -> None:
+        if summary_running.is_set():
+            heartbeat_received.set()
+
+    env = ActivityEnvironment()
+    env.info = replace(env.info, heartbeat_timeout=timedelta(seconds=1))
+    env.on_heartbeat = on_heartbeat
 
     def fake_generate(previous_states, current_states, **kwargs):
+        summary_running.set()
+        assert heartbeat_received.wait(timeout=5), "No heartbeat while summary generation was active"
         called["ran"] = True
+        called["slack_formatting"] = kwargs["slack_formatting"]
         return "- Pageviews is trending up"
 
     monkeypatch.setattr(
@@ -135,15 +156,17 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
         fake_generate,
     )
 
-    result = await _run(
+    result = await env.run(
+        snapshot_subscription_insights,
         SnapshotInsightsInputs(
             subscription_id=subscription.id,
             team_id=subscription.team_id,
             delivery_id=str(delivery.id),
-        )
+        ),
     )
 
     assert called.get("ran") is True
+    assert called["slack_formatting"] is (target_type == Subscription.SubscriptionTarget.SLACK)
     assert result.summary_text == "- Pageviews is trending up"
 
 

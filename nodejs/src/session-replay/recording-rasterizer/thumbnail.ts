@@ -167,10 +167,21 @@ interface FrameSource {
     size: { width: number; height: number } | null
     footer: number
     width: number
+    smallWidth: number | null
+    format: 'png' | 'webp'
 }
 
+// Lossy, which is what keeps a poster of a text-heavy page small; the large copy keeps more detail for the detail view.
+const WEBP_QUALITY = { large: 85, small: 80 }
+
 async function withFrameSource<T>(
-    input: { source_s3_uri: string; footer_crop_px?: number; width?: number },
+    input: {
+        source_s3_uri: string
+        footer_crop_px?: number
+        width?: number
+        small_width?: number
+        image_format?: 'png' | 'webp'
+    },
     run: (source: FrameSource) => Promise<T>
 ): Promise<T> {
     const location = parseS3Uri(input.source_s3_uri)
@@ -187,14 +198,31 @@ async function withFrameSource<T>(
             size: await frameSize(sourcePath),
             footer,
             width: Math.max(1, Math.floor(input.width ?? 1280)),
+            smallWidth: input.small_width ? Math.max(1, Math.floor(input.small_width)) : null,
+            format: input.image_format ?? 'png',
         })
     } finally {
         await fs.rm(workDir, { recursive: true, force: true })
     }
 }
 
-async function cutFrame(source: FrameSource, videoTimeS: number, outputPath: string): Promise<number> {
-    const { size, footer, footerCrop, width } = source
+function encoderArgs(format: 'png' | 'webp', copy: 'large' | 'small'): string[] {
+    return format === 'webp' ? ['-c:v', 'libwebp', '-quality', String(WEBP_QUALITY[copy])] : []
+}
+
+async function outputSize(outputPath: string): Promise<number> {
+    const stat = await fs.stat(outputPath).catch(() => null)
+    return stat?.size ?? 0
+}
+
+/** Cut one frame into `outputPath`, and into `smallPath` too when the source asks for a small copy, from one decode. */
+async function cutFrame(
+    source: FrameSource,
+    videoTimeS: number,
+    outputPath: string,
+    smallPath: string | null
+): Promise<{ size: number; smallSize: number }> {
+    const { size, footer, footerCrop, width, smallWidth, format } = source
     const rawPath = path.join(source.workDir, 'frame.rgb')
     const letterbox = size
         ? await detectBorder(source.sourcePath, rawPath, videoTimeS, footerCrop, size.width, size.height - footer)
@@ -208,25 +236,28 @@ async function cutFrame(source: FrameSource, videoTimeS: number, outputPath: str
         : [footerCrop]
     // Never upscale: a phone-sized page stretched to 1280 is a blurrier, heavier poster.
     const sourceWidth = letterbox?.w ?? size?.width ?? width
-    const filters = [...crops, `scale=${Math.min(width, sourceWidth)}:-2`].join(',')
+    const scale = (target: number): string => `scale=${Math.min(target, sourceWidth)}:-2`
 
     // -ss before -i seeks by keyframe index rather than decoding to the timestamp, which is what
     // keeps this cheap. -frames:v 1 stops after the first frame it lands on.
-    const args = [
-        '-nostdin',
-        '-loglevel',
-        'error',
-        '-ss',
-        String(videoTimeS),
-        '-i',
-        source.sourcePath,
-        '-frames:v',
-        '1',
-        '-vf',
-        filters,
-        '-y',
-        outputPath,
-    ]
+    const outputs =
+        smallPath !== null && smallWidth !== null
+            ? [
+                  '-filter_complex',
+                  `[0:v]${crops.join(',')},split=2[a][b];[a]${scale(width)}[large];[b]${scale(smallWidth)}[small]`,
+                  ...['-map', '[large]', '-frames:v', '1', ...encoderArgs(format, 'large'), '-y', outputPath],
+                  ...['-map', '[small]', '-frames:v', '1', ...encoderArgs(format, 'small'), '-y', smallPath],
+              ]
+            : [
+                  '-vf',
+                  [...crops, scale(width)].join(','),
+                  '-frames:v',
+                  '1',
+                  ...encoderArgs(format, 'large'),
+                  '-y',
+                  outputPath,
+              ]
+    const args = ['-nostdin', '-loglevel', 'error', '-ss', String(videoTimeS), '-i', source.sourcePath, ...outputs]
 
     try {
         await execFileAsync('ffmpeg', args, { timeout: FFMPEG_TIMEOUT_MS })
@@ -241,16 +272,16 @@ async function cutFrame(source: FrameSource, videoTimeS: number, outputPath: str
         )
     }
 
-    const stat = await fs.stat(outputPath).catch(() => null)
-    if (!stat || stat.size === 0) {
+    const largeSize = await outputSize(outputPath)
+    if (largeSize === 0) {
         // A seek past the end of the video exits 0 and writes nothing, so size is the real check.
         throw new RasterizationError(`ffmpeg wrote no frame at ${videoTimeS}s`, false, 'THUMBNAIL_EMPTY_OUTPUT')
     }
-    return stat.size
+    return { size: largeSize, smallSize: smallPath ? await outputSize(smallPath) : 0 }
 }
 
 /**
- * Cut frames from an already-rendered analysis MP4 and store each as a PNG, downloading the video once.
+ * Cut frames from an already-rendered analysis MP4 and store each as an image, downloading the video once.
  *
  * No browser, so this costs seconds of CPU rather than a recording load. The crop removes the
  * burned-in metadata footer, which is an artifact of the analysis render and not part of the page.
@@ -266,10 +297,13 @@ export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<
     return withFrameSource(input, async (source) => {
         const extracted: ExtractThumbnailsOutput['frames'] = []
         for (const frame of frames) {
-            const outputPath = path.join(source.workDir, `${frame.id}.png`)
-            let fileSizeBytes: number
+            const outputPath = path.join(source.workDir, `${frame.id}.${source.format}`)
+            const smallId = `${frame.id}-small`
+            const smallPath =
+                source.smallWidth !== null ? path.join(source.workDir, `${smallId}.${source.format}`) : null
+            let cut: { size: number; smallSize: number }
             try {
-                fileSizeBytes = await cutFrame(source, frame.videoTimeS, outputPath)
+                cut = await cutFrame(source, frame.videoTimeS, outputPath, smallPath)
             } catch (err) {
                 // A local cut fails the same way on a retry, so an optional frame is skipped rather than retried.
                 if (!frame.required && err instanceof RasterizationError) {
@@ -278,9 +312,16 @@ export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<
                 }
                 throw err
             }
-            const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, frame.id, 'png')
-            extracted.push({ id: frame.id, s3_uri: s3Uri, file_size_bytes: fileSizeBytes })
-            await fs.rm(outputPath, { force: true })
+            const [s3Uri, smallS3Uri] = await Promise.all([
+                uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, frame.id, source.format),
+                smallPath !== null && cut.smallSize > 0
+                    ? uploadToS3(smallPath, input.s3_bucket, input.s3_key_prefix, smallId, source.format)
+                    : undefined,
+            ])
+            extracted.push({ id: frame.id, s3_uri: s3Uri, file_size_bytes: cut.size, small_s3_uri: smallS3Uri })
+            await Promise.all(
+                [outputPath, ...(smallPath ? [smallPath] : [])].map((file) => fs.rm(file, { force: true }))
+            )
         }
         return { frames: extracted }
     })

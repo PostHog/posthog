@@ -318,6 +318,7 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 
 - One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
 - One test per bulk-write site that its explicit logging produces the expected rows.
+- Batch object access-rule writes preserve the same changes and actor details as individual writes through `bulk_log_activity`.
 - A `changes_between` test only when the scope adds exclusions or masks.
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 

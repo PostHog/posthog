@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.setti
 from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.ynab import (
     AUTH_ERROR,
     PERMISSION_ERROR,
+    RATE_LIMIT_ERROR,
     YnabResumeConfig,
     validate_credentials,
     ynab_source,
@@ -70,7 +71,7 @@ class YnabSource(ResumableSource[YnabSourceConfig, YnabResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(
@@ -118,6 +119,11 @@ class YnabSource(ResumableSource[YnabSourceConfig, YnabResumeConfig]):
             "401 Client Error: Unauthorized for url: https://api.ynab.com/": AUTH_ERROR,
             "403 Client Error: Forbidden for url: https://api.ynab.com/": PERMISSION_ERROR,
         }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The limit is per token over a rolling hour, so the activity's own retries, seconds apart,
+        # cannot outlast it. Every table in the source shares that one token.
+        return {"HTTP 429 for https://api.ynab.com/": RATE_LIMIT_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.canonical_descriptions import (

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -16,12 +16,13 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
-import { DEFAULT_GOAL_BUDGET, replayScannerLogic } from '../replayScannerLogic'
-import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
+import { replayScannerLogic } from '../replayScannerLogic'
+import { ScannerEditorStep, scannerEditorSceneLogic, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
     SCANNER_TYPE_TAG_TYPE,
@@ -32,7 +33,7 @@ import {
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
  * concrete model id so a retired model just falls through to the generic line. */
-function modelRoleLabel(model: string): string {
+function modelRoleLabel(model: string, configureStepLabel: string): string {
     if (model === 'gemini-3.5-flash-lite') {
         return 'Cheapest tier. Best for simple yes/no checks.'
     }
@@ -42,7 +43,7 @@ function modelRoleLabel(model: string): string {
     if (model === 'gemini-3-flash-preview') {
         return 'Balanced tier. A good default for everyday scanners.'
     }
-    return 'Change the model on the Configure step to trade cost for capability.'
+    return `Change the model on the ${configureStepLabel} step to trade cost for capability.`
 }
 
 /** The activity-filter badge label for each quality mode: how much of the eligible pool it keeps by
@@ -267,6 +268,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         isScannerSubmitting,
         experimentContext,
     } = useValues(logic)
+    const { freeCreditsAllowance } = useValues(visionQuotaLogic)
+    const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -289,7 +292,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
-        return <ScannerGoalOverviewSkeleton />
+        return <ScannerGoalOverviewSkeleton recordingsFirst={recordingsFirst} />
     }
 
     const zeroMatches = scannerEstimate !== null && scannerEstimate.matched_sessions_in_window === 0
@@ -303,14 +306,44 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
     // set to the stated budget). The rate cannot go below the minimum, so a budget under that floor
     // projects above it.
-    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? DEFAULT_GOAL_BUDGET : goalBudgetInput)
+    // A free-only draft is sized to the free credits the org can spend, which billing can set below the usual amount.
+    const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? freeCreditsAllowance : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
     // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
     const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
 
-    const saveDisabledReason =
-        getReplayVisionEditDisabledReason(scanner.user_access_level) ??
-        (zeroMatches ? 'No recordings are eligible. Change the filter first.' : undefined)
+    // Zero recent matches only warns: a new project can have no recordings yet, and the scanner scans
+    // the matching recordings that arrive after it is created.
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
+    const zeroMatchesWarning =
+        zeroMatches && !saveDisabledReason
+            ? `No recordings matched in the last ${pluralize(scannerEstimate.window_days, 'day')}. The scanner scans new matching recordings when they arrive.`
+            : undefined
+
+    // The recordings-first experiment arm reviews what the scanner watches before what it asks.
+    const askSection = (
+        <OverviewSection label="What it will ask" editStep="configure" scannerId={scannerId}>
+            <div className="space-y-3">
+                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
+                    {scannerTypeLabel(scanner.scanner_type)}
+                </LemonTag>
+                <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
+                    <StatRow label="Model">
+                        <span className="inline-flex items-center gap-2">
+                            <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
+                            {creditsPerObservation != null ? (
+                                <span className="text-muted">
+                                    {formatCreditCount(creditsPerObservation)} / observation
+                                </span>
+                            ) : null}
+                        </span>
+                    </StatRow>
+                </div>
+                <div className="text-xs text-muted">{modelRoleLabel(scanner.model, stepLabels.configure)}</div>
+            </div>
+        </OverviewSection>
+    )
 
     return (
         <div className="flex flex-col gap-3">
@@ -323,36 +356,18 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {scanner.description ? <div className="text-sm text-muted">{scanner.description}</div> : null}
             </OverviewSection>
 
-            <OverviewSection label="What it will ask" editStep="configure" scannerId={scannerId}>
-                <div className="space-y-3">
-                    <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
-                        {scannerTypeLabel(scanner.scanner_type)}
-                    </LemonTag>
-                    <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
-                    <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
-                        <StatRow label="Model">
-                            <span className="inline-flex items-center gap-2">
-                                <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
-                                {creditsPerObservation != null ? (
-                                    <span className="text-muted">
-                                        {formatCreditCount(creditsPerObservation)} / observation
-                                    </span>
-                                ) : null}
-                            </span>
-                        </StatRow>
-                    </div>
-                    <div className="text-xs text-muted">{modelRoleLabel(scanner.model)}</div>
-                </div>
-            </OverviewSection>
+            {recordingsFirst ? null : askSection}
 
             <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
-                    <div className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 text-sm">
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
                             <StatRow key={group.label} label={group.label}>
                                 <span className="flex flex-wrap gap-1">
                                     {group.values.map((value) => (
-                                        <LemonSnack key={value}>{value}</LemonSnack>
+                                        <LemonSnack key={value} wrap>
+                                            {value}
+                                        </LemonSnack>
                                     ))}
                                 </span>
                             </StatRow>
@@ -369,7 +384,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : zeroMatches ? (
                     <LemonBanner type="warning">
                         No recordings match these filters for the last {pluralize(scannerEstimate.window_days, 'day')}.
-                        Change the filter, or the scanner may never run.
+                        You can still create the scanner. It scans new matching recordings when they arrive. If you
+                        expected matches, change the filter.
                     </LemonBanner>
                 ) : scannerEstimate ? (
                     <div className="text-sm text-muted">
@@ -379,13 +395,15 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : null}
             </OverviewSection>
 
+            {recordingsFirst ? askSection : null}
+
             <OverviewSection
-                label="Sampling and budget"
+                label={recordingsFirst ? 'Sampling and limits' : 'Sampling and budget'}
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
             >
-                <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm">
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
                     <StatRow label="Recordings">
                         {monthlyObservations != null ? (
                             <span className="font-medium">
@@ -409,13 +427,14 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                             freeCreditsOnly ? (
                                 overBudget ? (
                                     <span>
-                                        uses all <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> of your free
-                                        credits a month
+                                        uses all <span>{budgetCredits.toLocaleString()}</span> of your free credits a
+                                        month
                                     </span>
                                 ) : (
                                     <span>
                                         uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
-                                        <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
+                                        {budgetCredits != null ? <span>{budgetCredits.toLocaleString()} </span> : null}
+                                        free credits a month
                                     </span>
                                 )
                             ) : (
@@ -442,9 +461,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 </div>
                 {overBudget && freeCreditsOnly ? (
                     <LemonBanner type="info">
-                        Your free credits cover about{' '}
-                        <span>{freeCreditsCoverage(DEFAULT_GOAL_BUDGET, monthlyCredits)}</span> of the month. After that
-                        it pauses until they reset.
+                        Your free credits cover about <span>{freeCreditsCoverage(budgetCredits, monthlyCredits)}</span>{' '}
+                        of the month. After that it pauses until they reset.
                     </LemonBanner>
                 ) : overBudget ? (
                     <LemonBanner type="warning">
@@ -457,7 +475,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             <div className="flex items-center justify-end gap-2">
                 <LemonButton
                     type="secondary"
-                    onClick={() => router.actions.push(urls.replayVisionScannerTemplate('new'))}
+                    onClick={() => router.actions.push(urls.replayVisionScannerGoal('new'))}
                     data-attr="vision-goal-overview-start-over"
                 >
                     Start over
@@ -467,6 +485,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     onClick={() => submitScanner()}
                     loading={isScannerSubmitting}
                     disabledReason={saveDisabledReason}
+                    icon={zeroMatchesWarning ? <IconWarning /> : undefined}
+                    tooltip={zeroMatchesWarning}
                     data-attr="vision-goal-overview-create"
                 >
                     Create scanner
@@ -523,20 +543,25 @@ function DraftLoadingBar(): JSX.Element {
     )
 }
 
+/** The overview's section titles in render order, which the recordings-first experiment arm changes. */
+export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
+    return recordingsFirst
+        ? ['What it understood', 'Name', 'Eligible recordings', 'What it will ask', 'Sampling and limits']
+        : ['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget']
+}
+
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
-function ScannerGoalOverviewSkeleton(): JSX.Element {
+function ScannerGoalOverviewSkeleton({ recordingsFirst }: { recordingsFirst: boolean }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <DraftLoadingBar />
-            {['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget'].map(
-                (label) => (
-                    <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
-                        <div className="text-xs text-tertiary uppercase tracking-wide">{label}</div>
-                        <LemonSkeleton className="h-4 w-3/4" />
-                        <LemonSkeleton className="h-4 w-1/2" />
-                    </div>
-                )
-            )}
+            {goalOverviewSectionLabels(recordingsFirst).map((label) => (
+                <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
+                    <div className="text-xs text-tertiary uppercase tracking-wide">{label}</div>
+                    <LemonSkeleton className="h-4 w-3/4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
+                </div>
+            ))}
         </div>
     )
 }

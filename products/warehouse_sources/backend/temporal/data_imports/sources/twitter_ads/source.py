@@ -80,7 +80,7 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
             label="X Ads",
             iconPath="/static/services/twitter_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/twitter-ads",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             # Hidden until PostHog's X app is approved for Ads API access and its keys are deployed.
             featureFlag="dwh-twitter-ads",
             suggestedTables=[

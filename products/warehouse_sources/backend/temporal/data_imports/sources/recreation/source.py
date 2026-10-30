@@ -107,7 +107,7 @@ To get an API key, sign in at [ridb.recreation.gov](https://ridb.recreation.gov/
             keywords=["ridb", "recreation.gov", "campgrounds", "campsites"],
             docsUrl="https://posthog.com/docs/cdp/sources/recreation",
             iconPath="/static/services/recreation.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

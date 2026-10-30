@@ -143,7 +143,7 @@ You can create an access token in your Productboard [workspace settings](https:/
 Grant read access for the resources you want to sync — for example `entities:read`, `notes:read`, `members:read`, and `teams:read`.""",
             iconPath="/static/services/productboard.png",
             docsUrl="https://posthog.com/docs/cdp/sources/productboard",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

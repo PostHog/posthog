@@ -7,12 +7,12 @@ import { ReactNode, useCallback, useMemo, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getResultSeries, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -21,22 +21,18 @@ import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
+import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import {
-    AggregationColumnItem,
-    AggregationColumnTitle,
-    CALC_COLUMN_LABELS,
-    getAggregatedValue,
-} from './columns/AggregationColumn'
+import { AggregationColumnItem, AggregationColumnTitle, CALC_COLUMN_LABELS } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
-import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { AggregationType, getAggregatedValue, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -102,10 +98,21 @@ export function InsightsTable({
         getTrendsHidden,
         insightData,
         querySource,
+        actionNames,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
-        useValues(insightsTableDataLogic(insightProps))
+    const {
+        aggregation,
+        allowAggregation,
+        pinnedColumns,
+        isColumnPinned,
+        getPreviousResult,
+        displayResults,
+        showPercentOfTotal,
+        getPercentOfTotal,
+        showPercentOfDayTotal,
+        getPercentOfDayTotal,
+    } = useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
@@ -207,7 +214,7 @@ export function InsightsTable({
             ) : (
                 <SeriesColumnItem
                     item={item}
-                    series={getResultSeries(querySource, item)}
+                    series={getResultSeries(querySource, item, actionNames)}
                     showCountedByTag={showCountedByTag}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
@@ -242,8 +249,8 @@ export function InsightsTable({
                 return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
             }
 
-            const labelA = getResultSeriesName(getResultSeries(querySource, a)) || a.label || ''
-            const labelB = getResultSeriesName(getResultSeries(querySource, b)) || b.label || ''
+            const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
+            const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
@@ -377,6 +384,19 @@ export function InsightsTable({
             align: 'right',
         })
 
+        if (showPercentOfTotal) {
+            columns.push({
+                title: <span>% of total</span>,
+                render: (_: any, item: IndexedTrendResult) => {
+                    const share = getPercentOfTotal(item)
+                    return <span>{share === null ? '—' : percentage(share, 1)}</span>
+                },
+                sorter: (a, b) => (getPercentOfTotal(a) ?? 0) - (getPercentOfTotal(b) ?? 0),
+                key: 'percent-of-total',
+                align: 'right',
+            })
+        }
+
         if (isCompareTable) {
             columns.push({
                 title: <span>Previous {CALC_COLUMN_LABELS[aggregation]}</span>,
@@ -469,6 +489,7 @@ export function InsightsTable({
                     isStickiness={isStickiness}
                     renderCount={renderCount}
                     formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                    percentOfDayTotal={showPercentOfDayTotal ? getPercentOfDayTotal(item, index) : null}
                 />
             ),
             key: `data-${index}`,
@@ -484,6 +505,8 @@ export function InsightsTable({
         compareFilter?.compare,
         interval,
         maxVisibleColumns,
+        showPercentOfDayTotal,
+        getPercentOfDayTotal,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0

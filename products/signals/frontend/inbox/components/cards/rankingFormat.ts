@@ -11,6 +11,12 @@ export function formatRankingLift(lift: number): string {
     return oneDecimal >= 10 ? `${Math.round(lift)}x` : `${oneDecimal.toFixed(1)}x`
 }
 
+/** The card pill text. The split uses the rounded lift, so a pill never reads "1.0x more likely". */
+export function formatRankingLiftComparison(lift: number): string {
+    const formatted = formatRankingLift(lift)
+    return parseFloat(formatted) > 1 ? `${formatted} more likely` : `${formatted} as likely`
+}
+
 /**
  * Bar position in percent for a lift on a log scale. 1x sits at 50%, and the bar clamps at 0.1x and 10x,
  * so a lift and its inverse sit at equal distances from the center.

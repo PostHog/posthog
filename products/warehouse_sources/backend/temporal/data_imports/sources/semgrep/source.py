@@ -47,7 +47,7 @@ class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
             name=ExternalDataSourceType.SEMGREP,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Semgrep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["sast", "sca", "appsec"],
             caption="""Enter your Semgrep API token to sync your static analysis data — deployments, projects, code (SAST) and supply chain (SCA) findings, and secrets — into the PostHog Data warehouse.
 

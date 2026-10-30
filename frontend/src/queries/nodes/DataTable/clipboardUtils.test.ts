@@ -148,6 +148,19 @@ describe('clipboardUtils', () => {
             expect(result[1][1]).toBe('john@example.com') // asDisplay returns email (person display property)
         })
 
+        it('handles ActorsQuery with a person display name column', () => {
+            const columns = ['person_display_name -- Person', 'properties.email -- Email']
+            const query = createMockQuery(NodeKind.ActorsQuery, { select: columns })
+            const rows: DataTableRow[] = [
+                { result: [{ display_name: 'Ana', id: 'uuid-1', distinct_id: 'ana' }, 'ana@example.com'] },
+            ]
+
+            expect(getCsvTableData(rows, columns, query)).toEqual([
+                ['Person', 'Email'],
+                ['Ana', 'ana@example.com'],
+            ])
+        })
+
         it('handles PersonsNode with nested properties', () => {
             const query = createMockQuery(NodeKind.PersonsNode)
             const columns = ['email', 'properties']
@@ -293,8 +306,10 @@ describe('clipboardUtils', () => {
             const rows: DataTableRow[] = [{ result: ['pageview'] }]
 
             copyTableToCsv(rows, columns, query)
+            copyTableToCsv(rows, columns, query, false)
 
-            expect(mockCopyToClipboard).toHaveBeenCalledWith('event\npageview', 'table')
+            expect(mockCopyToClipboard).toHaveBeenNthCalledWith(1, 'event\npageview', 'table')
+            expect(mockCopyToClipboard).toHaveBeenNthCalledWith(2, 'pageview', 'table')
         })
 
         it('shows error on copy failure', () => {

@@ -1,7 +1,7 @@
 import json
 import time
 import logging
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -32,6 +32,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    Query,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -47,6 +48,7 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    UncopiedRowsPredicate,
     auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
@@ -55,12 +57,11 @@ from posthog.models.data_deletion_request import (
     portable_event_removal_where,
     queued_requests_to_verify,
     reaches_target_through_event_uuids,
-    rows_without_events_copy_criteria,
+    uncopied_rows_predicate,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
-    FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     NotCounted,
@@ -529,20 +530,42 @@ def execute_hogql_event_deletion(
 
 
 _HOGQL_UNSWEEPABLE_REASON = (
-    "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
-    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
+    "the request carries a HogQL predicate, and this job compiles it against the events schema only, "
+    "so it cannot apply the predicate to this table. "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
     f"table never stores. See {COVERAGE_DOC}."
 )
 
-_HOGQL_NO_EVENTS_COPY_REASON = (
-    "the request carries a HogQL predicate, which only compiles against the events schema, and these "
-    "rows have no copy in the events table. The deferred queue deletes rows here through the uuids of "
-    "their events copies, so it cannot decide whether the predicate names these rows. Such rows belong to an "
-    "org whose flag calls are stored only in this table, or to events an earlier deletion removed without "
-    f"these rows. To proceed, re-file the request without the predicate. See {COVERAGE_DOC}."
+_IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON = (
+    "the request carries a HogQL predicate and runs immediately, and these rows have no copy in the events "
+    "table. An immediate request with a predicate does not delete rows here. To proceed, re-file the request "
+    f"as deferred, which queues these rows. See {COVERAGE_DOC}."
 )
+
+_IMMEDIATE_HOGQL_RETRY_HINT = (
+    " If an earlier run of this request already deleted events, finish it with Re-execute from failure on "
+    "that Dagster run, which does not run this check again."
+)
+
+
+def _hogql_unchecked_events_copy_reason(target: DeletionTarget, tables: list[str]) -> str:
+    return (
+        f"the request carries a HogQL predicate, and these rows have no copy in {target.copied_from}, but "
+        f"{', '.join(tables)} holds flag calls in the request's window. The deferred queue deletes a queued uuid "
+        "from every table, so queueing these rows could also delete a copy there that the predicate excludes. "
+        "This job cannot check those copies row by row. To proceed, re-file the request without the predicate. "
+        f"See {COVERAGE_DOC}."
+    )
+
+
+def _hogql_no_events_copy_reason(error: str) -> str:
+    return (
+        f"the request carries a HogQL predicate that cannot run on this table ({error}), and these rows have "
+        "no copy in the events table, so the predicate cannot reach them through their events copies either. "
+        "Such rows belong to an org whose flag calls are stored only in this table, or to events an earlier "
+        "deletion removed without these rows. To proceed, re-file the request without the predicate, or as a "
+        f"deferred request with a predicate this table can run. See {COVERAGE_DOC}."
+    )
 
 
 def _refuse_unsweepable(
@@ -636,52 +659,103 @@ def _verify_swept(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-def _event_removal_placements(
+@frozen
+class EventRemovalPlacements:
+    """Where an event-removal request reads or deletes rows, settled before it deletes or queues any."""
+
+    # Targets the request's own criteria run on.
+    swept: list[TargetPlacement]
+    # Targets whose rows with no events copy a deferred request queues, each with its predicate for those rows.
+    uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]]
+
+
+def _holds_rows(cluster: ClickhouseCluster, placement: TargetPlacement, predicate: str, params: dict) -> bool:
+    """Whether ``placement``'s target holds rows that match ``predicate``.
+
+    Reads the Distributed proxy, and also the storage table through its own handle when that table sits
+    on another cluster. The proxy reads only the cluster its engine names, so on a deployment whose
+    storage moved it can read an empty table, as ``_count_unswept_rows`` in posthog/dags/deletes.py notes.
+    """
+    if count_surviving_rows(cluster, placement.target, predicate, params):
+        return True
+    if placement.cluster is cluster:
+        return False
+    query = Query(
+        surviving_rows_sql(placement.target.data_table, predicate), params, settings={"max_execution_time": "1800"}
+    )
+    return any(rows and rows[0][0] for rows in placement.cluster.map_one_host_per_shard(query).result().values())
+
+
+def _events_tables_outside_copy_check(
     cluster: ClickhouseCluster,
-    deletion_request: DeletionRequestContext,
-    *,
-    skip_targets: Collection[DeletionTarget] = (),
-) -> list[TargetPlacement]:
-    """Targets this event-removal request can sweep, each with the handle that reaches it."""
+    placements: list[TargetPlacement],
+    target: DeletionTarget,
+    criteria: tuple[str, dict],
+) -> list[str]:
+    """The events tables other than ``target.copied_from`` that hold events ``target`` copies, within ``criteria``.
+
+    The copy check reads only ``target.copied_from``, so a row it finds with no copy can still have one
+    in another events table. That table can sit on another cluster, where a shard-local subquery cannot
+    reach it.
+    """
+    predicate, params = criteria
+    if target.stored_events is not None:
+        predicate += " AND event IN %(copied_events)s"
+        params = {**params, "copied_events": sorted(target.stored_events)}
+    return [
+        p.target.data_table
+        for p in placements
+        if p.target.hogql_schema is not None
+        and p.target.data_table != target.copied_from
+        and _holds_rows(cluster, p, predicate, params)
+    ]
+
+
+def _event_removal_placements(
+    cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
+) -> EventRemovalPlacements:
+    """Where this event-removal request reads or deletes rows, each target with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    # Skipped targets are dropped before resolve_placements, which raises for an unreachable target
-    # that still holds rows.
-    targets = [t for t in PERSONAL_DATA_TARGETS if t not in skip_targets]
-    placements = [p for p in resolve_placements(cluster, targets) if p.target.may_hold_any_of(events)]
+    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
     if not deletion_request.hogql_predicate:
-        return placements
+        return EventRemovalPlacements(swept=placements, uncopied=[])
 
-    unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
+    unsweepable = [p for p in placements if not p.target.accepts_hogql_predicate]
     criteria = portable_event_removal_where(deletion_request)
-    reachable = [t for t in unsweepable if reaches_target_through_event_uuids(deletion_request, t)]
-
     _refuse_unsweepable(
         cluster,
-        [t for t in unsweepable if t not in reachable],
+        [p.target for p in unsweepable if p.target.copied_from is None],
         deletion_request,
         _same_criteria(criteria),
         reason=_HOGQL_UNSWEEPABLE_REASON,
     )
-    # The copy check reads the uuid of every matching event, so it runs only on tables that hold rows
-    # in the request's window.
-    for target in [t for t in reachable if count_surviving_rows(cluster, t, *criteria)]:
-        for window_criteria in rows_without_events_copy_criteria(deletion_request, target):
-            _refuse_unsweepable(
-                cluster,
-                [target],
-                deletion_request,
-                _same_criteria(window_criteria),
-                reason=_HOGQL_NO_EVENTS_COPY_REASON,
-            )
-    return [p for p in placements if p.target.accepts_hogql_predicate]
 
-
-# An immediate request with a HogQL predicate leaves flag_evaluations rows to the table's TTL. The
-# predicate does not compile against that table. Without the skip, the unsweepable-rows gate would
-# refuse every such request whose team has matching $feature_flag_called rows.
-_IMMEDIATE_HOGQL_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+    uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]] = []
+    for placement in [p for p in unsweepable if p.target.copied_from is not None]:
+        target = placement.target
+        uncopied_predicate = uncopied_rows_predicate(deletion_request, target)
+        # The copy check reads the uuid of every matching event, so it runs only when the target holds
+        # matching rows in the request's window. This count also runs the compiled fragment before
+        # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
+        if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
+            continue
+        deferred = reaches_target_through_event_uuids(deletion_request, target)
+        if uncopied_predicate.compiled is None:
+            reason = _hogql_no_events_copy_reason(uncopied_predicate.error)
+        elif not deferred:
+            reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
+        elif tables := _events_tables_outside_copy_check(cluster, placements, target, criteria):
+            reason = _hogql_unchecked_events_copy_reason(target, tables)
+        else:
+            uncopied.append((placement, uncopied_predicate))
+            continue
+        if not deferred:
+            reason += _IMMEDIATE_HOGQL_RETRY_HINT
+        for window in uncopied_predicate.windows(deletion_request, target):
+            _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)
+    return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
 
 @frozen
@@ -739,11 +813,12 @@ def _queue_events_for_deferred_deletion(
     # personal-data table. Flag-evaluation rows still have to be read on their own: they mirror a
     # subset of events, so a uuid there may not be in sharded_events once routing moves those
     # events off it.
-    placements = [p for p in _event_removal_placements(cluster, deletion_request) if p.target.queue_uuid_candidates]
+    placements = _event_removal_placements(cluster, deletion_request)
+    swept = [p for p in placements.swept if p.target.queue_uuid_candidates]
     # Both halves of the INSERT are host-local: the source table and the queue it feeds. A source
     # on another cluster has no host that holds both, and reading it through its Distributed proxy
     # instead would pull every matching uuid across the wire into one shard's queue.
-    stranded = [p.target for p in placements if p.cluster is not cluster]
+    stranded = [p.target for p in [*swept, *(p for p, _ in placements.uncopied)] if p.cluster is not cluster]
     if stranded:
         raise dagster.Failure(
             description=(
@@ -752,25 +827,29 @@ def _queue_events_for_deferred_deletion(
                 f"{cluster.data_cluster_name!r} and those tables are not. See {COVERAGE_DOC}."
             )
         )
-    sources = [p.target for p in placements]
+    events_where = event_removal_where(deletion_request)
+    reads = [(p.target.data_table, *events_where) for p in swept]
+    for placement, uncopied_predicate in placements.uncopied:
+        reads += [
+            (placement.target.data_table, *window)
+            for window in uncopied_predicate.windows(deletion_request, placement.target)
+        ]
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = event_removal_where(deletion_request)
-    params["data_deletion_request_id"] = deletion_request.request_id
 
     def run_on_shard(client: Client) -> int:
-        for source in sources:
+        for data_table, predicate, params in reads:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
                 f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
                 f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
-                f"FROM {db}.{source.data_table} WHERE {predicate}",
-                params,
+                f"FROM {db}.{data_table} WHERE {predicate}",
+                {**params, "data_deletion_request_id": deletion_request.request_id},
                 settings={"max_execution_time": 1800},
             )
         row = client.execute(
             f"SELECT count() FROM {db}.{ADHOC_EVENTS_DELETION_TABLE} WHERE team_id = %(team_id)s AND is_deleted = 0",
-            {"team_id": params["team_id"]},
+            {"team_id": deletion_request.team_id},
         )
         return row[0][0] if row else 0
 
@@ -790,7 +869,7 @@ def _queue_events_for_deferred_deletion(
         {
             "mode": dagster.MetadataValue.text("deferred"),
             "queued_rows": dagster.MetadataValue.int(total_queued),
-            "queued_from": dagster.MetadataValue.text(", ".join(s.data_table for s in sources)),
+            "queued_from": dagster.MetadataValue.text(", ".join(dict.fromkeys(table for table, *_ in reads))),
         }
     )
 
@@ -808,8 +887,7 @@ def get_event_removal_shards(
     if deletion_request.execution_mode == ExecutionMode.DEFERRED.value:
         return
 
-    skip_targets = _IMMEDIATE_HOGQL_SKIP_TARGETS if deletion_request.hogql_predicate else ()
-    placements = _event_removal_placements(cluster, deletion_request, skip_targets=skip_targets)
+    placements = _event_removal_placements(cluster, deletion_request).swept
     # placement.cluster, not the job's handle: shard numbers are per cluster.
     shards = [
         EventRemovalShard(data_table=placement.target.data_table, shard_num=shard_num)

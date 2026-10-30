@@ -65,6 +65,10 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.YOUTUBEANALYTICS
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "youtube-analytics"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": (
@@ -264,7 +268,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
             docsUrl="https://posthog.com/docs/cdp/sources/youtube-analytics",
             iconPath="/static/services/youtube_analytics.png",
             featureFlag="dwh_youtube_analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["youtube", "yt"],
             fields=cast(
                 list[FieldType],
@@ -286,6 +290,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

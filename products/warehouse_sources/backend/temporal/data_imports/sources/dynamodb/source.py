@@ -56,6 +56,10 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
         return ExternalDataSourceType.DYNAMODB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "dynamodb"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The region picks the endpoint the signed request — and so the customer's key — is sent to.
         return ["aws_region"]
@@ -77,7 +81,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
 Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:DescribeTable` and `dynamodb:Scan`, then paste its access key below. Tables are read with a full table scan, so every sync uses read capacity on the table.""",
             iconPath="/static/services/dynamodb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynamodb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "nosql"],
             fields=cast(
                 list[FieldType],

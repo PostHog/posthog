@@ -1,4 +1,7 @@
+import dataclasses
 from typing import Any
+
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -96,30 +99,130 @@ class TestPagination:
         assert result.saved_states == []
 
 
-class TestLiveFeedEventsFanout:
-    def test_fetches_events_per_live_feed_message_and_skips_missing_messages(self) -> None:
+class TestFanout:
+    @parameterized.expand(
+        [
+            (
+                "live_feed_events",
+                [
+                    ScriptedResponse(json={"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
+                    ScriptedResponse(
+                        json={"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}
+                    ),
+                    ScriptedResponse(json={"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
+                    ScriptedResponse(status=404, json={}),
+                ],
+                [
+                    {"_id": "e1", "type": "opened", "message_id": "m1"},
+                    {"_id": "e2", "type": "replied", "message_id": "m1"},
+                ],
+                ["/v1/livefeed", "/v1/livefeed/events", "/v1/livefeed", "/v1/livefeed/events"],
+                [
+                    {"limit": ("100",)},
+                    {"messageId": ("m1",), "wasSentViaMixmax": ("true",)},
+                    {"limit": ("100",), "next": ("cur2",)},
+                    {"messageId": ("m2&limit=1",), "wasSentViaMixmax": ("true",)},
+                ],
+            ),
+            (
+                "team_members",
+                [
+                    ScriptedResponse(json={"results": [{"_id": "t1"}, {"_id": "t/2"}], "hasNext": False}),
+                    ScriptedResponse(
+                        json={
+                            "results": [
+                                {"memberId": "mb1", "userId": "u1", "role": "admin", "name": "Jane Roe"},
+                                {"memberId": "mb2", "email": "invitee@example.com", "role": "member"},
+                            ]
+                        }
+                    ),
+                    ScriptedResponse(status=404, json={}),
+                ],
+                [
+                    {"memberId": "mb1", "userId": "u1", "role": "admin", "name": "Jane Roe", "team_id": "t1"},
+                    {"memberId": "mb2", "email": "invitee@example.com", "role": "member", "team_id": "t1"},
+                ],
+                ["/v1/teams", "/v1/teams/t1/members", "/v1/teams/t%2F2/members"],
+                [
+                    {"limit": ("100",)},
+                    {"expand": ("members.userId",)},
+                    {"expand": ("members.userId",)},
+                ],
+            ),
+        ]
+    )
+    def test_fetches_children_per_parent_and_skips_missing_parents(
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_rows: list[dict[str, Any]],
+        expected_paths: list[str],
+        expected_queries: list[dict[str, tuple[str, ...]]],
+    ) -> None:
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == expected_paths
+        assert [dict(request.query) for request in result.requests] == expected_queries
+
+
+def _recipients(prefix: str, count: int) -> list[dict[str, Any]]:
+    return [{"_id": f"{prefix}{i}", "state": "active"} for i in range(count)]
+
+
+class TestSequenceRecipients:
+    @parameterized.expand(
+        [
+            # A short page ends the first sequence before the offset ceiling.
+            ("short_last_page", [2, 1], ["0", "2"]),
+            # Two full pages reach `offset + limit == 4`; asking for more would return 400.
+            ("stops_at_offset_ceiling", [2, 2], ["0", "2"]),
+            ("empty_sequence", [0], ["0"]),
+        ]
+    )
+    def test_pages_each_sequence_by_offset(
+        self, _name: str, first_sequence_pages: list[int], expected_first_offsets: list[str]
+    ) -> None:
+        config = dataclasses.replace(MIXMAX_ENDPOINTS["sequence_recipients"], child_page_size=2, child_max_offset=4)
+        first_sequence = [_recipients(f"p{page}r", size) for page, size in enumerate(first_sequence_pages)]
+        responses = [
+            ScriptedResponse(json={"results": [{"_id": "s1"}, {"_id": "s2"}], "hasNext": False}),
+            *(ScriptedResponse(json=page) for page in first_sequence),
+            ScriptedResponse(json=[{"_id": "only", "state": "completed"}]),
+        ]
+
+        with mock.patch.dict(MIXMAX_ENDPOINTS, {"sequence_recipients": config}):
+            result = _driver().run("sequence_recipients", responses)
+
+        assert result.raised is None
+        assert result.rows == [
+            *({**row, "sequence_id": "s1"} for page in first_sequence for row in page),
+            {"_id": "only", "state": "completed", "sequence_id": "s2"},
+        ]
+        assert result.paths == [
+            "/v1/sequences",
+            *["/v1/sequences/s1/recipients/"] * len(first_sequence_pages),
+            "/v1/sequences/s2/recipients/",
+        ]
+        # The offset starts again at 0 for the next sequence.
+        assert result.params("offset") == [None, *expected_first_offsets, "0"]
+        assert set(result.params("limit")[1:]) == {"2"}
+        assert set(result.params("sortBy")[1:]) == {"email"}
+        assert set(result.params("sortDesc")[1:]) == {"false"}
+
+    def test_skips_sequence_deleted_after_listing(self) -> None:
         result = _driver().run(
-            "live_feed_events",
+            "sequence_recipients",
             [
-                ScriptedResponse(json={"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
-                ScriptedResponse(json={"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}),
-                ScriptedResponse(json={"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
-                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json={"results": [{"_id": "gone"}], "hasNext": False}),
+                ScriptedResponse(status=404, json={"message": "Sequence not found"}),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"_id": "e1", "type": "opened", "message_id": "m1"},
-            {"_id": "e2", "type": "replied", "message_id": "m1"},
-        ]
-        assert result.paths == ["/v1/livefeed", "/v1/livefeed/events", "/v1/livefeed", "/v1/livefeed/events"]
-        assert [dict(request.query) for request in result.requests] == [
-            {"limit": ("100",)},
-            {"messageId": ("m1",), "wasSentViaMixmax": ("true",)},
-            {"limit": ("100",), "next": ("cur2",)},
-            {"messageId": ("m2&limit=1",), "wasSentViaMixmax": ("true",)},
-        ]
+        assert result.rows == []
+        assert result.paths == ["/v1/sequences", "/v1/sequences/gone/recipients/"]
 
 
 class TestRetryClassification:

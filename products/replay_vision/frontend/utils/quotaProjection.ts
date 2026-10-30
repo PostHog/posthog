@@ -59,12 +59,18 @@ export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
     return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
 }
 
-/** What a free-only scanner can still spend this period; an org limit below the free credits lowers it. */
-export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
+/** What a free-only scanner can spend in a period. An org limit below the free credits lowers it, as on the server. */
+export function freeCreditsAllowance(quota: VisionQuotaApi | null): number | null {
     if (!quota) {
         return null
     }
-    return Math.max(0, Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity) - quota.credits_used)
+    return Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
+}
+
+/** What a free-only scanner can still spend this period. */
+export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
+    const allowance = freeCreditsAllowance(quota)
+    return quota && allowance !== null ? Math.max(0, allowance - quota.credits_used) : null
 }
 
 /** How much of a month a monthly allowance covers at a monthly rate, for example "the first 3 weeks". */

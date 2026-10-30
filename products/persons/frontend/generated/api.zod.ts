@@ -47,6 +47,14 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Shows how the person's key properties changed within the time window of a Trends data point. The key properties are the person properties that the insight's query uses.
+ * @summary Get a person's properties timeline for an insight data point
+ */
+export const PersonsPropertiesTimelineCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
  * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
@@ -75,8 +83,14 @@ export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().describe('The property key to set.'),
-    value: zod.unknown().describe('The property value. Can be a string, number, boolean, or object.'),
+    key: zod.string().optional().describe("The property key to set. Pair it with 'value' to set one property."),
+    value: zod.unknown().optional().describe('The property value. Can be a string, number, boolean, or object.'),
+    properties: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event."
+        ),
 })
 
 /**

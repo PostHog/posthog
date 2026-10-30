@@ -23,6 +23,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
+    bootstrap_dag_to_tiers,
     convert_dag_to_tiers,
     delete_dag_schedules,
     delete_team_data_modeling_schedules,
@@ -327,6 +328,48 @@ class TestReconcileDagSchedules(BaseTest):
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
         delete.assert_not_called()
+
+    def test_listed_tier_that_is_already_gone_is_recreated_and_stays_materialized(self):
+        # the listing reads Temporal's eventually consistent visibility store, so it can name a
+        # tier that is already deleted; a failed bootstrap would mark the query not materialized
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_declared_target(endpoint, M15)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["is_materialized"])
+
+        tier_id = tier_schedule_id(str(dag.id), M15)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                yield _listing(tier_id)
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(
+                f"{RECONCILE}.a_update_schedule",
+                new=mock.AsyncMock(side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")),
+            ),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            bootstrap_dag_to_tiers(dag, requested_by=saved_query)
+
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_id)
+        delete.assert_not_called()
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.is_materialized)
 
     def test_refuses_non_bucket_tier_before_touching_temporal(self):
         # the guard must fire before any Temporal call — a non-bucket tier would crash

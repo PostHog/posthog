@@ -117,7 +117,7 @@ class WaydevSource(ResumableSource[WaydevSourceConfig, WaydevResumeConfig]):
             caption="Enter the personal access token generated in Waydev under Studio > Waydev API.",
             docsUrl="https://posthog.com/docs/cdp/sources/waydev",
             iconPath="/static/services/waydev.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["dora"],
             fields=cast(
                 list[FieldType],

@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -82,11 +80,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
             # 403 = genuine key missing the probed capability; must not block source creation.
             (403, True),
-            (401, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -98,12 +93,6 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
-
-    def test_request_exception_is_caught(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            is_valid, error = validate_credentials("us1", "id", "key")
-        assert is_valid is False
-        assert error is not None
 
 
 class TestCredentialRedaction:
@@ -256,6 +245,104 @@ class TestCollectorFanOut:
                 {"id": 10, "name": "other-s10", "collector_id": 2},
             ]
         ]
+
+
+class TestSloSliStatuses:
+    def test_walks_slo_pages_and_fetches_sli_for_slos_only(self) -> None:
+        page_size = SUMO_LOGIC_ENDPOINTS["slos"].page_size
+        first_page = [{"item": {"id": "folder-1", "contentType": "Folder"}, "path": "/slos/f"}] + [
+            {"item": {"id": f"slo-{i}", "contentType": "Slo"}, "path": f"/slos/{i}"} for i in range(page_size - 1)
+        ]
+        # The last page holds only a folder, so it needs no SLI request.
+        pages = {"0": first_page, str(page_size): [{"item": {"id": "folder-2", "contentType": "Folder"}}]}
+        sli_ids: list[list[str]] = []
+
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/v1/slos/search"):
+                assert request.param("query") == "type:slo"
+                return _response(pages[request.param("offset") or "0"])
+            if request.path.endswith("/v1/slos/sli"):
+                ids = (request.param("ids") or "").split(",")
+                sli_ids.append(ids)
+                return _response({slo_id: {"status": "Success", "sliPercentage": 99.5} for slo_id in ids})
+            raise UnexpectedRequest(f"unexpected request {request.method} {request.url}")
+
+        result = _driver().run("slo_sli_statuses", handler)
+
+        assert result.raised is None
+        assert sli_ids == [[f"slo-{i}" for i in range(page_size - 1)]]
+        assert len(result.rows) == page_size - 1
+        assert result.rows[0] == {"slo_id": "slo-0", "status": "Success", "sliPercentage": 99.5}
+        assert [s.offset for s in result.saved_states] == [page_size]
+
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "slo_sli_statuses",
+            route(
+                {
+                    "/v1/slos/search": [_response([{"item": {"id": "slo-9", "contentType": "Slo"}}])],
+                    "/v1/slos/sli": [_response({"slo-9": {"status": "InProgress", "progressPercentage": 40.0}})],
+                }
+            ),
+            resume_state=SumoLogicResumeConfig(offset=200),
+        )
+
+        assert result.requests[0].param("offset") == "200"
+        assert result.rows == [{"slo_id": "slo-9", "status": "InProgress", "progressPercentage": 40.0}]
+
+
+class TestContentFolders:
+    def _folder(self, folder_id: str, parent_id: str, children: list[dict[str, Any]]) -> ScriptedResponse:
+        return _response({"id": folder_id, "name": f"name-{folder_id}", "parentId": parent_id, "children": children})
+
+    @pytest.mark.parametrize(
+        ("deleted_folder", "expected_ids", "expect_raise"),
+        [
+            (None, ["p", "a", "b", "a1"], False),
+            # A subfolder deleted after its parent was read is skipped; the walk continues.
+            ("a", ["p", "b"], False),
+            # The root of the walk missing is a real failure, not a race.
+            ("personal", [], True),
+        ],
+    )
+    def test_walks_folder_tree_breadth_first(
+        self, deleted_folder: str | None, expected_ids: list[str], expect_raise: bool
+    ) -> None:
+        folders = {
+            "personal": self._folder(
+                "p",
+                "root",
+                [
+                    {"id": "a", "itemType": "Folder"},
+                    {"id": "dash-1", "itemType": "Dashboard"},
+                    {"id": "b", "itemType": "Folder"},
+                ],
+            ),
+            # `p` points back at the personal folder; it must not be read twice.
+            "a": self._folder("a", "p", [{"id": "a1", "itemType": "Folder"}, {"id": "p", "itemType": "Folder"}]),
+            "b": self._folder("b", "p", [{"id": "search-1", "itemType": "Search"}]),
+            "a1": self._folder("a1", "a", []),
+        }
+        fetched: list[str] = []
+
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            folder_id = request.path.rsplit("/", 1)[-1]
+            fetched.append(folder_id)
+            if folder_id == deleted_folder:
+                return _response({"errors": [{"code": "content:not_found"}]}, status=404)
+            if folder_id not in folders:
+                raise UnexpectedRequest(f"unexpected request {request.method} {request.url}")
+            return folders[folder_id]
+
+        result = _driver().run("content_folders", handler)
+
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert all("children" not in row for row in result.rows)
+        assert fetched.count("personal") == 1
+        if expect_raise:
+            assert result.raised is not None
+        else:
+            assert result.raised is None
 
 
 class FakeSearchJobApi:

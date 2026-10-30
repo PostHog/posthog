@@ -57,6 +57,12 @@ class HighlightMetricReason(LabeledStrEnum):
     ROUTINE = "routine", "You open this often"
     DASHBOARD = "dashboard", "On a dashboard you open often"
     KEY_METRIC = "key_metric", "Project key metric"
+    POPULAR = "popular", "Opened often in this project"
+
+
+class HighlightPinStatus(LabeledStrEnum):
+    READY = "ready", "Ready"
+    UNAVAILABLE = "unavailable", "Unavailable"
 
 
 class HighlightInterval(LabeledStrEnum):

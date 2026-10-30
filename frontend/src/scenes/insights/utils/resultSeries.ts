@@ -9,7 +9,7 @@ import {
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, isLifecycleQuery, isTrendsQuery } from '~/queries/utils'
-import { ActionFilter, BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export type ResultSeriesMath = Pick<SeriesNode, 'math' | 'math_property' | 'math_hogql' | 'math_group_type_index'>
 
@@ -26,18 +26,16 @@ export interface ResultSeries {
 
 export interface ResultSeriesRow {
     order?: number | null
-    action?: Pick<ActionFilter, 'order' | 'name'> | null
 }
+
+/** A response's `action_names`: the name of each action the query's series reference, keyed by action id. */
+export type ActionNames = Partial<Record<string, string>>
 
 const WEEK_OR_LONGER_INTERVALS = new Set<IntervalType>(['week', 'month', 'quarter', 'year'])
 const MONTH_OR_LONGER_INTERVALS = new Set<IntervalType>(['month', 'quarter', 'year'])
 
-/**
- * The row's series or formula index. Stickiness, lifecycle and calendar heatmap rows carry it only on the legacy
- * `action`, so this reads `action.order` for them until those runners emit `order` at the top level.
- */
 export function getResultOrder(result: ResultSeriesRow): number {
-    return result.order ?? result.action?.order ?? 0
+    return result.order ?? 0
 }
 
 /**
@@ -65,9 +63,14 @@ export function getResultSeriesIndex(
     return hasFormulaResults(querySource) ? undefined : getResultOrder(result)
 }
 
+/**
+ * Pass the response's `action_names` wherever the series name is displayed, so that an action series saved without a
+ * name displays the action's name.
+ */
 export function getResultSeries(
     querySource: InsightQueryNode | null | undefined,
-    result: ResultSeriesRow
+    result: ResultSeriesRow,
+    actionNames?: ActionNames
 ): ResultSeries {
     const order = getResultOrder(result)
     const node =
@@ -77,14 +80,15 @@ export function getResultSeries(
     if (!node) {
         return { order, node: null, math: null }
     }
-    return { order, node: withDisplayName(node, result), math: getRunnerMath(querySource, node) }
+    return { order, node: withDisplayName(node, actionNames), math: getRunnerMath(querySource, node) }
 }
 
 /**
  * The key the runner labels a series with: its event, its table, or a group's member keys joined by commas. Null for
- * an all-events series, an action, and a group that holds an action saved without a name.
+ * an all-events series, an action, and a group that holds an action saved without a name that `actionNames` does
+ * not name.
  */
-function getSeriesKey(node: SeriesNode): string | null {
+function getSeriesKey(node: SeriesNode, actionNames?: ActionNames): string | null {
     if (isEventsSeriesNode(node)) {
         return node.event ?? null
     }
@@ -98,8 +102,8 @@ function getSeriesKey(node: SeriesNode): string | null {
         isEventsSeriesNode(member)
             ? (member.event ?? 'All events')
             : isActionsSeriesNode(member)
-              ? ensureStringIsNotBlank(member.name)
-              : getSeriesKey(member)
+              ? (ensureStringIsNotBlank(member.name) ?? getActionName(member.id, actionNames))
+              : getSeriesKey(member, actionNames)
     )
     return memberKeys.every((key) => key !== null) ? memberKeys.join(', ') : null
 }
@@ -120,22 +124,25 @@ export function getResultSeriesCustomName(node: SeriesNode): string | null {
 
 /**
  * A series saved without a `name` displays the raw key it queries, as the runner's label does. A nameless action
- * has no key worth showing, so it takes the name the runner resolved from the database while responses still
- * carry `action`. So does a group that holds a nameless action.
+ * has no key in the query, so it takes the action's name from `actionNames`, as the runner takes it from the
+ * database. So does a nameless action in a group.
  */
-function withDisplayName(node: SeriesNode, result: ResultSeriesRow): SeriesNode {
+function withDisplayName(node: SeriesNode, actionNames: ActionNames | undefined): SeriesNode {
     if (ensureStringIsNotBlank(node.name)) {
         return node
     }
-    const runnerName = ensureStringIsNotBlank(result.action?.name)
     const name = isEventsSeriesNode(node)
         ? node.event
         : isGroupSeriesNode(node)
-          ? (getSeriesKey(node) ?? runnerName)
+          ? getSeriesKey(node, actionNames)
           : isActionsSeriesNode(node)
-            ? runnerName
+            ? getActionName(node.id, actionNames)
             : null
     return name ? { ...node, name } : node
+}
+
+function getActionName(id: number, actionNames: ActionNames | undefined): string | null {
+    return ensureStringIsNotBlank(actionNames?.[id])
 }
 
 function getRunnerMath(querySource: InsightQueryNode | null | undefined, node: SeriesNode): ResultSeriesMath {

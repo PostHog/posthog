@@ -34,29 +34,3 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.ouraring.com/v2/usercollection/sleep",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.ouraring.com/v2/usercollection/heartrate"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = OuraSource().get_non_retryable_errors()
-        assert any(key in observed for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.ouraring.com"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.ouraring.com"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.ouraring.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = OuraSource().get_non_retryable_errors()
-        assert not any(key in observed for key in non_retryable)

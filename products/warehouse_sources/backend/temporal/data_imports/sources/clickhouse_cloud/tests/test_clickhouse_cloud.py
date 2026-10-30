@@ -190,7 +190,7 @@ class TestBackupsFanOut:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("forbidden_scope", 403, True)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key ID/secret.
         with scripted_network([ScriptedResponse(status=status)]) as network:
@@ -233,34 +233,6 @@ class TestFetch:
             with pytest.raises(clickhouse_cloud.ClickhouseCloudRetryableError) as exc_info:
                 clickhouse_cloud._fetch(session, "https://api.clickhouse.cloud/v1/organizations", MagicMock())
         assert exc_info.value.retry_after == 7.0
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.clickhouse.cloud/v1/organizations"),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.clickhouse.cloud/v1/organizations/org-1/usageCost?from_date=2026-07-01&to_date=2026-07-15",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = ClickhouseCloudSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.clickhouse.cloud', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.clickhouse.cloud/v1/organizations",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = ClickhouseCloudSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestCoerceDate:

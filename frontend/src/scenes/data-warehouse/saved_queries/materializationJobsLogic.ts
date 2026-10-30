@@ -18,17 +18,23 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import type { DataWarehouseSavedQuery } from '~/types'
 import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
 import { dataModelingJobsList, warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
-import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { DataModelingJobsListEngine } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    DataModelingJobApi,
+    PaginatedDataModelingJobListApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
+import {
+    EMPTY_INCREMENTAL_DRAFT,
+    INCREMENTAL_CHECK_LOADING,
+    IncrementalConfigDraft,
+} from '../editor/IncrementalConfigFields'
 import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { latestSuccessfulSyncAt } from './materializationJobUtils'
 import { SyncFrequencyValue } from './SyncFrequencySelect'
@@ -39,6 +45,23 @@ const IDLE_REFRESH_INTERVAL_MS = 60000
 // Give up waiting after this long so the controls do not stay blocked when no job ever appears.
 const STARTING_TIMEOUT_MS = 120000
 export const DEFAULT_JOBS_PAGE_SIZE = 10
+
+interface OlderJobsPageResult {
+    engine: DataModelingJobsListEngine
+    page: number
+    jobs: PaginatedDataModelingJobListApi
+}
+
+function runHistoryEngineParams(engine: DataModelingJobsListEngine): {
+    all_engines?: boolean
+    engine?: DataModelingJobsListEngine
+} {
+    return engine === DataModelingJobsListEngine.ManagedWarehouse ? { all_engines: true, engine } : {}
+}
+
+function isNewRunVisible(newestJob: DataModelingJobApi | undefined, previousJobId: string | null | undefined): boolean {
+    return !!newestJob && newestJob.id !== previousJobId
+}
 
 export interface MaterializationJobsLogicProps {
     viewId: string
@@ -65,16 +88,22 @@ export interface materializationJobsLogicValues {
     latestCompletedJob: PaginatedDataModelingJobListApi | null
     latestCompletedJobLoading: boolean
     materializationRefreshPending: boolean
-    olderJobsPage: PaginatedDataModelingJobListApi | null
+    olderJobsPage: OlderJobsPageResult | null
     olderJobsPageError: boolean
     olderJobsPageLoading: boolean
     refreshModeChanged: boolean
     resumingMaterialization: boolean
+    runHistoryError: boolean
+    runHistoryJobs: PaginatedDataModelingJobListApi | null
+    runHistoryJobsError: boolean
+    runHistoryJobsLoading: boolean
+    runHistoryLoading: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
     savedQueryLoading: boolean
     savedQueryRefreshPending: boolean
     savingMaterialization: boolean
+    selectedRunHistoryEngine: DataModelingJobsListEngine
     startingMaterialization: boolean
     syncFrequencyDraft: SyncFrequencyValue | null
 }
@@ -190,10 +219,33 @@ export interface materializationJobsLogicActions {
         errorObject?: any
     }
     loadOlderJobsPageSuccess: (
-        olderJobsPage: PaginatedDataModelingJobListApi,
+        olderJobsPage: {
+            engine: DataModelingJobsListEngine
+            jobs: PaginatedDataModelingJobListApi
+            page: number
+        },
         payload?: void
     ) => {
-        olderJobsPage: PaginatedDataModelingJobListApi
+        olderJobsPage: {
+            engine: DataModelingJobsListEngine
+            jobs: PaginatedDataModelingJobListApi
+            page: number
+        }
+        payload?: void
+    }
+    loadRunHistoryJobs: (_: void) => void
+    loadRunHistoryJobsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunHistoryJobsSuccess: (
+        runHistoryJobs: PaginatedDataModelingJobListApi,
+        payload?: void
+    ) => {
+        runHistoryJobs: PaginatedDataModelingJobListApi
         payload?: void
     }
     loadSavedQuery: (_: void) => void
@@ -238,6 +290,9 @@ export interface materializationJobsLogicActions {
     setResumingMaterialization: (resuming: boolean) => {
         resuming: boolean
     }
+    setSelectedRunHistoryEngine: (engine: DataModelingJobsListEngine) => {
+        engine: DataModelingJobsListEngine
+    }
     setStartingMaterialization: (starting: boolean) => {
         starting: boolean
     }
@@ -263,9 +318,25 @@ export interface materializationJobsLogicMeta {
         ) => boolean
         jobsPageResults: (
             jobsPage: number,
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
-            olderJobsPage: PaginatedDataModelingJobListApi | null
+            runHistoryJobs: PaginatedDataModelingJobListApi | null,
+            olderJobsPage: OlderJobsPageResult | null
         ) => PaginatedDataModelingJobListApi | null
+        runHistoryError: (
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
+            dataModelingJobsError: boolean,
+            runHistoryJobsError: boolean,
+            olderJobsPageError: boolean,
+            jobsPage: number
+        ) => boolean
+        runHistoryLoading: (
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
+            dataModelingJobsLoading: boolean,
+            runHistoryJobsLoading: boolean,
+            olderJobsPageLoading: boolean,
+            jobsPage: number
+        ) => boolean
         lastSuccessfulSyncAt: (
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
             latestCompletedJob: PaginatedDataModelingJobListApi | null
@@ -304,6 +375,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     actions({
         refreshMaterialization: true,
         setJobsPage: (page: number) => ({ page }),
+        setSelectedRunHistoryEngine: (engine: DataModelingJobsListEngine) => ({ engine }),
         deleteView: true,
         finishDeletingView: true,
         scheduleJobsRefresh: (delay: number) => ({ delay }),
@@ -336,7 +408,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
         incrementalCheck: [
-            null as DataWarehouseSavedQueryIncrementalCheck | null,
+            INCREMENTAL_CHECK_LOADING as DataWarehouseSavedQueryIncrementalCheck | null,
             {
                 loadIncrementalCheck: async () => {
                     const sql = values.savedQuery?.query?.query
@@ -372,6 +444,21 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 },
             },
         ],
+        runHistoryJobs: [
+            null as PaginatedDataModelingJobListApi | null,
+            {
+                loadRunHistoryJobs: async (_: void, breakpoint) => {
+                    const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
+                        saved_query_id: props.viewId,
+                        limit: DEFAULT_JOBS_PAGE_SIZE,
+                        offset: 0,
+                        ...runHistoryEngineParams(values.selectedRunHistoryEngine),
+                    })
+                    breakpoint()
+                    return jobs
+                },
+            },
+        ],
         // The newest completed run when the first page holds none. The panel reports when the data the
         // view serves was built, and a view whose last ten runs all failed still serves an older build.
         latestCompletedJob: [
@@ -390,22 +477,30 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
         olderJobsPage: [
-            null as PaginatedDataModelingJobListApi | null,
+            null as OlderJobsPageResult | null,
             {
                 loadOlderJobsPage: async (_: void, breakpoint) => {
+                    const engine = values.selectedRunHistoryEngine
+                    const page = values.jobsPage
                     const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
                         saved_query_id: props.viewId,
                         limit: DEFAULT_JOBS_PAGE_SIZE,
-                        offset: (values.jobsPage - 1) * DEFAULT_JOBS_PAGE_SIZE,
+                        offset: (page - 1) * DEFAULT_JOBS_PAGE_SIZE,
+                        ...runHistoryEngineParams(engine),
                     })
                     breakpoint()
-                    return jobs
+                    return { engine, page, jobs }
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
-        jobsPage: [1, { setJobsPage: (_, { page }) => page }],
+        jobsPage: [1, { setJobsPage: (_, { page }) => page, setSelectedRunHistoryEngine: () => 1 }],
+        selectedRunHistoryEngine: [
+            DataModelingJobsListEngine.Clickhouse as DataModelingJobsListEngine,
+            { setSelectedRunHistoryEngine: (_, { engine }) => engine },
+        ],
+        runHistoryJobsError: [false, { loadRunHistoryJobs: () => false, loadRunHistoryJobsFailure: () => true }],
         olderJobsPageError: [false, { loadOlderJobsPage: () => false, loadOlderJobsPageFailure: () => true }],
         deletingView: [false, { deleteView: () => true, finishDeletingView: () => false }],
         savedQueryError: [
@@ -540,12 +635,61 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 (modeChanged || (frequency !== null && frequency !== (savedQuery.sync_frequency || 'never'))),
         ],
         jobsPageResults: [
-            (s) => [s.jobsPage, s.dataModelingJobs, s.olderJobsPage],
+            (s) => [s.jobsPage, s.selectedRunHistoryEngine, s.dataModelingJobs, s.runHistoryJobs, s.olderJobsPage],
             (
                 page: number,
+                engine: DataModelingJobsListEngine,
                 latest: PaginatedDataModelingJobListApi | null,
-                older: PaginatedDataModelingJobListApi | null
-            ): PaginatedDataModelingJobListApi | null => (page === 1 ? latest : older),
+                filtered: PaginatedDataModelingJobListApi | null,
+                older: OlderJobsPageResult | null
+            ): PaginatedDataModelingJobListApi | null => {
+                if (page === 1) {
+                    return engine === DataModelingJobsListEngine.Clickhouse ? latest : filtered
+                }
+                return older?.engine === engine && older.page === page ? older.jobs : null
+            },
+        ],
+        runHistoryError: [
+            (s) => [
+                s.selectedRunHistoryEngine,
+                s.dataModelingJobsError,
+                s.runHistoryJobsError,
+                s.olderJobsPageError,
+                s.jobsPage,
+            ],
+            (
+                engine: DataModelingJobsListEngine,
+                clickhouseError: boolean,
+                managedError: boolean,
+                olderError: boolean,
+                page: number
+            ): boolean =>
+                page > 1
+                    ? olderError
+                    : engine === DataModelingJobsListEngine.Clickhouse
+                      ? clickhouseError
+                      : managedError,
+        ],
+        runHistoryLoading: [
+            (s) => [
+                s.selectedRunHistoryEngine,
+                s.dataModelingJobsLoading,
+                s.runHistoryJobsLoading,
+                s.olderJobsPageLoading,
+                s.jobsPage,
+            ],
+            (
+                engine: DataModelingJobsListEngine,
+                clickhouseLoading: boolean,
+                managedLoading: boolean,
+                olderLoading: boolean,
+                page: number
+            ): boolean =>
+                page > 1
+                    ? olderLoading
+                    : engine === DataModelingJobsListEngine.Clickhouse
+                      ? clickhouseLoading
+                      : managedLoading,
         ],
         lastSuccessfulSyncAt: [
             (s) => [s.dataModelingJobs, s.latestCompletedJob],
@@ -555,7 +699,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             ) => latestSuccessfulSyncAt([...(dataModelingJobs?.results ?? []), ...(latestCompletedJob?.results ?? [])]),
         ],
     }),
-    afterMount(({ actions, cache, props }) => {
+    afterMount(({ actions, cache, props, values }) => {
         if (props.viewId) {
             actions.loadDataModelingJobs()
             actions.loadSavedQuery()
@@ -567,6 +711,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 const onVisibilityChange = (): void => {
                     if (!document.hidden && props.viewId) {
                         actions.loadDataModelingJobs()
+                        if (
+                            values.jobsPage === 1 &&
+                            values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+                        ) {
+                            actions.loadRunHistoryJobs()
+                        }
                     }
                 }
                 document.addEventListener('visibilitychange', onVisibilityChange)
@@ -584,10 +734,19 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     }),
     listeners(({ actions, cache, props, values }) => ({
         setJobsPage: () => {
-            if (values.jobsPage === 1) {
+            if (values.jobsPage === 1 && values.selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse) {
                 actions.loadDataModelingJobs()
+            } else if (values.jobsPage === 1) {
+                actions.loadRunHistoryJobs()
             } else {
                 actions.loadOlderJobsPage()
+            }
+        },
+        setSelectedRunHistoryEngine: () => {
+            if (values.selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse) {
+                actions.loadDataModelingJobs()
+            } else {
+                actions.loadRunHistoryJobs()
             }
         },
         deleteView: () => actions.deleteDataWarehouseSavedQuery(props.viewId),
@@ -610,13 +769,27 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         refreshMaterialization: () => {
             actions.loadSavedQuery()
             actions.loadDataModelingJobs()
+            if (
+                values.jobsPage === 1 &&
+                values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+            ) {
+                actions.loadRunHistoryJobs()
+            }
         },
         loadDataModelingJobs: () => {
             cache.disposables.dispose('dataModelingJobsRefreshTimeout')
         },
         scheduleJobsRefresh: ({ delay }) => {
             cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => actions.loadDataModelingJobs(), delay)
+                const timeoutId = setTimeout(() => {
+                    actions.loadDataModelingJobs()
+                    if (
+                        values.jobsPage === 1 &&
+                        values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+                    ) {
+                        actions.loadRunHistoryJobs()
+                    }
+                }, delay)
                 return () => clearTimeout(timeoutId)
             }, 'dataModelingJobsRefreshTimeout')
         },
@@ -717,9 +890,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             if (!savedQuery || props.kind === 'endpoint') {
                 return
             }
-            if (!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
-                return
-            }
             // Reflect the saved config so a materialized view's editor starts from what is
             // actually configured, not from the empty draft.
             if (!values.incrementalDraftTouched && savedQuery.incremental?.enabled) {
@@ -767,7 +937,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             }
             cache.newestJobState = newestJobState
             // Until the new run's job row exists, the newest job is the run before the click.
-            if (values.startingMaterialization && newestJob && newestJob.id !== cache.newestJobIdBeforeStart) {
+            if (values.startingMaterialization && isNewRunVisible(newestJob, cache.newestJobIdBeforeStart)) {
                 actions.setStartingMaterialization(false)
             }
             const active = values.startingMaterialization || running

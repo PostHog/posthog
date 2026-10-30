@@ -19,11 +19,10 @@ import { ActivityLogDiff } from 'lib/components/ActivityLog/ActivityLogDiff'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 
 type ActivityLogTab = 'details' | 'extended description' | 'diff' | 'raw'
 

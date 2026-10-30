@@ -87,7 +87,7 @@ Your **domain** is the subdomain in your Freshservice URL — e.g. `acme` for `a
 Your **API key** is on your Freshservice profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshservice.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshservice",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden while the connector's incremental/ordering behavior is verified against a
             # live Freshservice account. Drop this flag to release the source to users.
             fields=cast(

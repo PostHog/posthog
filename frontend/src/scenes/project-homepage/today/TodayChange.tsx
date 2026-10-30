@@ -1,4 +1,4 @@
-import { type TodayTone, useTodayTonePalette } from './TodaySparkline'
+import { type TodayTone, useTodayTonePalette } from './todayTone'
 
 export function TodayChange({ change, tone }: { change: number | null; tone: TodayTone }): JSX.Element | null {
     const palette = useTodayTonePalette()

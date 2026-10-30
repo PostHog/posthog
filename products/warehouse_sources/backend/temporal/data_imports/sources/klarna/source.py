@@ -143,7 +143,7 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
             label="Klarna",
             iconPath="/static/services/klarna.png",
             docsUrl="https://posthog.com/docs/cdp/sources/klarna",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Import payouts and settlement transactions from Klarna. "
                 "Create an API key in the Klarna Merchant Portal. "

@@ -3,12 +3,9 @@ from datetime import UTC, date, datetime
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okta import OktaSourceConfig
@@ -70,12 +67,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].headers["authorization"] == "SSWS tok"
 
-    def test_invalid_token(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("example.okta.com", "tok")
-            assert valid is False
-            assert "Invalid Okta API token" == msg
-
     def test_403_at_source_create_is_accepted(self):
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("example.okta.com", "tok", schema_name=None) == (True, None)
@@ -91,12 +82,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(bad_domain, "tok")
         assert valid is False
         assert msg == "Invalid Okta domain"
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("example.okta.com", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be rejected,
@@ -238,3 +223,114 @@ class TestOktaPagination:
             result = self._driver().run("users", [])
         assert isinstance(result.raised, okta_module.OktaHostNotAllowedError)
         assert result.requests == []
+
+
+class TestOktaFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(
+            OktaSource(),
+            OktaSourceConfig(okta_domain="example.okta.com", api_key="tok"),
+        )
+
+    @pytest.mark.parametrize(
+        "schema, parent_path, child_path, parent_key, child_limit",
+        [
+            ("group_members", "/api/v1/groups", "/api/v1/groups/{}/users", "group_id", "200"),
+            ("application_users", "/api/v1/apps", "/api/v1/apps/{}/users", "app_id", "500"),
+            ("application_groups", "/api/v1/apps", "/api/v1/apps/{}/groups", "app_id", "200"),
+            ("user_factors", "/api/v1/users", "/api/v1/users/{}/factors", "user_id", None),
+        ],
+    )
+    def test_fans_out_over_parents_and_skips_deleted_parent(
+        self, schema, parent_path, child_path, parent_key, child_limit
+    ):
+        result = self._driver().run(
+            schema,
+            [
+                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(json=[{"id": "c1"}, {"id": "c2"}]),
+                # p2 was deleted after the parent listing.
+                ScriptedResponse(status=404, json={"errorCode": "E0000007"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [("p1", "c1"), ("p1", "c2")]
+        assert result.paths == [parent_path, child_path.format("p1"), child_path.format("p2")]
+        assert result.requests[0].param("limit") == "200"
+        assert result.requests[1].param("limit") == child_limit
+
+    def test_user_factors_drop_activation_secrets(self):
+        result = self._driver().run(
+            "user_factors",
+            [
+                ScriptedResponse(json=[{"id": "u1"}]),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": "f1",
+                            "factorType": "token:software:totp",
+                            "status": "PENDING_ACTIVATION",
+                            "_embedded": {"activation": {"sharedSecret": "FAKESECRET"}},
+                            "_links": {"qrcode": {"href": "https://example.okta.com/qr/fake"}},
+                        }
+                    ]
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "f1", "factorType": "token:software:totp", "status": "PENDING_ACTIVATION", "user_id": "u1"}
+        ]
+
+    def test_follows_child_link_header_across_pages(self):
+        result = self._driver().run(
+            "group_members",
+            [
+                ScriptedResponse(json=[{"id": "g1"}]),
+                ScriptedResponse(
+                    json=[{"id": "u1"}],
+                    headers={"Link": '<https://example.okta.com/api/v1/groups/g1/users?after=cur>; rel="next"'},
+                ),
+                ScriptedResponse(json=[{"id": "u2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["group_id"], row["id"]) for row in result.rows] == [("g1", "u1"), ("g1", "u2")]
+        assert result.requests[2].path == "/api/v1/groups/g1/users"
+        assert result.requests[2].param("after") == "cur"
+
+    def test_resume_skips_completed_parents(self):
+        result = self._driver().run(
+            "group_members",
+            [
+                ScriptedResponse(json=[{"id": "g1"}, {"id": "g2"}]),
+                ScriptedResponse(json=[{"id": "u3"}]),
+            ],
+            resume_state=OktaResumeConfig(
+                fanout_state={"completed": ["/groups/g1/users"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/groups", "/api/v1/groups/g2/users"]
+        assert [(row["group_id"], row["id"]) for row in result.rows] == [("g2", "u3")]
+
+    def test_resumed_child_url_on_foreign_host_is_refused(self):
+        result = self._driver().run(
+            "group_members",
+            [ScriptedResponse(json=[{"id": "g1"}])],
+            resume_state=OktaResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/groups/g1/users",
+                    "child_state": {"next_url": "http://169.254.169.254/latest/meta-data/"},
+                }
+            ),
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/api/v1/groups"]

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
-import { databaseTableListLogic } from './databaseTableListLogic'
+import { MANAGED_TRINO_SCHEMA_SCOPE, databaseTableListLogic } from './databaseTableListLogic'
 
 jest.mock('~/queries/query')
 
@@ -159,57 +159,63 @@ describe('databaseTableListLogic', () => {
         expect(logic.values.allTables.map((table) => table.name)).toEqual(['events'])
     })
 
-    it('does not let a stale schema response overwrite the selected connection schema', async () => {
-        let resolvePosthogQuery:
-            | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)
-            | undefined
-        let resolveDirectQuery:
-            | ((value: { tables: Record<string, { name: string; type: 'data_warehouse' }>; joins: never[] }) => void)
-            | undefined
+    it.each(['conn-123', MANAGED_TRINO_SCHEMA_SCOPE])(
+        'discards stale default schema responses after selecting %s',
+        async (scope) => {
+            let resolvePosthogQuery:
+                | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)
+                | undefined
+            let resolveDirectQuery:
+                | ((value: {
+                      tables: Record<string, { name: string; type: 'data_warehouse' }>
+                      joins: never[]
+                  }) => void)
+                | undefined
 
-        ;(performQuery as jest.Mock)
-            .mockImplementationOnce(
-                () =>
-                    new Promise((resolve) => {
-                        resolvePosthogQuery = resolve
-                    })
-            )
-            .mockImplementationOnce(
-                () =>
-                    new Promise((resolve) => {
-                        resolveDirectQuery = resolve
-                    })
-            )
+            ;(performQuery as jest.Mock)
+                .mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            resolvePosthogQuery = resolve
+                        })
+                )
+                .mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            resolveDirectQuery = resolve
+                        })
+                )
 
-        logic = databaseTableListLogic()
-        logic.mount()
+            logic = databaseTableListLogic()
+            logic.mount()
 
-        const posthogRequest = logic.asyncActions.loadDatabase()
+            const posthogRequest = logic.asyncActions.loadDatabase()
 
-        logic.actions.setConnection('conn-123')
-        const directRequest = logic.asyncActions.loadDatabase()
+            logic.actions.setConnection(scope)
+            const directRequest = logic.asyncActions.loadDatabase()
 
-        resolveDirectQuery?.({
-            tables: {
-                ducklake_accounts: { name: 'ducklake_accounts', type: 'data_warehouse' },
-            },
-            joins: [],
-        })
-        await directRequest
+            resolveDirectQuery?.({
+                tables: {
+                    ducklake_accounts: { name: 'ducklake_accounts', type: 'data_warehouse' },
+                },
+                joins: [],
+            })
+            await directRequest
 
-        expect(logic.values.allTables.map((table) => table.name)).toEqual(['ducklake_accounts'])
+            expect(logic.values.allTables.map((table) => table.name)).toEqual(['ducklake_accounts'])
 
-        resolvePosthogQuery?.({
-            tables: {
-                events: { name: 'events', type: 'posthog' },
-            },
-            joins: [],
-        })
-        await posthogRequest
+            resolvePosthogQuery?.({
+                tables: {
+                    events: { name: 'events', type: 'posthog' },
+                },
+                joins: [],
+            })
+            await posthogRequest
 
-        expect(logic.values.connectionId).toEqual('conn-123')
-        expect(logic.values.allTables.map((table) => table.name)).toEqual(['ducklake_accounts'])
-    })
+            expect(logic.values.connectionId).toEqual(scope)
+            expect(logic.values.allTables.map((table) => table.name)).toEqual(['ducklake_accounts'])
+        }
+    )
 
     describe('lazy schema loading', () => {
         const shallowTables = {
@@ -397,5 +403,44 @@ describe('databaseTableListLogic', () => {
             expect(performQuery).toHaveBeenCalledTimes(2)
             expect((performQuery as jest.Mock).mock.calls[1][0].includeFields).toBeUndefined()
         })
+    })
+    it('keeps native Trino scope when loading, hydrating, and refreshing its catalog', async () => {
+        logic = databaseTableListLogic()
+        logic.mount()
+        logic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)
+        ;(performQuery as jest.Mock).mockResolvedValueOnce({
+            tables: {
+                'analytics.orders': {
+                    id: 'analytics.orders',
+                    name: 'analytics.orders',
+                    type: 'data_warehouse',
+                    fields: {},
+                },
+            },
+            joins: [],
+        })
+        await logic.asyncActions.loadDatabase({ shallow: true })
+        expect(performQuery).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                executionTarget: 'managed_trino',
+                includeFields: false,
+            })
+        )
+        expect((performQuery as jest.Mock).mock.lastCall[0].connectionId).toBeUndefined()
+        logic.actions.hydrateTableFields(['analytics.orders'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(performQuery).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                executionTarget: 'managed_trino',
+                tables: ['analytics.orders'],
+            })
+        )
+        logic.actions.refreshDatabaseSchema()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ executionTarget: 'managed_trino' }))
+        logic.actions.resetConnectionScope()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ connectionId: undefined }))
+        expect((performQuery as jest.Mock).mock.lastCall[0].executionTarget).toBeUndefined()
     })
 })

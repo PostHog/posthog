@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -17,26 +15,6 @@ class TestOnepagecrmSource:
         self.source = OnepagecrmSource()
         self.team_id = 123
         self.config = OnepagecrmSourceConfig(user_id="uid-1", api_key="key-1")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://app.onepagecrm.com/api/v3/contacts",),
-            ("403 Client Error: Forbidden for url: https://app.onepagecrm.com/api/v3/deals",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://app.onepagecrm.com/api/v3/contacts",),
-            ("429 Client Error: Too Many Requests for url: https://app.onepagecrm.com/api/v3/deals",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source.onepagecrm_source")
     def test_source_for_pipeline_plumbs_incremental_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -69,7 +69,7 @@ class PoplarSource(ResumableSource[PoplarSourceConfig, PoplarResumeConfig]):
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

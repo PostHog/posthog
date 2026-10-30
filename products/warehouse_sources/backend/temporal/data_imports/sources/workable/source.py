@@ -53,12 +53,14 @@ class WorkableSource(ResumableSource[WorkableSourceConfig, WorkableResumeConfig]
             name=ExternalDataSourceType.WORKABLE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workable",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Workable account subdomain and an SPI access token to pull your Workable recruiting data into the PostHog Data warehouse.
 
 You can create an access token in your Workable account under **Settings > Integrations > Access Tokens** (admins only). Grant the following read scopes:
 - `r_jobs`
 - `r_candidates`
+- `r_employees` (only for the `employees` table)
+- `r_account` (only for the `departments` table)
 """,
             iconPath="/static/services/workable.png",
             docsUrl="https://posthog.com/docs/cdp/sources/workable",
@@ -125,8 +127,14 @@ You can create an access token in your Workable account under **Settings > Integ
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Probe the specific schema's endpoint when given, otherwise a cheap `/jobs` probe.
-        path = WORKABLE_ENDPOINTS[schema_name].path if schema_name in WORKABLE_ENDPOINTS else "/jobs"
+        # Probe the specific schema's endpoint when given, otherwise a cheap `/jobs` probe. A fan-out
+        # endpoint has no bare list path, so probe its parent, which needs the same scope.
+        path = "/jobs"
+        if schema_name in WORKABLE_ENDPOINTS:
+            endpoint_config = WORKABLE_ENDPOINTS[schema_name]
+            if endpoint_config.fanout is not None:
+                endpoint_config = WORKABLE_ENDPOINTS[endpoint_config.fanout.parent_name]
+            path = endpoint_config.path
 
         try:
             status_code, ok = validate_workable_credentials(config.subdomain, config.api_token, path)

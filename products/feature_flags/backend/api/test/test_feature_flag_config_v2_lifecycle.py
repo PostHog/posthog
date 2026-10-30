@@ -177,6 +177,14 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         (entry,) = self.activity(flag)
         assert entry.activity == "deleted"
 
+    def test_soft_deleting_without_the_row_version_names_it(self) -> None:
+        flag = self.flag(active=True)
+        response = self.patch_flag(flag, {"deleted": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == ("version", "required")
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.version) == (False, 3)
+
     @parameterized.expand(
         [
             ("missing_token", {"active": False}, status.HTTP_400_BAD_REQUEST),
@@ -210,6 +218,25 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         assert response.json()["code"] == code
         flag.refresh_from_db()
         assert (flag.active, flag.archived, flag.version) == (active, False, 3)
+
+    def test_the_disable_action_takes_the_row_version(self) -> None:
+        flag = self.flag(active=True)
+        assert self.post_action(flag, "disable", {"version": 2}).status_code == status.HTTP_409_CONFLICT
+        response = self.post_action(flag, "disable", {"version": 3})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (False, 4)
+        (entry,) = self.activity(flag)
+        assert self.changed_fields(entry) == {"active", "version"}
+
+    def test_the_enable_action_still_needs_admission(self) -> None:
+        flag = self.flag(active=False)
+        response = self.post_action(flag, "enable", {"version": 3})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unsupported_config_version"
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (False, 3)
+        assert self.activity(flag) == []
 
 
 class TestAdmittedV2Creation(AdmittedV2TestCase):
@@ -398,6 +425,22 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         assert (flag.active, flag.version) == (False, 5)
         assert [entry.activity for entry in self.activity(flag)] == ["updated", "updated"]
 
+    def test_the_toggle_actions_need_and_check_the_row_version(self) -> None:
+        flag = self.flag(active=False)
+        missing = self.post_action(flag, "enable")
+        assert missing.status_code == status.HTTP_400_BAD_REQUEST
+        assert (missing.json()["attr"], missing.json()["code"]) == ("version", "required")
+        response = self.post_action(flag, "enable", {"version": 3})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["active"], response.json()["version"]) == (True, 4)
+        stale = self.post_action(flag, "disable", {"version": 3})
+        assert stale.status_code == status.HTTP_409_CONFLICT
+        assert stale.json()["detail"] == flag_version_conflict_message(3, 4)
+        assert self.post_action(flag, "disable", {"version": 4}).status_code == status.HTTP_200_OK
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 5, config(targeted(), rollout()))
+        assert [entry.activity for entry in self.activity(flag)] == ["updated", "updated"]
+
     def test_enabling_reports_a_disabled_flag_the_rule_targeting_depends_on(self) -> None:
         dependency = FeatureFlag.objects.create(team=self.team, key="base-flag", active=False, created_by=self.user)
         # Stored past the validator, which does not admit flag targeting yet. The non-integer key is skipped.
@@ -527,3 +570,53 @@ class TestV2PilotLifecycle(AdmittedV2TestCase):
         history = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/versions/1/")
         assert history.status_code == status.HTTP_200_OK, history.json()
         assert (history.json()["filters"]["rules"], history.json()["active"]) == (stored["rules"], False)
+
+
+V1_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+V1_MULTIVARIATE_FILTERS = {
+    **V1_FILTERS,
+    "multivariate": {
+        "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+    },
+    "payloads": {"test": '{"color": "blue"}'},
+}
+
+
+class TestV1FiltersOnAV2Flag(V2UpdateTestCase):
+    """Version 1 filters never convert a v2 flag back, whether or not the project may write v2."""
+
+    @parameterized.expand(
+        [
+            (f"{shape}_{method}_{'admitted' if admitted else 'closed'}", filters, method, admitted)
+            for shape, filters in [
+                ("groups", V1_FILTERS),
+                ("multivariate", V1_MULTIVARIATE_FILTERS),
+                ("explicit_version_1", {"version": 1, **V1_FILTERS}),
+            ]
+            for method in ["patch", "put"]
+            for admitted in [False, True]
+        ]
+    )
+    def test_the_write_is_refused_with_its_own_code(
+        self, _name: str, filters: dict, method: str, admitted: bool
+    ) -> None:
+        flag = self.flag(active=True)
+        stored = flag.filters
+        with admit_v2(self.team.id if admitted else -1):
+            response = self.patch_flag(flag, {"key": flag.key, "version": 3, "filters": filters}, method=method)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert (body["attr"], body["code"]) == ("filters", "v1_filters_on_v2_flag")
+        assert "config version 2" in body["detail"]
+        assert ("version 2 document" in body["detail"]) is admitted
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version, flag.active) == (stored, 3, True)
+        assert self.activity(flag) == []
+
+    def test_the_facade_refuses_it_too(self) -> None:
+        flag = self.flag()
+        with admit_v2(self.team.id), self.assertRaises(ValidationError) as caught:
+            flag_facade.update_flag(flag, {"version": 3, "filters": V1_FILTERS}, team=self.team, user=self.user)
+        assert caught.exception.get_codes() == {"filters": ["v1_filters_on_v2_flag"]}
+        flag.refresh_from_db()
+        assert flag.version == 3

@@ -94,7 +94,7 @@ class TestIntegrationModel(BaseTest):
         # stored value ends up with an extra layer and one decrypt still leaves ciphertext behind.
         # The secret is intact underneath, so the connection must keep working.
         integration = self.create_integration("stripe", sensitive_config={field_name: "a-real-token"})
-        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
         stored = json.loads(get_db_field_value("sensitive_config", integration.id))
         update_db_field_value(
             "sensitive_config",

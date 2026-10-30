@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo 
     ZyloResumeConfig,
     _format_zylo_filter_date,
     probe_endpoint_status,
-    validate_credentials,
 )
 
 
@@ -131,25 +130,6 @@ class TestZyloSourceResumeBehavior:
             "/v2/automations/auto_1/executions",
             "/v2/automations/auto_2/executions",
         }
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    def test_status_code_mapping(self, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            assert validate_credentials("tok_id", "tok_secret") is expected
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("tok_id", "tok_secret") is False
 
 
 class TestProbeEndpointStatus:

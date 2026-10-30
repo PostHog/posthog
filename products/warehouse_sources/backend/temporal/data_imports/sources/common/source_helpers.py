@@ -10,6 +10,60 @@ from collections.abc import Callable, Mapping
 import requests
 from requests.auth import AuthBase
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAuth2AuthRequestError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
+
+_UNREACHABLE_ERRORS: tuple[type[BaseException], ...] = (
+    requests.ConnectionError,
+    requests.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    RESTClientRetryableError,
+)
+
+
+def unreachable_vendor_message(vendor: str) -> str:
+    """The `validate_credentials` message for a probe that got no usable answer from the vendor.
+
+    It must not say that the credentials are invalid, because nothing proved that."""
+    return f"Couldn't reach {vendor} to check your credentials. Try again in a few minutes."
+
+
+def probe_status_message(vendor: str, status_code: int | None) -> str | None:
+    """A fallback message for an HTTP status that a probe has no own message for. `None` means that the
+    status says nothing about the credentials, so the probe must decide."""
+    if status_code == 401:
+        return f"{vendor} rejected the credentials. Check them and try again."
+    if status_code == 403:
+        return f"{vendor} denied access. Check that the credentials have the permissions this source needs."
+    if status_code is not None and (status_code == 429 or status_code >= 500):
+        return unreachable_vendor_message(vendor)
+    return None
+
+
+def is_unreachable_vendor_error(error: BaseException) -> bool:
+    """Whether a probe error means only that the vendor gave no usable answer: a dropped connection, a
+    timeout, a server error or a rate limit. Follows `raise ... from` causes, because many sources wrap
+    the transport error in their own. Also follows the implicit context of an error raised inside an
+    `except` block without `from`, unless `from None` suppressed it."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, _UNREACHABLE_ERRORS):
+            return True
+        if isinstance(current, requests.HTTPError) and current.response is not None:
+            status = current.response.status_code
+            if status == 429 or status >= 500:
+                return True
+        if isinstance(current, OAuth2AuthRequestError) and not current.is_permanent:
+            return True
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return False
+
 
 def validate_via_probe(
     session_factory: Callable[[], requests.Session],

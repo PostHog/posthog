@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -17,8 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.
 
 SIMPLESAT_BASE_URL = "https://api.simplesat.io/api/v1"
 SIMPLESAT_HOST = "api.simplesat.io"
-# The list endpoints return up to 100 records per page; the largest page minimises round trips.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/surveys"
@@ -38,21 +37,39 @@ def _headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
+def _format_incremental_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return utc_value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return f"{value.isoformat()}T00:00:00Z"
+    return str(value)
+
+
 def simplesat_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SimplesatResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = SIMPLESAT_ENDPOINTS[endpoint]
 
     is_post = config.method == "POST"
 
+    params: dict[str, Any] = {"page_size": config.page_size}
+    incremental_param = config.incremental_param_by_field.get(incremental_field or "")
+    # The first incremental sync has no watermark yet, so it reads everything unfiltered.
+    if should_use_incremental_field and incremental_param and db_incremental_field_last_value is not None:
+        params[incremental_param] = _format_incremental_value(db_incremental_field_last_value)
+
     endpoint_config: Endpoint = {
         "path": config.path,
         "method": "POST" if is_post else "GET",
-        "params": {"page_size": PAGE_SIZE},
+        "params": params,
         # Simplesat wraps the page under a key named after the resource
         # (e.g. {"surveys": [...], "next": ...}).
         "data_selector": config.list_key,
@@ -114,6 +131,9 @@ def simplesat_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )
 
 

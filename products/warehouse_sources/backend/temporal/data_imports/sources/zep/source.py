@@ -51,7 +51,7 @@ class ZepSource(ResumableSource[ZepSourceConfig, ZepResumeConfig]):
             name=ExternalDataSourceType.ZEP,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Zep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["agent memory", "llm", "knowledge graph", "ai"],
             caption="""Enter your Zep API key to sync your Zep agent-memory data into the PostHog Data warehouse.
 

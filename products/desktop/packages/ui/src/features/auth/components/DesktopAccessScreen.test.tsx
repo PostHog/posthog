@@ -6,6 +6,8 @@ import { DesktopAccessScreen } from "./DesktopAccessScreen";
 
 const { track } = vi.hoisted(() => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
+const { openExternalUrl } = vi.hoisted(() => ({ openExternalUrl: vi.fn() }));
+vi.mock("@posthog/ui/shell/openExternal", () => ({ openExternalUrl }));
 
 const orgProjectsMap = {
   "org-1": {
@@ -66,7 +68,7 @@ describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
-    [null, "We'll contact you with next steps"],
+    [null, "Not ideal, we know"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
     track.mockClear();
     renderScreen({ projectId: 1, status: "blocked", reason });
@@ -93,6 +95,30 @@ describe("DesktopAccessScreen", () => {
     await user.click(screen.getByText(buttonLabel));
 
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("opens the games when sign-ups are paused", async () => {
+    const user = userEvent.setup();
+    track.mockClear();
+    renderScreen({ projectId: 1, status: "blocked", reason: null });
+
+    await user.click(screen.getByText("Play a hedgehog game instead"));
+
+    expect(track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.DESKTOP_ACCESS_LINK_OPENED,
+      { link: "games" },
+    );
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://posthog.com/sparks-joy",
+    );
+  });
+
+  it("does not offer the games for other blocks", () => {
+    renderScreen({ projectId: 1, status: "blocked", reason: "startup_plan" });
+
+    expect(
+      screen.queryByText("Play a hedgehog game instead"),
+    ).not.toBeInTheDocument();
   });
 
   it("lets the user select another project", async () => {

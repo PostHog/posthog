@@ -1,3 +1,5 @@
+# Depot mirror of .github/actions/setup-python-cached. Only the tool cache restore differs. It sets
+# timeout-minutes, which GitHub Actions rejects in a composite step.
 name: Set up Python
 description: |
     Wraps actions/setup-python with a pre-seeded tool cache
@@ -41,6 +43,8 @@ runs:
         - name: Restore Python tool cache
           id: python-toolcache
           if: steps.python-version.outputs.version != ''
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ runner.tool_cache }}/Python/${{ steps.python-version.outputs.version }}

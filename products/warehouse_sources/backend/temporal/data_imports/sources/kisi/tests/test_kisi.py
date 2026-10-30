@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from requests.exceptions import ConnectionError, HTTPError
@@ -8,10 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kisi import KisiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi import KisiResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi import (
+    KisiEventSetError,
+    KisiResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
     AUTH_ERROR,
+    EVENT_SET_CURSOR_ERROR,
+    EVENT_SET_FAILED_ERROR,
+    EVENTS_WINDOW,
     OFFSET_ERROR,
     PERMISSION_ERROR,
 )
@@ -59,6 +68,50 @@ def test_pagination_and_resume(
     assert result.rows == first_page + last_page
     assert result.params("offset") == [str(value) for value in expected_offsets]
     assert result.saved_states == [KisiResumeConfig(offset=value) for value in expected_offsets[1:]]
+
+
+def _group_locks_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/groups":
+        return ScriptedResponse(json=[{"id": 1}, {"id": 2}, {"id": 3}])
+    group_id, offset = request.param("group_id"), request.param("offset")
+    if group_id == "1":
+        size = 100 if offset == "0" else 1
+        return ScriptedResponse(json=[{"id": 1000 + int(offset or 0) + i, "group_id": 1} for i in range(size)])
+    if group_id == "2":
+        return ScriptedResponse(status=404, json={"error": "Not found", "code": "not_found"})
+    return ScriptedResponse(json=[{"id": 3000, "group_id": 3}])
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_group_locks_read_each_group(resumed: bool, driver: SourceDriver) -> None:
+    result = driver.run(
+        "group_locks",
+        _group_locks_responder,
+        resume_state=KisiResumeConfig(
+            fanout_state={"completed": [], "current": "group_locks?group_id=1", "child_state": {"offset": 100}}
+        )
+        if resumed
+        else None,
+    )
+
+    first_group_offsets = ["100"] if resumed else ["0", "100"]
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == [
+        1000 + int(offset) + i for offset in first_group_offsets for i in range(100 if offset == "0" else 1)
+    ] + [3000]
+    assert [(request.path, request.param("group_id"), request.param("offset")) for request in result.requests] == [
+        ("/groups", None, "0"),
+        *[("/group_locks", "1", offset) for offset in first_group_offsets],
+        ("/group_locks", "2", "0"),
+        ("/group_locks", "3", "0"),
+    ]
+    if not resumed:
+        assert (
+            KisiResumeConfig(
+                fanout_state={"completed": [], "current": "group_locks?group_id=1", "child_state": {"offset": 100}}
+            )
+            in result.saved_states
+        )
 
 
 @pytest.mark.parametrize("total,should_fail", [(20_100, False), (20_101, True)])
@@ -127,8 +180,117 @@ def test_validate_connection_error() -> None:
 
 
 def test_unsupported_table(driver: SourceDriver) -> None:
-    result = driver.run("events", [])
+    result = driver.run("presences", [])
 
     assert isinstance(result.raised, ValueError)
     assert "Unsupported Kisi table" in str(result.raised)
     assert result.requests == []
+
+
+def _timestamp(value: datetime) -> str:
+    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _event_set(set_id: int, status: str, events: list[dict[str, object]], cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"id": set_id, "status": status, "events": events, "cursor": cursor})
+
+
+def test_roles_are_read_in_one_request(driver: SourceDriver) -> None:
+    roles: list[dict[str, object]] = [{"id": f"role-{i}", "name": f"Role {i}"} for i in range(100)]
+    result = driver.run("roles", [ScriptedResponse(json=roles)])
+
+    assert result.raised is None
+    assert result.rows == roles
+    assert result.paths == ["/roles"]
+    assert result.params("offset") == [None]
+
+
+def test_events_walk_windows_from_the_watermark(driver: SourceDriver) -> None:
+    watermark = (datetime.now(UTC) - timedelta(days=100)).replace(microsecond=0)
+    first_page: list[dict[str, object]] = [{"uuid": "a"}, {"uuid": "b"}]
+    second_page: list[dict[str, object]] = [{"uuid": "c"}]
+    result = driver.run(
+        "events",
+        [
+            _event_set(1, "in_progress", [], None),
+            _event_set(1, "finished", first_page, "page-2"),
+            _event_set(1, "finished", second_page, None),
+            _event_set(2, "finished", [], None),
+        ],
+        incremental_field="created_at",
+        db_incremental_field_last_value=watermark.isoformat(),
+    )
+
+    assert result.raised is None
+    assert result.rows == first_page + second_page
+    assert [(request.method, request.path) for request in result.requests] == [
+        ("POST", "/event_sets"),
+        ("GET", "/event_sets/1"),
+        ("GET", "/event_sets/1"),
+        ("POST", "/event_sets"),
+    ]
+    assert result.params("cursor") == [None, None, "page-2", None]
+    intervals = [request.json()["event_set"]["interval"] for request in result.requests if request.method == "POST"]
+    assert intervals[0] == f"{_timestamp(watermark)}/{_timestamp(watermark + EVENTS_WINDOW)}"
+    assert intervals[1].startswith(f"{_timestamp(watermark + EVENTS_WINDOW)}/")
+    assert (
+        KisiResumeConfig(
+            events_window_start=_timestamp(watermark),
+            events_window_end=_timestamp(watermark + EVENTS_WINDOW),
+            event_set_id=1,
+            events_cursor="page-2",
+            events_written=2,
+        )
+        in result.committed_states
+    )
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_events_resume_from_saved_event_set(expired: bool, driver: SourceDriver) -> None:
+    window_start = (datetime.now(UTC) - timedelta(days=10)).replace(microsecond=0)
+    window_end = window_start + timedelta(days=5)
+    pages = [_event_set(7, "finished", [{"uuid": "b"}], None)]
+    if expired:
+        pages = [
+            ScriptedResponse(status=404, json={"error": "Not found"}),
+            _event_set(8, "finished", [{"uuid": "a"}, {"uuid": "b"}], None),
+        ]
+    result = driver.run(
+        "events",
+        [*pages, _event_set(9, "finished", [], None)],
+        resume_state=KisiResumeConfig(
+            events_window_start=_timestamp(window_start),
+            events_window_end=_timestamp(window_end),
+            event_set_id=7,
+            events_cursor="page-3",
+            events_written=1,
+        ),
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"uuid": "b"}]
+    assert result.requests[0].path == "/event_sets/7"
+    assert result.requests[0].param("cursor") == "page-3"
+    posts = [request.json()["event_set"]["interval"] for request in result.requests if request.method == "POST"]
+    expected_posts = [f"{_timestamp(window_start)}/{_timestamp(window_end)}"] if expired else []
+    assert posts[: len(expected_posts)] == expected_posts
+    assert posts[len(expected_posts)].startswith(f"{_timestamp(window_end)}/")
+
+
+@pytest.mark.parametrize(
+    "pages,message",
+    [
+        ([_event_set(1, "in_progress", [], None), _event_set(1, "failed", [], None)], EVENT_SET_FAILED_ERROR),
+        (
+            [_event_set(1, "finished", [{"uuid": "a"}], "same"), _event_set(1, "finished", [], "same")],
+            EVENT_SET_CURSOR_ERROR,
+        ),
+    ],
+)
+def test_events_errors_stop_the_window(pages: list[ScriptedResponse], message: str, driver: SourceDriver) -> None:
+    result = driver.run("events", pages)
+
+    assert isinstance(result.raised, KisiEventSetError)
+    assert str(result.raised) == message
+    if message == EVENT_SET_FAILED_ERROR:
+        assert result.final_state.event_set_id is None

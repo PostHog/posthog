@@ -24,7 +24,7 @@ Previously, pipelines received raw `KafkaProducerWrapper` instances and hardcode
 
 ## Concepts
 
-A **producer** is a Kafka connection configured via the server config object. Each producer has a name (e.g. `'INGESTION_DOWNSTREAM'`) and a mapping from config key names to rdkafka config keys. `KafkaProducerRegistryBuilder` creates all producers at startup, returning a typed `KafkaProducerRegistry<P>` where `P` is the union of registered producer names. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels.
+A **producer** is a Kafka connection configured via the server config object. Each producer has a name (e.g. `'INGESTION_DOWNSTREAM'`) and a mapping from config key names to rdkafka config keys. `KafkaProducerRegistryBuilder` creates all producers at startup, returning a typed `KafkaProducerRegistry<P>` where `P` is the union of registered producer names. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels. A producer registered with `registerBlackhole` connects to no broker and discards every message, counted in `kafka_producer_messages_discarded_total`; the ingestion registry exposes one as `INGESTION_BLACKHOLE`, so a chart can route a single output nowhere while the other slots keep producing.
 
 A **target** is a single Kafka destination: a topic, a producer, and the producer's name. An output contains one or more targets.
 

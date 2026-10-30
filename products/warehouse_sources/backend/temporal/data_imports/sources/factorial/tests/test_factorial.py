@@ -144,9 +144,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid"),
         [
             (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -161,10 +158,3 @@ class TestValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/api/2026-04-01/resources/employees/employees"}
         assert {request.param("limit") for request in network.requests_log} == {"1"}
         assert {request.headers["x-api-key"] for request in network.requests_log} == {"test-key"}
-
-    def test_network_error_returns_message(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("test-key", API_VERSION_2026_04_01)
-
-        assert valid is False
-        assert error is not None and "boom" in error

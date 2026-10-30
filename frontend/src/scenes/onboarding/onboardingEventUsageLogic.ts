@@ -103,6 +103,11 @@ export interface onboardingEventUsageLogicActions {
         phase: string
         runKey: string
     }
+    reportWizardSyncUsageLimitAgentOpened: (props: { agent: string; mode: 'cloud' | 'local'; runKey: string }) => {
+        agent: string
+        mode: 'cloud' | 'local'
+        runKey: string
+    }
 }
 
 export type onboardingEventUsageLogicType = MakeLogicType<
@@ -146,6 +151,8 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             mode: 'cloud' | 'local'
             trigger: 'auto' | 'button'
         }) => props,
+        reportWizardSyncUsageLimitAgentOpened: (props: { runKey: string; mode: 'cloud' | 'local'; agent: string }) =>
+            props,
     }),
     listeners(({ values }) => ({
         reportOnboardingInstallModeSelected: ({ mode }) => {
@@ -224,6 +231,14 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 run_key: runKey,
                 mode,
                 trigger,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncUsageLimitAgentOpened: ({ runKey, mode, agent }) => {
+            posthog.capture('wizard sync usage limit agent opened', {
+                run_key: runKey,
+                mode,
+                agent,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },

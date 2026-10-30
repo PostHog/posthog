@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 
-import { IconArrowRight, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -15,6 +15,7 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayHoverCardFact } from '~/layout/today/TodayHoverCardFact'
 
@@ -22,9 +23,13 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { pulsePeak, pulsePeriodCaption, pulseWhy } from './todayPulseFacts'
-import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
-import type { TodayTone } from './TodaySparkline'
+import type { TodayTone } from './todayTone'
+
+// The charts are most of the code the home page adds, and this card opens only on hover.
+const TodayPulseMovers = lazy(() =>
+    retryImport(() => import('./TodayPulseMovers').then((m) => ({ default: m.TodayPulseMovers })))
+)
 
 const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
     day: 'ddd, D MMM',
@@ -33,7 +38,7 @@ const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
 }
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.reason === 'dashboard') {
+    if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
         return metric.dashboard_name ? `Open ${metric.dashboard_name}` : 'Open dashboard'
     }
     return metric.key.startsWith('insight:') ? 'Open insight' : 'Open as a trend'
@@ -44,11 +49,13 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    onHide,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
     const previous = metric.previous_value
@@ -97,7 +104,9 @@ export function TodayPulseCard({
                     <Text size="xs" variant="muted" render={<span />}>
                         What changed most
                     </Text>
-                    <TodayPulseMovers movers={metric.movers} formatValue={formatValue} />
+                    <Suspense fallback={null}>
+                        <TodayPulseMovers movers={metric.movers} formatValue={formatValue} />
+                    </Suspense>
                 </div>
             )}
             <Collapsible
@@ -122,23 +131,35 @@ export function TodayPulseCard({
                     ) : (
                         <span />
                     )}
-                    {why && (
-                        <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <CollapsibleTrigger
-                                        iconOnly
-                                        icon={<IconInfo />}
-                                        className="-me-1.5 text-muted-foreground"
-                                        data-attr="today-pulse-card-why"
-                                    />
-                                }
-                            >
-                                Why you see this
-                            </TooltipTrigger>
-                            <TooltipContent>Why you see this</TooltipContent>
-                        </Tooltip>
-                    )}
+                    <div className="-me-1.5 flex items-center">
+                        <Button
+                            size="icon-xs"
+                            aria-label="Hide from Today"
+                            tooltip="Hide from Today"
+                            onClick={onHide}
+                            className="text-muted-foreground"
+                            data-attr="today-pulse-card-hide"
+                        >
+                            <IconHide />
+                        </Button>
+                        {why && (
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <CollapsibleTrigger
+                                            iconOnly
+                                            icon={<IconInfo />}
+                                            className="text-muted-foreground"
+                                            data-attr="today-pulse-card-why"
+                                        />
+                                    }
+                                >
+                                    Why you see this
+                                </TooltipTrigger>
+                                <TooltipContent>Why you see this</TooltipContent>
+                            </Tooltip>
+                        )}
+                    </div>
                 </div>
                 {why && (
                     <CollapsibleContent className="px-0 pb-0">

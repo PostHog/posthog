@@ -19,6 +19,7 @@ from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
+    INGESTION_LAG,
     EvalContext,
     PriorProgress,
     TrackEvaluation,
@@ -146,6 +147,68 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(evaluation.value, 102)
         assert evaluation.checkpoint is not None
         self.assertGreater(datetime.fromisoformat(str(evaluation.checkpoint["counted_through"])), watermark)
+
+    @parameterized.expand(
+        [
+            ("walks_back_after_a_scan_limit", 100_000_000, True, 4, True),
+            ("stops_at_the_top_stage", 2, False, 2, False),
+        ]
+    )
+    def test_cumulative_pageviews_bootstraps_history_in_bounded_chunks(
+        self, _name: str, target: int, fail_first_chunk: bool, expected: int, resumes: bool
+    ) -> None:
+        first_now = timezone.now()
+        for timestamp in (
+            first_now + timedelta(days=1),
+            first_now - timedelta(hours=2),
+            first_now - timedelta(days=5),
+            first_now - timedelta(days=400),
+        ):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=timestamp,
+                created_at=first_now - timedelta(hours=2),
+            )
+        flush_persons_and_events()
+
+        attempts = 0
+
+        def fail_first_attempt(*args: object, **kwargs: object):
+            nonlocal attempts
+            attempts += 1
+            if fail_first_chunk and attempts == 1:
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            return execute_hogql_query(*args, **kwargs)
+
+        evaluations: list[TrackEvaluation] = []
+        prior = EMPTY_PRIOR
+        with (
+            patch("products.web_analytics.backend.achievements.evaluators.TRAFFIC_TARGET_PAGEVIEWS", target),
+            patch(
+                "products.web_analytics.backend.achievements.evaluators.execute_hogql_query",
+                side_effect=fail_first_attempt,
+            ),
+        ):
+            for sweep in range(20):
+                with patch(
+                    "products.web_analytics.backend.achievements.evaluators.timezone.now",
+                    return_value=first_now + timedelta(minutes=5 * sweep),
+                ):
+                    evaluation = evaluate_cumulative_pageviews(self._ctx(), prior)
+                evaluations.append(evaluation)
+                if evaluation.complete:
+                    break
+                assert evaluation.checkpoint is not None
+                prior = PriorProgress(value=0, last_computed_at=None, checkpoint=evaluation.checkpoint)
+
+        final = evaluations[-1]
+        self.assertTrue(final.complete)
+        self.assertEqual(final.value, expected)
+        self.assertEqual(len(evaluations) > 1, resumes)
+        assert final.checkpoint is not None
+        self.assertEqual(datetime.fromisoformat(str(final.checkpoint["counted_through"])), first_now - INGESTION_LAG)
 
     @parameterized.expand([("named_event", "$autocapture"), ("any_event", None)])
     def test_conversions_returns_best_goal_conversion_count(self, _name: str, event: str | None) -> None:

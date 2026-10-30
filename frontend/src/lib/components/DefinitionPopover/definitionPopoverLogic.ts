@@ -260,7 +260,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/cohorts/${_cohort.id}`,
-                                _cohort
+                                { description: _cohort.description }
                             )
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }

@@ -2,8 +2,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPullRequest, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +16,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
 import { CIExplorerOverview } from '../components/ciExplorer/CIExplorerOverview'
 import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSummaryCounts'
+import { CIExplorerTimeline } from '../components/ciExplorer/CIExplorerTimeline'
 import { EntityHeader } from '../components/EntityHeader'
 import { ProductNav } from '../components/ProductNav'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
@@ -52,6 +56,7 @@ export function CIExplorerScene(): JSX.Element {
     } = useValues(ciExplorerLogic)
     const { repoOwner, repoName, number, sourceId } = useMountedLogic(ciExplorerLogic).props
     const { loadPrRuns, refresh } = useActions(ciExplorerLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const pullRequest = lifecycle?.pull_request
     const viewUrl = (target: CIExplorerView): string => locationUrl({ view: target, headSha: null, nodeId: null })
@@ -62,14 +67,24 @@ export function CIExplorerScene(): JSX.Element {
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={pullRequestUrl}
-                        data-attr="ci-explorer-open-pull-request"
-                    >
-                        Open pull request
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={pullRequestUrl} />}
+                            data-attr="ci-explorer-open-pull-request"
+                        >
+                            Open pull request
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={pullRequestUrl}
+                            data-attr="ci-explorer-open-pull-request"
+                        >
+                            Open pull request
+                        </LemonButton>
+                    )
                 }
             />
 
@@ -101,7 +116,7 @@ export function CIExplorerScene(): JSX.Element {
                                     </Link>
                                 </>
                             }
-                            right={view === 'overview' && activePush ? <CIExplorerSummaryCounts /> : undefined}
+                            right={view !== 'activity' && activePush ? <CIExplorerSummaryCounts /> : undefined}
                         />
                     )}
 
@@ -112,6 +127,7 @@ export function CIExplorerScene(): JSX.Element {
                             onChange={() => {}}
                             tabs={[
                                 { key: 'overview', label: 'Overview', link: viewUrl('overview') },
+                                { key: 'timeline', label: 'Timeline', link: viewUrl('timeline') },
                                 { key: 'activity', label: 'Activity', link: viewUrl('activity') },
                             ]}
                             barClassName="mb-0 border-b-0"
@@ -155,6 +171,8 @@ export function CIExplorerScene(): JSX.Element {
                         <LemonSkeleton className="h-96 w-full" />
                     ) : view === 'activity' ? (
                         <CIExplorerActivity />
+                    ) : view === 'timeline' ? (
+                        <CIExplorerTimeline />
                     ) : (
                         <CIExplorerOverview />
                     )}

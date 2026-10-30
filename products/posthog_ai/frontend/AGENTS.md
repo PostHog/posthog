@@ -115,7 +115,7 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
   `PermissionInput` isolates lazy loading and rendering errors with evidence fallbacks; approval controls
   remain outside both boundaries. The error boundary resets for a new permission request.
   Max's frozen LangGraph path consumes `VisualizationWidget` and `RecordingsWidget` through
-  `api/primitives`, and the error-tracking and replay-vision widgets from their owning products.
+  `api/dataWidgets`, and the error-tracking and replay-vision widgets from their owning products.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
   and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
   bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path
@@ -218,9 +218,12 @@ ingestion).
 - **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
   `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
   `Activity`, `ThreadRow` message and separator rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard`, `RunContext` and
-  `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
+  `TurnFeedbackActions` and `AssistantFailureMessage` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
   component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
   (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
+  A thread `ThreadView` does not render (Max's legacy thread) enters the skin through `QuillThreadSkin` and draws its
+  messages with the plain-prop `QuillHumanBubble` / `QuillAssistantBubble` (`api/primitives`). A story or test pins a
+  subtree's skin with `ThreadSkinOverrideContext`; product code lets the flags decide.
   Grouping is the one rule that differs by skin, and `ThreadView` picks it.
   The lemon thread folds every activity run (`groupThreadActivity`).
   The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).

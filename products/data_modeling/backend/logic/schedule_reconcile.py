@@ -432,23 +432,31 @@ async def _apply_reconciliation(
     # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
     # stay — a re-run converges) without letting a failed delete mask the original error.
     created: list[str] = []
+
+    async def create_or_converge(schedule_id: str, schedule: Schedule) -> None:
+        try:
+            await a_create_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            created.append(schedule_id)
+        except ScheduleAlreadyRunningError:
+            # A concurrent reconcile of the same DAG created this tier from the same graph;
+            # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
+            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+
     try:
         for schedule_id, (tier, node_ids) in plan.to_create.items():
+            await create_or_converge(schedule_id, _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids))
+        for schedule_id, (tier, node_ids) in plan.to_update.items():
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             try:
-                await a_create_schedule(
-                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
-                )
-                created.append(schedule_id)
-            except ScheduleAlreadyRunningError:
-                # A concurrent reconcile of the same DAG created this tier from the same graph;
-                # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
                 await a_update_schedule(
                     temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
                 )
-        for schedule_id, (tier, node_ids) in plan.to_update.items():
-            schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
-            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            except RPCError as error:
+                if error.status != RPCStatusCode.NOT_FOUND:
+                    raise
+                # The listing reads Temporal's eventually consistent visibility store, so it can
+                # still name a tier that a teardown or a concurrent reconcile just deleted.
+                await create_or_converge(schedule_id, schedule)
     except Exception:
         for schedule_id in created:
             try:

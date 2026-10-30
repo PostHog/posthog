@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
@@ -501,6 +501,9 @@ describe('ApiClient', () => {
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(result.success).toBe(false)
+            const error = result.success ? undefined : result.error
+            expect(error).toBeInstanceOf(PostHogApiError)
+            expect((error as PostHogApiError).status).toBe(404)
 
             vi.unstubAllGlobals()
         })
@@ -787,5 +790,17 @@ describe('ApiClient', () => {
                 expect(await pending).toMatchObject({ timedOut: true })
             }
         )
+
+        it('ends a request at its own shorter deadline', async () => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            const pending = client
+                .request({ method: 'GET', path: '/api/projects/17/integrations/', timeoutMs: 10 * 1000 })
+                .catch((error) => error)
+
+            await vi.advanceTimersByTimeAsync(10 * 1000)
+
+            expect(await pending).toMatchObject({ timedOut: true })
+        })
     })
 })

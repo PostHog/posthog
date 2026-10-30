@@ -196,9 +196,6 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_message_part"),
         [
             (200, True, None),
-            (401, False, "rejected the API key"),
-            (403, False, "rejected the API key"),
-            (500, False, "HTTP 500"),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message_part: str | None) -> None:

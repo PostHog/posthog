@@ -1,4 +1,4 @@
-//! Pipelined consume → filter → re-key → produce loop for `clickhouse_events_json`.
+//! Pipelined consume → filter → re-key → produce loop for the input topic.
 //!
 //! Drops events with no `person_id`, skips teams with no realtime cohorts, then re-keys the
 //! survivors by `(team_id, person_id)`, gating on the realtime-cohort filter catalog.
@@ -24,7 +24,7 @@ use serde::{de::IgnoredAny, Deserialize};
 use tokio::task::JoinError;
 use tracing::{debug, error, info, warn};
 
-use crate::event::{personless_mode, CohortStreamEvent};
+use crate::event::{personless_mode, CohortStreamEvent, SourcePartitionRange};
 use crate::filter_team_index::TeamIndex;
 use crate::ledger::{
     DeliveryOutcome, Ledger, NextOffset, Observation, Resolution, SourceOffset, SourcePartition,
@@ -151,6 +151,7 @@ type CommitFuture =
 
 #[derive(Debug, Clone, Copy)]
 pub struct ShufflerSettings {
+    pub source_partitions: SourcePartitionRange,
     pub max_inflight_forwards: usize,
     pub commit_interval: Duration,
     pub queue_full_backoff: Duration,
@@ -339,6 +340,19 @@ impl EventShuffler {
         counter!(EVENTS_CONSUMED).increment(1);
         let partition = SourcePartition(offset.partition());
         let source_offset = SourceOffset(offset.get_value());
+        // Returning before the ledger observes the message leaves its partition uncommitted, so a
+        // fixed build reads the message again.
+        let Some(envelope_partition) = self
+            .settings
+            .source_partitions
+            .envelope_partition(partition)
+        else {
+            self.handle.signal_failure(format!(
+                "input partition {} has no source_partition in this topic's range",
+                partition.0
+            ));
+            return Intake::Open;
+        };
 
         let (event, person_id) = match decoded {
             Decoded::Forward { event, person_id } => (event, person_id),
@@ -366,7 +380,7 @@ impl EventShuffler {
             event: CohortStreamEvent::from_clickhouse(
                 *event,
                 person_id,
-                partition.0,
+                envelope_partition,
                 source_offset.0,
             ),
             partition,

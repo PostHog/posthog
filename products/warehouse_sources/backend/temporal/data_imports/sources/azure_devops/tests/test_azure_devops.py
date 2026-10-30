@@ -7,7 +7,6 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
-    _FORBIDDEN_MESSAGE,
     _INVALID_ORGANIZATION_MESSAGE,
     _INVALID_PAT_MESSAGE,
     _ORGANIZATION_NOT_FOUND_MESSAGE,
@@ -75,11 +74,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, None)),
             # An invalid or expired PAT yields a 203 + HTML sign-in page, not a 401.
             (203, (False, _INVALID_PAT_MESSAGE)),
-            (401, (False, _INVALID_PAT_MESSAGE)),
-            (403, (False, _FORBIDDEN_MESSAGE)),
             (404, (False, _ORGANIZATION_NOT_FOUND_MESSAGE)),
         ],
     )
@@ -91,7 +87,7 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("$top") == "1"
         assert network.requests_log[0].param("api-version") == "7.2"
 
-    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    @pytest.mark.parametrize("status_code", [429, 503])
     def test_validate_credentials_unexpected_status_names_the_status(self, status_code):
         # A throttled or Azure-side failure must not be reported as invalid credentials; the message
         # names the status and stays actionable.

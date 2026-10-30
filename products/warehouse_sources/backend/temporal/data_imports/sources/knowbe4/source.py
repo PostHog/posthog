@@ -120,7 +120,7 @@ class Knowbe4Source(SimpleSource[Knowbe4SourceConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/knowbe4",
             iconPath="/static/services/knowbe4.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

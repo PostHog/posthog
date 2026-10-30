@@ -7,7 +7,6 @@ export const billingUnsubscribedJson: BillingType = {
         plan: LicensePlan.Dev
     },
     customer_id: "cus_OfAfHKf4QiD0rs",
-    deactivated: false,
     has_active_subscription: false,
     billing_period: {
         current_period_start: dayjs("2023-11-17T23:19:00.444Z"),

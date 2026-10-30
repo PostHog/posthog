@@ -64,7 +64,7 @@ class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]
             name=ExternalDataSourceType.DOCUSEAL,
             category=DataWarehouseSourceCategory.SALES,
             label="DocuSeal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your DocuSeal API key to sync your templates, submissions, and submitters into the PostHog Data warehouse.
 
 Create an API key under **Settings → API** in your [DocuSeal console](https://console.docuseal.com/api). The key has full account access — DocuSeal does not offer per-resource scopes.

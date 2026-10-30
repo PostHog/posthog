@@ -3,8 +3,10 @@ import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,27 +27,38 @@ export function AgenticAccountMismatch(): JSX.Element {
     const nextUrl = state ? `/api/agentic/authorize?state=${encodeURIComponent(state)}` : null
 
     return (
-        <BridgePage view="agentic-account-mismatch">
-            <div className="text-center mb-4">
-                <IconErrorOutline className="text-warning text-4xl" />
-            </div>
-            <h2 className="text-center">Account mismatch</h2>
-            <div className="text-center mb-6">
-                <p className="mb-2">
-                    You're currently logged in as <strong>{currentEmail}</strong>, but your {partnerName} account is
-                    linked to {expectedEmail ? <strong>{expectedEmail}</strong> : 'a different PostHog account'}.
-                </p>
-                <p>To continue, log out and sign in with the correct email.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-                <LemonButton fullWidth type="primary" center onClick={() => logout(false, nextUrl ?? undefined)}>
-                    {expectedEmail ? `Log out and continue as ${expectedEmail}` : 'Log out and continue'}
-                </LemonButton>
-                <LemonButton fullWidth type="secondary" center to="/">
-                    Cancel
-                </LemonButton>
-            </div>
-        </BridgePage>
+        <AuthScene notes={AUTH_NOTES.accountMismatch.default}>
+            <AuthSceneCard>
+                <AuthCardTitle title="Account mismatch" sub="Let's get you into the right one." />
+                <div className="flex flex-col gap-3">
+                    <AuthBanner variant="warning">
+                        <p className="m-0 mb-1.5">
+                            <span>You're currently logged in as</span> <strong>{currentEmail}</strong>
+                            <span>{`, but your ${partnerName} account is linked to`}</span>{' '}
+                            {expectedEmail ? (
+                                <strong>{expectedEmail}</strong>
+                            ) : (
+                                <span>a different PostHog account</span>
+                            )}
+                            <span>.</span>
+                        </p>
+                        <p className="m-0">To continue, log out and sign in with the correct email.</p>
+                    </AuthBanner>
+                    <LemonButton
+                        fullWidth
+                        type="primary"
+                        center
+                        size="large"
+                        onClick={() => logout(false, nextUrl ?? undefined)}
+                    >
+                        {expectedEmail ? `Log out and continue as ${expectedEmail}` : 'Log out and continue'}
+                    </LemonButton>
+                    <LemonButton fullWidth type="secondary" center size="large" to="/">
+                        Cancel
+                    </LemonButton>
+                </div>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 

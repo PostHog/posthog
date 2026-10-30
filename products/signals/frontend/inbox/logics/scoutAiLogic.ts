@@ -21,6 +21,7 @@ export const SCOUT_AI_PANEL = 'inbox-scout'
 export const SCOUT_NOTE_CREATE_TOOL = 'scout-notes-create'
 
 export interface ScoutChatContext {
+    scoutId: string
     skillName: string
     scoutName: string
 }
@@ -29,13 +30,14 @@ export interface ScoutChatContext {
 export const SCOUT_AI_STARTER_QUESTIONS: { id: string; question: string }[] = [
     { id: 'found_lately', question: 'What have you found lately?' },
     { id: 'working', question: 'Are you working?' },
-    { id: 'no_reports', question: 'Why did you report nothing yesterday?' },
+    { id: 'recent_reports', question: 'Summarize your recent reports' },
 ]
 
 // Our own static string, which is what makes it safe as a trusted `instructions` item. The scout's
-// name and skill_name ride in the untrusted `signal_scout` item instead.
+// configuration ID rides in the untrusted `inbox_scout` item instead.
 const SCOUT_AI_INSTRUCTIONS = [
-    'The user is looking at one PostHog Signals scout: the `signal_scout` context item, keyed by its `skill_name`. Answer about that scout without asking which one.',
+    'The user is looking at one Self-driving scout: the `inbox_scout` context item, keyed by its configuration ID. Answer about that scout without asking which one.',
+    'Use `scout-config-list` to find the configuration with that ID and read its `skill_name`. Use that skill name to retrieve its skill body, scratchpad entries, notes, and runs.',
     'Load the `exploring-scouts` skill before your first tool call. Load `authoring-scouts` too when the user wants to change the scout.',
     "Before you answer, read the scout's skill body, its scratchpad entries, its notes, and its recent runs with the scout MCP tools.",
     'Answer in the first person, as the scout (for example, "I ran 4 times this week").',
@@ -44,9 +46,9 @@ const SCOUT_AI_INSTRUCTIONS = [
     "Do not change the scout's skill or settings unless the user asks for that change.",
 ].join(' ')
 
-export function scoutAiContextItems({ skillName, scoutName }: ScoutChatContext): AttachedContextItem[] {
+export function scoutAiContextItems({ scoutId }: ScoutChatContext): AttachedContextItem[] {
     return [
-        { type: 'signal_scout', key: skillName, label: `Scout: ${scoutName}`, dismissible: false },
+        { type: 'inbox_scout', key: scoutId, label: 'Self-driving scout', dismissible: false },
         { type: 'instructions', value: SCOUT_AI_INSTRUCTIONS, hidden: true },
     ]
 }

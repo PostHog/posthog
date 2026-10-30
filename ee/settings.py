@@ -11,8 +11,12 @@ from posthog.utils import str_to_bool
 # SSO
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
-    "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.sso.MultitenantSAMLAuth",
     "posthog.api.oidc.MultitenantOIDCAuth",
+    "posthog.api.sso.CustomGoogleOAuth2",
+    # Legacy paths for sessions issued before the move. They resolve existing sessions but
+    # refuse to authenticate, so new sessions only ever use the paths above.
+    "ee.api.authentication.MultitenantSAMLAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
@@ -58,7 +62,7 @@ if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_O
     # middleware must be added after `AuthenticationMiddleware``
     MIDDLEWARE = MIDDLEWARE.copy()
     auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
-    MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
+    MIDDLEWARE.insert(auth_middleware_index + 1, "posthog.admin.oauth2.AdminOAuth2Middleware")
 
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
@@ -104,12 +108,9 @@ LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY i
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
-# Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY
-REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
-BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
 LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
@@ -153,20 +154,3 @@ VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", 
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
 VERCEL_INTEGRATION_SLUG = get_from_env("VERCEL_INTEGRATION_SLUG", "posthog", type_cast=str)
 BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
-
-# SCIM Configuration
-# django-scim2 requires these settings
-SCIM_SERVICE_PROVIDER = {
-    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
-    "AUTHENTICATION_SCHEMES": [
-        {
-            "type": "oauthbearertoken",
-            "name": "OAuth Bearer Token",
-            "description": "Authentication scheme using the OAuth Bearer Token Standard",
-            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-            "documentationUri": "https://posthog.com/docs/settings/scim",
-        }
-    ],
-    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
-    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
-}

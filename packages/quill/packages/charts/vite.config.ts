@@ -8,9 +8,9 @@ import dts from 'vite-plugin-dts'
  * pipeline. The runtime deps (d3-*, dayjs, @floating-ui/react,
  * simple-statistics) stay external and are redeclared as real
  * `dependencies` so the consumer's package manager installs them; react /
- * react-dom are peers. The dev/story-only entries (testing, story-helpers)
- * are excluded — in-repo consumers reach them via tsconfig path aliases /
- * jest moduleNameMapper against src, not the published package.
+ * react-dom are peers. `testing` ships as a second entry so code outside
+ * this repo can test its charts; @testing-library/react is an optional peer.
+ * story-helpers stays unpublished — only this repo's stories use it.
  */
 export default defineConfig({
     plugins: [
@@ -22,16 +22,18 @@ export default defineConfig({
                 'src/**/*.test.tsx',
                 'src/**/*.stories.ts',
                 'src/**/*.stories.tsx',
-                'src/testing/**',
                 'src/story-helpers.tsx',
             ],
         }),
     ],
     build: {
         lib: {
-            entry: resolve(__dirname, 'src/index.ts'),
+            entry: {
+                index: resolve(__dirname, 'src/index.ts'),
+                testing: resolve(__dirname, 'src/testing/index.ts'),
+            },
             formats: ['es', 'cjs'],
-            fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
+            fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
             external: [
@@ -39,6 +41,7 @@ export default defineConfig({
                 'react-dom',
                 'react/jsx-runtime',
                 '@floating-ui/react',
+                '@testing-library/react',
                 'd3-array',
                 'd3-color',
                 'd3-scale',

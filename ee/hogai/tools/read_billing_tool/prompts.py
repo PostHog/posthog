@@ -21,10 +21,6 @@ The user's current project is {{current_team_name}} (ID: {{current_team_id}}).
 {{#startup_program_label_previous}}
 - Previous startup program: {{startup_program_label_previous}}
 {{/startup_program_label_previous}}
-{{#is_deactivated}}
-- Status: Account is deactivated
-{{/is_deactivated}}
-
 {{#billing_period}}
 ## Billing Period
 - Period: {{current_period_start}} to {{current_period_end}} ({{interval}}ly billing)

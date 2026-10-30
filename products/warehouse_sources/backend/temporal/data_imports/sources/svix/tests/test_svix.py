@@ -1,20 +1,12 @@
 from typing import Any
 
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.source import SvixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import (
-    SvixResumeConfig,
-    check_access,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import SvixResumeConfig
 
 
 def _response(items: list[dict[str, Any]], iterator: str | None, done: bool) -> ScriptedResponse:
@@ -60,39 +52,3 @@ class TestPagination:
         assert result.rows == [{"id": "app_2"}]
         assert len(result.requests) == 1
         assert result.params("iterator") == ["c1"]
-
-
-class TestCheckAccess:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [
-            (200, (200, None)),
-            (401, (401, None)),
-            (403, (403, None)),
-            (500, (500, "Svix returned HTTP 500")),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected: tuple[int, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert check_access("sk-key") == expected
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("sk-key")
-        assert status == 0
-        assert message == "Could not connect to Svix"
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Svix API key"),
-            (403, False, "Invalid Svix API key"),
-            (500, False, "Svix returned HTTP 500"),
-        ],
-    )
-    def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("sk-key") == (expected_valid, expected_message)

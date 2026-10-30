@@ -118,7 +118,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
             iconPath="/static/services/singular.png",
             docsUrl="https://posthog.com/docs/cdp/sources/singular",
             keywords=["mmp", "attribution", "marketing measurement"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -132,6 +132,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="dimensions",
+                        sync_setting=True,
                         label="Dimensions",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -141,6 +142,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="metrics",
+                        sync_setting=True,
                         label="Metrics",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -150,6 +152,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="cohort_metrics",
+                        sync_setting=True,
                         label="Cohort metrics",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -159,6 +162,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="cohort_periods",
+                        sync_setting=True,
                         label="Cohort periods",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

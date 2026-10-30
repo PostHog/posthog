@@ -39,6 +39,7 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -46,6 +47,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -365,6 +367,7 @@ function TraceNavigation(): JSX.Element {
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(traceLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const baseSearchParams = sanitizeTraceUrlSearchParams(searchParams)
 
     // Navigate to newer (more recent) or older traces
@@ -399,6 +402,33 @@ function TraceNavigation(): JSX.Element {
         },
         [olderTraceId, newerTraceId, olderTimestamp, newerTimestamp, neighborsLoading, viewMode]
     )
+
+    if (todayRailNav) {
+        return (
+            <div className="flex items-center gap-1">
+                <Button
+                    variant="outline"
+                    aria-label="Newer trace"
+                    tooltip="Newer trace"
+                    disabled={!newerTraceId || neighborsLoading}
+                    onClick={goToNewer}
+                >
+                    <IconChevronLeft />
+                    <KeyboardShortcut p />
+                </Button>
+                <Button
+                    variant="outline"
+                    aria-label="Older trace"
+                    tooltip="Older trace"
+                    disabled={!olderTraceId || neighborsLoading}
+                    onClick={goToOlder}
+                >
+                    <IconChevronRight />
+                    <KeyboardShortcut n />
+                </Button>
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center gap-1">

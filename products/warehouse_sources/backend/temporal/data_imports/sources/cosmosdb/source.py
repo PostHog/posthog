@@ -59,6 +59,10 @@ class CosmosDBSource(
         return ExternalDataSourceType.COSMOSDB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "cosmosdb"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The stored key signs every request to this endpoint, so retargeting it must re-require the key.
         return ["account_endpoint"]
@@ -70,7 +74,7 @@ class CosmosDBSource(
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["azure cosmos", "documentdb"],
             label="Azure Cosmos DB",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync the containers of an Azure Cosmos DB for NoSQL database into the PostHog Data warehouse. Each container becomes a table, and incremental syncs use the `_ts` system property Cosmos stamps on every write.
 
 Enter the account endpoint (`https://<account>.documents.azure.com`), a read-only or read-write key from the account's **Keys** page, and the database to sync. Only the NoSQL API is supported.""",

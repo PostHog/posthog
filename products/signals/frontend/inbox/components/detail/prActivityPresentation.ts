@@ -2,6 +2,7 @@ import type { SignalReportArtefact } from '../../types'
 import { parsePrUrlParts } from '../../utils/reportPresentation'
 import {
     artefactTypeLabel,
+    DismissalContent,
     ImplementationDecisionContent,
     ImplementationHandoverContent,
     ImplementationReplacementContent,
@@ -14,6 +15,16 @@ function prReference(url: string): string {
 
 export function prActivityTitle(artefact: SignalReportArtefact): string {
     switch (artefact.type) {
+        case 'dismissal': {
+            const state = (artefact.content as DismissalContent).state
+            return state === 'resolved'
+                ? 'Report resolved'
+                : state === 'suppressed'
+                  ? 'Report dismissed'
+                  : state === 'potential'
+                    ? 'Report snoozed'
+                    : 'Report feedback added'
+        }
         case 'pull_request': {
             const url = typeof artefact.content.url === 'string' ? artefact.content.url : ''
             return `${prReference(url)} linked`

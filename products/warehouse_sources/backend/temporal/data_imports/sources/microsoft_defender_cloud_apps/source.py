@@ -115,7 +115,7 @@ class MicrosoftDefenderCloudAppsSource(ResumableSource[MicrosoftDefenderCloudApp
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Microsoft Defender for Cloud Apps",
             iconPath="/static/services/microsoft_defender_cloud_apps.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create a token in Microsoft Defender under Settings > Cloud Apps > System > API tokens. "
                 "Use a token from a user with permission to read the selected tables. "

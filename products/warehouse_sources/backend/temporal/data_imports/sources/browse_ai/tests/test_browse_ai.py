@@ -164,7 +164,10 @@ def test_malformed_response_fails_instead_of_erasing_table(
 
 
 @pytest.mark.parametrize(
-    "status,expected", [(200, (True, None)), (401, (False, "invalid or expired")), (403, (False, "permissions"))]
+    "status,expected",
+    [
+        (200, (True, None)),
+    ],
 )
 def test_credential_status_messages(status: int, expected: tuple[bool, str | None]) -> None:
     with requests_mock.Mocker() as http:

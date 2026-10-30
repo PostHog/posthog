@@ -31,8 +31,7 @@ const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => nam
  * Names the Events group adds to its own exclusions.
  *
  * Empty when the team's `flag_evaluations_mode` is Events or missing, or when the picker passes
- * `includeHiddenEvents`. Surfaces that browse captured events (the activity explorer, live events, a
- * group's event feed, ingestion triggers) and the experiment pickers pass it.
+ * `includeHiddenEvents`. `TaxonomicFilterProps.includeHiddenEvents` says which pickers pass it.
  *
  * For an organization on mode 1, the team API reports Events while the
  * `FLAG_EVALUATIONS_READS_FORCE_EVENTS` instance setting is on, so its pickers show these events again.

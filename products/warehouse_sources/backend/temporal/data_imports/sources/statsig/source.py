@@ -141,7 +141,7 @@ class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
             "The key needs read access to the tables you select. The users table contains project members.",
             docsUrl="https://posthog.com/docs/cdp/sources/statsig",
             iconPath="/static/services/statsig.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

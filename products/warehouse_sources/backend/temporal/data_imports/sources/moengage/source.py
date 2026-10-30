@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MoEngageSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.moengage import (
+    FLOWS_UNSUPPORTED_DATA_CENTER_ERROR,
     MoEngageResumeConfig,
     moengage_source,
     parse_iso_date,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.m
     validate_credentials as validate_moengage_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
+    FLOWS_UNSUPPORTED_DATA_CENTERS,
     INCREMENTAL_FIELDS,
     MOENGAGE_DATA_CENTERS,
     MOENGAGE_ENDPOINTS,
@@ -124,11 +126,12 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
         message = (
             "MoEngage authentication failed. Check that the Workspace ID and the Campaign report API key "
             "(Settings > Account > APIs in your MoEngage dashboard) are correct and match your data center, "
-            "then reconnect the source."
+            "and that the key has access to Segmentation APIs if you sync segments. Then reconnect the source."
         )
         return {
             "401 Client Error: Unauthorized for url": message,
             "403 Client Error: Forbidden for url": message,
+            FLOWS_UNSUPPORTED_DATA_CENTER_ERROR: FLOWS_UNSUPPORTED_DATA_CENTER_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -158,6 +161,7 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
             )
             for endpoint_config in MOENGAGE_ENDPOINTS.values()
+            if not (endpoint_config.name == "flows" and config.data_center in FLOWS_UNSUPPORTED_DATA_CENTERS)
         ]
         if names is not None:
             names_set = set(names)
@@ -207,6 +211,8 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
             configured_start_date=config.start_date,
             last_synced_at=inputs.last_synced_at,
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            project_code=config.project_code,
+            flow_teams=config.flow_teams,
         )
 
     @property
@@ -215,10 +221,10 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
             name=ExternalDataSourceType.MOENGAGE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MoEngage",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync your MoEngage campaigns and their performance reports into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Sync your MoEngage campaigns, flows, segments, subscription categories, and campaign performance reports into the PostHog Data warehouse.
 
-Find your Workspace ID and the **Campaign report** API key in your MoEngage dashboard under **Settings** > **Account** > **APIs**. Pick the data center your dashboard URL shows (for example, `dashboard-01.moengage.com` is DC-01).
+Find your Workspace ID and the **Campaign report** API key in your MoEngage dashboard under **Settings** > **Account** > **APIs**. Pick the data center your dashboard URL shows (for example, `dashboard-01.moengage.com` is DC-01). To sync the `segments` table, give the key access to **Segmentation APIs** too.
 
 The `daily_campaign_report` table backfills the last 90 days by default. Set a daily report start date to backfill further. The `campaign_report` table always covers the last 30 days.""",
             docsUrl="https://posthog.com/docs/cdp/sources/moengage",
@@ -255,11 +261,31 @@ The `daily_campaign_report` table backfills the last 90 days by default. Set a d
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Daily report start date (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="2025-01-01",
                         secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="project_code",
+                        label="Project ID (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="",
+                        secret=False,
+                        caption="Required for the `subscription_categories` table if your workspace uses Portfolio. Find it under **Settings** > **Account** > **Portfolio**.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="flow_teams",
+                        sync_setting=True,
+                        label="Flow team names (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="Marketing, Growth",
+                        secret=False,
+                        caption="Required for the `flows` table if your workspace has teams turned on for Flows. Enter team names separated by commas. Leave it empty otherwise.",
                     ),
                 ],
             ),

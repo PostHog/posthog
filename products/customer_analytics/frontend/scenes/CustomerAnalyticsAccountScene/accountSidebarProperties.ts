@@ -1,4 +1,7 @@
+import type { AccountsTableAccountField } from '~/queries/schema/schema-general'
+
 import type {
+    AccountApi,
     AccountRelationshipApi,
     CustomPropertyValueApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -11,17 +14,36 @@ export interface AccountSidebarPropertyData {
     relationships: AccountRelationshipApi[]
 }
 
+// Some account fields are top-level attributes and the others live in `properties`.
+function accountFieldValue(account: AccountApi | null, field: AccountsTableAccountField): string | null {
+    if (!account) {
+        return null
+    }
+    const values: Record<string, unknown> = { ...account.properties, ...account }
+    const value = values[field]
+    return typeof value === 'string' && value !== '' ? value : null
+}
+
 export function buildAccountSidebarProperties(
     pinnedProperties: ResolvedPinnedAccountProperty[],
     data: AccountSidebarPropertyData | null,
+    account: AccountApi | null,
     editable: boolean
 ): AccountSidebarProperty[] {
-    if (!data) {
+    if (!data && pinnedProperties.some(({ kind }) => kind !== 'account_field')) {
         return []
     }
-    const valuesByDefinition = new Map(data.customValues.map((value) => [value.definition_id, value.value]))
+    const valuesByDefinition = new Map((data?.customValues ?? []).map((value) => [value.definition_id, value.value]))
     return pinnedProperties.map((property): AccountSidebarProperty => {
         const key = pinnedPropertyToConfiguratorKey(property.reference)
+        if (property.kind === 'account_field') {
+            return {
+                key,
+                kind: 'account_field',
+                field: property.field,
+                value: accountFieldValue(account, property.field.key),
+            }
+        }
         if (property.kind === 'custom_property') {
             const { definition } = property
             return {
@@ -44,7 +66,7 @@ export function buildAccountSidebarProperties(
             kind: 'relationship',
             definition: property.definition,
             editable,
-            members: data.relationships.flatMap((relationship) =>
+            members: (data?.relationships ?? []).flatMap((relationship) =>
                 relationship.definition.id === property.definition.id && !relationship.ended_at && relationship.user
                     ? [relationship.user]
                     : []

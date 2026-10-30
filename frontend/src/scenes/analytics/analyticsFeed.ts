@@ -10,18 +10,29 @@ import {
     fileSystemEntryToAnalytics,
 } from './analyticsUtils'
 
-export const ANALYTICS_FEED_PAGE_SIZE = 50
+export const ANALYTICS_FEED_PAGE_SIZE = 20
 
 export interface AnalyticsFeedQuery {
     type: AnalyticsTypeFilter
+    orderBy?: '-created_at' | '-last_viewed_at' | 'last_viewed_at'
     search: string
-    /** Creators' uuids; empty means anyone. The file system cannot filter on it, so the rows are narrowed on the client. */
+    /** Creators' uuids; empty means anyone. The file system cannot filter on a uuid, so the rows are narrowed on the client. */
     createdBy: string[]
+    /** True when the only creator is the current person, so the file system narrows the rows itself with `user:me`. */
+    createdByMe: boolean
     /** Tag names a row must all carry. Like the creator, narrowed on the client. */
     tags: string[]
+    /** Leaves insights out of the All list. Picking the insight type still shows them. */
+    hideInsights?: boolean
 }
 
-export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: [], tags: [] }
+export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = {
+    type: 'all',
+    search: '',
+    createdBy: [],
+    createdByMe: false,
+    tags: [],
+}
 
 export interface AnalyticsSourcePage {
     items: AnalyticsItem[]
@@ -57,12 +68,22 @@ export interface AnalyticsFeed {
 const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
 
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
-    const types = query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    const types =
+        query.type !== 'all'
+            ? [query.type]
+            : ANALYTICS_TYPES.map((info) => info.type).filter((type) => !query.hideInsights || type !== 'insight')
     return query.tags.length ? types.filter((type) => TAGGABLE_ANALYTICS_TYPES.has(type)) : types
 }
 
 export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery, type: AnalyticsType): string {
-    return JSON.stringify([projectId, query.search.trim(), query.createdBy, [...query.tags].sort(), type])
+    return JSON.stringify([
+        projectId,
+        query.search.trim(),
+        query.createdBy,
+        [...query.tags].sort(),
+        type,
+        query.orderBy ?? '-created_at',
+    ])
 }
 
 /** Keeps the rows a source's API could not filter itself. */
@@ -78,7 +99,7 @@ export function fileSystemTypeParams(type: AnalyticsType): { type?: string; type
     return type === 'insight' ? { type__startswith: 'insight' } : { type }
 }
 
-/** One page of a type's rows from the project file system, newest first, with the row's space. */
+/** One page of a type's rows from the project file system, in the requested order, with the row's space. */
 export async function fetchAnalyticsSourcePage(
     _projectId: string,
     type: AnalyticsType,
@@ -86,24 +107,50 @@ export async function fetchAnalyticsSourcePage(
     offset: number
 ): Promise<AnalyticsSourcePage> {
     const limit = ANALYTICS_FEED_PAGE_SIZE
+    // Without the server filter, a person's rows hide among everyone else's and each page brings few of them.
+    const search = [query.createdByMe ? 'user:me' : '', query.search.trim()].filter(Boolean).join(' ')
     const result = await api.fileSystem.list({
         ...fileSystemTypeParams(type),
-        search: query.search.trim() || undefined,
-        orderBy: '-created_at',
+        search: search || undefined,
+        orderBy: query.orderBy ?? '-created_at',
         includeTags: true,
         limit,
         offset,
     })
     const items = result.results.flatMap((entry: FileSystemEntry) => {
         const item = fileSystemEntryToAnalytics(entry, result.users ?? [])
-        return item && matchesAnalyticsQuery(item, query) ? [item] : []
+        if (!item || !matchesAnalyticsQuery(item, query)) {
+            return []
+        }
+        if (query.orderBy && query.orderBy !== '-created_at') {
+            item.timestamp = entry.last_viewed_at ?? null
+        }
+        return [item]
     })
     return { items, fetched: result.results.length, hasMore: !!result.next && result.results.length > 0 }
 }
 
-export function analyticsTime(item: AnalyticsItem): number {
-    return item.timestamp ? new Date(item.timestamp).getTime() : 0
+export function analyticsTime(item: AnalyticsItem, orderBy?: AnalyticsFeedQuery['orderBy']): number {
+    if (!item.timestamp) {
+        return -Infinity
+    }
+    const time = new Date(item.timestamp).getTime()
+    return orderBy === 'last_viewed_at' ? -time : time
 }
+
+function analyticsItemComesFirst(
+    first: AnalyticsItem,
+    second: AnalyticsItem,
+    orderBy?: AnalyticsFeedQuery['orderBy']
+): boolean {
+    const firstTime = analyticsTime(first, orderBy)
+    const secondTime = analyticsTime(second, orderBy)
+    if (firstTime !== secondTime) {
+        return firstTime > secondTime
+    }
+    return new Date(first.createdAt ?? 0).getTime() > new Date(second.createdAt ?? 0).getTime()
+}
+
 export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined)[]): {
     items: AnalyticsItem[]
     blocking: AnalyticsSourceState[]
@@ -125,8 +172,11 @@ export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined
             if (
                 positions[index] < states[index].items.length &&
                 (best === -1 ||
-                    analyticsTime(states[index].items[positions[index]]) >
-                        analyticsTime(states[best].items[positions[best]]))
+                    analyticsItemComesFirst(
+                        states[index].items[positions[index]],
+                        states[best].items[positions[best]],
+                        states[index].query?.orderBy
+                    ))
             ) {
                 best = index
             }

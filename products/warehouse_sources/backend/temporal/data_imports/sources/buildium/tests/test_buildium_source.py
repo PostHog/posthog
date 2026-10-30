@@ -1,7 +1,5 @@
 import pytest
 
-from requests.exceptions import HTTPError
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
     AUTH_ERROR,
     PERMISSION_ERROR,
@@ -29,20 +27,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 @pytest.mark.parametrize(
     ("status", "expected"),
-    [(200, (True, None)), (401, (False, AUTH_ERROR)), (403, (False, PERMISSION_ERROR)), (500, None)],
+    [
+        (200, (True, None)),
+        (401, (False, AUTH_ERROR)),
+        (403, (False, PERMISSION_ERROR)),
+        (500, (False, "Couldn't reach Buildium (RealPage) to check your credentials. Try again in a few minutes.")),
+    ],
 )
 def test_validate_credentials(
-    schema_name: str | None, expected_path: str, status: int, expected: tuple[bool, str | None] | None
+    schema_name: str | None, expected_path: str, status: int, expected: tuple[bool, str | None]
 ) -> None:
     config = BuildiumSourceConfig(client_id="example-client", client_secret="example-secret")
     answer = ScriptedResponse(status=status)
     script = always(answer) if status == 500 else [answer]
     with scripted_network(script) as network:
-        if expected is None:
-            with pytest.raises(HTTPError):
-                BuildiumSource().validate_credentials(config, 1, schema_name)
-        else:
-            assert BuildiumSource().validate_credentials(config, 1, schema_name) == expected
+        assert BuildiumSource().validate_credentials(config, 1, schema_name) == expected
 
     assert network.requests_log
     if status != 500:

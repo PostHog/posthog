@@ -2,14 +2,25 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ConversationState } from '../types'
 import { conversationalMessages } from './conversationalMessages'
+import { ErrorCallout } from './ErrorCallout'
 import { ThreadTurn } from './ThreadTurn'
+import { useSearchHighlight } from './useSearchHighlight'
 
 export interface ThreadProps {
     conversation: ConversationState
     onSelectMessage: (sourceNodeId: string) => void
+    highlightQuery?: string | null
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
-export function Thread({ conversation, onSelectMessage }: ThreadProps): JSX.Element {
+export function Thread({
+    conversation,
+    onSelectMessage,
+    highlightQuery = null,
+    matchingNodeIds = null,
+}: ThreadProps): JSX.Element {
+    const highlightRef = useSearchHighlight(highlightQuery)
     if (conversation.status === 'loading') {
         return (
             <div className="flex flex-col gap-3" role="status" aria-busy="true" aria-label="Loading conversation">
@@ -18,6 +29,9 @@ export function Thread({ conversation, onSelectMessage }: ThreadProps): JSX.Elem
                 <LemonSkeleton className="h-10 w-1/2 self-end" />
             </div>
         )
+    }
+    if (conversation.status === 'error') {
+        return <ErrorCallout message={conversation.message} />
     }
     const { turns, activeTurnId } = conversation
     if (turns.every((turn) => conversationalMessages(turn.messages).length === 0 && !turn.error)) {
@@ -28,13 +42,14 @@ export function Thread({ conversation, onSelectMessage }: ThreadProps): JSX.Elem
         )
     }
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" ref={highlightRef}>
             {turns.map((turn) => (
                 <ThreadTurn
                     key={turn.id}
                     turn={turn}
                     isActive={turns.length > 1 && turn.id === activeTurnId}
                     onSelectMessage={onSelectMessage}
+                    matchingNodeIds={matchingNodeIds}
                 />
             ))}
         </div>

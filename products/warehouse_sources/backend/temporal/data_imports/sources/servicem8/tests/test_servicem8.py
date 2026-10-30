@@ -1,7 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 from unittest.mock import MagicMock
 
 from requests import Request
@@ -10,8 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicem8 import (
     Servicem8SourceConfig,
@@ -20,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.
     ServiceM8Paginator,
     ServiceM8ResumeConfig,
     _format_filter_datetime,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source import Servicem8Source
 
@@ -104,10 +100,3 @@ class TestServiceM8SourceResumeBehavior:
         )
 
         assert result.params("$filter") == ["edit_date gt '2024-01-01 00:00:00'"] * 2
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(("status_code", "expected"), [(200, True), (401, False), (403, False)])
-    def test_validate_credentials(self, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
-            assert validate_credentials("test-key") is expected

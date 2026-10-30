@@ -36,7 +36,6 @@ SUBSCRIPTION: dict[str, Any] = {
     "subscription_level": "paid",
     "billing_plan": "boost",
     "billing_provider": "posthog",
-    "deactivated": False,
     "is_annual_plan_customer": False,
     "trial": {"id": 7, "type": "standard", "status": "active", "target": "paid", "expires_at": PERIOD_END},
     "discount_percent": 20,

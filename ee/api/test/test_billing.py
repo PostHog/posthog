@@ -101,7 +101,6 @@ def create_billing_response(**kwargs) -> dict[str, Any]:
 def create_missing_billing_customer(**kwargs) -> CustomerInfo:
     data: dict[str, Any] = {
         "customer_id": "cus_123",
-        "deactivated": False,
         "custom_limits_usd": {},
         "has_active_subscription": False,
         "current_total_amount_usd": "0.00",
@@ -132,7 +131,6 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         "current_total_amount_usd_after_discount": "100.00",
         "discount_percent": None,
         "discount_amount_usd": None,
-        "deactivated": False,
         "products": [
             {
                 "name": "Product OS",
@@ -429,7 +427,6 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "100.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "deactivated": False,
             "products": [
                 {
                     "name": "Product OS",
@@ -629,7 +626,6 @@ class TestBillingAPI(APILicensedTest):
             "current_total_amount_usd_after_discount": "0.00",
             "discount_percent": None,
             "discount_amount_usd": None,
-            "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "billing_managed_by_partner": None,
         }
@@ -813,6 +809,7 @@ class TestBillingAPI(APILicensedTest):
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
@@ -842,9 +839,9 @@ class TestBillingAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 1)
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(Team.objects.count(), 2)
 
-        demo_team = Team.objects.filter(is_demo=True).first()
+        demo_team = Team.objects.get(organization=self.organization, is_demo=True)
 
         # We create some events for the demo project
         with self.settings(USE_TZ=False):

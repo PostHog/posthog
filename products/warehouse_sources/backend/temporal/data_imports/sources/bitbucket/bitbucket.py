@@ -7,14 +7,17 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import (
     BITBUCKET_ENDPOINTS,
     BitbucketEndpointConfig,
     SecondLevelFanOut,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -122,7 +125,7 @@ def _ensure_bitbucket_url(url: str) -> str:
     return url
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             BitbucketRetryableError,

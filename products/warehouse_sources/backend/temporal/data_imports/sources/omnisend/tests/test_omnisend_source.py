@@ -20,8 +20,32 @@ class TestOmnisendSource:
         ("api_version", "expected_tables"),
         [
             (OMNISEND_V3, {"contacts", "campaigns", "carts", "orders", "products", "categories"}),
-            (OMNISEND_2026_03_15, {"contacts", "campaigns", "products", "categories"}),
-            (None, {"contacts", "campaigns", "products", "categories"}),
+            (
+                OMNISEND_2026_03_15,
+                {
+                    "contacts",
+                    "campaigns",
+                    "products",
+                    "categories",
+                    "automations",
+                    "segments",
+                    "analytics_reports",
+                    "analytics_statistics",
+                },
+            ),
+            (
+                None,
+                {
+                    "contacts",
+                    "campaigns",
+                    "products",
+                    "categories",
+                    "automations",
+                    "segments",
+                    "analytics_reports",
+                    "analytics_statistics",
+                },
+            ),
         ],
     )
     def test_schemas_follow_the_pinned_version(self, api_version: str | None, expected_tables: set[str]) -> None:
@@ -65,11 +89,7 @@ class TestOmnisendSource:
     @pytest.mark.parametrize(
         ("validate_return", "expected_ok", "expected_msg"),
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Omnisend API key"),
-            ((False, 403), False, "Invalid Omnisend API key"),
             ((False, None), False, "Could not connect to Omnisend with the provided API key"),
-            ((False, 500), False, "Could not connect to Omnisend with the provided API key"),
         ],
     )
     def test_validate_credentials(

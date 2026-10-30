@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { retryImport } from 'lib/utils/retryImport'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,7 +18,12 @@ import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
-import { TodaySparkline, type TodayTone } from './TodaySparkline'
+import type { TodayTone } from './todayTone'
+
+// The charts are most of the code the home page adds, so the numbers render first and the sparklines follow.
+const TodaySparkline = lazy(() =>
+    retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
+)
 
 const CHANGE_THRESHOLD = 3
 const MIN_ABSOLUTE_CHANGE = 5
@@ -56,11 +63,42 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
+const REORDER_MS = 220
+
+function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string): void {
+    const previous = useRef(order)
+    useLayoutEffect(() => {
+        const before = previous.current.split('|')
+        previous.current = order
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        listRef.current?.querySelectorAll<HTMLElement>('[data-pulse-key]').forEach((tile, index) => {
+            const was = before.indexOf(tile.dataset.pulseKey ?? '')
+            if (was !== -1 && was !== index) {
+                tile.animate(
+                    [
+                        { opacity: 0, transform: 'translateY(4px)' },
+                        { opacity: 1, transform: 'none' },
+                    ],
+                    {
+                        duration: REORDER_MS,
+                        easing: 'cubic-bezier(0.2, 0, 0, 1)',
+                    }
+                )
+            }
+        })
+    }, [order, listRef])
+}
+
 export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.Element {
+    const listRef = useRef<HTMLUListElement>(null)
+    useSettleOnReorder(listRef, metrics.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed } = useActions(todayHighlightsLogic)
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, holdPulseOrder, releasePulseOrder } =
+        useActions(todayHighlightsLogic)
     return (
-        <ul className="TodayPulse" aria-label="Key numbers, against the period before">
+        <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
             {metrics.map((metric, position) => {
                 const isInsight = metric.key.startsWith('insight:')
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
@@ -75,25 +113,38 @@ export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.
                             <TodayChange change={metric.change_pct} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
-                            <TodaySparkline
-                                values={metric.series}
-                                labels={seriesLabels(metric)}
-                                emphasizeLast={metric.interval === 'day' ? 7 : 1}
-                                tone={tone}
-                            />
+                            <Suspense fallback={null}>
+                                <TodaySparkline
+                                    values={metric.series}
+                                    labels={seriesLabels(metric)}
+                                    emphasizeLast={metric.interval === 'day' ? 7 : 1}
+                                    tone={tone}
+                                />
+                            </Suspense>
                         </span>
                     </>
                 )
                 return (
-                    <li key={metric.key} className="TodayPulse__metric">
+                    <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
-                            onOpen={() => pulseMetricPreviewed(metric, position)}
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    pulseMetricPreviewed(metric, position)
+                                    holdPulseOrder(
+                                        metric.key,
+                                        metrics.map((tile) => tile.key)
+                                    )
+                                } else {
+                                    releasePulseOrder(metric.key)
+                                }
+                            }}
                             card={
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
                                     formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
+                                    onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }
                         >

@@ -471,6 +471,33 @@ class SelectFinder(TraversingVisitor):
         return visitor.found
 
 
+class _CohortMembershipFinder(TraversingVisitor):
+    found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+            return
+        super().visit_compare_operation(node)
+
+    @classmethod
+    def has_cohort_membership(cls, node: ast.Expr) -> bool:
+        visitor = cls()
+        visitor.visit(node)
+        return visitor.found
+
+
+def _test_account_filters_read_cohorts(filters: dict, team: Team) -> bool:
+    # A HogQL test account filter such as `person_id IN COHORT 5` is not a cohort-type filter, so it
+    # skips the inlining in _build_test_account_filters and fails later in the bytecode compiler.
+    # This runs while an error is being reported, so a failure here must not replace that error.
+    try:
+        team_exprs = _build_test_account_filters(filters, team)
+    except Exception:
+        return False
+    return any(_CohortMembershipFinder.has_cohort_membership(expr) for expr in team_exprs)
+
+
 def _internal_user_settings_url(team_id: int) -> str:
     site_url = settings.SITE_URL.rstrip("/")
     return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
@@ -692,15 +719,20 @@ def compile_filters_bytecode(
     except Exception as e:
         error_msg = str(e)
 
-        # Cohort errors from sources other than test account filters (e.g. global
-        # property filters referencing a cohort) still hit the bytecode compiler's
-        # generic "Can't use cohorts in real-time filters" error.
-        if "Can't use cohorts in real-time filters" in error_msg:
-            settings_url = _internal_user_settings_url(team.id)
+        # Cohort errors that CohortInlineError does not catch (e.g. global property filters
+        # referencing a cohort, or a HogQL test account filter) still hit the bytecode
+        # compiler's generic "Can't use cohorts in real-time filters" error. Only link the
+        # internal user settings when the team's test account filters cause it.
+        if "Can't use cohorts in real-time filters" in error_msg and _test_account_filters_read_cohorts(filters, team):
             error_msg = (
-                f"Cohort membership can't be evaluated in real-time filters. "
-                f"Replace cohorts with equivalent inline person property filters. "
-                f"Update your filters at: {settings_url}"
+                "Your internal/test user filters use a cohort, and cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people. "
+                f"Update your filters at: {_internal_user_settings_url(team.id)}"
+            )
+        elif "Can't use cohorts in real-time filters" in error_msg:
+            error_msg = (
+                "Cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people."
             )
 
         filters["bytecode"] = None

@@ -49,7 +49,7 @@ class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
             name=ExternalDataSourceType.OPENWEATHER,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenWeather",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenWeather API key and the locations you want to track to pull weather data into the PostHog Data warehouse.
 
 Create an API key in your [OpenWeather account](https://home.openweathermap.org/api_keys). A newly created key can take a couple of hours to activate.
@@ -78,6 +78,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
                     ),
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
@@ -100,6 +101,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
             # A missing/invalid key (or a key not subscribed to the requested product) surfaces as a
             # 401 when `_fetch` calls `raise_for_status()`. Retrying can never satisfy it.
             "401 Client Error: Unauthorized for url: https://api.openweathermap.org": "Your OpenWeather API key is invalid, not yet activated, or not subscribed to this product. Check the key in your OpenWeather account, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://history.openweathermap.org": "Your OpenWeather API key is not subscribed to the History API. Disable the weather_history table or upgrade your OpenWeather plan.",
         }
 
     def get_schemas(
@@ -115,11 +117,11 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
         schemas = [
             SourceSchema(
                 name=endpoint,
-                # No server-side timestamp filter exists, so this is not true incremental sync.
-                # Append is supported: each sync re-polls the (cheap) snapshot and merge dedupes on
-                # `[lat, lon, dt]`, accumulating a time series across runs.
-                supports_incremental=False,
-                supports_append=True,
+                # Only the history endpoints filter server-side (`start`/`end`), so only they are
+                # true incremental. Append on the others re-polls the (cheap) snapshot each sync,
+                # accumulating a time series across runs.
+                supports_incremental=config.supports_incremental,
+                supports_append=config.supports_append,
                 incremental_fields=config.incremental_fields,
                 should_sync_default=config.should_sync_default,
                 description=config.description,
@@ -147,4 +149,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
             locations_raw=config.locations,
             logger=inputs.logger,
             api_version=self.resolve_api_version(inputs.api_version),
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

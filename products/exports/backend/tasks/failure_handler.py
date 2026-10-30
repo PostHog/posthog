@@ -41,6 +41,8 @@ from posthog.exceptions import (
 )
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
 # =============================================================================
 # Export Failure Classification
 # =============================================================================
@@ -231,6 +233,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
+    UserAccessControlError,  # The export creator has no access to a resource the query needs
 )
 
 TIMEOUT_ERRORS = (

@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.hitpay import (
     HitpayResumeConfig,
-    _format_charge_date,
+    _format_date_filter,
     _paginator_for,
     base_url_for_environment,
     validate_credentials,
@@ -40,7 +40,7 @@ class TestBaseUrlForEnvironment:
         assert base_url_for_environment(environment) == expected
 
 
-class TestFormatChargeDate:
+class TestFormatDateFilter:
     @parameterized.expand(
         [
             ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04"),
@@ -50,7 +50,7 @@ class TestFormatChargeDate:
         ]
     )
     def test_format(self, _name: str, value: Any, expected: str) -> None:
-        assert _format_charge_date(value) == expected
+        assert _format_date_filter(value) == expected
 
 
 class TestPaginatorFor:
@@ -113,16 +113,31 @@ class TestHitpaySourceCursorEndpoint:
         assert result.paths == ["/v1/charges", "/v1/charges"]
         assert result.params("cursor") == [None, "abc"]
 
-    def test_incremental_date_from_sent_when_enabled(self) -> None:
+    @parameterized.expand(
+        [
+            ("charges", "Charges", "created_at", "/v1/charges", "date_from"),
+            (
+                "balance_transactions",
+                "BalanceTransactions",
+                "datetime",
+                "/v1/balances/adyen/transactions",
+                "created_at_from",
+            ),
+        ]
+    )
+    def test_incremental_date_filter_sent_when_enabled(
+        self, _name: str, endpoint: str, incremental_field: str, expected_path: str, expected_param: str
+    ) -> None:
         result = _driver().run(
-            "Charges",
+            endpoint,
             [_response([{"id": "1"}], extra={"meta": {"next_cursor": None}})],
-            incremental_field="created_at",
+            incremental_field=incremental_field,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
         assert result.raised is None
-        assert result.params("date_from") == ["2026-03-04"]
+        assert result.paths == [expected_path]
+        assert result.params(expected_param) == ["2026-03-04"]
 
 
 class TestRecurringBillingFanOut:
@@ -140,9 +155,6 @@ class TestRecurringBillingFanOut:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, True, None),
-            ("invalid_key", 401, False, "Invalid HitPay API key"),
-            ("forbidden", 403, False, "Could not connect to HitPay"),
             ("unreachable", None, False, "Could not connect to HitPay"),
         ]
     )

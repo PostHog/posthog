@@ -69,6 +69,7 @@ from products.experiments.backend.metric_resolution import (
     saved_metric_link_role,
     saved_metric_links,
 )
+from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.stats.frequentist.method import DEFAULT_SEQUENTIAL_TUNING_PARAMETER
@@ -509,6 +510,18 @@ def find_calculation_config_by_key(
         if calculation_config.calculation_key() == calculation_key:
             return calculation_config
     return None
+
+
+def calculation_metric_name(experiment: Experiment, calculation_config: MetricCalculationConfig) -> str:
+    definition = calculation_config.definition
+    # An inline metric wins over a saved metric with the same uuid, as in `get_metrics_for_calculation`.
+    inline_uuids = {metric.get("uuid") for metric in experiment.metrics or [] if isinstance(metric, dict)}
+    if calculation_config.metric_id not in inline_uuids:
+        for link in saved_metric_links(experiment):
+            query = link.saved_metric.query
+            if isinstance(query, dict) and query.get("uuid") == calculation_config.metric_id:
+                return link.saved_metric.name
+    return definition.get("name") or get_default_metric_title(definition)
 
 
 def stamp_calculation_keys(

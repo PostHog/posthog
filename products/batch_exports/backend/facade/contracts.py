@@ -21,6 +21,7 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -31,6 +32,24 @@ BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
 
 class InvalidBatchExportFilters(ValueError):
     """Raised when event filters are not a list of filters a batch export can apply."""
+
+
+class InvalidDestinationConfigError(ValueError):
+    """Raised when a destination config does not match the workflow inputs of its destination type.
+
+    The message says which field is wrong.
+    """
+
+
+class InvalidBatchExportDestinationError(ValueError):
+    """Raised when a destination cannot be saved, for a new export or as a change to an existing one.
+
+    The message says which check failed.
+    """
+
+
+class BatchExportScheduleError(Exception):
+    """Raised when Temporal rejects a change to the schedule of a batch export."""
 
 
 class UnsupportedDestinationTestError(ValueError):
@@ -58,6 +77,33 @@ class TooManyConcurrentFileDownloadsError(Exception):
 
 class FileDownloadStartError(Exception):
     """Raised when the workflow of a new file download does not start. The run is saved as failed."""
+
+
+class BatchExportNotFoundError(LookupError):
+    """Raised when the team has no batch export with the id a request names."""
+
+
+class BatchExportRunNotFoundError(LookupError):
+    """Raised when a batch export of the team has no run with the id a request names."""
+
+
+class BatchExportBackfillNotFoundError(LookupError):
+    """Raised when a batch export of the team has no backfill with the id a request names."""
+
+
+class InvalidBatchExportRunRequestError(ValueError):
+    """Raised when a run cannot do what was asked, for example cancel a run that has finished."""
+
+
+class InvalidBackfillRequestError(ValueError):
+    """Raised when a backfill cannot do what was asked, for example start over a range that is not valid.
+
+    The message says what is wrong with the request.
+    """
+
+
+class TooManyConcurrentBackfillsError(Exception):
+    """Raised when a team already has the maximum number of backfills starting or running."""
 
 
 @dataclass(frozen=True)
@@ -206,6 +252,250 @@ class FileDownloadRun:
     error: str | None
     files: tuple[UUID, ...] | None
     records_completed: int | None
+
+
+# The fields a page of runs or backfills can be ordered by, as the API's `ordering` parameter names them.
+BATCH_EXPORT_RUN_ORDERING_FIELDS = ("created_at", "data_interval_start")
+BATCH_EXPORT_BACKFILL_ORDERING_FIELDS = ("created_at", "start_at")
+
+
+@dataclass(frozen=True)
+class ListPageBound:
+    """Where a page of an ordered list starts.
+
+    Only the items whose first ordering field sorts before ``value`` (when ``before``) or after
+    it (otherwise) are on the page. ``value`` is the field's value as text, as an API cursor carries it.
+    """
+
+    value: str
+    before: bool
+
+
+@dataclass(frozen=True)
+class ListPage:
+    """One page of an ordered list.
+
+    ``ordering`` names the fields to sort by, most significant first. A leading ``-`` sorts that
+    field in descending order. The page skips ``offset`` items past ``bound`` and holds at most
+    ``limit`` items.
+    """
+
+    ordering: tuple[str, ...]
+    bound: ListPageBound | None
+    offset: int
+    limit: int
+
+
+@dataclass(frozen=True)
+class DatetimeRange:
+    """A range of time that includes both of its ends."""
+
+    start: dt.datetime
+    end: dt.datetime
+
+
+@dataclass(frozen=True)
+class BatchExportRunFilters:
+    """Which runs of a batch export to list. A filter left empty does not apply.
+
+    ``data_interval`` keeps the runs whose whole data interval is inside the range.
+    """
+
+    statuses: tuple[str, ...] = ()
+    created: DatetimeRange | None = None
+    data_interval: DatetimeRange | None = None
+
+
+@dataclass(frozen=True)
+class BatchExportRunDetail:
+    """One run of a batch export, with every field the API shows.
+
+    A run belongs to a scheduled batch export or to an on-demand one, never to both.
+    """
+
+    id: UUID
+    status: str
+    records_completed: int | None
+    records_failed: int | None
+    latest_error: str | None
+    data_interval_start: dt.datetime | None
+    data_interval_end: dt.datetime | None
+    cursor: str | None
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+    last_updated_at: dt.datetime
+    records_total_count: int | None
+    bytes_exported: int | None
+    batch_export_id: UUID | None
+    batch_export_on_demand_id: UUID | None
+    backfill_id: UUID | None
+
+
+@dataclass(frozen=True)
+class BatchExportBackfillProgress:
+    """How far a backfill has got. ``progress`` is the finished share of the runs, from 0 to 1."""
+
+    total_runs: int | None
+    finished_runs: int | None
+    progress: float | None
+
+
+@dataclass(frozen=True)
+class BatchExportBackfillDetail:
+    """One backfill of a batch export, with every field the API shows.
+
+    ``progress`` is None when it has no meaning: the backfill did not complete and is not
+    running, or it is one run over all data.
+    """
+
+    id: UUID
+    team_id: int
+    batch_export_id: UUID
+    start_at: dt.datetime | None
+    end_at: dt.datetime | None
+    status: str
+    created_at: dt.datetime
+    finished_at: dt.datetime | None
+    last_updated_at: dt.datetime
+    total_records_count: int | None
+    adjusted_start_at: dt.datetime | None
+    progress: BatchExportBackfillProgress | None
+
+
+@dataclass(frozen=True)
+class BatchExportBackfillStart:
+    """A backfill that started, and the destination type of the batch export it fills."""
+
+    backfill_id: str
+    destination_type: str
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationConfiguration:
+    """The destination of a scheduled batch export, as the API shows it.
+
+    ``config`` has its secret fields removed and its values restored to the types the
+    destination's workflow inputs declare.
+    """
+
+    type: str
+    config: dict[str, Any]
+    integration: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportConfiguration:
+    """A scheduled batch export with every field the API shows.
+
+    ``offset_day`` and ``offset_hour`` are the stored interval offset in the units the API takes.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    model: str | None
+    destination: BatchExportDestinationConfiguration
+    interval: str
+    paused: bool
+    created_at: dt.datetime
+    last_updated_at: dt.datetime
+    last_paused_at: dt.datetime | None
+    start_at: dt.datetime | None
+    end_at: dt.datetime | None
+    latest_runs: tuple[BatchExportRunDetail, ...]
+    hogql_query: str | None
+    hogql_modifiers: dict[str, Any] | None
+    primary_key: tuple[str, ...] | None
+    version_key: tuple[str, ...] | None
+    incremental_mode: str | None
+    schema: dict[str, Any] | None
+    filters: Any
+    timezone: str
+    offset_day: int | None
+    offset_hour: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationInput:
+    """The destination a request saves for a scheduled batch export.
+
+    ``config`` can hold inline credentials, so it stays out of ``repr``.
+    """
+
+    type: str
+    config: dict[str, Any] = field(repr=False)
+    integration_id: int | None = None
+
+
+@dataclass(frozen=True)
+class NewBatchExport:
+    """A scheduled batch export to create. The defaults match the defaults of a saved export.
+
+    ``hogql_query`` is the query of a ``hogql`` model export. For the ``events`` model it is a
+    legacy query that selects the exported fields, which only some teams may still send.
+    """
+
+    name: str
+    model: str
+    interval: str
+    destination: BatchExportDestinationInput
+    incremental_mode: str
+    paused: bool = False
+    last_paused_at: dt.datetime | None = None
+    start_at: dt.datetime | None = None
+    end_at: dt.datetime | None = None
+    filters: Any = None
+    timezone: str = "UTC"
+    interval_offset: int | None = None
+    hogql_query: str | None = None
+    hogql_modifiers: dict[str, Any] | None = None
+    primary_key: tuple[str, ...] | None = None
+    version_key: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class IntegrationChange:
+    """A request to set a destination's integration. ``integration_id`` is None to remove it."""
+
+    integration_id: int | None
+
+
+@dataclass(frozen=True)
+class BatchExportDestinationPatch:
+    """A change to the destination of a scheduled batch export.
+
+    ``config`` merges key by key into the stored config. ``integration`` is None when the
+    request left the integration out, which keeps the stored integration.
+    """
+
+    config: dict[str, Any] = field(repr=False)
+    integration: IntegrationChange | None = None
+
+
+@dataclass(frozen=True)
+class BatchExportUpdate:
+    """A change to a scheduled batch export.
+
+    Only the fields named in ``changed`` apply, so a field can be set to None. A field that
+    ``changed`` does not name keeps its stored value, whatever value it has here.
+    """
+
+    changed: frozenset[str]
+    name: str | None = None
+    interval: str | None = None
+    paused: bool | None = None
+    last_paused_at: dt.datetime | None = None
+    start_at: dt.datetime | None = None
+    end_at: dt.datetime | None = None
+    filters: Any = None
+    timezone: str | None = None
+    interval_offset: int | None = None
+    incremental_mode: str | None = None
+    destination: BatchExportDestinationPatch | None = None
+    hogql_query: str | None = None
+    hogql_modifiers: dict[str, Any] | None = None
+    primary_key: tuple[str, ...] | None = None
+    version_key: tuple[str, ...] | None = None
 
 
 @stdlib_dataclass(frozen=True)

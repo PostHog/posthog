@@ -100,6 +100,19 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
     }) as unknown as T
 }
 
+/** Fills an omitted `filterTestAccounts` from the project's default, the way the UI does for a new insight. */
+export async function applyProjectTestAccountDefault(context: Context, query: Record<string, unknown>): Promise<void> {
+    if (query[TEST_ACCOUNT_FILTER_FIELD] !== undefined) {
+        return
+    }
+    const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
+    // Only inject `true`: when the project default is unchecked the field
+    // stays omitted and the backend's own `false` default applies.
+    if (project?.test_account_filters_default_checked) {
+        query[TEST_ACCOUNT_FILTER_FIELD] = true
+    }
+}
+
 /**
  * Kea Router decodes paths before route matching, and scenes decode captured parameters again.
  * Double encoding keeps opaque values within the route matcher character set through both steps.
@@ -183,13 +196,8 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 ...queryParams,
                 kind: config.kind,
             }
-            if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
-                const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
-                // Only inject `true`: when the project default is unchecked the field
-                // stays omitted and the backend's own `false` default applies.
-                if (project?.test_account_filters_default_checked) {
-                    query[TEST_ACCOUNT_FILTER_FIELD] = true
-                }
+            if (hasTestAccountFilterField(schema)) {
+                await applyProjectTestAccountDefault(context, query)
             }
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
@@ -242,6 +250,10 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 // column names are the only way to read each cell.
                 ...(Array.isArray(data.columns) && Array.isArray(data.results) ? { columns: data.columns } : {}),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+                // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
+                ...(typeof data.has_next === 'boolean'
+                    ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
+                    : {}),
             }
             if (isTraceQuery) {
                 return compactTraceResponse(response, traceDetail, effectiveOutputFormat)

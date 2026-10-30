@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { TrashIcon } from 'lucide-react'
+import { BellIcon, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -157,6 +157,29 @@ export const IconOnly = {
     ),
 } satisfies Story
 
+export const WithIndicator = {
+    render: () => (
+        <div className="flex flex-wrap gap-2">
+            <Button size="icon" indicator="default" aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator="default" aria-label="Notifications, 3 unread">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" indicator="default">
+                <BellIcon />
+                Inbox
+            </Button>
+            <Button variant="outline" size="icon" indicator="warning" aria-label="Billing, usage limit close">
+                <BellIcon />
+            </Button>
+            <Button variant="outline" size="icon" indicator="destructive" aria-label="Billing, payment failed">
+                <BellIcon />
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
 export const InteractionStates = {
     parameters: {
         pseudo: {
@@ -252,6 +275,27 @@ export const Disabled = {
             </Button>
             <Button variant="link" disabled>
                 Link
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const Tooltips = {
+    render: () => (
+        <div className="flex flex-wrap items-center gap-2">
+            <Button size="icon" aria-label="Delete" tooltip="Delete">
+                <TrashIcon />
+            </Button>
+            <Button variant="outline" tooltip="Saves a copy you can come back to">
+                Save draft
+            </Button>
+            <Button variant="primary" disabledReason="Add a name before you publish">
+                Publish
+            </Button>
+            {/* A story has no router; a plain anchor shows the non-button render. */}
+            {/* eslint-disable-next-line react/forbid-elements */}
+            <Button variant="outline" render={<a href="#docs" />} disabledReason="Docs are not available offline">
+                Read the docs
             </Button>
         </div>
     ),

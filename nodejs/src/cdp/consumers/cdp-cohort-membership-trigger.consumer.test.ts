@@ -12,11 +12,10 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '../types'
-import {
-    COHORT_MEMBERSHIP_CHANGED_EVENT,
-    CdpCohortMembershipTriggerConsumer,
-} from './cdp-cohort-membership-trigger.consumer'
+import { CdpCohortMembershipTriggerConsumer } from './cdp-cohort-membership-trigger.consumer'
+import { counterParseError } from './metrics'
 
 describe('CdpCohortMembershipTriggerConsumer', () => {
     let processor: CdpCohortMembershipTriggerConsumer
@@ -52,7 +51,12 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         const matching = await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
         await insertHogFlow(hub.postgres, cohortFlow(42, 'left'))
         await insertHogFlow(hub.postgres, cohortFlow(7, 'entered'))
-        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const change = createCohortMembershipEvent({
+            team_id: team.id,
+            cohort_id: 42,
+            status: 'entered',
+            last_updated: '2026-10-20 10:00:00.123456',
+        })
 
         const globals = await processor._parseKafkaBatch([createKafkaMessage(change)])
         const { invocations, backgroundTask } = await processor.processBatch(globals)
@@ -63,6 +67,11 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         expect(invocation.functionId).toBe(matching.id)
         expect(invocation.state.personId).toBe(change.person_id)
         expect(invocation.state.event.event).toBe(COHORT_MEMBERSHIP_CHANGED_EVENT)
+        expect(invocation.state.event.properties).toEqual({
+            cohort_id: 42,
+            status: 'entered',
+            $membership_version: '2026-10-20 10:00:00.123456',
+        })
         expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
     })
 
@@ -126,6 +135,23 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
 
         await expect(processor._parseKafkaBatch([createKafkaMessage(change)])).rejects.toThrow('conflict with recovery')
+    })
+
+    it('skips a change with an out-of-range team_id as a parse error and keeps the rest of the batch', async () => {
+        // The dropped-changes alert counts parse errors. It does not count a skip with any other reason.
+        const invalidTeamIdErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const before = await invalidTeamIdErrors()
+
+        const globals = await processor._parseKafkaBatch([
+            createKafkaMessage({ ...change, team_id: 3_000_000_000 }),
+            createKafkaMessage(change),
+        ])
+
+        expect(globals).toHaveLength(1)
+        expect(await invalidTeamIdErrors()).toBe(before + 1)
     })
 
     it("loads a team's workflows once per batch, however many changes the batch holds for it", async () => {

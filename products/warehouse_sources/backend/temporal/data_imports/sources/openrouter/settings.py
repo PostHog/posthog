@@ -39,6 +39,15 @@ class OpenRouterEndpointConfig:
     is_singleton: bool = False
     # Day-by-day pull driven by the ?date= filter (only /activity). See openrouter.py.
     daily_activity: bool = False
+    # Fan-out child: `path` holds a `{parent_id}` placeholder filled with each `id` of this parent
+    # endpoint, and `pagination` applies to the child requests.
+    fan_out_parent: Optional[str] = None
+    # Child response `data` is an object holding the rows under this key (e.g. a model's endpoints).
+    child_rows_key: Optional[str] = None
+    # Column the parent id is copied into, for child rows that don't carry it themselves.
+    parent_id_column: Optional[str] = None
+    # /classifications/task wraps its rows with the snapshot date and window. See openrouter.py.
+    task_classifications: bool = False
     should_sync_default: bool = True
 
 
@@ -114,6 +123,37 @@ OPENROUTER_ENDPOINTS: dict[str, OpenRouterEndpointConfig] = {
         # Deactivated registrations are hidden by default; include them so a full refresh keeps their
         # rows with is_active=false instead of dropping them.
         params={"include_inactive": "true"},
+    ),
+    "workspace_members": OpenRouterEndpointConfig(
+        name="workspace_members",
+        path="/workspaces/{parent_id}/members",
+        requires_management_key=True,
+        # The default workspace lists every organization member through implicit membership, and the
+        # docs don't say what `id` holds for those rows, so key on the workspace and user instead.
+        primary_keys=["workspace_id", "user_id"],
+        partition_key="created_at",
+        pagination="offset_limit",
+        fan_out_parent="workspaces",
+    ),
+    "model_endpoints": OpenRouterEndpointConfig(
+        name="model_endpoints",
+        path="/models/{parent_id}/endpoints",
+        requires_management_key=False,
+        # `model_id` is the permaslug, which variants such as `:free` share with their base model, so
+        # the requested model id keys the rows. `tag` is unique per model, e.g. "azure/swedencentral".
+        primary_keys=["parent_model_id", "tag"],
+        fan_out_parent="models",
+        child_rows_key="endpoints",
+        parent_id_column="parent_model_id",
+    ),
+    "task_classifications": OpenRouterEndpointConfig(
+        name="task_classifications",
+        path="/classifications/task",
+        requires_management_key=False,
+        primary_keys=["tag"],
+        # Only the trailing 7-day window exists today; pinned so a new default can't change the table.
+        params={"window": "7d"},
+        task_classifications=True,
     ),
     "batches": OpenRouterEndpointConfig(
         name="batches",

@@ -134,8 +134,8 @@ TASKS_AGENT_PROXY_CORS_ORIGINS: list[str] = [
 TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_URL") or None
 
 # Browser-facing base URL of the agent-proxy for the live-stream read leg, per environment (e.g.
-# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients only when this
-# is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
+# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients when this is
+# set; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
 # In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a

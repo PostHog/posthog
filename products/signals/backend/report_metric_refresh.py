@@ -31,6 +31,7 @@ from posthog.schema import ChartDisplayType
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -53,6 +54,10 @@ REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS = 20.0
 REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
 
 CURRENT_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+
+
+class MetricQueryBudgetExhausted(TimeoutError):
+    pass
 
 
 @frozen
@@ -107,7 +112,9 @@ def _run_metric_query(
     display: ChartDisplayType,
     *,
     deadline: float,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
 ) -> tuple[dict, datetime | None]:
     """Run the stored query in one derived display shape and return its first series and response.
 
@@ -129,12 +136,14 @@ def _run_metric_query(
     remaining = deadline - time.monotonic()
     source_count = _source_count(query)
     if remaining < source_count:
-        raise TimeoutError("report metric refresh budget expired")
+        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     timeout = (
         REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
         if math.isinf(remaining)
         else min(REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS, int(remaining / source_count))
     )
+    if require_full_timeout and timeout < REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS:
+        raise MetricQueryBudgetExhausted("report metric query needs its full timeout allowance")
     tag_queries(trigger="signals_report_metric_refresh")
     response = run_cached_trends_query(
         query=shaped_source,
@@ -142,6 +151,7 @@ def _run_metric_query(
         max_execution_time_seconds=timeout,
         cache_age_seconds=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()),
         ch_user=ch_user,
+        workload=workload,
     )
     results = response.results
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):
@@ -163,10 +173,18 @@ def whole_window_value(
     team: Team,
     *,
     deadline: float = math.inf,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
 ) -> tuple[float, datetime]:
     first_series, last_refresh = _run_metric_query(
-        query, team, ChartDisplayType.BOLD_NUMBER, deadline=deadline, ch_user=ch_user
+        query,
+        team,
+        ChartDisplayType.BOLD_NUMBER,
+        deadline=deadline,
+        require_full_timeout=require_full_timeout,
+        ch_user=ch_user,
+        workload=workload,
     )
     value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
     measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
@@ -181,10 +199,13 @@ def longitudinal_values(
     *,
     deadline: float = math.inf,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[float]:
     """The trailing per-bucket values, oldest first, for the row-sized trend strip."""
 
-    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline, ch_user=ch_user)
+    first_series, _ = _run_metric_query(
+        query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline, ch_user=ch_user, workload=workload
+    )
     raw_points = first_series.get("data")
     if not isinstance(raw_points, list):
         raise ValueError("metric query returned no buckets")
@@ -197,14 +218,23 @@ def measure_metric(
     *,
     deadline: float,
     include_series: bool,
+    require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
 ) -> MetricMeasurement:
-    value, measured_at = whole_window_value(query, team, deadline=deadline, ch_user=ch_user)
+    value, measured_at = whole_window_value(
+        query,
+        team,
+        deadline=deadline,
+        require_full_timeout=require_full_timeout,
+        ch_user=ch_user,
+        workload=workload,
+    )
     series: list[float] | None
     if not include_series or time.monotonic() >= deadline:
         return MetricMeasurement(value=value, measured_at=measured_at, series=None)
     try:
-        series = longitudinal_values(query, team, deadline=deadline, ch_user=ch_user)
+        series = longitudinal_values(query, team, deadline=deadline, ch_user=ch_user, workload=workload)
     except Exception:
         # The buckets only decorate the row, so losing them must not cost the headline value.
         logger.exception("signals.report_metric_refresh.series_query_failed", team_id=team.id)

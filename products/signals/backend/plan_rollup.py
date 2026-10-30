@@ -131,7 +131,10 @@ def _close_parent(
         if parent.status == SignalReport.Status.MONITORING and get_monitoring_enabled is not None
         else None,
     )
-    if parent_status == SignalReport.Status.MONITORING:
+    if parent_status in {SignalReport.Status.MONITORING, SignalReport.Status.CLOSED} or (
+        parent_status == SignalReport.Status.SUPPRESSED
+        and parent.status_before_suppression == SignalReport.Status.CLOSED
+    ):
         return False
     if parent_status == target:
         return False
@@ -156,7 +159,7 @@ def _close_parent(
             SignalReportArtefact.append_dismissal(
                 team_id=parent.team_id,
                 report_id=str(parent.id),
-                content=Dismissal(),
+                content=Dismissal(state="suppressed"),
                 attribution=ArtefactAttribution.system(),
             )
     return True

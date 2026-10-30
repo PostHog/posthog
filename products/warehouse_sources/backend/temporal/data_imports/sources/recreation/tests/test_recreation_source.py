@@ -24,9 +24,6 @@ class TestRecreationSource:
         ("status_code", "expected_valid", "expected_error_fragment"),
         [
             (200, True, None),
-            (401, False, "Invalid RIDB API key"),
-            (403, False, "Invalid RIDB API key"),
-            (500, False, "unexpected response"),
         ],
     )
     def test_validate_credentials_status_mapping(

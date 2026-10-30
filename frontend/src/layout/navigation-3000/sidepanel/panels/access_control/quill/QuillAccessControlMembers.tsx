@@ -2,6 +2,7 @@ import { useAsyncActions, useValues } from 'kea'
 
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +15,6 @@ import {
 } from '~/types'
 
 import { QuillPeopleAvatars } from '../../../components/QuillPeopleAvatars'
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
 import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 import { QuillAccessSection } from './QuillAccessSection'
@@ -22,8 +22,14 @@ import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
 
 export function QuillAccessControlMembers(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { resource, membersById, addableMembers, accessControlMembers, availableLevels, accessControlsLoading } =
-        useValues(accessControlLogic)
+    const {
+        resource,
+        membersById,
+        addableMembers,
+        accessControlMembers,
+        availableLevelsWithNone,
+        accessControlsLoading,
+    } = useValues(accessControlLogic)
     // Each change saves the whole list, so a second change before the first lands could overwrite it.
     const savingReason = accessControlsLoading ? 'Saving…' : undefined
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
@@ -58,7 +64,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                         <QuillAccessLevelSelect
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled
-                            levels={availableLevels}
+                            levels={availableLevelsWithNone}
                             onChange={() => {}}
                         />
                     </ItemActions>
@@ -83,7 +89,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                 <ItemActions>
                     <QuillAccessLevelSelect
                         level={memberAc.access_level}
-                        levels={availableLevels}
+                        levels={availableLevelsWithNone}
                         disabledReason={savingReason}
                         onChange={(level) =>
                             void updateAccessControlMembers([{ member: memberAc.organization_member as string, level }])

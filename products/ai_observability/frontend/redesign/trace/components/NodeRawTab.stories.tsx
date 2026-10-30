@@ -17,3 +17,5 @@ export const Default: StoryObj<typeof NodeRawTab> = {
         },
     },
 }
+
+export const NoTraceEvent: StoryObj<typeof NodeRawTab> = { args: { raw: null } }

@@ -5,9 +5,10 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
-from django.db.models import IntegerField, Sum, Value
+from django.db.models import Count, IntegerField, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
@@ -23,11 +24,7 @@ from products.replay_vision.backend.billing import (
     FREE_TIER_MONTHLY_CREDITS,
     observation_credits_for_model,
 )
-from products.replay_vision.backend.models.replay_observation import (
-    IN_FLIGHT_STATUSES,
-    ObservationStatus,
-    ReplayObservation,
-)
+from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import (
@@ -239,38 +236,37 @@ class ScannerSpend:
     observations: int
 
 
+def scanner_period_receipts(organization_id: UUID, period: BillingPeriod) -> QuerySet[ReplayObservationUsage]:
+    """Receipts in a period by observation create time: the per-scanner window. Billing buckets by receipt write time instead."""
+    return ReplayObservationUsage.objects.filter(
+        organization_id=organization_id,
+        observation_created_at__gte=period.start,
+        observation_created_at__lt=period.end,
+    )
+
+
 def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
-    """Credits and observation counts for each scanner's succeeded observations in the current billing period.
+    """Billed credits and observation counts for each scanner in the current billing period.
 
-    This is the displayed figure, deliberately read from observation rows rather than the receipt ledger:
-    it is what the scanner list column and the `credits_this_month` sort both show, and receipts carry no
-    `scanner_id` before that column existed. `compute_scanner_budgets` is the delete-proof figure the
-    limit is enforced against.
-
-    Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
-    at success time, so these totals can drift from the billed ledger after a mid-period price
-    change. Scanners with no spend are omitted.
+    Read from the receipt ledger, so the figure matches what billing charged and what the credit limit
+    counts: deleting an observation does not lower it, and each observation keeps the price frozen when
+    it succeeded. Scanners with no spend are omitted.
     """
     if not scanner_ids:
         return {}
     period = current_period_bounds(organization_id)
-    pairs = Counter(
-        ReplayObservation.objects.filter(
-            scanner_id__in=scanner_ids,
-            team__organization_id=organization_id,
-            status=ObservationStatus.SUCCEEDED,
-            created_at__gte=period.start,
-            created_at__lt=period.end,
-        ).values_list("scanner_id", "scanner_snapshot__model")
+    rows = (
+        scanner_period_receipts(organization_id, period)
+        .filter(scanner_id__in=scanner_ids)
+        .values("scanner_id")
+        .annotate(total_credits=Coalesce(Sum("credits"), 0), total_observations=Count("id"))
+        .values_list("scanner_id", "total_credits", "total_observations")
     )
-    totals: dict[UUID, ScannerSpend] = {}
-    for (scanner_id, model), count in pairs.items():
-        prev = totals.get(scanner_id, ScannerSpend(0, 0))
-        totals[scanner_id] = ScannerSpend(
-            credits=prev.credits + observation_credits_for_model(model or "") * count,
-            observations=prev.observations + count,
-        )
-    return totals
+    return {
+        scanner_id: ScannerSpend(credits, observations)
+        for scanner_id, credits, observations in rows
+        if scanner_id is not None  # `scanner_id__in` already excludes nulls; this narrows the type
+    }
 
 
 @dataclass(frozen=True)
@@ -384,13 +380,10 @@ def compute_scanner_budgets(
         # is then counted by both (a transient over-count that fails toward capped), never by neither.
         in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
         settled = {
-            row["scanner_id"]: row["total_credits"] or 0
-            for row in ReplayObservationUsage.objects.filter(
-                organization_id=organization_id,
-                scanner_id__in=capped_ids,
-                observation_created_at__gte=period.start,
-                observation_created_at__lt=period.end,
-            )
+            # The scanner_id__in filter excludes rows without a scanner.
+            cast(UUID, row["scanner_id"]): row["total_credits"] or 0
+            for row in scanner_period_receipts(organization_id, period)
+            .filter(scanner_id__in=capped_ids)
             .values("scanner_id")
             .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
         }

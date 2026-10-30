@@ -103,6 +103,8 @@ export function SuggestedReviewerAvatarStack({
     updateReviewers({
       artefactId: reviewerArtefact.id,
       content: toSuggestedReviewerWriteContent(next),
+      action: "remove",
+      targets: toSuggestedReviewerWriteContent([currentReviewer]),
       optimisticReviewers: next,
     });
   };

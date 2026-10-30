@@ -103,7 +103,7 @@ class SodaCloudSource(ResumableSource[SodaCloudSourceConfig, SodaCloudResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Soda Data (Soda Cloud)",
             iconPath="/static/services/soda_cloud.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="In Soda Cloud, open your avatar, select Profile, then API Keys. Generate a key ID and secret.",
             docsUrl="https://docs.soda.io/reference/soda-apis/generate-api-keys",
             fields=cast(

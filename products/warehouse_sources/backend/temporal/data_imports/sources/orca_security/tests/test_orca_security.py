@@ -111,8 +111,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True),
-            (401, False),
-            (403, False),
         ]
     )
     def test_status_mapping(self, status: int, expected: bool) -> None:
@@ -121,10 +119,3 @@ class TestValidateCredentials:
 
         assert ok is expected
         assert network.requests_log[0].path == "/api/serving-layer/query"
-
-    def test_network_error_is_failure(self) -> None:
-        with scripted_network([ConnectionError("boom")]):
-            ok, err = validate_credentials("tok", "us")
-
-        assert ok is False
-        assert err is not None

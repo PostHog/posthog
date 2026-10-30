@@ -51,7 +51,7 @@ class RuddrSource(ResumableSource[RuddrSourceConfig, RuddrResumeConfig]):
             name=ExternalDataSourceType.RUDDR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Ruddr",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Ruddr API key to pull your professional services data into the PostHog Data warehouse.
 
 You can create a workspace API key under **Settings → API Keys** in [Ruddr](https://www.ruddr.io). The key grants read access to your clients, projects, tasks, members, and time entries.

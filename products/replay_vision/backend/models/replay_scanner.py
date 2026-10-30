@@ -283,25 +283,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
 
-    search_suggestions = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
-    )
-    search_suggestions_watermark = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="created_at of the newest observation the suggestions were drawn from.",
-    )
-    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
-    search_last_viewed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
-    )
-
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
-    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    # built-in scan's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
@@ -457,10 +440,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
-        "search_suggestions",
-        "search_suggestions_watermark",
-        "search_suggestions_generated_at",
-        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:

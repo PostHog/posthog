@@ -12,7 +12,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class RenderEndpointConfig:
     name: str
     # Path relative to the API base. Fan-out children use a `{parent_id}` placeholder
@@ -47,7 +47,13 @@ class RenderEndpointConfig:
     # slice (events default to the last hour) — read from this parent field when no
     # incremental watermark applies, so a full refresh still covers the parent's lifetime.
     window_start_from_parent_field: str | None = None
+    # Render caps one audit log export at a 90-day span and only guarantees 90 days of
+    # retention, so the lower bound sent is never earlier than this many days ago.
+    max_lookback_days: int | None = None
     should_sync_default: bool = True
+    # False for endpoints that return the whole collection in one response and take no
+    # `limit`/`cursor` params (instances, members).
+    paginated: bool = True
     page_size: int = 100
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway pagination.
     # A structured warning is logged if the cap is reached.
@@ -56,6 +62,12 @@ class RenderEndpointConfig:
     # only exist for web services and static sites, not cron jobs, workers or private
     # services). Skip those parents rather than failing the whole sync.
     skip_parent_on_bad_request: bool = False
+    # Fan-out children gated by the parent's plan or the key's role (audit logs need a Pro
+    # workspace and an admin). Skip a parent that answers 403 instead of failing the sync.
+    skip_parent_on_forbidden: bool = False
+    # Set on an endpoint whose rows are owners: when the source is scoped to one workspace,
+    # fan-out children only visit the parent row whose value in this field matches it.
+    owner_id_field: str | None = None
     # Some endpoints return secrets the API key is only meant to *use* for sync (env var
     # values, secret-file contents), not data worth warehousing. Maps a list column to the
     # item keys whose values are redacted before a row is yielded, keeping the safe metadata
@@ -74,6 +86,7 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         path="/owners",
         wrapper_key="owner",
         # No timestamps on the owner object and no time filters on the endpoint: full refresh only.
+        owner_id_field="id",
     ),
     "projects": RenderEndpointConfig(
         name="projects",
@@ -213,6 +226,45 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         incremental_param_by_field={"updatedAt": "updatedAfter", "createdAt": "createdAfter"},
         default_incremental_field="updatedAt",
         supports_owner_filter=True,
+    ),
+    "instances": RenderEndpointConfig(
+        name="instances",
+        path="/services/{parent_id}/instances",
+        wrapper_key="instance",
+        primary_keys=["serviceId", "id"],
+        # No time filters on the endpoint: full refresh only.
+        partition_key="createdAt",
+        parent="services",
+        inject_parent_key="serviceId",
+        paginated=False,
+    ),
+    "members": RenderEndpointConfig(
+        name="members",
+        path="/owners/{parent_id}/members",
+        wrapper_key="member",
+        primary_keys=["ownerId", "userId"],
+        parent="owners",
+        inject_parent_key="ownerId",
+        paginated=False,
+    ),
+    "audit_logs": RenderEndpointConfig(
+        name="audit_logs",
+        path="/owners/{parent_id}/audit-logs",
+        wrapper_key="auditLog",
+        primary_keys=["ownerId", "id"],
+        incremental_fields=[_datetime_field("timestamp")],
+        incremental_param_by_field={"timestamp": "startTime"},
+        default_incremental_field="timestamp",
+        partition_key="timestamp",
+        parent="owners",
+        inject_parent_key="ownerId",
+        append_only=True,
+        max_lookback_days=90,
+        # Audit logs need a Pro workspace and an admin key. One ineligible workspace must not
+        # fail the table for a key that spans several workspaces.
+        skip_parent_on_bad_request=True,
+        skip_parent_on_forbidden=True,
+        page_size=1000,
     ),
 }
 

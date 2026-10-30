@@ -36,9 +36,10 @@ export function ScoutToolsPicker({ scoutName, savedTools, onSave, onClose }: Sco
     const { catalogue, catalogueLoading, catalogueFailed } = useValues(scoutToolCatalogueLogic)
     const { loadCatalogue } = useActions(scoutToolCatalogueLogic)
     const [selected, setSelected] = useState<string[]>([...(savedTools ?? [])])
+    const selectedTools = catalogue ? selected.filter((tool) => !catalogue.run_context_tools.includes(tool)) : selected
     // Set only while the draft is exactly a preset someone picked, so the save names the preset.
     const [preset, setPreset] = useState<ToolPresetEnumApi | null>(null)
-    const edited = preset !== null || [...selected].sort().join() !== [...(savedTools ?? [])].sort().join()
+    const edited = preset !== null || [...selectedTools].sort().join() !== [...(savedTools ?? [])].sort().join()
     // Moving from all tools to a list is a change even when the list is still empty.
     const changed = edited || savedTools === null
 
@@ -47,7 +48,7 @@ export function ScoutToolsPicker({ scoutName, savedTools, onSave, onClose }: Sco
         body = (
             <ToolCatalogueBody
                 catalogue={catalogue}
-                selected={selected}
+                selected={selectedTools}
                 preset={preset}
                 onChange={(tools, nextPreset = null) => {
                     setSelected(tools)
@@ -91,7 +92,7 @@ export function ScoutToolsPicker({ scoutName, savedTools, onSave, onClose }: Sco
                         type="primary"
                         disabledReason={!catalogue ? 'Loading tools' : !changed ? 'No changes to save' : undefined}
                         onClick={() => {
-                            onSave(preset ? { tool_preset: preset } : { allowed_mcp_tools: [...selected].sort() })
+                            onSave(preset ? { tool_preset: preset } : { allowed_mcp_tools: [...selectedTools].sort() })
                         }}
                         data-attr="scout-tools-save"
                     >
@@ -206,7 +207,7 @@ function ToolCatalogueBody({
                 <div className="flex flex-col gap-1">
                     <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Always available</span>
                     <span className="text-xs text-secondary">
-                        Every scout run can use these to report findings and keep its memory.
+                        Every scout run can use these to load skills, report findings, and keep its memory.
                     </span>
                     <div className="flex flex-wrap gap-1">
                         {alwaysHeld.map((label) => (

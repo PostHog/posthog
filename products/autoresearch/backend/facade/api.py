@@ -31,6 +31,7 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.actions.backend.models.action import Action
+from products.tasks.backend.facade.model_catalogue import REASONING_EFFORT_DISPLAY_NAMES, display_name_for_model
 
 from ..dataset import templates as templates_module
 from ..dataset.labeling import (
@@ -65,6 +66,13 @@ from ..models import (
 )
 from ..query import measure_queries
 from ..training import artifacts as artifact_store
+from ..training.agent_model import (
+    AUTORESEARCH_DEFAULT_MODEL,
+    AgentModelError,
+    agent_model_choices,
+    resolve_agent_run_config,
+    validate_agent_settings,
+)
 from ..training.explanation import (
     MAX_TOP_FEATURES as _MAX_TOP_FEATURES,
     FeatureDirection as _FeatureDirection,
@@ -74,6 +82,9 @@ from ..training.recipe_validation import RecipeValidationError, feature_sql_hint
 from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
+    AgentModelOption,
+    AgentModelOptions,
+    AgentReasoningEffortOption,
     ArtifactContent,
     ArtifactDeleteResult,
     ArtifactList,
@@ -379,6 +390,7 @@ def _pipeline_to_contract(
         pipeline_created_at=row.created_at,
         runs=activity.schedule_runs,
     )
+    agent_config = resolve_agent_run_config(row.agent_model, row.agent_reasoning_effort)
     return Pipeline(
         id=row.id,
         name=row.name,
@@ -398,6 +410,10 @@ def _pipeline_to_contract(
         iteration_budget_remaining=row.iteration_budget_remaining or 0,
         iterations_per_run=row.iterations_per_run,
         research_interval_days=row.research_interval_days,
+        agent_model=row.agent_model,
+        agent_reasoning_effort=row.agent_reasoning_effort,
+        effective_agent_model=agent_config.model,
+        effective_agent_reasoning_effort=agent_config.reasoning_effort,
         training_phase=schedule.phase,
         next_research_at=schedule.next_research_at,
         success_auc=row.success_auc,
@@ -480,6 +496,10 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         task_url=f"/tasks/{row.task_id}" if row.task_id else None,
         status=row.status,
         kickoff_reason=row.kickoff_reason,
+        agent_runtime_adapter=row.agent_runtime_adapter,
+        agent_model=row.agent_model,
+        agent_model_label=display_name_for_model(row.agent_model) if row.agent_model else None,
+        agent_reasoning_effort=row.agent_reasoning_effort,
         iteration_budget=row.iteration_budget,
         iteration_count=row.iteration_count,
         best_holdout_score=row.best_holdout_score,
@@ -919,6 +939,8 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         iteration_budget=row.iteration_budget,
         iterations_per_run=row.iterations_per_run,
         research_interval_days=row.research_interval_days,
+        agent_model=row.agent_model,
+        agent_reasoning_effort=row.agent_reasoning_effort,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
@@ -962,6 +984,41 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
             "Every step of a target action must name an event other than the prediction event."
         )
     return action.name or "", int(action_id)
+
+
+# ── Training agent model ───────────────────────────────────────────────────
+
+
+def list_agent_model_options() -> AgentModelOptions:
+    choices = agent_model_choices()
+    default = resolve_agent_run_config(None, None)
+    return AgentModelOptions(
+        default_model=default.model,
+        default_model_label=display_name_for_model(AUTORESEARCH_DEFAULT_MODEL),
+        default_reasoning_effort=default.reasoning_effort,
+        models=[
+            AgentModelOption(
+                model=choice.model,
+                label=choice.label,
+                runtime_adapter=choice.runtime_adapter,
+                supported_efforts=[
+                    AgentReasoningEffortOption(value=effort, label=REASONING_EFFORT_DISPLAY_NAMES.get(effort, effort))
+                    for effort in choice.supported_efforts
+                ],
+                cost_multiplier=choice.cost_multiplier,
+            )
+            for choice in choices
+        ],
+    )
+
+
+def agent_settings_error(model: str | None, reasoning_effort: str | None) -> str | None:
+    """Why this model and effort cannot be stored on a pipeline, or None when they can."""
+    try:
+        validate_agent_settings(model, reasoning_effort)
+    except AgentModelError as exc:
+        return str(exc)
+    return None
 
 
 # ── Validation and templates ───────────────────────────────────────────────

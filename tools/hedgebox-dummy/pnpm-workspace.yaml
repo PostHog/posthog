@@ -3,4 +3,24 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+trustPolicyExclude:
+    - eslint-import-resolver-typescript@3.10.1
+    - semver@6.3.1
+    - undici-types@6.21.0
+# phrocs installs without a terminal, so rebuild node_modules from older pnpm without asking.
+confirmModulesPurge: false
+
+# These install without their build scripts.
+allowBuilds:
+    core-js: false
+    protobufjs: false
+    sharp: false
+    unrs-resolver: false
 minimumReleaseAge: 10080
+
+overrides:
+    protobufjs: '>=8.2.0'
+    postcss: '>=8.5.10'
+    flatted: '>=3.4.2'
+    glob@>=10.0.0: '>=10.5.0'
+    minimatch@<3.1.4: '>=3.1.4'

@@ -81,6 +81,7 @@ Submissions are fetched one form at a time and Tally allows 100 requests per min
                     ),
                     SourceFieldSelectConfig(
                         name="submission_filter",
+                        sync_setting=True,
                         label="Submissions to sync",
                         required=False,
                         defaultValue=SUBMISSION_FILTER_COMPLETED,
@@ -102,7 +103,7 @@ Submissions are fetched one form at a time and Tally allows 100 requests per min
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

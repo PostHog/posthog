@@ -7,6 +7,8 @@ on:
             - .github/workflows/**
             - .github/actions/**
             - services/**
+            # WF013 reads its staticDirs, so a new entry has to run the lint.
+            - common/storybook/.storybook/main.ts
             - tools/hogli-commands/hogli_commands/workflow_lint/**
             - tools/workflow-plan/**
             - hogli.yaml
@@ -38,6 +40,16 @@ jobs:
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows
+
+            - name: Verify Actions lockfile
+              if: ${{ !cancelled() }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh extension install github/gh-actions-lock --pin v0.4.0
+                  # Only onboarded workflows are verified, because an unscoped run fails on every workflow not yet in the lockfile.
+                  mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
+                  gh actions-lock --verify "${workflows[@]}"
 
     workflow-run-plans:
         name: Workflow run plans

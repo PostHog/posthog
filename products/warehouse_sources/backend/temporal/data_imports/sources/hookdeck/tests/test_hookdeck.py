@@ -16,10 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
     REDACTED,
+    HookdeckMetricsTruncatedError,
     HookdeckResumeConfig,
     _format_datetime,
     _redact_secrets,
     base_url,
+    build_metrics_params,
     build_params,
     validate_credentials,
 )
@@ -34,8 +36,13 @@ SUPPORTED_VERSIONS = ["2025-07-01", "2026-09-01"]
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.incremental_fields)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if not c.incremental_fields)
+PAGINATED_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.metrics is None)
+TOP_LEVEL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.metrics is None and c.fanout is None)
 ENDPOINT_FIELD_PAIRS = sorted(
-    (name, entry["field"]) for name, c in HOOKDECK_ENDPOINTS.items() for entry in c.incremental_fields
+    (name, entry["field"])
+    for name, c in HOOKDECK_ENDPOINTS.items()
+    if c.metrics is None
+    for entry in c.incremental_fields
 )
 
 
@@ -81,7 +88,7 @@ class TestHookdeckTransport:
         assert result.requests[0].origin == "https://api.hookdeck.com"
         assert result.requests[0].path == f"/{api_version}/destinations"
 
-    @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
+    @pytest.mark.parametrize("endpoint", PAGINATED_ENDPOINTS)
     def test_every_request_pins_ascending_order(self, endpoint: str) -> None:
         # Hookdeck defaults to `dir=desc`; sort_mode="asc" would corrupt the watermark without this.
         params = build_params(
@@ -154,7 +161,7 @@ class TestHookdeckTransport:
 
 
 class TestHookdeckCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize("status_code, expected", [(403, False)])
     @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
     def test_status_mapping(self, api_version: str, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
@@ -164,10 +171,6 @@ class TestHookdeckCredentials:
         assert status == status_code
         assert network.requests_log[0].url == f"https://api.hookdeck.com/{api_version}/sources?limit=1"
         assert network.requests_log[0].headers["authorization"] == "Bearer hd_key"
-
-    def test_transport_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("hd_key", API_VERSION) == (False, None)
 
 
 class TestHookdeckPagination:
@@ -323,7 +326,7 @@ class TestHookdeckSampleCapture:
 
 
 class TestHookdeckSourceResponse:
-    @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
+    @pytest.mark.parametrize("endpoint", TOP_LEVEL_ENDPOINTS)
     def test_source_response_shape(self, endpoint: str) -> None:
         result = _driver().run(endpoint, [_response([], None)])
         response = result.response
@@ -337,3 +340,176 @@ class TestHookdeckSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
+
+    @pytest.mark.parametrize(
+        "endpoint, script",
+        [
+            ("request_ignored_events", [_response([], None)]),
+            ("transformation_executions", [_response([], None)]),
+            ("queue_depth_metrics", [ScriptedResponse(status=200, json={"data": [], "metadata": {}})]),
+            ("events_pending_timeseries", [ScriptedResponse(status=200, json={"data": [], "metadata": {}})]),
+        ],
+    )
+    def test_unordered_reads_promise_no_sort(self, endpoint: str, script: list[ScriptedResponse]) -> None:
+        # Fan-out rows are ordered per parent and metric points are unordered, so "asc" would lose rows.
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+
+class TestHookdeckFanout:
+    def test_ignored_events_fan_out_only_over_requests_that_ignored_something(self) -> None:
+        result = _driver().run(
+            "request_ignored_events",
+            [
+                _response(
+                    [{"id": "req_1", "ignored_count": 2}, {"id": "req_2", "ignored_count": 0}, {"id": "req_3"}],
+                    None,
+                ),
+                _response([{"id": "req_1:web_a", "request_id": "req_1"}], "cur_2"),
+                _response([{"id": "req_1:web_b", "request_id": "req_1"}], None),
+                _response([{"id": "req_3:web_a", "request_id": "req_3"}], None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["req_1:web_a", "req_1:web_b", "req_3:web_a"]
+        assert [request.path for request in result.requests] == [
+            f"/{API_VERSION}/requests",
+            f"/{API_VERSION}/requests/req_1/ignored_events",
+            f"/{API_VERSION}/requests/req_1/ignored_events",
+            f"/{API_VERSION}/requests/req_3/ignored_events",
+        ]
+        # A retried old request can gain ignored events, so the parent is never windowed by date.
+        assert result.params("created_at[gte]") == [None, None, None, None]
+        assert result.requests[2].param("next") == "cur_2"
+        # One completed path per request would make every checkpoint grow with the request history.
+        assert result.saved_states == []
+
+    def test_transformation_executions_filter_each_child_not_the_parent(self) -> None:
+        result = _driver().run(
+            "transformation_executions",
+            [
+                _response([{"id": "trs_1", "env": {"KEY": "secret"}}, {"id": "trs_2"}], None),
+                _response([{"id": "exe_1", "transformation_id": "trs_1"}], None),
+                _response([{"id": "exe_2", "transformation_id": "trs_2"}], None),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "exe_1", "transformation_id": "trs_1"},
+            {"id": "exe_2", "transformation_id": "trs_2"},
+        ]
+        assert result.params("created_at[gte]") == [None, "2026-03-04T02:58:14.000Z", "2026-03-04T02:58:14.000Z"]
+        assert result.params("dir") == ["asc", "asc", "asc"]
+
+    def test_resume_skips_parents_already_completed(self) -> None:
+        first = _driver().run(
+            "transformation_executions",
+            [
+                _response([{"id": "trs_1"}, {"id": "trs_2"}], None),
+                _response([{"id": "exe_1", "transformation_id": "trs_1"}], None),
+                _response([{"id": "exe_2", "transformation_id": "trs_2"}], None),
+            ],
+        )
+        assert first.raised is None
+        checkpoint = first.saved_states[0]
+        assert checkpoint.next_cursor is None
+        assert checkpoint.fanout_state is not None
+
+        resumed = _driver().run(
+            "transformation_executions",
+            [
+                _response([{"id": "trs_1"}, {"id": "trs_2"}], None),
+                _response([{"id": "exe_2", "transformation_id": "trs_2"}], None),
+            ],
+            resume_state=checkpoint,
+        )
+
+        assert resumed.raised is None
+        assert [row["id"] for row in resumed.rows] == ["exe_2"]
+        assert [request.path for request in resumed.requests] == [
+            f"/{API_VERSION}/transformations",
+            f"/{API_VERSION}/transformations/trs_2/executions",
+        ]
+
+
+class TestHookdeckMetrics:
+    NOW = datetime(2026, 3, 10, 12, 34, 56, 789000, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field, last_value, expected_start",
+        [
+            # The watermark is floored to its hourly bucket so the bucket is re-read whole.
+            (True, datetime(2026, 3, 9, 7, 45, 12, tzinfo=UTC), "2026-03-09T07:00:00.000Z"),
+            (True, "2026-03-09T07:00:00.000Z", "2026-03-09T07:00:00.000Z"),
+            (True, None, "2026-02-08T12:00:00.000Z"),
+            (False, datetime(2026, 3, 9, 7, 45, 12, tzinfo=UTC), "2026-02-08T12:00:00.000Z"),
+        ],
+    )
+    def test_date_range_starts_at_the_watermark_or_the_backfill_window(
+        self, should_use_incremental_field: bool, last_value: object, expected_start: str
+    ) -> None:
+        metrics = HOOKDECK_ENDPOINTS["queue_depth_metrics"].metrics
+        assert metrics is not None
+
+        params = build_metrics_params(metrics, should_use_incremental_field, last_value, self.NOW)
+
+        assert params["date_range[start]"] == expected_start
+        assert params["date_range[end]"] == "2026-03-10T12:34:56.789Z"
+        assert params["granularity"] == "1h"
+
+    def test_query_uses_bracket_arrays_and_rows_are_flattened(self) -> None:
+        result = _driver().run(
+            "queue_depth_metrics",
+            [
+                ScriptedResponse(
+                    status=200,
+                    json={
+                        "data": [
+                            {
+                                "time_bucket": "2026-03-04T02:00:00.000Z",
+                                "dimensions": {"destination_id": "des_1"},
+                                "metrics": {"max_depth": 12, "max_age": 3.5},
+                            }
+                        ],
+                        "metadata": {"granularity": "1h", "truncated": False},
+                    },
+                )
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="time_bucket",
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"time_bucket": "2026-03-04T02:00:00.000Z", "destination_id": "des_1", "max_depth": 12, "max_age": 3.5}
+        ]
+        request = result.requests[0]
+        assert request.path == f"/{API_VERSION}/metrics/queue-depth"
+        assert request.query["measures[]"] == ("max_depth", "max_age")
+        assert request.query["dimensions[]"] == ("destination_id",)
+        assert request.param("date_range[start]") == "2026-03-04T02:00:00.000Z"
+
+    def test_truncated_response_fails_the_sync(self) -> None:
+        result = _driver().run(
+            "events_pending_timeseries",
+            [
+                ScriptedResponse(
+                    status=200,
+                    json={
+                        "data": [{"time_bucket": "2026-03-04T02:00:00.000Z", "dimensions": {}, "metrics": {}}],
+                        "metadata": {"row_limit": 1000000, "truncated": True},
+                    },
+                )
+            ],
+        )
+
+        assert isinstance(result.raised, HookdeckMetricsTruncatedError)

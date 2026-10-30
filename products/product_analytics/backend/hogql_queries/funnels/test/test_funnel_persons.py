@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -33,6 +34,10 @@ from posthog.schema import (
     FunnelVizType,
 )
 
+from posthog.hogql.functions.udfs import UDFS
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.event.util import bulk_create_events
 from posthog.models.team.team import Team
@@ -435,6 +440,40 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        # Dropoff after a skipped optional step, with recording from the prior required step
+        query_with_optional_step = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="optional step", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            interval="day",
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
+        )
+        with (
+            patch("products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION", 13),
+            patch.object(UDFS["aggregate_funnel"], "clickhouse_name", "aggregate_funnel_v13"),
+        ):
+            results = get_actors(query_with_optional_step, self.team, funnel_step=-4, include_recordings=True)
+            self.assertEqual(results[0][0], p1.uuid)
+            self.assertEqual(
+                list(results[0][2]),
+                [
+                    {
+                        "session_id": "s2",
+                        "events": [
+                            {
+                                "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                                "timestamp": timezone.now() + timedelta(days=1),
+                                "window_id": "w2",
+                            }
+                        ],
+                    }
+                ],
+            )
+
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
             distinct_ids=["person1"],
@@ -601,6 +640,106 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
+
+    @parameterized.expand([(12, False), (12, True), (13, False), (13, True)])
+    @time_machine.travel("2021-05-02", tick=False)
+    def test_optional_funnel_step_recordings(self, udf_version: int, visit_optional_steps: bool) -> None:
+        with (
+            patch("products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION", udf_version),
+            patch.object(UDFS["aggregate_funnel"], "clickhouse_name", f"aggregate_funnel_v{udf_version}"),
+        ):
+            optional_steps = {2, 4}
+            visited_steps = [1, 3]
+            if visit_optional_steps:
+                visited_steps = [1, 2, 3, 4]
+            journeys_for(
+                {
+                    "replay-user": [
+                        {
+                            "event": f"step {step}",
+                            "timestamp": datetime(2021, 5, 1, 0, step),
+                            "event_uuid": str(UUID(int=step)),
+                            "properties": {"$session_id": str(UUID(f"01800000-0000-7000-8000-{step:012d}"))},
+                        }
+                        for step in visited_steps
+                    ]
+                },
+                self.team,
+            )
+            for step in visited_steps:
+                produce_replay_summary(
+                    team_id=self.team.pk,
+                    session_id=str(UUID(f"01800000-0000-7000-8000-{step:012d}")),
+                    distinct_id="replay-user",
+                    first_timestamp=datetime(2021, 5, 1, 0, step, tzinfo=UTC),
+                )
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event=f"step {step}", optionalInFunnel=step in optional_steps) for step in range(1, 6)
+                ],
+                dateRange=DateRange(date_from="2021-05-01", date_to="2021-05-02"),
+            )
+            for funnel_step in [3, -5]:
+                with self.subTest(funnel_step=funnel_step):
+                    results = get_actors(query, self.team, funnel_step=funnel_step, include_recordings=True)
+                    self.assertEqual(len(results), 1)
+                    expected_steps = [3]
+                    if udf_version == 12:
+                        if not visit_optional_steps:
+                            expected_steps = []
+                        elif funnel_step == -5:
+                            expected_steps = [4]
+                    elif visit_optional_steps and funnel_step == -5:
+                        expected_steps = [3, 4]
+                    self.assertCountEqual(
+                        [
+                            (recording["session_id"], [event["uuid"] for event in recording["events"]])
+                            for recording in results[0][2]
+                        ],
+                        [
+                            (str(UUID(f"01800000-0000-7000-8000-{step:012d}")), [UUID(int=step)])
+                            for step in expected_steps
+                        ],
+                    )
+
+            if udf_version != 12:
+                runner = FunnelsQueryRunner(query=query, team=self.team)
+                runner.context.actorsQuery = FunnelsActorsQuery(source=query, funnelStep=-5, includeRecordings=True)
+                runner.context.includeFinalMatchingEvents = True
+                response = execute_hogql_query(
+                    runner.to_actors_query(),
+                    team=self.team,
+                    query_type="test_funnel_final_recordings",
+                    workload=Workload.ONLINE,
+                )
+                self.assertEqual(len(response.results), 1)
+                self.assertEqual(response.results[0][1][0][1], UUID(int=3))
+
+                last_step_before_drop_off = 4 if visit_optional_steps else 3
+                self.assertEqual(
+                    self._funnel_actor_timestamp(query, funnel_step=-5, column="timestamp"),
+                    datetime(2021, 5, 1, 0, last_step_before_drop_off, tzinfo=UTC),
+                )
+                last_step_before_step_3 = 2 if visit_optional_steps else 1
+                self.assertEqual(
+                    self._funnel_actor_timestamp(query, funnel_step=3, column="min_timestamp"),
+                    datetime(2021, 5, 1, 0, last_step_before_step_3, tzinfo=UTC),
+                )
+
+    def _funnel_actor_timestamp(self, query: FunnelsQuery, funnel_step: int, column: str) -> datetime:
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        runner.context.actorsQuery = FunnelsActorsQuery(source=query, funnelStep=funnel_step)
+        runner.context.includeTimestamp = column == "timestamp"
+        runner.context.includePrecedingTimestamp = column == "min_timestamp"
+        response = execute_hogql_query(
+            runner.to_actors_query(),
+            team=self.team,
+            query_type="test_funnel_paths_timestamps",
+            workload=Workload.ONLINE,
+        )
+        assert response.columns is not None
+        self.assertEqual(len(response.results), 1)
+        return response.results[0][response.columns.index(column)]
 
     def test_optional_funnel_step_actors_query(self):
         journeys_for(

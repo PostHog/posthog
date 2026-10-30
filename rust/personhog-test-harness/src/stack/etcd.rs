@@ -14,14 +14,18 @@ pub async fn connect(endpoints: &str, prefix: &str) -> Result<PersonhogStore> {
     Ok(PersonhogStore::new(store))
 }
 
-/// Wipe all coordination state under the harness prefix and set the
-/// partition count, giving each run a clean slate.
-pub async fn reset(store: &PersonhogStore, partitions: u32) -> Result<()> {
+/// Wipe the harness prefix and seed the config as the control plane would.
+pub async fn reset(
+    store: &PersonhogStore,
+    topic: &str,
+    partitions: u32,
+    writer_group: &str,
+) -> Result<()> {
     store.delete_all().await.context("clearing etcd prefix")?;
     store
-        .set_total_partitions(partitions)
+        .seed_changelog_config(topic, partitions, writer_group)
         .await
-        .context("setting total_partitions")?;
+        .context("seeding config/changelog")?;
     Ok(())
 }
 

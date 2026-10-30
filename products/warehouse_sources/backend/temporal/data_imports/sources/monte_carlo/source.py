@@ -50,7 +50,7 @@ class MonteCarloSource(ResumableSource[MonteCarloSourceConfig, MonteCarloResumeC
             name=ExternalDataSourceType.MONTECARLO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Monte Carlo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["montecarlo", "data observability"],
             caption="""Enter your Monte Carlo API key to pull your data observability history into the PostHog Data warehouse.
 
