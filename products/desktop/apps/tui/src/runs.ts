@@ -20,6 +20,8 @@ export interface RunView {
   runError?: string | null;
   // A problem watching the run, such as a lost stream.
   error: string | null;
+  // A chat running on this machine rather than in a cloud sandbox.
+  local?: boolean;
 }
 
 export const emptyRunView: RunView = {
@@ -115,7 +117,8 @@ export function runNotice(
   }
   const running = view.status === "queued" || view.status === "in_progress";
   const waiting = lines.at(-1)?.kind === "user";
-  if (running && !lines.some((line) => line.kind !== "user")) {
+  // A local agent is up before its view exists, so only a cloud run has a start-up wait.
+  if (!view.local && running && !lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
   }
   // A turn still going, or a message the agent has not picked up yet.

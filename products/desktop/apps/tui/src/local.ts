@@ -62,6 +62,7 @@ export class LocalSession {
     this.publish({
       ...this.view,
       loaded: true,
+      local: true,
       status: "in_progress",
       entries: [...history.map(asEntry), ...this.view.entries],
     });
