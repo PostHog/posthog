@@ -164,12 +164,6 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     ).check_access_level_for_resource("session_recording", required_level="viewer"):
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    if filter_error_pending(scanner):
-        # The filter failed recently and fails the same way until someone edits it, so skip the
-        # query. The watermark holds, like any other skipped tick.
-        record_sweep_outcome("filter_error")
-        return FindScannerCandidatesOutput(candidates=[], saturated=False)
-
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
@@ -212,6 +206,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # variant lookup does. Skip before any read instead of building a query that can only be
         # refused. The watermark holds, like any other skipped tick.
         record_sweep_outcome("no_principal")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    if filter_error_pending(scanner):
+        # The filter failed recently and fails the same way until someone edits it, so skip the
+        # query. The watermark holds, like any other skipped tick.
+        record_sweep_outcome("filter_error")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:

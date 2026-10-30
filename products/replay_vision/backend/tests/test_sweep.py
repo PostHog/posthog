@@ -949,6 +949,8 @@ class TestFindScannerCandidatesActivity:
             ("hogql", QueryError("Unable to resolve field: event"), True),
             ("regex", wrap_clickhouse_query_error(ServerException("bad regexp", code=427)), True),
             ("too_many_queries", wrap_clickhouse_query_error(ServerException("busy", code=202)), False),
+            ("timeout", wrap_clickhouse_query_error(ServerException("slow", code=159)), False),
+            ("unknown_identifier", wrap_clickhouse_query_error(ServerException("missing", code=47)), False),
         ]
     )
     def test_a_filter_that_cannot_run_is_recorded_and_skipped_until_the_recheck(

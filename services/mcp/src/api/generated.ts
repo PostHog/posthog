@@ -79610,11 +79610,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
-      /**
-         * When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.
-         * @nullable
-         */
-      readonly filter_error_at: string | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -92510,11 +92505,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
-      /**
-         * When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.
-         * @nullable
-         */
-      readonly filter_error_at?: string | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
