@@ -198,7 +198,10 @@ AppLovin only serves the last 45 days of report data and the last 30 days of cam
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not validate_applovin_credentials(config.api_key):
-            return False, "Invalid AppLovin Report Key"
+            return (
+                False,
+                "AppLovin rejected your Report Key. Copy it again from your account menu > Keys in the AppLovin dashboard, then reconnect.",
+            )
 
         if schema_name is not None and schema_name not in MANAGEMENT_ENDPOINTS:
             return True, None
@@ -208,7 +211,10 @@ AppLovin only serves the last 45 days of report data and the last 30 days of cam
 
         if config.campaign_api_key and config.account_id:
             if not validate_management_credentials(config.campaign_api_key, config.account_id):
-                return False, "Invalid AppLovin Campaign Management API key or account ID"
+                return (
+                    False,
+                    "AppLovin rejected your Campaign Management API key or account ID. Check both under your account menu in the AppLovin dashboard, then reconnect.",
+                )
         elif schema_name in MANAGEMENT_ENDPOINTS:
             return False, "Add a Campaign Management API key and account ID to sync this table."
 

@@ -1178,6 +1178,17 @@ export class CdpApi {
             stages.start('validate')
             const parsed = TransactionalEmailRequestSchema.safeParse(req.body)
             if (!parsed.success) {
+                const issues = parsed.error.issues
+                // Signup accepts some addresses this check refuses, and no retry can fix an address.
+                if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
+                }
+                // Paths and codes only: the values include the recipient's address.
+                logger.warn('⚠️', 'Transactional email request failed validation', {
+                    team_id: req.params.team_id,
+                    hog_flow_id: req.params.id,
+                    issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                })
                 return reply('invalid_request', 400, { error: parsed.error.message })
             }
             const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data

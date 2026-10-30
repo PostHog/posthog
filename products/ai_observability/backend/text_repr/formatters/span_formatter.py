@@ -105,7 +105,7 @@ def _format_tool_result(state: dict, options: FormatterOptions | None) -> list[s
 
     lines.append("")
     # `content` is often a list of content blocks, which `str()` would render as a Python repr.
-    text = extract_payload_text(content)
+    text = extract_payload_text(content, options.get("media_marker") if options else None)
     if text:
         content_lines, _ = truncate_content(text, options)
         lines.extend(content_lines)

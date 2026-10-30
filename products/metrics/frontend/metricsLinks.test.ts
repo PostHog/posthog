@@ -36,10 +36,11 @@ describe('metricsLinks', () => {
         ).toMatchObject({ metricType: 'sum', aggregation: 'rate' })
     })
 
-    it('carries the time window', () => {
-        expect(paramsOf(metricUrl({ dateFrom: '-7d', dateTo: '-1d' }))).toMatchObject({
+    it('carries the time window and the chart interval', () => {
+        expect(paramsOf(metricUrl({ dateFrom: '-7d', dateTo: '-1d', interval: 'minute_5' }))).toMatchObject({
             dateFrom: '-7d',
             dateTo: '-1d',
+            interval: 'minute_5',
         })
     })
 

@@ -32,7 +32,6 @@ from ..facade.enums import (
     HighlightPriority,
     HighlightsStatus,
 )
-from ..feature_flags import pulse_ranking
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -95,7 +94,7 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
+    return hashlib.sha256(f"{granted}:{restrictions}".encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:

@@ -5,11 +5,13 @@ import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalReport } from '../../types'
+import { reportClaimant } from '../../utils/reportClaim'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
@@ -45,7 +47,9 @@ function externalClaimLabel(report: SignalReport): string | null {
     if (assignee?.kind !== 'agent') {
         return null
     }
-    return assignee.agent?.trim() || 'External agent'
+    const agent = assignee.agent?.trim() || 'External agent'
+    const claimant = reportClaimant(report)
+    return claimant ? `${fullNameOrEmail(claimant)} (via ${agent})` : agent
 }
 
 export function ReportStatusSection({

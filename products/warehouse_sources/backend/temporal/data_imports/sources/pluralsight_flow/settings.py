@@ -1,3 +1,5 @@
+from typing import Literal
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -13,14 +15,21 @@ CORE_ENDPOINTS = (
     "TeamMemberships",
     "PullRequestProjects",
     "TicketProjects",
+    "PullRequestComments",
+    "TicketEvents",
 )
 
-# Aggregate report resources under the shared Metrics API (`https://api.appfireflow.com/collaboration/`).
+# Aggregate report resources under the shared Metrics API host (`https://api.appfireflow.com/`).
 # Unlike the core endpoints, these return one summary object for a requested date range rather than
 # a paginated list of records.
 METRIC_ENDPOINTS = (
     "CodingMetrics",
     "CollaborationMetrics",
+    "TicketMetrics",
+    "DoraLeadTime",
+    "DoraDeploymentFrequency",
+    "DoraChangeFailureRate",
+    "DoraTimeToRestore",
 )
 
 ENDPOINTS = CORE_ENDPOINTS + METRIC_ENDPOINTS
@@ -38,12 +47,34 @@ CORE_ENDPOINT_PATHS: dict[str, str] = {
     "TeamMemberships": "team_membership/",
     "PullRequestProjects": "pull_request_projects/",
     "TicketProjects": "ticket_projects/",
+    "PullRequestComments": "pull_request_comments/",
+    "TicketEvents": "ticket_events/",
 }
 
 # Path of each metrics endpoint under the shared collaboration host.
 METRIC_ENDPOINT_PATHS: dict[str, str] = {
     "CodingMetrics": "/collaboration/code/metrics/",
     "CollaborationMetrics": "/collaboration/pullrequest/metrics/",
+    "TicketMetrics": "/ticket-delivery/metrics/",
+    "DoraLeadTime": "/dora/build-release/change/lead_time/",
+    "DoraDeploymentFrequency": "/dora/build-release/deployment/frequency/",
+    "DoraChangeFailureRate": "/dora/build-release/incident/change_failure_rate/",
+    "DoraTimeToRestore": "/dora/build-release/incident/time_to_restore/",
+}
+
+# Each metrics API family expects its `date_range` window in a different shape:
+# collaboration `[YYYY-MM-DD:YYYY-MM-DD]`, ticket delivery a JSON list of two offset datetimes,
+# and DORA two comma-separated offset datetimes.
+MetricDateRangeStyle = Literal["bracket", "json_list", "comma"]
+
+METRIC_DATE_RANGE_STYLES: dict[str, MetricDateRangeStyle] = {
+    "CodingMetrics": "bracket",
+    "CollaborationMetrics": "bracket",
+    "TicketMetrics": "json_list",
+    "DoraLeadTime": "comma",
+    "DoraDeploymentFrequency": "comma",
+    "DoraChangeFailureRate": "comma",
+    "DoraTimeToRestore": "comma",
 }
 
 # Every Customer API object exposes `id` as its primary key (confirmed for Users, Commits,
@@ -67,8 +98,15 @@ TABLE_NAMES: dict[str, str] = {
     "TeamMemberships": "team_memberships",
     "PullRequestProjects": "pull_request_projects",
     "TicketProjects": "ticket_projects",
+    "PullRequestComments": "pull_request_comments",
+    "TicketEvents": "ticket_events",
     "CodingMetrics": "coding_metrics",
     "CollaborationMetrics": "collaboration_metrics",
+    "TicketMetrics": "ticket_metrics",
+    "DoraLeadTime": "dora_lead_time",
+    "DoraDeploymentFrequency": "dora_deployment_frequency",
+    "DoraChangeFailureRate": "dora_change_failure_rate",
+    "DoraTimeToRestore": "dora_time_to_restore",
 }
 
 # Stable datetime field to partition on, for endpoints where one is confirmed by the API docs.
@@ -83,11 +121,13 @@ PARTITION_KEYS: dict[str, str] = {
     "UserAliases": "created_at",
     "PullRequestProjects": "created_at",
     "TicketProjects": "created_at",
+    "PullRequestComments": "created_at",
+    "TicketEvents": "created_at",
 }
 
 # Only endpoints with a documented `<field>__gte`/`<field>__lt`-filterable timestamp get an entry.
-# Repos, TeamMemberships, PullRequestProjects, TicketProjects and the metrics endpoints are full refresh:
-# the first four document no date filter, and the metrics endpoints already require an explicit
+# Repos, TeamMemberships, PullRequestProjects, TicketProjects, PullRequestComments, TicketEvents and the
+# metrics endpoints are full refresh: the core ones document no date filter, and the metrics endpoints already require an explicit
 # date-range window on every call.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "Users": [incremental_field("last_activity_at", IncrementalFieldType.DateTime)],

@@ -167,7 +167,7 @@ class TestSrmSegments(TestCase):
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
-            (outcome.subcode, outcome.title, outcome.detail, outcome.evidence.get("reason")),
+            (outcome.subcode, outcome.title, outcome.detail, outcome.reason),
             (None, "Users are not split across variants as configured", detail, reason),
         )
 
@@ -209,7 +209,6 @@ class TestSrmSegments(TestCase):
             evidence,
             {
                 "p_value": 0.00001,
-                "reason": "library",
                 "located_dimensions": "library",
                 "library_1": "web",
                 "library_1_p_value": 1.0,
