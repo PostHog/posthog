@@ -30,6 +30,7 @@ from django.db.models import (
     Sum,
     Value,
     When,
+    Window,
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Cast, Coalesce
@@ -1303,14 +1304,33 @@ class SignalReportListPagination(LimitOffsetPagination):
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        page = list(queryset[self.offset : self.offset + self.limit])
+        if request.query_params.get("search"):
+            page, window_count = self._search_page(queryset, self.offset, self.limit)
+        else:
+            page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
+        elif window_count is not None:
+            self.count = window_count
         else:
             self.count = self.get_count(queryset)
         if self.count > self.limit and self.template is not None:
             self.display_page_controls = True
         return page
+
+    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
+        # The trigram index cannot order the matches, so the page query already rechecks and sorts
+        # every match. COUNT(*) OVER () takes the total from that same scan. Only the ids go through
+        # the window, because the window buffers every match and full report rows spill to disk.
+        rows = list(
+            queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
+                offset : offset + limit
+            ]
+        )
+        if not rows:
+            return [], None
+        reports = {report.pk: report for report in queryset.filter(pk__in=[pk for pk, _ in rows]).order_by()}
+        return [reports[pk] for pk, _ in rows if pk in reports], rows[0][1]
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
