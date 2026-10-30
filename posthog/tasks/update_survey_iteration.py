@@ -7,6 +7,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.internal_targeting import build_internal_targeting_groups, get_wait_period_days
 from products.surveys.backend.models import Survey
 
 
@@ -71,26 +72,9 @@ def _has_final_iteration_ended(survey: Survey) -> bool:
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
-    user_submitted_dismissed_groups = [
-        {
-            "variant": "",
-            "rollout_percentage": 100,
-            "properties": [
-                {
-                    "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
-                    "value": "is_not_set",
-                    "operator": "is_not_set",
-                    "type": "person",
-                },
-                {
-                    "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
-                    "value": "is_not_set",
-                    "operator": "is_not_set",
-                    "type": "person",
-                },
-            ],
-        }
-    ]
+    user_submitted_dismissed_groups = build_internal_targeting_groups(
+        f"{survey.id}/{survey.current_iteration}", get_wait_period_days(survey.conditions)
+    )
 
     if existing_targeting_flag is not None:
         # Note: groups are replaced wholesale so old iteration-unaware properties don't survive
@@ -152,7 +136,7 @@ def update_survey_iteration() -> None:
         end_date__isnull=True,
         iteration_count__isnull=False,
         schedule=Survey.Schedule.RECURRING,
-    ).only("id", "iteration_count", "iteration_start_dates")
+    ).only("id", "iteration_count", "iteration_start_dates", "conditions")
 
     for survey in list(surveys_with_recurring_schedules):
         _update_survey_iteration(survey)

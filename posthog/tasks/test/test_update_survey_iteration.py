@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from django.utils.timezone import now
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -110,9 +112,11 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNone(self.recurring_survey.current_iteration)
 
-    def test_can_update_internal_targeting_flag(self) -> None:
-        # expected_targeting_filters =
+    @parameterized.expand([("no_wait_period", None), ("wait_period", 7)])
+    def test_can_update_internal_targeting_flag(self, _name: str, wait_period_days: int | None) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        if wait_period_days is not None:
+            self.recurring_survey.conditions = {"seenSurveyWaitPeriodInDays": wait_period_days}
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         update_survey_iteration()
@@ -120,7 +124,10 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(self.recurring_survey.current_iteration, 3)
         assert self.recurring_survey.internal_targeting_flag is not None
 
-        self.assertEqual(self.recurring_survey.internal_targeting_flag.filters, self._expected_iteration_filters(3))
+        self.assertEqual(
+            self.recurring_survey.internal_targeting_flag.filters,
+            self._expected_iteration_filters(3, wait_period_days),
+        )
 
     def test_can_create_internal_targeting_flag(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
@@ -184,31 +191,67 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
 
         self.assertEqual(flag_filters, self._expected_iteration_filters(3))
 
-    def _expected_iteration_filters(self, iteration: int) -> dict:
+    def _expected_iteration_filters(self, iteration: int, wait_period_days: int | None = None) -> dict:
         # aggregation_group_type_index (None = person-aggregated) is normalized onto
         # every condition set by the flag serializer on the way through the facade
-        return {
-            "groups": [
+        base_properties = [
+            {
+                "key": f"$survey_dismissed/{self.recurring_survey.id}/{iteration}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+            {
+                "key": f"$survey_responded/{self.recurring_survey.id}/{iteration}",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+                "type": "person",
+            },
+        ]
+
+        if wait_period_days is None:
+            groups = [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": None,
+                    "properties": base_properties,
+                }
+            ]
+        else:
+            groups = [
                 {
                     "variant": "",
                     "rollout_percentage": 100,
                     "aggregation_group_type_index": None,
                     "properties": [
+                        *base_properties,
                         {
-                            "key": f"$survey_dismissed/{self.recurring_survey.id}/{iteration}",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                            "type": "person",
-                        },
-                        {
-                            "key": f"$survey_responded/{self.recurring_survey.id}/{iteration}",
+                            "key": "$last_seen_survey_date",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                     ],
-                }
-            ],
+                },
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": None,
+                    "properties": [
+                        *base_properties,
+                        {
+                            "key": "$last_seen_survey_date",
+                            "value": f"{wait_period_days}d",
+                            "operator": "is_date_before",
+                            "type": "person",
+                        },
+                    ],
+                },
+            ]
+
+        return {
+            "groups": groups,
             "aggregation_group_type_index": None,
         }
 
