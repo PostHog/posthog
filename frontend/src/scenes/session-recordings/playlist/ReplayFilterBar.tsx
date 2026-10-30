@@ -15,6 +15,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { comparableRecordingFilters } from './playlistUtils'
+import { SavedFilterChips } from './SavedFilterChips'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -25,19 +26,20 @@ export function ReplayFilterBar({
     totalFiltersCount,
     currentSessionRecordingId,
     onReload,
+    savedFilterChips,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
     onReload: () => void
+    savedFilterChips?: boolean
 }): JSX.Element {
     const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
-    // registers the filter tool so the PostHog AI side panel can drive this list
     useMaxTool({
         identifier: 'filter_session_recordings',
         context: { current_filters: filters, current_session_id: currentSessionRecordingId },
@@ -71,6 +73,7 @@ export function ReplayFilterBar({
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
+                    {savedFilterChips && <SavedFilterChips edited={edited} />}
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <LemonButton

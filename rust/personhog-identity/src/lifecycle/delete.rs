@@ -9,9 +9,12 @@
 //! `ReleaseFences` per partition, which produces the death documents and
 //! evicts the leaders' cache entries. The unmapped transaction still
 //! writes the person tombstone directly: it is the durable revival floor
-//! the sync plane reads (sanctioned by the RFC); the death document
-//! confirms it downstream (writer, ClickHouse) at the same version,
-//! sealed + 1. The distinct-id rows tombstoned by an op are recorded in
+//! the sync plane reads (sanctioned by the RFC). Its version is the
+//! greater of the row's own version + 1 and sealed + 1: the fence stops
+//! leader writes, not a direct Postgres writer, so the row may have moved
+//! past the seal. The committed version rides the release, and the death
+//! document confirms the tombstone downstream (writer, ClickHouse) at or
+//! above it. The distinct-id rows tombstoned by an op are recorded in
 //! each victim row's `moved` column, so nothing needed for later emission
 //! is lost.
 //!
@@ -96,6 +99,10 @@ pub struct DeleteOutcome {
 pub struct DeletePersonRecord {
     pub person_id: i64,
     pub outcome: String,
+    /// The version the person's tombstone committed at; set for `deleted`.
+    /// Defaulted so outcomes recorded before the field existed still parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_version: Option<i64>,
 }
 
 pub const OUTCOME_DELETED: &str = "deleted";
@@ -110,6 +117,10 @@ const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_delete_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_delete_outcomes_total";
+/// Victims whose tombstone landed above sealed + 1: the row moved past the
+/// seal before the unmap, through a direct Postgres writer or a changelog
+/// record the sealing leader never emitted. The fence covers neither.
+const TOMBSTONES_ABOVE_SEAL_TOTAL: &str = "personhog_lifecycle_delete_tombstones_above_seal_total";
 
 /// Call after a step's transaction commits — a commit means the step CAS was
 /// won, so each transition is counted exactly once across concurrent drivers.
@@ -145,6 +156,7 @@ fn record_outcomes(outcome: &Value) {
 struct PersonStatus {
     person_id: i64,
     status: String,
+    tombstone_version: Option<i64>,
 }
 
 pub struct DeleteDriver {
@@ -516,9 +528,11 @@ async fn seal(
 /// commit that bumps them), clear cohort membership and feature-flag
 /// hash-key overrides, and tombstone the person rows themselves — properties
 /// scrubbed (the GDPR erasure; the retained uuid is not PII), version parked
-/// at sealed + 1 so the tombstone outranks every write the old incarnation
-/// ever produced. Revival (a later create on the same key) upserts above
-/// this version.
+/// at the greater of the row's version + 1 and sealed + 1 so the tombstone
+/// outranks every write the old incarnation ever produced, whether it went
+/// through the leader or straight to Postgres. The committed version is
+/// recorded in the victim's `sealed` jsonb for the release and the outcome.
+/// Revival (a later create on the same key) upserts above this version.
 async fn unmap(
     pools: &IdentityPools,
     tables: &IdentityTables,
@@ -650,19 +664,50 @@ async fn unmap(
             properties = '{{}}'::jsonb,
             properties_last_updated_at = '{{}}'::jsonb,
             properties_last_operation = '{{}}'::jsonb,
-            version = (lop.sealed->>'version')::bigint + 1
+            version = GREATEST(COALESCE(p.version, 0) + 1, (lop.sealed->>'version')::bigint + 1)
         FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.status = 'sealed'
           AND p.team_id = $2 AND p.id = lop.person_id
+        RETURNING p.id, p.version, (lop.sealed->>'version')::bigint
         "#,
         person_table = tables.person,
         lop_table = tables.lifecycle_op_person,
     );
-    sqlx::query(&query_tag!("delete_unmap_tombstone_persons", tombstone_sql))
-        .bind(op.op_id)
-        .bind(team_id)
-        .execute(&mut *tx)
-        .await?;
+    let tombstoned_persons: Vec<(i64, i64, Option<i64>)> =
+        sqlx::query_as(&query_tag!("delete_unmap_tombstone_persons", tombstone_sql))
+            .bind(op.op_id)
+            .bind(team_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    let moved_above_seal: Vec<(i64, i64, i64)> = tombstoned_persons
+        .iter()
+        .filter_map(|(id, version, sealed)| {
+            sealed
+                .filter(|sealed| *version > sealed + 1)
+                .map(|sealed| (*id, sealed, *version))
+        })
+        .collect();
+
+    // The committed version joins the seal so the release carries it to the
+    // leader and the outcome reports it, under the same step CAS.
+    let (tombstoned_ids, tombstone_versions): (Vec<i64>, Vec<i64>) = tombstoned_persons
+        .into_iter()
+        .map(|(id, version, _)| (id, version))
+        .unzip();
+    mirrored_query!(
+        tables.is_validation(),
+        op = "delete_unmap_record_tombstone_versions",
+        r#"
+        UPDATE {lifecycle_op_person} lop
+        SET sealed = lop.sealed || jsonb_build_object('tombstone_version', u.version)
+        FROM unnest($2::bigint[], $3::bigint[]) AS u(person_id, version)
+        WHERE lop.op_id = $1 AND lop.person_id = u.person_id
+        "#,
+        op.op_id,
+        &tombstoned_ids,
+        &tombstone_versions
+        => execute(&mut *tx)
+    )?;
 
     if !advance_step_in_tx(
         &mut tx,
@@ -678,6 +723,20 @@ async fn unmap(
     }
     tx.commit().await?;
     record_transition(DeleteStep::Sealed.as_str(), DeleteStep::Unmapped.as_str());
+    if !moved_above_seal.is_empty() {
+        tracing::warn!(
+            op_id = %op.op_id,
+            team_id,
+            persons = moved_above_seal.len(),
+            person_sealed_tombstone = ?moved_above_seal,
+            "delete tombstones landed above sealed + 1; the rows moved after the seal"
+        );
+        common_metrics::inc(
+            TOMBSTONES_ABOVE_SEAL_TOTAL,
+            &[],
+            moved_above_seal.len() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -709,7 +768,8 @@ async fn complete(
         r#"
         SELECT person_id, person_uuid,
                (sealed->>'version')::bigint AS "sealed_version!",
-               (sealed->>'created_at')::bigint AS "sealed_created_at!"
+               (sealed->>'created_at')::bigint AS "sealed_created_at!",
+               (sealed->>'tombstone_version')::bigint AS "tombstone_version?"
         FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status = 'sealed' AND sealed ? 'created_at'
         ORDER BY person_id
@@ -754,7 +814,8 @@ async fn complete(
 /// per-person rows: `deleted` and `skipped_conflict` map to themselves; a
 /// missing row means no live person existed at claim time (`not_found`).
 /// A row still `marked`/`sealed` at completion should be unreachable and
-/// reports `not_found`.
+/// reports `not_found`. A deleted entry carries the tombstone version the
+/// unmap recorded.
 async fn build_outcome(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
@@ -765,7 +826,11 @@ async fn build_outcome(
         PersonStatus,
         tables.is_validation(),
         op = "delete_outcome",
-        "SELECT person_id, status FROM {lifecycle_op_person} WHERE op_id = $1",
+        r#"
+        SELECT person_id, status,
+               (sealed->>'tombstone_version')::bigint AS "tombstone_version?"
+        FROM {lifecycle_op_person} WHERE op_id = $1
+        "#,
         op_id
         => fetch_all(&mut **tx)
     )?;
@@ -773,14 +838,19 @@ async fn build_outcome(
     let results = requested
         .iter()
         .map(|person_id| {
-            let outcome = match rows.iter().find(|r| r.person_id == *person_id) {
+            let row = rows.iter().find(|r| r.person_id == *person_id);
+            let outcome = match row {
                 Some(row) if row.status == STATUS_DELETED => OUTCOME_DELETED,
                 Some(row) if row.status == STATUS_SKIPPED_CONFLICT => OUTCOME_SKIPPED_CONFLICT,
                 _ => OUTCOME_NOT_FOUND,
             };
+            let person_version = row
+                .filter(|_| outcome == OUTCOME_DELETED)
+                .and_then(|r| r.tombstone_version);
             DeletePersonRecord {
                 person_id: *person_id,
                 outcome: outcome.to_string(),
+                person_version,
             }
         })
         .collect();

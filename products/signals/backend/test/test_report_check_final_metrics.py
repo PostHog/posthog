@@ -155,7 +155,7 @@ class TestFinalMetricExecution(BaseTest):
             ("negative_sum", "sum", -1, "inconclusive"),
         ]
     )
-    def test_final_results_separate_evidence_from_matching_and_do_not_complete_reports(
+    def test_final_results_separate_evidence_from_matching_and_aggregate_report_outcomes(
         self, _name: str, math: str, value: float, outcome: str
     ) -> None:
         member = self._member(math=math)
@@ -189,8 +189,13 @@ class TestFinalMetricExecution(BaseTest):
         assert sum([summary.passed, summary.failed, summary.inconclusive]) == 1
         self.report.refresh_from_db()
         member.check.refresh_from_db()
-        assert self.report.status == SignalReport.Status.MONITORING
-        assert member.check.runs_remaining == 3 and member.check.last_outcome is None
+        expected_status = {
+            "passed": SignalReport.Status.RESOLVED,
+            "failed": SignalReport.Status.CLOSED,
+        }.get(outcome, SignalReport.Status.MONITORING)
+        assert self.report.status == expected_status
+        assert member.check.runs_remaining == 3
+        assert member.check.last_outcome == (outcome if outcome in {"passed", "failed"} else None)
         if value == 0:
             assert result.evidence_status == "insufficient" and result.evidence_reason == "activity_unavailable"
         elif value < 0:

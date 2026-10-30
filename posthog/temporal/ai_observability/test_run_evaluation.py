@@ -1,3 +1,4 @@
+import sys
 import json
 import uuid
 import dataclasses
@@ -27,13 +28,16 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, JudgeAttachments
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
     ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
@@ -42,6 +46,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -52,6 +57,7 @@ from products.ai_observability.backend.models.evaluation_directories import Eval
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
@@ -373,6 +379,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
                 "team_id": 1,
                 "evaluation_config": {
                     "prompt": "Check the response.",
+                    "reasoning_level": "high",
                     **({"judge_method": judge_method} if judge_method else {}),
                 },
             },
@@ -381,6 +388,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             allows_na=False,
         )
     complete.assert_called_once()
+    assert complete.call_args.args[0].reasoning_level == "high"
     decide.assert_not_called()
     native_decide.assert_not_called()
     assert result["verdict"] is True
@@ -1135,6 +1143,73 @@ def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
     return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
 
 
+def _adapter_rejection(cause: Exception | None) -> ProviderRequestRejectedError:
+    error = ProviderRequestRejectedError(RESPONSE_LIMIT_MESSAGE if cause is None else "The provider rejected it.")
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    ("error", "presigned_url", "retries"),
+    [
+        pytest.param(
+            _adapter_rejection(_openai_status_error(400, "Image input is not supported.")),
+            "https://signed",
+            True,
+            id="adapter_wrapped_400",
+        ),
+        pytest.param(
+            _openai_status_error(400, "Error while downloading https://signed."), "https://signed", True, id="raw_400"
+        ),
+        pytest.param(_adapter_rejection(None), "https://signed", False, id="unreadable_response"),
+        pytest.param(_openai_status_error(401, "Invalid API key."), "https://signed", False, id="auth_error"),
+        pytest.param(_openai_status_error(400, "Bad request."), None, False, id="no_image_attached"),
+    ],
+)
+def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rejected(
+    error: Exception, presigned_url: str | None, retries: bool
+) -> None:
+    images = JudgeAttachments(team_id=1)
+    pointer = MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1")
+    attachment_prompt = AttachmentPrompt(text=f"user: {images.marker(pointer)} Polite?", attachments=images)
+
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client_class,
+        patch(
+            "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url", return_value=presigned_url
+        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.capture_exception") as capture,
+    ):
+        # Only a PostHog key reports the fallback. On BYOK a rejection ends as a skip instead of raising.
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=not retries
+        )
+        # The provider error can quote the link, so nothing may log or chain it while the fallback runs.
+        active_errors: list[BaseException | None] = []
+        capture.side_effect = lambda *_: active_errors.append(sys.exc_info()[1])
+        client = client_class.return_value
+        client.complete.side_effect = [
+            error,
+            MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="ok"), usage=None),
+        ]
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="user: Polite?",
+            allows_na=False,
+            attachment_prompt=attachment_prompt,
+        )
+
+    if retries:
+        assert result["verdict"] is True
+        assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": "user: Polite?"}]
+        assert "https://signed" not in str(capture.call_args)
+        assert active_errors == [None]
+    else:
+        assert client.complete.call_count == 1
+
+
 @pytest.mark.parametrize(
     "provider, raised_exception, expected_status, expected_detail",
     [
@@ -1496,6 +1571,86 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("flag_enabled", "evaluation_config", "attaches_image"),
+        [
+            pytest.param(True, {"prompt": "Is the chart described correctly?"}, True, id="flag_on"),
+            pytest.param(False, {"prompt": "Is the chart described correctly?"}, False, id="flag_off"),
+            pytest.param(
+                True, {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+            ),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_attaches_images_when_enabled(
+        self, flag_enabled, evaluation_config, attaches_image, setup_data, active_key_config
+    ):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": evaluation_config,
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg&size=63357"
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer}},
+                            {"type": "text", "text": "What does this chart show?"},
+                        ],
+                    }
+                ],
+                "$ai_output_choices": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer.replace("a" * 64, "b" * 64)}},
+                            {"type": "text", "text": "Sales rose in March."},
+                        ],
+                    }
+                ],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch(
+                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ) as feature_enabled,
+            patch(
+                "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
+                return_value="https://signed",
+            ),
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.return_value = MagicMock(
+                parsed=BooleanEvalResult(verdict=True, reasoning="ok"),
+                usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=1),
+            )
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        content = mock_client.complete.call_args.args[0].messages[0]["content"]
+        if "include_media" not in evaluation_config:
+            # Team ids repeat across regions, so the flag is checked against the project uuid.
+            assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
+        if attaches_image:
+            assert AttachmentPart(mime_type="image/jpeg", url="https://signed") in content
+            assert "user: [image 1] What does this chart show?" in content[-1]["text"]
+            assert "assistant: [image 2] Sales rose in March." in content[-1]["text"]
+        else:
+            assert isinstance(content, str)
+            assert "[image" not in content
+            assert "What does this chart show?" in content
 
     @pytest.mark.parametrize(
         "oversized_input",
@@ -4512,6 +4667,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": "boolean",
+            "team_id": 1,
         }
         event_data = create_mock_event_data(
             1,
@@ -4537,6 +4693,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": output_type,
+            "team_id": 1,
             "output_config": {
                 "allows_na": allows_na,
                 **({"options": [{"key": "correct", "label": "Correct"}]} if output_type == "categorical" else {}),
@@ -4560,6 +4717,39 @@ class TestJudgePromptAssembly:
             reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
             skip_reason="generation_output_too_long",
         )
+
+    def test_inline_images_that_overflow_the_plain_prompt_are_still_judged(self) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+            "team_id": 1,
+            "output_config": {},
+        }
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 20_000}}
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "Draw eight charts.",
+                "$ai_output_choices": [{"role": "assistant", "content": [image] * 8}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
+            patch(
+                "posthog.temporal.ai_observability.judge_attachments.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch("posthog.temporal.ai_observability.judge_attachments._project_uuid", return_value="uuid"),
+        ):
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        attachment_prompt = judge.call_args.kwargs["attachment_prompt"]
+        assert attachment_prompt is not None
+        # Decision judges and the text-only retry use this prompt, and they send no images.
+        assert judge.call_args.kwargs["user_prompt"] == attachment_prompt.unnumbered_text()
+        assert "[image 1]" not in judge.call_args.kwargs["user_prompt"]
 
     @pytest.mark.parametrize(
         "text,expected_text",

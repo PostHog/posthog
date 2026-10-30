@@ -16,8 +16,8 @@ from slack_sdk.errors import SlackApiError
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
+from posthog.integrations import IntegrationRecord
 from posthog.models import Team, User
-from posthog.models.integration import Integration
 from posthog.slack.formatting import channel_id_from_target
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
@@ -589,7 +589,7 @@ def _build_ai_slack_message(
     markdown: str,
     *,
     delivery_id: uuid.UUID,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
     charts: list[dict] | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -691,7 +691,7 @@ async def send_slack_ai_subscription_report(
     *,
     subscription: Subscription,
     markdown: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
