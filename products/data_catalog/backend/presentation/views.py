@@ -600,6 +600,7 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "data_catalog"
     # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
     scope_object_read_actions = ["list", "retrieve", "latest"]
+    scope_object_write_actions = ["recompute"]
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
@@ -629,3 +630,23 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if snapshot is None:
             raise NotFound(_NO_USAGE_SCAN)
         return Response(UsageSnapshotSerializer(snapshot).data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        request=None,
+        responses={
+            202: UsageSnapshotSummarySerializer,
+            404: _USAGE_404,
+            409: OpenApiResponse(description="A usage scan is already running for this project."),
+        },
+    )
+    def recompute(self, request: Request, **kwargs) -> Response:
+        """Start a usage scan now. The new snapshot computes until the scan finishes."""
+        try:
+            snapshot = api.start_usage_scan(self.team)
+        except api.ScanAlreadyRunning:
+            return Response(
+                {"detail": "A usage scan is already running for this project."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(UsageSnapshotSummarySerializer(snapshot).data, status=status.HTTP_202_ACCEPTED)

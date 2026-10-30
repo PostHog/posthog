@@ -627,6 +627,13 @@ export interface AdjustedRunApi {
     is_scout: boolean
 }
 
+export interface SectionFailureApi {
+    /** The failed section: metric_runs, adjusted_runs, topics or uncovered. */
+    section: string
+    /** Why the scan step failed. */
+    reason: string
+}
+
 export interface MetricUsageApi {
     /** ID of the catalog metric. */
     metric_id: string
@@ -649,6 +656,8 @@ export interface MetricUsageApi {
     scout_adjusted: FetchOutcomeCountsApi
     /** The agent queries behind both counts. is_scout tells them apart. */
     adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
 }
 
 /**
@@ -905,6 +914,8 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     uncovered: UncoveredGroupApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
 }
 
 export interface UsageSnapshotApi {

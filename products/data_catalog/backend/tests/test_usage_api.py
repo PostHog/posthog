@@ -1,21 +1,29 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.data_catalog.backend.facade.contracts import AdjustedRun, MetricRunCounts, UsageSnapshotPayload
-from products.data_catalog.backend.facade.enums import FetchOutcome, JudgeRelation, UsageSnapshotStatus
+from products.data_catalog.backend.facade.contracts import (
+    AdjustedRun,
+    MetricRunCounts,
+    SectionFailure,
+    UsageSnapshotPayload,
+)
+from products.data_catalog.backend.facade.enums import FetchOutcome, JudgeRelation, UsageSection, UsageSnapshotStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
+from products.data_catalog.backend.logic.usage_scan import finalize_usage_snapshot
 from products.data_catalog.backend.logic.usage_snapshots import payload_to_json
 from products.data_catalog.backend.models import UsageSnapshot
 
 _FLAG = "products.data_catalog.backend.logic.usage_snapshots.posthoganalytics.feature_enabled"
+_TEMPORAL = "products.data_catalog.backend.logic.usage_scan.sync_connect"
 _WINDOW_END = datetime(2026, 10, 26, tzinfo=UTC)
 
 
@@ -120,3 +128,48 @@ class TestUsageSnapshotAPI(APIBaseTest):
         assert body["adjusted"] == {"adapted": 1, "missed": 0, "silent": 1}
         assert body["scout_adjusted"] == {"adapted": 0, "missed": 0, "silent": 1}
         assert {run["metric_id"] for run in body["adjusted_runs"]} == {str(mrr.id)}
+
+    def test_a_partly_failed_scan_is_done_and_names_only_the_failures_a_metric_reads(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
+        snapshot = self._snapshot(snapshot_status=UsageSnapshotStatus.COMPUTING, computed_at=None)
+        finalize_usage_snapshot(
+            self.team.id,
+            snapshot.id,
+            failed_sections=[
+                SectionFailure(section=UsageSection.ADJUSTED_RUNS, reason="The judge timed out."),
+                SectionFailure(section=UsageSection.TOPICS, reason="The embedding service is down."),
+            ],
+        )
+
+        with patch(_FLAG, return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/metrics/mrr/usage/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["failed_sections"] == [{"section": "adjusted_runs", "reason": "The judge timed out."}]
+
+    @parameterized.expand(
+        [
+            ("no_scan_running", None, status.HTTP_202_ACCEPTED),
+            ("scan_running", timedelta(hours=1), status.HTTP_409_CONFLICT),
+            ("dead_scan", timedelta(hours=20), status.HTTP_202_ACCEPTED),
+        ]
+    )
+    @time_machine.travel("2026-10-26T12:00:00Z", tick=False)
+    def test_recompute_starts_one_scan_at_a_time(
+        self, _name: str, computing_for: timedelta | None, expected_status: int
+    ) -> None:
+        if computing_for is not None:
+            running = self._snapshot(snapshot_status=UsageSnapshotStatus.COMPUTING, computed_at=None)
+            UsageSnapshot.objects.for_team(self.team.id).filter(id=running.id).update(
+                created_at=datetime(2026, 10, 26, 12, 0, tzinfo=UTC) - computing_for
+            )
+        temporal = MagicMock()
+        temporal.start_workflow = AsyncMock()
+
+        with patch(_FLAG, return_value=True), patch(_TEMPORAL, return_value=temporal):
+            response = self.client.post(f"/api/projects/{self.team.id}/data_catalog/usage/recompute/")
+
+        assert response.status_code == expected_status, response.json()
+        assert temporal.start_workflow.await_count == (1 if expected_status == status.HTTP_202_ACCEPTED else 0)
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert response.json()["status"] == UsageSnapshotStatus.COMPUTING

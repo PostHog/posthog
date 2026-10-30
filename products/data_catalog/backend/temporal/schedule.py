@@ -16,10 +16,13 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from .usage_scan.types import UsageScheduleInput
+from .usage_scan.workflows import SCHEDULE_WORKFLOW_NAME as USAGE_SCHEDULE_WORKFLOW_NAME
 from .weekly_digest.types import DataCatalogWeeklyDigestInput
 from .weekly_digest.workflows import WORKFLOW_NAME
 
 SCHEDULE_ID = "data-catalog-weekly-digest-schedule"
+USAGE_SCAN_SCHEDULE_ID = "data-catalog-usage-scan-schedule"
 
 
 async def create_data_catalog_weekly_digest_schedule(client: Client) -> None:
@@ -54,3 +57,33 @@ async def create_data_catalog_weekly_digest_schedule(client: Client) -> None:
         await a_update_schedule(client, SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, SCHEDULE_ID, schedule, trigger_immediately=False)
+
+
+async def create_data_catalog_usage_scan_schedule(client: Client) -> None:
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            USAGE_SCHEDULE_WORKFLOW_NAME,
+            UsageScheduleInput(),
+            id=USAGE_SCAN_SCHEDULE_ID,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+            # Each team's scan has its own steps' timeouts; this bounds the loop over teams, so a
+            # wedged run ends long before the next Monday.
+            execution_timeout=timedelta(hours=12),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ],
+            time_zone_name="UTC",
+        ),
+    )
+
+    if await a_schedule_exists(client, USAGE_SCAN_SCHEDULE_ID):
+        await a_update_schedule(client, USAGE_SCAN_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, USAGE_SCAN_SCHEDULE_ID, schedule, trigger_immediately=False)

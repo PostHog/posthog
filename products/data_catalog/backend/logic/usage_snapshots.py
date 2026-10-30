@@ -23,13 +23,16 @@ from ..facade.contracts import (
     UsageSnapshotPayload,
     UsageSnapshotSummary,
 )
-from ..facade.enums import USAGE_FLAG_KEY, FetchOutcome, UsageSnapshotStatus
+from ..facade.enums import USAGE_FLAG_KEY, FetchOutcome, UsageSection, UsageSnapshotStatus
 from ..models import UsageSnapshot
 
 # A weekly scan writes one row a week, so this is a year of history.
 USAGE_HISTORY_LIMIT = 52
 
 _PAYLOAD_ADAPTER = TypeAdapter(UsageSnapshotPayload)
+
+# The sections a metric's usage reads. A failure in another section does not change its numbers.
+_METRIC_SECTIONS = frozenset({UsageSection.METRIC_RUNS, UsageSection.ADJUSTED_RUNS})
 
 
 def payload_to_json(payload: UsageSnapshotPayload) -> dict[str, Any]:
@@ -53,7 +56,7 @@ def is_usage_enabled(user: User, team: Team) -> bool:
 
 def usage_snapshot_history(team_id: int) -> list[UsageSnapshotSummary]:
     rows = UsageSnapshot.objects.for_team(team_id).defer("payload").order_by("-created_at")[:USAGE_HISTORY_LIMIT]
-    return [_summary(row) for row in rows]
+    return [summary_of(row) for row in rows]
 
 
 def get_usage_snapshot(team_id: int, snapshot_id: UUID) -> UsageSnapshotDetail | None:
@@ -84,6 +87,7 @@ def metric_usage(team_id: int, metric_id: UUID) -> MetricUsage | None:
         adjusted=_count_outcomes(run for run in adjusted if not run.is_scout),
         scout_adjusted=_count_outcomes(run for run in adjusted if run.is_scout),
         adjusted_runs=adjusted,
+        failed_sections=[failure for failure in payload.failed_sections if failure.section in _METRIC_SECTIONS],
     )
 
 
@@ -133,7 +137,7 @@ def _latest_done(team_id: int) -> UsageSnapshot | None:
     )
 
 
-def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
+def summary_of(row: UsageSnapshot) -> UsageSnapshotSummary:
     return UsageSnapshotSummary(
         id=row.id,
         status=UsageSnapshotStatus(row.status),
