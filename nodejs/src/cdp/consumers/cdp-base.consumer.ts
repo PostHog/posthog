@@ -130,8 +130,13 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         ) {
             return {}
         }
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(hogFunction.template_id!)
-        return { maxCapturedEvents: capturedEventsLimit(hogFunction, template?.bytecode) }
+        const versions = await this.hogFunctionTemplateManager.getHogFunctionTemplateVersions(hogFunction.template_id!)
+        return {
+            maxCapturedEvents: capturedEventsLimit(
+                hogFunction,
+                versions.map((version) => version.bytecode)
+            ),
+        }
     }
 
     public get service(): PluginServerService {

@@ -145,6 +145,13 @@ if (empty(logs) and notEmpty(request.body)) {
     pushParsed(request.body)
 }
 
+if (droppedLogs > 0) {
+    print(f'Warning: Dropped {droppedLogs} log(s). A batch is capped at {maxLogs} kept lines; configure the drain to send smaller batches.')
+}
+if (unparsedLines > 0) {
+    print(f'Warning: Skipped {unparsedLines} unparsed line(s). A request is parsed up to {maxParsedLines} lines.')
+}
+
 if (empty(logs)) {
     // Every valid line was a sub-resource filtered out by page_routes_only. Ack it so Vercel does not retry.
     if (validLogs > 0) {
@@ -165,12 +172,6 @@ if (empty(logs)) {
     }
 }
 
-if (droppedLogs > 0) {
-    print(f'Warning: Dropped {droppedLogs} log(s). A batch is capped at {maxLogs} kept lines; configure the drain to send smaller batches.')
-}
-if (unparsedLines > 0) {
-    print(f'Warning: Skipped {unparsedLines} unparsed line(s). A request is parsed up to {maxParsedLines} lines.')
-}
 
 let limit := toInt(inputs.max_message_len ?? 262144)
 

@@ -860,6 +860,35 @@ describe('vercel log drain template', () => {
             expect(response.logs.map((l) => l.message)).not.toContainEqual(expect.stringContaining('Dropped'))
         })
 
+        it('reports unparsed lines even when every parsed line was filtered out', async () => {
+            const assets = Array.from({ length: 1000 }, (_, i) =>
+                JSON.stringify({ ...logWithPath(`/static/chunk-${i}.js`), id: `asset${i}` })
+            )
+            const pages = Array.from({ length: 3 }, (_, i) =>
+                JSON.stringify({ ...logWithPath(`/docs/${i}`), id: `page${i}` })
+            )
+
+            const response = await tester.invoke(
+                { page_routes_only: true },
+                {
+                    request: {
+                        method: 'POST',
+                        headers: {},
+                        body: {},
+                        stringBody: [...assets, ...pages].join('\n'),
+                        query: {},
+                    },
+                }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(0)
+            expect(response.execResult).toMatchObject({ httpResponse: { status: 200 } })
+            expect(response.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('Skipped 3 unparsed line(s)')
+            )
+        })
+
         it('skips a batch with no page-route log and acknowledges with 200', async () => {
             const batch = [
                 { ...logWithPath('/static/app.abc123.js'), id: 'asset1' },

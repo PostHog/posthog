@@ -44,20 +44,21 @@ export const MULTI_CAPTURE_SOURCE_TEMPLATE_IDS: ReadonlySet<string> = new Set(['
 export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
 
 // The API lets a caller keep a template_id on hand-written Hog, so the template id alone is
-// not a trust boundary. The allowance also requires the function to run the template's own
-// bytecode, which the server compiled.
+// not a trust boundary. The allowance also requires the function to run bytecode the server
+// compiled for that template. Any stored version counts, because a saved function keeps the
+// bytecode of the version it was created from.
 export function capturedEventsLimit(
     hogFunction: Pick<HogFunctionType, 'type' | 'template_id' | 'bytecode'>,
-    templateBytecode: HogBytecode | null | undefined
+    templateBytecodes: ReadonlyArray<HogBytecode | null | undefined>
 ): number {
     if (
         hogFunction.type !== 'source_webhook' ||
-        !MULTI_CAPTURE_SOURCE_TEMPLATE_IDS.has(hogFunction.template_id ?? '') ||
-        !templateBytecode
+        !MULTI_CAPTURE_SOURCE_TEMPLATE_IDS.has(hogFunction.template_id ?? '')
     ) {
         return 1
     }
-    return JSON.stringify(hogFunction.bytecode) === JSON.stringify(templateBytecode)
+    const functionBytecode = JSON.stringify(hogFunction.bytecode)
+    return templateBytecodes.some((bytecode) => bytecode && JSON.stringify(bytecode) === functionBytecode)
         ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS
         : 1
 }

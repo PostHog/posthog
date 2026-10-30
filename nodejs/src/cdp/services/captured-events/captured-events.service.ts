@@ -13,8 +13,9 @@ export const CAPTURE_BATCH_SIZE = 100
 // Capture refuses request bodies over 20 MiB, and one event can carry about 1 MiB of properties.
 export const CAPTURE_BATCH_MAX_BYTES = 2 * 1024 * 1024
 export const CAPTURE_BATCH_CONCURRENCY = 5
-// Queued events wait in memory until a flush. Past this point new events are dropped and counted,
-// so a capture slowdown degrades into lost events instead of an out-of-memory pod.
+// Events wait in memory until capture accepts them. Past this many outstanding events, queued or
+// in flight, new events are dropped and counted, so a capture slowdown degrades into lost events
+// instead of an out-of-memory pod.
 export const CAPTURE_QUEUE_MAX_EVENTS = 10_000
 // Capture answers 400 for an invalid event and 413 for an oversized body. One event can cause
 // either, so such a batch is retried one event at a time. Every other status, such as 401 or 429,
@@ -89,6 +90,7 @@ export class CapturedEventsService {
     // One bound for every request to capture from this process, batches and single retries alike.
     private sends = new Semaphore(CAPTURE_BATCH_CONCURRENCY)
     private inFlight = new Set<Promise<void>>()
+    private inFlightEvents = 0
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -153,7 +155,7 @@ export class CapturedEventsService {
     }
 
     private enqueue(event: InternalCaptureEvent): void {
-        if (this.queuedEvents.length >= CAPTURE_QUEUE_MAX_EVENTS) {
+        if (this.queuedEvents.length + this.inFlightEvents >= CAPTURE_QUEUE_MAX_EVENTS) {
             capturedEventsDropped.inc({ reason: 'queue_full' })
             return
         }
@@ -182,12 +184,16 @@ export class CapturedEventsService {
             capturedEventsDropped.inc({ reason: 'unserializable' }, unserializable)
             logger.warn('Dropped captured events that could not be serialized', { count: unserializable })
         }
-        await Promise.all(batches.map((batch) => this.track(this.sendBatch(batch))))
+        await Promise.all(batches.map((batch) => this.track(batch, this.sendBatch(batch))))
     }
 
-    private track(promise: Promise<void>): Promise<void> {
+    private track(batch: InternalCaptureEvent[], promise: Promise<void>): Promise<void> {
+        this.inFlightEvents += batch.length
         this.inFlight.add(promise)
-        return promise.finally(() => this.inFlight.delete(promise))
+        return promise.finally(() => {
+            this.inFlightEvents -= batch.length
+            this.inFlight.delete(promise)
+        })
     }
 
     private async sendBatch(batch: InternalCaptureEvent[]): Promise<void> {

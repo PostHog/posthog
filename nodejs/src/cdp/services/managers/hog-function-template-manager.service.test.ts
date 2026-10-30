@@ -41,6 +41,20 @@ describe('HogFunctionTemplateManager', () => {
         await closeHub(hub)
     })
 
+    it('returns every stored version of a template', async () => {
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: templateId,
+            sha: 'sha2',
+            name: 'Test Hog Function team 1 v2',
+            code: 'fetch(inputs.url, {})',
+        })
+
+        const versions = await manager.getHogFunctionTemplateVersions(templateId)
+
+        expect(versions.map((version) => version.sha).sort()).toEqual(['sha', 'sha2'])
+        expect(new Set(versions.map((version) => JSON.stringify(version.bytecode))).size).toBe(2)
+    })
+
     it('returns the hog functions templates', async () => {
         const items = await manager.getHogFunctionTemplate(templateId)
 

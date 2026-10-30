@@ -173,7 +173,7 @@ export const createHogFunctionTemplate = (
 
 export const insertHogFunctionTemplate = async (
     postgres: PostgresRouter,
-    hogFunctionTemplate: Partial<HogFunctionTemplateCompiled> = {}
+    hogFunctionTemplate: Partial<HogFunctionTemplateCompiled> & { sha?: string } = {}
 ): Promise<DBHogFunctionTemplate> => {
     // This is only used for testing so we need to override some values
 
@@ -190,7 +190,7 @@ export const insertHogFunctionTemplate = async (
         {
             id: randomUUID(),
             template_id: template.id,
-            sha: 'sha',
+            sha: hogFunctionTemplate.sha ?? 'sha',
             name: template.name,
             description: template.description,
             code: template.code,

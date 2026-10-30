@@ -341,7 +341,7 @@ export class TemplateTester {
 
         return this.getExecutor().execute(invocation, {
             functions: extraFunctions,
-            maxCapturedEvents: capturedEventsLimit(hogFunction, this.template.bytecode),
+            maxCapturedEvents: capturedEventsLimit(hogFunction, [this.template.bytecode]),
         })
     }
 

@@ -673,25 +673,36 @@ postHogCapture({'event': 'two', 'distinct_id': 'd'})`
         })
 
         it.each([
-            ['the template bytecode', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], [1, 2], 100],
+            ['the template bytecode', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], [[1, 2]], 100],
+            [
+                'an older template version',
+                'source_webhook',
+                'template-source-vercel-log-drain',
+                [1, 2],
+                [
+                    [1, 3],
+                    [1, 2],
+                ],
+                100,
+            ],
             [
                 'edited Hog under the template id',
                 'source_webhook',
                 'template-source-vercel-log-drain',
                 [1, 2],
-                [1, 3],
+                [[1, 3]],
                 1,
             ],
-            ['a template outside the allowlist', 'source_webhook', 'template-source-webhook', [1, 2], [1, 2], 1],
-            ['a destination', 'destination', 'template-source-vercel-log-drain', [1, 2], [1, 2], 1],
-            ['no server template', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], undefined, 1],
+            ['a template outside the allowlist', 'source_webhook', 'template-source-webhook', [1, 2], [[1, 2]], 1],
+            ['a destination', 'destination', 'template-source-vercel-log-drain', [1, 2], [[1, 2]], 1],
+            ['no server template', 'source_webhook', 'template-source-vercel-log-drain', [1, 2], [], 1],
         ])(
             'capturedEventsLimit grants multi-capture only to a log drain running %s',
-            (_name, type, template_id, bytecode, templateBytecode, expected) => {
+            (_name, type, template_id, bytecode, templateBytecodes, expected) => {
                 expect(
                     capturedEventsLimit(
                         { type: type as HogFunctionType['type'], template_id, bytecode },
-                        templateBytecode
+                        templateBytecodes
                     )
                 ).toBe(expected)
             }

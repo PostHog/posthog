@@ -179,6 +179,29 @@ describe('CapturedEventsService', () => {
             expect(sent).toBe(CAPTURE_QUEUE_MAX_EVENTS)
         })
 
+        it('counts events still in flight toward the high-water mark', async () => {
+            internalCaptureService.captureBatch.mockImplementation(async () => {
+                await new Promise((resolve) => setImmediate(resolve))
+                return { status: 200 } as any
+            })
+            const events = (count: number, prefix: string) =>
+                Array.from({ length: count }, (_, i) => ({
+                    team_token: 'token-a',
+                    event: `${prefix}${i}`,
+                    distinct_id: 'u1',
+                }))
+
+            service.queue(events(CAPTURE_QUEUE_MAX_EVENTS, 'a'))
+            const first = service.flush()
+            service.queue(events(3, 'b'))
+            const second = service.flush()
+            await Promise.all([first, second])
+
+            const sent = internalCaptureService.captureBatch.mock.calls.flatMap((call) => call[0].map((e) => e.event))
+            expect(sent).toHaveLength(CAPTURE_QUEUE_MAX_EVENTS)
+            expect(sent.filter((name) => name.startsWith('b'))).toEqual([])
+        })
+
         it('bounds single-event retries by the same in-flight limit as batches', async () => {
             internalCaptureService.captureBatch.mockResolvedValue({ status: 400 } as any)
             let inFlight = 0
