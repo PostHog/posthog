@@ -4094,10 +4094,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response_invalid_token.status_code, 401)
 
     def test_soft_delete_flag_renames_key_and_allows_reuse(self):
-        # Create flag and experiment, then soft-delete experiment
+        # Create a flag with a soft-deleted experiment
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag1")
-        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
         # Soft-delete flag: should rename key
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 200
@@ -4127,8 +4126,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_soft_delete_undo_restores_renamed_key(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-flag")
-        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 200
@@ -4143,8 +4141,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_soft_delete_undo_suffixes_key_when_original_is_taken(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="taken-flag")
-        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         # Soft-delete renames the key to free it up
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
@@ -4166,8 +4163,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         """The unique constraint covers all rows including soft-deleted ones,
         so restoring a flag must check against soft-deleted flags too."""
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="held-flag")
-        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         # Soft-delete renames the key
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
@@ -8009,10 +8005,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # blocking hard-delete. Reusing the key should rename the tombstone,
         # not raise the old "delete the experiment" error.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="ghost-key")
-        experiment_id = create_experiment(
-            team_id=self.team.id, feature_flag_id=legacy_flag.id, created_by_id=self.user.id
+        create_experiment(
+            team_id=self.team.id, feature_flag_id=legacy_flag.id, created_by_id=self.user.id, deleted=True
         )
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
         # Bypass API so soft-delete rename doesn't fire — mimics historical data.
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
 
@@ -14064,8 +14059,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="flag_with_deleted_exp",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id)
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=self.user.id, deleted=True)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -14207,10 +14201,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             key="flag_with_deleted_exp",
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
-        experiment_id = create_experiment(
-            team_id=self.team.id, feature_flag_id=flag_with_deleted_exp.id, created_by_id=self.user.id
+        create_experiment(
+            team_id=self.team.id, feature_flag_id=flag_with_deleted_exp.id, created_by_id=self.user.id, deleted=True
         )
-        update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
