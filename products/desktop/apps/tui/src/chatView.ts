@@ -163,7 +163,7 @@ class ToolGroup implements Component {
   render(width: number): string[] {
     const open = this.isOpen();
     const failed = this.tools.filter((tool) => tool.status === "failed").length;
-    const arrow = open ? "▾" : "▸";
+    const arrow = open ? "▼" : "▶";
     // Under the pointer it goes from grey to full colour, so it reads as clickable.
     const dim = this.isHovered() ? (text: string): string => text : DIM;
     const label = this.live
