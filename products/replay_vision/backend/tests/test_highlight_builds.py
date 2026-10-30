@@ -5,11 +5,20 @@ from typing import Any
 import time_machine
 from posthog.test.base import BaseTest
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.replay_vision.backend.highlight_builds import BUILD_RETENTION, build_highlight_feed, rank_window
+from products.replay_vision.backend.highlight_builds import (
+    BUILD_RETENTION,
+    STALE_AFTER,
+    build_highlight_feed,
+    rank_window,
+    rebuild_changed_feeds,
+    stored_generation,
+)
 from products.replay_vision.backend.models.replay_highlight_feed import (
     ReplayHighlightFeedEntry,
     ReplayHighlightFeedState,
@@ -230,3 +239,26 @@ class TestHighlightBuilds(BaseTest):
             RankCategory.STRUGGLE,
             group,
         )
+
+    def test_a_stale_build_is_served_and_the_sweep_rebuilds_it_once(self) -> None:
+        self._ranked(10, age=timedelta(hours=1))
+        first = build_highlight_feed(self.team.id, ANCHOR_VERSION)
+
+        with time_machine.travel(_NOW + STALE_AFTER + timedelta(minutes=1), tick=False):
+            served = stored_generation(self.team.id, ANCHOR_VERSION, timezone.now())
+            built = [rebuild_changed_feeds(ANCHOR_VERSION), rebuild_changed_feeds(ANCHOR_VERSION)]
+
+        assert (first, served, built) == (1, 1, [1, 0])
+        assert ReplayHighlightFeedState.objects.for_team(self.team.id).get().generation == 2
+
+    def test_a_load_that_began_before_a_rebuild_stays_on_the_build_it_started_on(self) -> None:
+        self._ranked(10, age=timedelta(hours=1))
+
+        first = stored_generation(self.team.id, ANCHOR_VERSION, _NOW)
+        with time_machine.travel(_NOW + timedelta(minutes=10), tick=False):
+            build_highlight_feed(self.team.id, ANCHOR_VERSION, force=True)
+            later_page = stored_generation(self.team.id, ANCHOR_VERSION, _NOW)
+            new_load = stored_generation(self.team.id, ANCHOR_VERSION, timezone.now())
+
+        assert (first, later_page, new_load) == (1, 1, 2)
+        assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(generation=1).exists()
