@@ -51,6 +51,9 @@ The harness loads the repo-root `.env` itself (shell values win), and `hogli eva
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
 Required variables depend on the selected suite kinds. Braintrust runs locally and needs no reporting credential. Sandboxed suites require `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites require `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 Autoevals judges use a direct OpenAI client with `OPENAI_API_KEY`, including when PostHog trace capture is unavailable. `OPENAI_BASE_URL` can select an explicit provider endpoint. No judge falls back to Braintrust's model proxy or API key.
+A judge whose model is named `claude-*` calls the Anthropic API instead, with `ANTHROPIC_API_KEY` or else `LLM_GATEWAY_ANTHROPIC_API_KEY`.
+Suites that pass `model=judge_model()` read the model from `EVAL_JUDGE_MODEL` and default to `claude-opus-5-5`; suites that pass `JUDGE_MODEL` stay on it.
+The experiment metadata records the judge models in `judge_model`.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -195,6 +198,19 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 
 Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
+
+### PostHog AI surface
+
+`EVAL_SURFACE=app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
+`EVAL_SURFACE=mcp`, or no value, keeps the skill-delivery default.
+Use bundled skill delivery for the app surface, because the app does not get exec skills:
+
+```bash
+EVAL_SURFACE=app hogli evals eval_governed_metrics --skill-delivery bundled
+EVAL_SURFACE=mcp hogli evals eval_governed_metrics --skill-delivery exec
+```
+
+The experiment metadata records `eval_surface`, so both runs can share one experiment name.
 
 ### Codex runtime
 
@@ -444,7 +460,10 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, `<case>.trial-<id>.summary.txt`, and `<case>.trial-<id>.toolchain.json`.
+The tool chain file lists every tool call in call order, with its turn, MCP server, input and output digests, timestamps, and duration.
+The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first answer query.
+Scorers and judges read the same chain through `products.posthog_ai.eval_harness.tool_chain`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.

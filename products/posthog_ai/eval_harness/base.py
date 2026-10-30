@@ -28,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.message_routing import POSTHOG_AI_INTERACTION_ORIGIN
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
@@ -43,6 +44,7 @@ from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
 from .runner import AgentNeverRanError, EvalCaseResult, SandboxedCaseRunner, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
+from .tool_chain import build_tool_chain, summarize_tool_chain
 from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
@@ -61,6 +63,30 @@ def _get_last_assistant_text(parsed: ParsedLog) -> str:
         if text:
             return text
     return ""
+
+
+EVAL_SURFACE_ENV = "EVAL_SURFACE"
+APP_SURFACE = "app"
+MCP_SURFACE = "mcp"
+
+
+def read_eval_surface() -> str | None:
+    """The surface a run models, from ``EVAL_SURFACE``.
+
+    ``app`` runs every case without its own ``interaction_origin`` as PostHog AI in the app, so one suite
+    grades the in-app prompt and the external MCP prompt without a copy of each case. ``mcp`` and unset
+    keep the skill-delivery default.
+    """
+    value = os.environ.get(EVAL_SURFACE_ENV, "").strip().lower()
+    if not value:
+        return None
+    if value not in (APP_SURFACE, MCP_SURFACE):
+        raise ValueError(f"{EVAL_SURFACE_ENV} must be {APP_SURFACE!r} or {MCP_SURFACE!r}, got {value!r}")
+    return value
+
+
+def _judge_models(scorers: Sequence[Any]) -> list[str]:
+    return sorted({scorer.model for scorer in scorers if isinstance(getattr(scorer, "model", None), str)})
 
 
 class _BaseEvalRun:
@@ -102,6 +128,7 @@ class _BaseEvalRun:
         self.experiment_id = str(uuid.uuid4())
 
         self.posthog_client = ctx.posthog_client
+        self.judge_models = _judge_models(scorers)
 
         # Shared lookups populated by _task(), read after the experiment run completes.
         self.agent_trace_id_lookup: dict[str, str] = {}
@@ -171,6 +198,9 @@ class _BaseEvalRun:
             "git_sha": self.ctx.git_sha,
             "git_dirty": self.ctx.git_dirty,
         }
+        if self.judge_models:
+            # Recorded next to agent_model so a judge change never reads as an agent change.
+            metadata["judge_model"] = ",".join(self.judge_models)
         if self.ctx.skills_sha256 is not None:
             metadata["skills_sha256"] = self.ctx.skills_sha256
         if self.ctx.skills_source_sha256 is not None:
@@ -595,9 +625,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif read_eval_surface() == APP_SURFACE:
+                        sandbox_context = replace(sandbox_context, interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                    if sandbox_context.interaction_origin == "posthog_ai":
+                    if sandbox_context.interaction_origin == POSTHOG_AI_INTERACTION_ORIGIN:
                         prompt = PromptService.build()
                         sandbox_context = replace(
                             sandbox_context,
@@ -735,6 +767,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
+        tool_chain = build_tool_chain(
+            {"raw_log": result.raw_log, "prompt": eval_case.prompt, "turn_logs": result.turn_logs}
+        )
+        hooks.metadata["tool_chain"] = summarize_tool_chain(tool_chain)
+
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -747,6 +784,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
                 trial_id=hooks.metadata.get("trial_id"),
                 trace_id=result.trace_id,
+                tool_chain=[step.model_dump() for step in tool_chain],
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -792,6 +830,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
+            "eval_surface": read_eval_surface(),
         }
 
 

@@ -1,8 +1,11 @@
+import json
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 import httpx
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAIError
 
 from products.posthog_ai.eval_harness.scorers import judged
@@ -80,3 +83,58 @@ async def test_judges_use_direct_provider_without_braintrust_fallback(
         assert requests[0].headers["authorization"] == "Bearer test-openai-key"
     assert all(client.is_closed() for client in clients)
     assert scorer.client is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("judge_text,expected_score", [('{"reasons": "Grounded.", "choice": "yes"}', 1.0), ("", 0.0)])
+async def test_claude_judges_call_anthropic_without_a_forced_tool(
+    monkeypatch: pytest.MonkeyPatch, judge_text: str, expected_score: float
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": [{"type": "text", "text": judge_text}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    def create_client(**kwargs: Any) -> AsyncAnthropic:
+        return AsyncAnthropic(**kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
+
+    monkeypatch.setattr(judged, "AsyncAnthropic", create_client)
+    monkeypatch.setattr(judged, "AsyncOpenAI", MagicMock(side_effect=AssertionError("OpenAI must not be called")))
+
+    class PreparedJudge(judged.JudgedScorer):
+        def _prepare(self, output: Any, expected: Any) -> dict[str, Any]:
+            return {"output": output}
+
+    scorer = PreparedJudge(
+        name="judge",
+        prompt_template="Grade {{output}}",
+        choice_scores={"yes": 1.0, "no": 0.0},
+        model="claude-opus-5-5",
+    )
+    score = await scorer.eval_async("Synthetic answer")
+
+    assert score.score == expected_score
+    assert len(requests) == 1
+    assert requests[0].url == "https://api.anthropic.com/v1/messages"
+    assert requests[0].headers["x-api-key"] == "test-anthropic-key"
+    body = json.loads(requests[0].content)
+    assert "tool_choice" not in body and "tools" not in body
+    schema = body["output_config"]["format"]["schema"]
+    assert schema["properties"]["choice"]["enum"] == ["yes", "no"]
+    assert schema["additionalProperties"] is False
+    assert body["messages"][0]["content"].startswith("Grade Synthetic answer")

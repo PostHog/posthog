@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
+from typing import Any
 
-from products.posthog_ai.eval_harness.log_parser import LogParser, is_schema_discovery_call
+from posthog.dataclasses import frozen
+
+from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 
 from .contract import Score, Scorer
 
@@ -202,3 +206,208 @@ class RequiredToolCall(Scorer):
             score=0.0,
             metadata={"reason": "No required tool call found", "required": sorted(self.required)},
         )
+
+
+# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
+
+
+def reads_table(query: str, names: Iterable[str]) -> bool:
+    """True when the query reads one of the named tables outside a string literal.
+
+    The guards stop ``crm_deals`` from matching ``crm_deals_v3`` or a longer dotted name.
+    """
+    code = _STRING_LITERAL.sub("''", query.lower())
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
+
+
+def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
+    raw_log = (output or {}).get("raw_log")
+    if not raw_log:
+        return None
+    return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
+
+
+def _call_order(call: ToolCall) -> int:
+    return call.sequence if call.sequence is not None else call.position
+
+
+def _query(call: ToolCall) -> str:
+    query = call.input.get("query")
+    return query if isinstance(query, str) else ""
+
+
+def _spec(expected: dict | None, name: str) -> dict[str, Any] | None:
+    spec = expected.get(name) if isinstance(expected, dict) else None
+    return spec if isinstance(spec, dict) else None
+
+
+def _successful_data_queries(parser: LogParser) -> list[ToolCall]:
+    """Successful SQL that reads data, in call order. Schema lookups against information_schema are excluded."""
+    return sorted(
+        (
+            call
+            for call in parser.get_tool_calls(EXECUTE_SQL_TOOL)
+            if not call.is_error and not is_schema_discovery_call(call)
+        ),
+        key=_call_order,
+    )
+
+
+@frozen
+class ToolMatch:
+    """Selects tool calls by normalized name, MCP server, or SQL text. Every set criterion must hold."""
+
+    names: frozenset[str] = frozenset()
+    server: str | None = None
+    query_pattern: str | None = None
+    """Case-insensitive regex searched in the call's ``query`` input."""
+
+    def matches(self, call: ToolCall) -> bool:
+        if self.names and call.name not in self.names:
+            return False
+        if self.server is not None and call.server != self.server:
+            return False
+        if self.query_pattern is not None and not re.search(self.query_pattern, _query(call), re.IGNORECASE):
+            return False
+        return True
+
+
+class ToolOrder(Scorer):
+    """Binary scorer: did every successful ``after`` call follow at least one successful ``before`` call?
+
+    The generic form of "look up X before doing Y". Order is the run's tool-call sequence, so parallel calls
+    in one assistant message are still ordered. ``score=None`` when no ``after`` call succeeded, because the
+    precedence rule only applies to a run that did the guarded thing.
+    """
+
+    def __init__(self, before: ToolMatch, after: ToolMatch, *, name: str):
+        self.before = before
+        self.after = after
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        calls = sorted((call for call in parser.get_tool_calls() if not call.is_error), key=_call_order)
+        after_calls = [call for call in calls if self.after.matches(call)]
+        if not after_calls:
+            return Score(name=self._name(), score=None, metadata={"reason": "No guarded call ran"})
+        before_calls = [call for call in calls if self.before.matches(call)]
+        first_before = _call_order(before_calls[0]) if before_calls else None
+        early = [call for call in after_calls if first_before is None or _call_order(call) < first_before]
+        return Score(
+            name=self._name(),
+            score=0.0 if early else 1.0,
+            metadata={
+                "guarded_calls": len(after_calls),
+                "required_calls": len(before_calls),
+                "calls_before_requirement": [call.name for call in early],
+            },
+        )
+
+
+def _table_aliases(entry: object) -> list[str]:
+    if isinstance(entry, str):
+        return [entry]
+    if isinstance(entry, list) and all(isinstance(alias, str) for alias in entry):
+        return entry
+    return []
+
+
+class SourcesConsulted(Scorer):
+    """Fraction of ``expected[name]["tables"]`` that a successful data query read.
+
+    An entry is a table name, or a list of names one table answers to (a synced table answers to
+    ``postgres_x`` and ``postgres.x``), and a read of any of them counts. ``score=None`` when the case
+    does not request the check.
+    """
+
+    def __init__(self, *, name: str = "sources_consulted"):
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables = spec.get("tables")
+        if not isinstance(tables, list) or not tables:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        queries = [_query(call) for call in _successful_data_queries(parser)]
+        read, missing = [], []
+        for entry in tables:
+            aliases = _table_aliases(entry)
+            (read if any(reads_table(query, aliases) for query in queries) else missing).append(entry)
+        return Score(name=self._name(), score=len(read) / len(tables), metadata={"read": read, "missing": missing})
+
+
+class SourcesAvoided(Scorer):
+    """Binary scorer: did the agent keep the tables in ``expected[name]["tables"]`` out of its data queries?
+
+    Entries take the same names or alias lists as ``SourcesConsulted``.
+
+    ``"scope": "answer"`` checks only the last successful data query, so a case can let the agent inspect a
+    table (to find it empty, say) as long as the answer does not come from it. The default scope checks every
+    successful data query.
+    """
+
+    def __init__(self, *, name: str = "sources_avoided"):
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables = spec.get("tables")
+        if not isinstance(tables, list) or not tables:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        queries = [_query(call) for call in _successful_data_queries(parser)]
+        if spec.get("scope") == "answer":
+            if not queries:
+                return Score(name=self._name(), score=None, metadata={"reason": "No successful data query"})
+            queries = queries[-1:]
+        names = [alias for entry in tables for alias in _table_aliases(entry)]
+        offending = [query for query in queries if reads_table(query, names)]
+        return Score(name=self._name(), score=0.0 if offending else 1.0, metadata={"offending_queries": offending})
+
+
+class ServerUsed(Scorer):
+    """Binary scorer: did at least one call to the MCP server in ``expected[name]["server"]`` succeed?
+
+    The server is the ``<server>`` in an ``mcp__<server>__<tool>`` raw tool name.
+    """
+
+    def __init__(self, *, name: str = "server_used"):
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        server = spec.get("server")
+        if not isinstance(server, str) or not server:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+        calls = [call.name for call in parser.get_tool_calls() if not call.is_error and call.server == server]
+        return Score(name=self._name(), score=1.0 if calls else 0.0, metadata={"calls": calls})

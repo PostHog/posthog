@@ -14,10 +14,13 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 The Braintrust engine always runs with `no_send_logs=True` internally. Suites cannot enable Braintrust uploads, and no Braintrust credential is required.
 Autoevals judges use an explicit OpenAI client, including nested judges and runs without PostHog trace capture.
 They require `OPENAI_API_KEY` and honor `OPENAI_BASE_URL` when set; they do not fall back to Braintrust's model proxy or API key.
+A judge whose model is named `claude-*` calls the Anthropic API instead, with `ANTHROPIC_API_KEY` or else `LLM_GATEWAY_ANTHROPIC_API_KEY`.
 Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+A sandboxed trace has one `$ai_span` per tool call, under the `$ai_generation` that made the call, with the tool's input, output, latency, and error state.
+The `$ai_provider` of agent generations follows `--agent-runtime`: `anthropic` for Claude and `openai` for Codex.
 
 ## Result contents and scope
 
