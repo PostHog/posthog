@@ -109690,6 +109690,96 @@ export namespace Schemas {
       queries: string[];
     }
 
+    /**
+     * * `not_claimed` - Not claimed
+     * * `active` - Active
+     * * `exhausted` - Exhausted
+     */
+    export type TrialGrantStatusEnum = typeof TrialGrantStatusEnum[keyof typeof TrialGrantStatusEnum];
+
+
+    export const TrialGrantStatusEnum = {
+      NotClaimed: 'not_claimed',
+      Active: 'active',
+      Exhausted: 'exhausted',
+    } as const;
+
+    /**
+     * * `continue_paid` - Continue under existing paid authorization
+     * * `add_payment_method` - Add a payment method
+     * * `increase_limit` - Increase the Self-driving spending limit
+     * * `enable_self_driving` - Enable paid Self-driving
+     * * `unavailable` - Billing status unavailable
+     */
+    export type TrialContinuationEnum = typeof TrialContinuationEnum[keyof typeof TrialContinuationEnum];
+
+
+    export const TrialContinuationEnum = {
+      ContinuePaid: 'continue_paid',
+      AddPaymentMethod: 'add_payment_method',
+      IncreaseLimit: 'increase_limit',
+      EnableSelfDriving: 'enable_self_driving',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface SelfDrivingTrialStatus {
+      /** Whether the one-time trial rollout is enabled for this organization. */
+      enabled: boolean;
+      /** Whether the current rollout check succeeded. */
+      flag_confirmed: boolean;
+      /** Effective trial policy version. */
+      policy_version: number;
+      /** Whether the legacy reports-only trial still prevents implementation for this project. */
+      legacy_pr_restricted: boolean;
+      /** Whether the current Self-driving plan has no recurring free allowance. */
+      billing_ready: boolean;
+      /** Whether this project can explicitly claim its lifetime grant. */
+      eligible: boolean;
+      /** Whether the current user has project-management permission to activate. */
+      can_activate: boolean;
+      /** Unclaimed lifetime project grants in the organization. */
+      organization_grants_remaining: number;
+      /**
+         * Lifetime project grant, shared with its environments.
+         * @nullable
+         */
+      grant_id: string | null;
+      /** The project's lifetime trial state.
+       *
+       * * `not_claimed` - Not claimed
+       * * `active` - Active
+       * * `exhausted` - Exhausted */
+      grant_status: TrialGrantStatusEnum;
+      /** Why the trial completed: cost_limit or report_limit. */
+      exhaustion_reason: string;
+      /** Consumed report slots, including dismissed or deleted reports. */
+      reports_delivered: number;
+      /** Report slots held by admitted work. */
+      reports_reserved: number;
+      /** Maximum reports delivered by this trial. */
+      report_limit: number;
+      /** One-time allowance in millionths of a US dollar. */
+      allowance_microusd: number;
+      /** Allowance used, capped at the trial allowance. */
+      used_microusd: number;
+      /** Whether some costs are still being finalized. */
+      accounting_pending: boolean;
+      /** Enabled scouts across this project's environments. */
+      enabled_scouts: number;
+      /** Maximum enabled scouts during the trial. */
+      scout_limit: number;
+      /** On activation, all but the three oldest enabled scouts pause. */
+      scouts_to_pause: number;
+      /** What happens to new work after the trial.
+       *
+       * * `continue_paid` - Continue under existing paid authorization
+       * * `add_payment_method` - Add a payment method
+       * * `increase_limit` - Increase the Self-driving spending limit
+       * * `enable_self_driving` - Enable paid Self-driving
+       * * `unavailable` - Billing status unavailable */
+      paid_continuation: TrialContinuationEnum;
+    }
+
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;

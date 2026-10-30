@@ -58,7 +58,7 @@ export function SettingsTab(): JSX.Element {
                 <SlackNotificationsSection />
             </SettingsSection>
             {(inboxUsageProduct != null || inboxUsageLoading) && (
-                <SettingsSection title="Usage" description="Pull requests agents opened this billing period.">
+                <SettingsSection title="Usage" description="Track Self-driving usage and spending.">
                     <InboxUsageWidget />
                 </SettingsSection>
             )}

@@ -8,11 +8,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
 import { InboxUsageStatus, inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
+import { SelfDrivingTrialUsage } from './SelfDrivingTrialUsage'
 
 // Usage-bar fill colour by status. Main-app semantic Tailwind classes (not quill `--*` tokens —
 // those only resolve inside `[data-quill]` subtrees).
@@ -140,6 +143,8 @@ function EditLimitModal(): JSX.Element {
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
+    const { currentTeamId } = useValues(teamLogic)
+    const { trial, error: trialError } = useValues(selfDrivingTrialLogic({ teamId: currentTeamId! }))
     const {
         product,
         spendProduct,
@@ -159,6 +164,11 @@ export function InboxUsageWidget(): JSX.Element | null {
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
 
+    const paidContinuation = trial?.grant_status === 'exhausted' && !!spendProduct?.subscribed
+    if ((trialError && !trial) || (trial?.enabled && trial.grant_status !== 'not_claimed' && !paidContinuation)) {
+        return <SelfDrivingTrialUsage />
+    }
+
     // The server-truth pause (quotaLimited) can lead the widget's own usage math (billing data
     // lags), so the raise-the-limit affordances escalate on either signal.
     const atLimit = status === 'limit' || quotaLimited
@@ -168,20 +178,23 @@ export function InboxUsageWidget(): JSX.Element | null {
     }
     if (spendProduct) {
         return (
-            <div className="flex flex-col gap-2">
-                <span className="text-[13px] font-semibold">Inbox spend</span>
-                {spendProduct.current_amount_usd != null && (
-                    <span className="text-xs tabular-nums">
-                        {currencyFormatter(Number(spendProduct.current_amount_usd))}
-                    </span>
-                )}
-                {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
-                {canAccessBilling && (
-                    <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
-                        View usage and limits
-                    </LemonButton>
-                )}
-            </div>
+            <>
+                {trial?.enabled && paidContinuation && <SelfDrivingTrialUsage />}
+                <div className="flex flex-col gap-2">
+                    <span className="text-[13px] font-semibold">Inbox spend</span>
+                    {spendProduct.current_amount_usd != null && (
+                        <span className="text-xs tabular-nums">
+                            {currencyFormatter(Number(spendProduct.current_amount_usd))}
+                        </span>
+                    )}
+                    {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
+                    {canAccessBilling && (
+                        <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                            View usage and limits
+                        </LemonButton>
+                    )}
+                </div>
+            </>
         )
     }
     if (!product) {
