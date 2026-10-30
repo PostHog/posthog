@@ -1,8 +1,4 @@
-from typing import Any
-
 from django.contrib import admin, messages
-from django.contrib.admin import ActionLocation
-from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
@@ -10,7 +6,6 @@ from django.utils.html import format_html
 
 import structlog
 
-from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.models import UploadedMedia
 from posthog.storage.object_storage import ObjectStorageError
 
@@ -60,14 +55,6 @@ class UploadedMediaAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request: HttpRequest, obj: UploadedMedia | None = None) -> bool:
         return False
-
-    def get_actions(
-        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
-    ) -> dict[str, Any]:
-        actions = super().get_actions(request, action_location=action_location)
-        if not can_trigger_admin_deletion(request):
-            actions.pop("delete_stored_file", None)
-        return actions
 
     def _bounded(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> list[UploadedMedia] | None:
         media = list(queryset[: MAX_IMAGES_PER_ACTION + 1])
@@ -145,8 +132,6 @@ class UploadedMediaAdmin(admin.ModelAdmin):
 
     @admin.action(description="Delete the stored file of the selected images permanently")
     def delete_stored_file(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
-        if not can_trigger_admin_deletion(request):
-            raise PermissionDenied
         media = self._bounded(request, queryset)
         if media is None:
             return
