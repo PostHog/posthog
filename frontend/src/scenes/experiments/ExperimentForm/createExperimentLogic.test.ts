@@ -599,6 +599,35 @@ describe('createExperimentLogic', () => {
                 variant_screenshot_media_ids: { control: ['media-1'] },
             })
         })
+
+        it('keeps the details of a variant keyed __proto__ through a split change and on save', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Checkout flow',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'checkout-flow',
+                })
+                logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys('control', '__proto__') })
+                logic.actions.setVariantNote('__proto__', 'One-page checkout')
+                logic.actions.setVariantScreenshots('__proto__', ['media-1'])
+                logic.actions.setFeatureFlagConfig({
+                    variants: [
+                        { key: 'control', rollout_percentage: 30 },
+                        { key: '__proto__', rollout_percentage: 70 },
+                    ],
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
+
+            // Computed keys, since a literal __proto__ key would set the prototype
+            expect(createRequestBody?.parameters).toEqual({
+                variant_notes: { ['__proto__']: 'One-page checkout' },
+                variant_screenshot_media_ids: { ['__proto__']: ['media-1'] },
+            })
+        })
     })
 
     describe('initialization', () => {

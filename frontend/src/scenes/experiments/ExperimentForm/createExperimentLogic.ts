@@ -89,7 +89,8 @@ function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previ
                   return queue?.length ? queue.shift() : key
               })
 
-    const picked: Record<string, T> = {}
+    // Collected as entries, since assigning a variant keyed __proto__ into an object would set its prototype instead
+    const picked: [string, T][] = []
     const taken = new Set(keys)
     const read = new Set<string>()
     sources.forEach((source, index) => {
@@ -98,17 +99,17 @@ function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previ
         }
         read.add(source)
         if (isFirst(keys, index)) {
-            picked[keys[index]] = details[source]
+            picked.push([keys[index], details[source]])
             return
         }
         // Hold under the key it's under now if no variant has it, or else under a key a variant had before
         const holdKey = [source, ...previousKeys].find((key) => !taken.has(key))
         if (holdKey !== undefined) {
             taken.add(holdKey)
-            picked[holdKey] = details[source]
+            picked.push([holdKey, details[source]])
         }
     })
-    return picked
+    return Object.fromEntries(picked)
 }
 
 /** Keeps notes and screenshots with their variants through renames, and drops details no variant has */
