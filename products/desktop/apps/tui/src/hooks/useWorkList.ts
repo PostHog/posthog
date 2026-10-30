@@ -6,7 +6,7 @@ import type { CloudRuns } from "../runs";
 import type { WorkPage } from "../sidebar";
 import { findTask, type WorkList } from "../work";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 const REFRESH_MS = 10_000;
 // Log entries per preloaded run: roughly the last ten messages.
 const PREVIEW_ENTRIES = 300;
