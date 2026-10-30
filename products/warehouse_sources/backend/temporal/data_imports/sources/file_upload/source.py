@@ -9,14 +9,16 @@ from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
 )
-from products.warehouse_sources.backend.file_uploads import InvalidUploadError, UploadLocation
+from products.warehouse_sources.backend.file_uploads import InvalidUploadError, UploadLocation, parse_hosted_upload
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import self_managed_table_ref
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
@@ -238,6 +240,24 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
             upload_from_job_inputs(source_model.team_id, SourceInputsStore.load_settings(source_model))
         except InvalidUploadError:
             return "This table syncs when you upload a new file for it. Upload the file to import it."
+        # A sync of the same file would import and bill the same rows again.
+        if ExternalDataJob.objects.filter(
+            team_id=source_model.team_id, pipeline_id=source_model.pk, status=ExternalDataJob.Status.COMPLETED
+        ).exists():
+            return "This table already imported its file. To refresh the data, use Replace file to upload a new one."
+        return None
+
+    def uploaded_file_name(self, source_model: ExternalDataSource) -> str | None:
+        try:
+            return upload_from_job_inputs(source_model.team_id, SourceInputsStore.load_settings(source_model)).filename
+        except (InvalidUploadError, UnreadableSourceInputsError):
+            pass
+        # A migrated source has no upload id yet. Its table still reads the file it was made from.
+        for schema in source_model.schemas.filter(deleted=False).order_by("created_at"):
+            ref = self_managed_table_ref(schema)
+            upload = parse_hosted_upload(source_model.team_id, ref.url_pattern) if ref is not None else None
+            if upload is not None:
+                return upload.filename
         return None
 
     def has_cleanup_after_sync(self, source_model: ExternalDataSource) -> bool:
