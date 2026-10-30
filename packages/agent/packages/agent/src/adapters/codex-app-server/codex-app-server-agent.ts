@@ -241,6 +241,9 @@ const COMPACT_COMMAND = {
   description: "Compact the conversation context",
 };
 
+const COMPACT_BUSY_MESSAGE =
+  "\n\nCouldn't compact while the agent is working. Run /compact again when this turn ends.";
+
 function visiblePromptText(prompt: PromptRequest["prompt"]): string | null {
   const visible = visiblePromptBlocks(prompt);
   if (visible.some((block) => block.type !== "text")) return null;
@@ -251,7 +254,8 @@ function visiblePromptText(prompt: PromptRequest["prompt"]): string | null {
 }
 
 function isCompactCommand(prompt: PromptRequest["prompt"]): boolean {
-  return visiblePromptText(prompt) === "/compact";
+  const text = visiblePromptText(prompt);
+  return text !== null && /^\/compact(?:\s|$)/.test(text);
 }
 
 function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
@@ -935,8 +939,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         : { stopReason: "end_turn" };
     }
     const compactCommand = isCompactCommand(params.prompt);
-    if (compactCommand && isSteer) {
-      return steerDeclined("turn_not_steerable");
+    if (
+      compactCommand &&
+      (isSteer || this.turns.isPending || this.nativeGoalTurnId)
+    ) {
+      this.broadcastAgentText(COMPACT_BUSY_MESSAGE);
+      return isSteer
+        ? steerDeclined("turn_not_steerable")
+        : { stopReason: "end_turn" };
     }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).
@@ -944,11 +954,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.session.cancelled = false;
     }
     if (compactCommand) {
+      this.planHandoffCancel?.();
       this.broadcastUserInput(visiblePromptBlocks(params.prompt));
-      await this.rpc.request(APP_SERVER_METHODS.THREAD_COMPACT_START, {
+      return await this.runOwnedTurn(APP_SERVER_METHODS.THREAD_COMPACT_START, {
         threadId: this.threadId,
       });
-      return { stopReason: "end_turn" };
     }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.
@@ -1251,7 +1261,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   }
 
   /** Start one codex turn and await its completion. */
-  private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
+  private runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
+    return this.runOwnedTurn(
+      APP_SERVER_METHODS.TURN_START,
+      this.turnStartParams(input),
+    );
+  }
+
+  private async runOwnedTurn(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<PromptResponse> {
     this.lastAgentMessage = "";
     this.lastTurnError = undefined;
     this.resetUsage();
@@ -1262,10 +1282,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.deferredTurnComplete = undefined;
     const { completion, turn } = this.turns.begin();
     try {
-      await this.rpc.request(
-        APP_SERVER_METHODS.TURN_START,
-        this.turnStartParams(input),
-      );
+      await this.rpc.request(method, params);
       return await completion;
     } finally {
       this.turns.finishPrompt(turn);
@@ -1627,9 +1644,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const turnId = this.turns.markInterrupted();
     if (this.threadId && turnId) {
       await this.interruptTurn(turnId, "turn/interrupt failed");
-    } else if (this.compactionActive && this.nativeGoalTurnId) {
-      await this.interruptNativeGoalTurn(this.nativeGoalTurnId);
-      this.settleBackgroundCompaction("interrupted");
     }
     await this.finalizeTurn("cancelled");
   }
@@ -1784,12 +1798,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
-        this.settleBackgroundCompaction(
-          turn?.status,
-          typeof turn?.error?.message === "string"
-            ? turn.error.message
-            : undefined,
-        );
+        this.endCompaction(mapTurnStopReason(turn?.status));
         void this.client
           .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
             sessionId: this.sessionId,
@@ -2160,13 +2169,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       .catch(() => undefined);
   }
 
-  private settleBackgroundCompaction(
-    turnStatus: string | undefined,
-    error?: string,
-  ): void {
+  private endCompaction(reason: StopReason): void {
     if (!this.compactionActive) return;
     this.compactionActive = false;
-    if (turnStatus === "completed") {
+    if (reason === "end_turn") {
       this.emitCompactionBoundary();
       return;
     }
@@ -2174,13 +2180,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     void this.client
       .extNotification(
         POSTHOG_NOTIFICATIONS.STATUS,
-        turnStatus === "failed"
-          ? { sessionId: this.sessionId, status: "compacting_failed", error }
-          : {
+        reason === "cancelled"
+          ? {
               sessionId: this.sessionId,
               status: "compacting",
               isComplete: true,
-            },
+            }
+          : { sessionId: this.sessionId, status: "compacting_failed" },
       )
       .catch(() => undefined);
   }
@@ -2206,10 +2212,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!pending) return;
     // If the turn dies mid-compaction the boundary never fires, leaving isCompacting stuck
     // true (silently queuing later messages). Recover here.
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction(reason);
     const message = this.lastAgentMessage;
     // Per-turn usage is codex's own `tokenUsage.last` (not a reconstructed delta).
     const usage = this.usage.perTurnUsage();
@@ -2260,10 +2263,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction("refusal");
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
     if (emitTurnComplete) {
@@ -2328,10 +2328,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const pending = this.turns.claim();
     if (!pending) return;
     this.broadcastAgentText(message);
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction("refusal");
     const usage = this.usage.perTurnUsage();
     void this.emitTurnCompleteSignal("refusal", usage);
     void this.emitUsageBreakdown(this.usage.contextTokens());
