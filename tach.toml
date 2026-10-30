@@ -590,6 +590,8 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    # Facade only: the trace view links a trace's git branch to its pull request.
+    "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
 ]
@@ -707,6 +709,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
+    "products.alerts_platform",
     "products.dashboards",
     "products.error_tracking",
     "products.exports",
@@ -1881,12 +1885,17 @@ from = [
 
 [[modules]]
 path = "products.authorization"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.access_control",
+]
 layer = "modules"
 
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    # Django adapters, such as building a Resource from a model. The facade cannot take a model.
+    "backend\\.presentation.*",
 ]
 from = [
     "products.authorization",

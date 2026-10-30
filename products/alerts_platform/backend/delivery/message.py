@@ -47,10 +47,11 @@ _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.BILLING: "Billing",
     SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
     SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
+    SourceKind.METRICS: "Metric",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
-_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
     IncidentAction.TRIGGER: AlertEventKind.FIRING,
     IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
@@ -177,7 +178,7 @@ def build_message(
     """
     kind = transition.kind
     if kind == AlertEventKind.CHECK and incident_action is not None:
-        kind = _INCIDENT_KINDS[incident_action]
+        kind = INCIDENT_KINDS[incident_action]
     headline = _HEADLINES.get(kind)
     if headline is None:
         # `announcement` returns a check row only for a group whose incident moved, so a check

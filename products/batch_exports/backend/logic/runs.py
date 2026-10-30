@@ -21,7 +21,7 @@ LOGGER = structlog.get_logger(__name__)
 _CANCELLABLE_STATUSES = (BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING)
 
 
-def _to_run_detail(run: BatchExportRun) -> contracts.BatchExportRunDetail:
+def to_run_detail(run: BatchExportRun) -> contracts.BatchExportRunDetail:
     return contracts.BatchExportRunDetail(
         id=run.id,
         status=run.status,
@@ -68,13 +68,13 @@ def list_runs(
     if filters.statuses:
         runs = runs.filter(status__in=filters.statuses)
     return [
-        _to_run_detail(run)
+        to_run_detail(run)
         for run in select_page(runs, page, ordering_fields=contracts.BATCH_EXPORT_RUN_ORDERING_FIELDS)
     ]
 
 
 def get_run(team_id: int, export_id: UUID, run_id: UUID) -> contracts.BatchExportRunDetail:
-    return _to_run_detail(_get_run(team_id, export_id, run_id))
+    return to_run_detail(_get_run(team_id, export_id, run_id))
 
 
 def retry_run(team_id: int, export_id: UUID, run_id: UUID) -> str:

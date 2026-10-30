@@ -3,7 +3,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface ExampleClip {
+export interface ExampleClip {
     scannerName: string
     scannerType: string
     headline: string
@@ -14,7 +14,7 @@ interface ExampleClip {
  * Invented, not sampled. A reader with no scanners has no observations to preview, so these stand in
  * for the shape of a card rather than for anything their project has recorded.
  */
-const EXAMPLE_CLIPS: ExampleClip[] = [
+export const EXAMPLE_CLIPS: ExampleClip[] = [
     {
         scannerName: 'Checkout friction',
         scannerType: 'Monitor',

@@ -325,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
@@ -4758,12 +4759,15 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
@@ -9224,6 +9228,10 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -10046,6 +10054,10 @@ export namespace Schemas {
          */
         subcode: string | null;
         /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
+        /**
          * How much the problem affects the results: critical, warning, or info.
          *
          * * `critical` - Critical severity
@@ -10569,6 +10581,10 @@ export namespace Schemas {
          */
         evidence: Record<string, string | number | null>;
         /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
+        /**
          * How much the problem affects the results: critical, warning, or info.
          */
         severity: ExperimentExposureHealthFindingSeverity;
@@ -10930,6 +10946,10 @@ export namespace Schemas {
         latest_error: string | null;
         incremental: boolean;
         status: string | null;
+        /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -12509,6 +12529,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13923,7 +13944,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15347,6 +15369,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -19469,6 +19492,10 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;

@@ -712,7 +712,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * for exposure criteria that name an event without property filters. When the split changed
  * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
  * it returns an info finding with the subcode `not_checked` and the cause in
- * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * `reason`. A caller who can't view the linked flag's history (viewer access to the
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
  * experiment, because the changes are not read.
  *
@@ -777,7 +777,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * the flag's calls that name the matched condition, not the experiment's exposure criteria:
  * info up to 5%, warning above, and no finding under 1% when at least half of the calls
  * that returned a variant name a condition. The finding is info when the share is unknown,
- * and `evidence.reason` says why: `not_measured` (for example an API key without
+ * and `reason` says why: `not_measured` (for example an API key without
  * `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
  * `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
