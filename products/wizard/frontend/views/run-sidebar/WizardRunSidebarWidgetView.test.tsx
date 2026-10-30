@@ -66,7 +66,9 @@ describe('WizardRunSidebarWidgetView', () => {
         const dismiss = jest.fn()
         const click = jest.fn()
         render(<Sidebar onDismiss={dismiss} onStateClick={click} />)
-        fireEvent.click(screen.getByText('Wizard runs (3)'))
+        expect(screen.getByText('3 completed')).toBeInTheDocument()
+        expect(screen.queryByText('Wizard runs (3)')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('PostHog integration'))
         const panel = await screen.findByRole('dialog')
         fireEvent.click(within(panel).getByLabelText('Select PostHog integration'))
         fireEvent.click(within(panel).getByLabelText('Select Analytics audit'))
@@ -101,5 +103,33 @@ describe('WizardRunSidebarWidgetView', () => {
         expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_TEAM.id}/wizard/runs?run=run-0`)
         fireEvent.click(link)
         expect(click).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the current program and activity without assuming an installation', () => {
+        const audit = { ...runs[1], status: 'running' as const, stage: 'executing_wizard' as const }
+        render(
+            <WizardRunSidebarWidgetView
+                runs={[audit, { ...runs[2], status: 'failed' }]}
+                tasksByRunId={{
+                    [audit.id]: [
+                        {
+                            name: 'Checking event coverage',
+                            status: 'running',
+                            created_at: '2026-09-23T10:00:00Z',
+                            started_at: null,
+                            completed_at: null,
+                            failed_at: null,
+                            error_message: null,
+                        },
+                    ],
+                }}
+                onDismissRuns={jest.fn()}
+                initialHovered
+            />
+        )
+        expect(screen.getByText('Analytics audit')).toBeInTheDocument()
+        expect(screen.getByText('Checking event coverage')).toBeInTheDocument()
+        expect(screen.getByText('1 running')).toBeInTheDocument()
+        expect(screen.getByText('1 failed')).toBeInTheDocument()
     })
 })

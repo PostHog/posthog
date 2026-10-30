@@ -117,6 +117,7 @@ describe('wizardRunDetailsLogic', () => {
                 })
 
             expect(mockWizardRunsRetrieve).toHaveBeenCalledWith(expect.any(String), 'run-1')
+            expect(mockWizardRunsRetrieve).toHaveBeenCalledTimes(1)
             expect(mockLoadWizardRunArtifacts).toHaveBeenCalledWith(expect.any(String), 'run-1')
             expect(mockLoadWizardRunArtifactContent).not.toHaveBeenCalled()
             expect(posthog.capture).toHaveBeenCalledWith(
@@ -130,13 +131,35 @@ describe('wizardRunDetailsLogic', () => {
                 })
             )
 
-            logic.actions.selectRun(null)
+            if (source === 'wizard_sidebar') {
+                router.actions.push(urls.wizardRuns())
+            } else {
+                logic.actions.selectRun(null)
+            }
+            expect(logic.values.selectedRun).toBeNull()
             expect(posthog.capture).toHaveBeenCalledWith(
                 'wizard run detail dialog closed',
                 expect.objectContaining({ wizard_run_id: 'run-1' })
             )
         }
     )
+
+    it.each(['back', 'another selection'] as const)('does not reopen a delayed linked run after %s', async (change) => {
+        let resolveRun!: (run: WizardRunApi) => void
+        const otherRun = { ...makeRun(), id: 'other-run' }
+        mockWizardRunsRetrieve
+            .mockReturnValueOnce(new Promise<WizardRunApi>((resolve) => (resolveRun = resolve)))
+            .mockResolvedValue(otherRun)
+        router.actions.push(urls.wizardRuns(), { run: 'run-1' })
+        if (change === 'back') {
+            router.actions.push(urls.wizardRuns())
+        } else {
+            logic.actions.selectRun(otherRun, 'wizard_datatable')
+        }
+        resolveRun(makeRun())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.selectedRunId).toBe(change === 'back' ? null : otherRun.id)
+    })
 
     it('loads git diff content only after the artifact is opened', async () => {
         mockLoadWizardRunArtifacts.mockResolvedValue([gitDiffArtifact])
