@@ -679,6 +679,24 @@ describe("CloudRuns", () => {
     expect(runs.preview("t1", "r1")).toEqual(seen[0]);
     expect(runs.preview("t1", "r9")).toBeUndefined();
   });
+
+  it("refreshes an idle run's preview on the next prefetch, so a chat no pane shows ends its turn", async () => {
+    let total = 500;
+    const logs: SessionLogs = async (taskId, runId, options) =>
+      logOf(total)(taskId, runId, options);
+    const { runs } = setup(logs);
+    await runs.prefetch("t1", "r1", 300);
+    total = 510;
+    await runs.prefetch("t1", "r1", 300);
+    expect(ids(runs.preview("t1", "r1") as RunView).at(-1)).toBe("e509");
+
+    // A run someone watches keeps the view its stream feeds.
+    const watching = runs.watch("t1", "r1", () => {});
+    total = 520;
+    await runs.prefetch("t1", "r1", 300);
+    expect(ids(runs.preview("t1", "r1") as RunView).at(-1)).toBe("e509");
+    watching.stop();
+  });
 });
 
 describe("CloudRuns.watchPrompts", () => {

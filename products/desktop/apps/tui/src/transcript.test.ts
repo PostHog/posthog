@@ -484,6 +484,17 @@ describe("transcriptFrom turn state", () => {
     expect(transcript.lastTurn).toBeNull();
   });
 
+  it("ends a turn on a background completion, as a wake-up turn settles", () => {
+    const woke = [
+      ...ACP_LOG.slice(0, -1),
+      acp(6, {
+        method: "_posthog/background_turn_complete",
+        params: { stopReason: "end_turn" },
+      }),
+    ];
+    expect(transcriptFrom("acp", woke).turnOpen).toBe(false);
+  });
+
   it("does not take a reopened chat's start-up chatter for a running turn", () => {
     const reopened = [
       ...ACP_LOG,
