@@ -207,6 +207,8 @@ mod tests {
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
             remote_urls: Vec::new(),
             url_limit: None,
+            srcsets: Vec::new(),
+            visited_urls: Vec::new(),
             captured_at_ms: None,
         };
         let mut stats = BlockStats::default();

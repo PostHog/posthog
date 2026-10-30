@@ -1187,6 +1187,89 @@ database "posthog" {
     }
   }
 
+  table "email_status" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_data"
+    }
+  }
+
+  table "email_status_data" {
+    order_by     = ["team_id", "message_id"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.email_status_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -2783,6 +2866,41 @@ database "posthog" {
       topic_list = "clickhouse_ingestion_events_duplicates"
       group_name = "clickhouse_duplicate_events"
       format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_email_status" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
     }
   }
 
@@ -5532,6 +5650,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -5760,6 +5882,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -5830,7 +5956,7 @@ SQL
 
   table "logs_pattern_buckets" {
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern", "internal_source"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -5861,6 +5987,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -5900,6 +6029,9 @@ SQL
     column "pattern" {
       type = "String"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -5914,7 +6046,8 @@ SQL
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "internal_source"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -5938,6 +6071,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -5970,6 +6106,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -11710,10 +11849,11 @@ SQL
   table "sharded_flag_evaluations" {
     order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
-    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      index_granularity                = "8192"
+      materialize_ttl_recalculate_only = "1"
+      ttl_only_drop_parts              = "1"
     }
     column "uuid" {
       type = "UUID"
@@ -17789,6 +17929,10 @@ SQL
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -20430,6 +20574,55 @@ SQL
     }
   }
 
+  materialized_view "email_status_mv" {
+    to_table = "posthog.email_status_data"
+    query    = <<SQL
+SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   materialized_view "error_tracking_fingerprint_issue_state_mv" {
     to_table = "posthog.writable_error_tracking_fingerprint_issue_state"
     query    = <<SQL
@@ -21491,7 +21684,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21566,6 +21760,9 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
   }
 
@@ -22244,6 +22441,7 @@ SELECT
   severity_text,
   pattern_version,
   pattern,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -22269,6 +22467,7 @@ FROM
       lower(severity_text) AS severity_text,
       pattern_version,
       pattern,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -22283,7 +22482,7 @@ FROM
     WHERE pattern_version != 0
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source
 SQL
 
     column "team_id" {
@@ -22309,6 +22508,9 @@ SQL
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -22394,6 +22596,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -22417,6 +22620,7 @@ FROM
         )
       ) AS environment,
       lower(severity_text) AS severity_text,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -22430,7 +22634,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text
+  team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source
 SQL
 
     column "team_id" {
@@ -22449,6 +22653,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {

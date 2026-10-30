@@ -129,8 +129,8 @@ class TestTeamMetadataCacheTasks(BaseTest):
 class TestTeamMetadataCacheSignals(BaseTest):
     """Test Django signals for cache updates."""
 
-    @patch("posthog.tasks.team_metadata.transaction")
-    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.transaction")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
     def test_team_save_triggers_update(self, mock_task, mock_settings, mock_transaction):
         """Test that saving a team schedules a cache update when FLAGS_REDIS_URL is set."""
@@ -145,8 +145,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Task should be called with the team ID
         mock_task.assert_called_with(self.team.id)
 
-    @patch("posthog.tasks.team_metadata.settings")
-    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache")
     def test_team_delete_clears_cache(self, mock_clear, mock_settings):
         """Test that deleting a team clears its cache when FLAGS_REDIS_URL is set."""
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
@@ -162,8 +162,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Cache should be cleared
         mock_clear.assert_called_once()
 
-    @patch("posthog.tasks.team_metadata.transaction")
-    @patch("posthog.tasks.team_metadata.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.transaction")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
     @patch("posthog.tasks.team_metadata.update_team_metadata_cache_task.delay")
     def test_team_save_noop_without_flags_redis_url(self, mock_task, mock_settings, mock_transaction):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
@@ -178,8 +178,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Task should NOT be called
         mock_task.assert_not_called()
 
-    @patch("posthog.tasks.team_metadata.settings")
-    @patch("posthog.tasks.team_metadata.clear_team_metadata_cache")
+    @patch("posthog.storage.team_metadata_signal_handlers.settings")
+    @patch("posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache")
     def test_team_delete_noop_without_flags_redis_url(self, mock_clear, mock_settings):
         """Test that signal is no-op when FLAGS_REDIS_URL is not set."""
         mock_settings.FLAGS_REDIS_URL = None

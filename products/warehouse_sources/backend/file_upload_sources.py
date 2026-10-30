@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.file_uploads import (
     UploadLocation,
     parse_hosted_upload,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
@@ -59,7 +60,9 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    CsvColumnType,
     csv_column_types_from_columns,
+    json_column_types_from_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
@@ -156,6 +159,14 @@ def pending_upload_job_inputs(file_format: UploadedFileFormat, schema_name: str)
     return {"upload_id": "", "filename": "", "file_format": file_format, "schema_name": schema_name}
 
 
+def _stored_column_types(read: str, read_settings: UploadReadSettings) -> tuple[CsvColumnType, ...]:
+    if read == "csv":
+        return csv_column_types_from_columns(read_settings.columns)
+    if read == "jsonl":
+        return json_column_types_from_columns(read_settings.columns)
+    return ()
+
+
 def upload_schema_metadata(
     schema_name: str,
     filename: str,
@@ -175,7 +186,7 @@ def upload_schema_metadata(
         csv=CsvOptions(
             has_header=True,
             allow_double_quotes=read_settings.allow_double_quotes is not False,
-            column_types=csv_column_types_from_columns(read_settings.columns) if read == "csv" else (),
+            column_types=_stored_column_types(read, read_settings),
         ),
         pattern=None,
         source_format=read,
@@ -192,7 +203,7 @@ def create_source_for_upload(
     job_inputs: dict[str, Any],
     connection_metadata: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
-    source = ExternalDataSource.objects.create(
+    source = SourceInputsStore.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -200,7 +211,7 @@ def create_source_for_upload(
         status=ExternalDataSource.Status.RUNNING,
         source_type=file_upload_source().source_type,
         api_version=file_upload_source().default_version,
-        job_inputs=job_inputs,
+        inputs=job_inputs,
         description=f"Uploaded file for {table.name}"[:400],
         access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         created_by=table.created_by,
@@ -331,10 +342,11 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
         if latest_job is not None and latest_job.status == ExternalDataJobStatus.RUNNING:
             raise FileUploadSourceError("A sync of this table is running. Replace the file once it finishes.")
         try:
-            current: HostedUpload | None = upload_from_job_inputs(source.team_id, source.job_inputs)
+            current: HostedUpload | None = upload_from_job_inputs(
+                source.team_id, SourceInputsStore.load_settings(source)
+            )
         except InvalidUploadError:
             current = None
-        source.job_inputs = {**(source.job_inputs or {}), **upload_job_inputs(upload, schema.name)}
         now = timezone.now()
         recorded = {entry.upload for entry in superseded_uploads(source)}
         replaced: list[HostedUpload] = [old for old in (current, _file_read_in_place(schema)) if old is not None]
@@ -343,7 +355,9 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
                 source.connection_metadata = connection_metadata_with_superseded(
                     source, SupersededUpload(upload=old, superseded_at=now)
                 )
-        source.save(update_fields=["job_inputs", "connection_metadata", "updated_at"])
+        SourceInputsStore.update_runtime(
+            source, upload_job_inputs(upload, schema.name), extra_update_fields=("connection_metadata", "updated_at")
+        )
 
         previous = TableDefinition.from_schema_metadata(schema.name, schema.schema_metadata)
         # Keep the column naming the table already has, so queries written against it keep working.

@@ -12,7 +12,8 @@ intersected with what `tools/__init__.py` re-exports.
 
 `emit_report` carries an idempotency key, so a retried emission returns the report the first call
 authored instead of a second one. The key is the caller's `idempotency_key` when it supplies one, and
-the report's own content when it doesn't, scoped to the authoring run either way. This covers the
+the report's own content when it doesn't, scoped to the authoring run except for the one-time
+first-report scout's project key. This covers the
 retry a scout sends after a proxy timeout, not cross-run dedup: telling one run's finding from a
 previous run's is still the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus
 a `report:<domain>:<entity>` scratchpad key the scout maintains. `edit_report` remains NOT idempotent
@@ -60,6 +61,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -152,6 +154,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
@@ -1142,14 +1145,16 @@ def _gate_skip_result(preflight: str) -> EmitReportResult:
 def _emit_idempotency_key(
     *, author: ReportAuthor, supplied: str | None, title: str, summary: str, evidence: list[ReportEvidence]
 ) -> str:
-    """The key this emission is stored under, always scoped to the author (for a scout, the authoring run).
+    """The first report's project key, otherwise scoped to the author (for a scout, the authoring run).
 
     A supplied key is the caller's own name for the emission, so a retry that rewords the report still
     resolves to the first one. Without a key the report's identity is the key, which still covers the
     case the barrier exists for: an emission times out at a proxy while the server keeps working, and
     the scout sends the same call again. Identity is the title, the summary, and the evidence, not the
     routing around them — a resend that only adds `suggested_reviewers` is the same report, and belongs
-    on `edit_report`. Run-scoped either way, so a later run can still report a finding nothing fixed."""
+    on `edit_report`. Other scouts stay run-scoped so a later run can report a finding nothing fixed."""
+    if author.scout_run is not None and author.scout_run.skill_name == FIRST_REPORT_SCOUT:
+        return first_report_idempotency_key(author.scout_run.team_id)
     if supplied is not None:
         key = supplied.strip()
         if not key:
@@ -1469,6 +1474,28 @@ def _settled_repository(report_id: str) -> str | None:
     return selection.repository if selection is not None else None
 
 
+def _with_scout_research_context(
+    team: Team, run: SignalScoutRun | None, selection: RepoSelectionResult | None
+) -> RepoSelectionResult | None:
+    metadata = (run.metadata or {}) if run is not None else {}
+    if run is None or not metadata.get("github_optional"):
+        return selection
+    task_run = tasks_facade.get_task_run(run.task_run_id, team_id=team.id)
+    state = task_run.state if task_run else {}
+    if not metadata.get("repositories") and "github_read_access_available" not in state:
+        return selection
+    code_available = bool(metadata.get("repositories") or state.get("github_read_access_available"))
+    if selection is None:
+        selection = RepoSelectionResult(
+            repository=None, reason="The scout did not select a repository.", autostart_eligible=False
+        )
+    selection.research_context = ReportResearchContext(
+        mode="code" if code_available else "data_only",
+        repository_status="available" if code_available else "github_unavailable",
+    )
+    return selection
+
+
 async def _resolve_report_repository(
     *,
     team_id: int,
@@ -1563,7 +1590,9 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
     )
 
     try:
-        await maybe_autostart_from_report_artefacts(team_id=team_id, report_id=report_id)
+        await maybe_autostart_from_report_artefacts(
+            team_id=team_id, report_id=report_id, implementation_spend_kind="scout_triggered_implementation"
+        )
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
@@ -2212,6 +2241,10 @@ async def emit_report(
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
+            team, run, repo_selection
+        )
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2409,6 +2442,8 @@ def emit_report_sync(
         if surfaced
         else None
     )
+    if surfaced:
+        repo_selection = _with_scout_research_context(team, run, repo_selection)
     if surfaced and reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.

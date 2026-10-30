@@ -896,6 +896,12 @@ describe('annotationsOverlayLogic', () => {
                 dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
                 expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
             },
+            {
+                // Regression: SQL charts default to a day interval but can have sparser points.
+                interval: 'day',
+                dates: ['2022-08-01', '2022-08-08', '2022-08-15'],
+                expected: { '2022-08-10 00:00:00+0000': 1 + 2 / 7, '2022-08-11 00:00:00+0000': 1 + 3 / 7 },
+            },
         ])('$interval chart → fractional indices', async ({ interval, dates, expected }) => {
             useInsightMocks(interval)
             logic = annotationsOverlayLogic({

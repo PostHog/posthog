@@ -841,6 +841,8 @@ mod tests {
                 image_urls: Vec::new(),
                 remote_urls: Vec::new(),
                 url_limit: None,
+                srcsets: Vec::new(),
+                visited_urls: Vec::new(),
                 captured_at_ms: None,
             })
         };

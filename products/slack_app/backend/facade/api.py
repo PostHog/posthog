@@ -24,9 +24,9 @@ from typing import Any
 
 import structlog
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.feature_flags import is_slack_app_chart_links_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.progress_phases import (
@@ -115,18 +115,18 @@ def slack_channel_is_approved(slack_workspace_id: str, slack_channel_id: str) ->
     return SlackChannel.approval_granted(slack_workspace_id, slack_channel_id)
 
 
-def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str, str | bool]:
+def slack_artifact_delivery_state_updates(integration: IntegrationRecord) -> dict[str, str | bool]:
     """State that tells a task agent which Slack artifact adapters can deliver, and whether to
     share a chart as an insight link rather than render it through the chart endpoint."""
     mode = "canvas_file" if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES) else "message"
     return {
         "slack_artifact_delivery": mode,
         "slack_chart_delivery": True,
-        "slack_chart_links": is_slack_app_chart_links_enabled(integration),
+        "slack_chart_links": True,
     }
 
 
-def slack_followup_invite_text(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> str | None:
+def slack_followup_invite_text(integration: IntegrationRecord | None, *, utm_tags: str, ai_enabled: bool) -> str | None:
     """The mrkdwn line inviting a reader to ask the bot a follow-up about this message.
 
     Returns ``None`` when there is nothing to invite: no Slack install, or an organization that has
@@ -139,7 +139,9 @@ def slack_followup_invite_text(integration: Integration | None, *, utm_tags: str
     return build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
 
 
-def slack_followup_invite(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> dict[str, Any] | None:
+def slack_followup_invite(
+    integration: IntegrationRecord | None, *, utm_tags: str, ai_enabled: bool
+) -> dict[str, Any] | None:
     """``slack_followup_invite_text`` as a Slack context block, for a caller that appends blocks."""
     return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
 

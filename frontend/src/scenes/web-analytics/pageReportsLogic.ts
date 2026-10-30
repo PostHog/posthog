@@ -1,5 +1,6 @@
 import { MakeLogicType, kea } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
@@ -40,6 +41,7 @@ import {
     PathTab,
     SectionTile,
     SourceTab,
+    QueryTile,
     TabsTile,
     TileId,
     TileVisualizationOption,
@@ -53,6 +55,152 @@ import {
 import { PROPERTY_PATHNAME } from './constants'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import type { DateFilterState } from './webAnalyticsLogic'
+
+export enum PageReportTab {
+    Overview = 'overview',
+    Traffic = 'traffic',
+    Search = 'search',
+    AI = 'ai',
+    Audience = 'audience',
+}
+
+export type PageReportOpenSource = 'directory_row' | 'pasted_url'
+
+const PAGE_REPORT_TAB_PARAM = 'page_report_tab'
+
+const isPageReportTab = (value: unknown): value is PageReportTab =>
+    typeof value === 'string' && (Object.values(PageReportTab) as string[]).includes(value)
+
+const sentenceCaseTitle = (title: string): string =>
+    title
+        .split(' ')
+        .map((word, index) => (index === 0 || word === word.toUpperCase() ? word : word.toLowerCase()))
+        .join(' ')
+
+export type PageReportTileRowVariant = 'feature' | 'grid'
+
+export interface PageReportTileRow {
+    key: string
+    variant: PageReportTileRowVariant
+    tiles: QueryTile[]
+}
+
+export type PageReportTabRows = Partial<Record<PageReportTab, PageReportTileRow[]>>
+
+const CHART_TILE_LAYOUT = 'flex flex-col h-full min-h-72'
+const TABLE_TILE_LAYOUT = 'flex flex-col h-full'
+
+function groupPageReportTiles(tiles: SectionTile[]): PageReportTabRows {
+    const queryTiles = new Map<TileId, QueryTile>()
+    for (const section of tiles) {
+        for (const tile of section.tiles) {
+            if (tile.kind === 'query') {
+                queryTiles.set(tile.tileId, {
+                    ...tile,
+                    title: typeof tile.title === 'string' ? sentenceCaseTitle(tile.title) : tile.title,
+                    docs:
+                        tile.docs && typeof tile.title === 'string'
+                            ? { ...tile.docs, title: sentenceCaseTitle(tile.title) }
+                            : tile.docs,
+                    layout: {
+                        ...tile.layout,
+                        className: tile.query.kind === NodeKind.InsightVizNode ? CHART_TILE_LAYOUT : TABLE_TILE_LAYOUT,
+                    },
+                })
+            }
+        }
+    }
+
+    const row = (key: string, ids: TileId[], variant: PageReportTileRowVariant = 'grid'): PageReportTileRow | null => {
+        const rowTiles = ids.map((id) => queryTiles.get(id)).filter((tile): tile is QueryTile => !!tile)
+        return rowTiles.length > 0 ? { key, variant, tiles: rowTiles } : null
+    }
+    const rows = (...items: (PageReportTileRow | null)[]): PageReportTileRow[] =>
+        items.filter((item): item is PageReportTileRow => !!item)
+
+    const pathTileIds = [
+        TileId.PAGE_REPORTS_ENTRY_PATHS,
+        TileId.PAGE_REPORTS_PREVIOUS_PAGE,
+        TileId.PAGE_REPORTS_EXIT_PATHS,
+    ].filter((id) => queryTiles.has(id))
+
+    const topEvents = queryTiles.get(TileId.PAGE_REPORTS_TOP_EVENTS)
+    if (
+        topEvents &&
+        topEvents.query.kind === NodeKind.InsightVizNode &&
+        topEvents.query.source.kind === NodeKind.TrendsQuery
+    ) {
+        queryTiles.set(TileId.PAGE_REPORTS_TOP_EVENTS, {
+            ...topEvents,
+            layout: { className: 'flex flex-col h-full min-h-64' },
+            query: {
+                ...topEvents.query,
+                source: {
+                    ...topEvents.query.source,
+                    properties: Array.isArray(topEvents.query.source.properties)
+                        ? topEvents.query.source.properties.map((filter) =>
+                              filter.type === PropertyFilterType.EventMetadata &&
+                              filter.key === 'event' &&
+                              Array.isArray(filter.value)
+                                  ? { ...filter, value: [...filter.value, '$http_log'] }
+                                  : filter
+                          )
+                        : topEvents.query.source.properties,
+                    trendsFilter: {
+                        ...topEvents.query.source.trendsFilter,
+                        display: ChartDisplayType.ActionsBarValue,
+                    },
+                },
+            },
+        })
+    }
+
+    return {
+        [PageReportTab.Overview]:
+            pathTileIds.length === 3
+                ? rows(
+                      row(
+                          'trends',
+                          [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART, TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND],
+                          'feature'
+                      ),
+                      row('paths', pathTileIds)
+                  )
+                : rows(
+                      row('trends', [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]),
+                      row('paths', [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND, ...pathTileIds])
+                  ),
+        [PageReportTab.Traffic]: rows(
+            row('sources', [
+                TileId.PAGE_REPORTS_CHANNELS,
+                TileId.PAGE_REPORTS_REFERRERS,
+                TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
+            ]),
+            row('utm', [
+                TileId.PAGE_REPORTS_UTM_SOURCE,
+                TileId.PAGE_REPORTS_UTM_MEDIUM,
+                TileId.PAGE_REPORTS_UTM_CAMPAIGN,
+                TileId.PAGE_REPORTS_UTM_CONTENT,
+                TileId.PAGE_REPORTS_UTM_TERM,
+            ])
+        ),
+        [PageReportTab.Audience]: rows(
+            row('devices', [
+                TileId.PAGE_REPORTS_DEVICE_TYPES,
+                TileId.PAGE_REPORTS_BROWSERS,
+                TileId.PAGE_REPORTS_OPERATING_SYSTEMS,
+            ]),
+            row('geography', [
+                TileId.PAGE_REPORTS_COUNTRIES,
+                TileId.PAGE_REPORTS_REGIONS,
+                TileId.PAGE_REPORTS_CITIES,
+                TileId.PAGE_REPORTS_TIMEZONES,
+                TileId.PAGE_REPORTS_LANGUAGES,
+            ]),
+            row('events', [TileId.PAGE_REPORTS_TOP_EVENTS])
+        ),
+    }
+}
 
 /**
  * Creates property filters for URL matching that handles query parameters consistently
@@ -69,6 +217,16 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     // kea-router JSON-parses query params (?pageURL=123 arrives as a number) and pageUrl is
     // persisted, so a non-string value would otherwise crash `url.split` below on every recompute
     const urlString: string = String(url ?? '')
+    if (urlString.startsWith('/')) {
+        return [
+            {
+                key: '$pathname',
+                value: urlString.split(/[?#]/)[0],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
+    }
     const parsed = parseWebAnalyticsURL(urlString)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
@@ -177,6 +335,12 @@ export function buildPageUrlOptions(
     return [...representativeByCleaned.entries()].map(([label, key]) => ({ key, label }))
 }
 
+const NO_HOST_FILTER: WebAnalyticsPropertyFilters[number] = {
+    type: PropertyFilterType.Event,
+    key: '$host',
+    operator: PropertyOperator.IsNotSet,
+}
+
 function createHostFilter(host: string | null): WebAnalyticsPropertyFilters {
     return host ? [{ type: PropertyFilterType.Event, key: '$host', operator: PropertyOperator.Exact, value: host }] : []
 }
@@ -191,14 +355,17 @@ export function createPageReportsFilters(
     url: string,
     stripQueryParams: boolean,
     selectedHost: string | null,
-    isPathCleaningEnabled: boolean = false
+    isPathCleaningEnabled: boolean = false,
+    hostlessMeansNoHost: boolean = false
 ): WebAnalyticsPropertyFilters {
     const filters = createUrlPropertyFilter(url, stripQueryParams)
 
     // Drop the URL's own host so the explicitly selected host wins, then apply it.
     const withSelectedHost = selectedHost
         ? [...filters.filter((filter) => filter.key !== '$host'), ...createHostFilter(selectedHost)]
-        : filters
+        : hostlessMeansNoHost && String(url ?? '').startsWith('/')
+          ? [...filters, NO_HOST_FILTER]
+          : filters
 
     return applyPathCleaningToFilters(withSelectedHost, isPathCleaningEnabled)
 }
@@ -276,8 +443,10 @@ export interface pageReportsLogicValues {
     combinedMetricsQuery: (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
     createInsightProps: (tileId: TileId, tabId?: string | undefined) => InsightLogicProps<QuerySchema>
     hasPageUrl: boolean
+    isDirectoryEnabled: boolean
     isInitialLoad: boolean
     isLoading: boolean
+    pageReportTab: PageReportTab
     pageUrl: string | null
     pageUrlOptions: PageURLOption[]
     pageUrlSearchTerm: string
@@ -353,6 +522,7 @@ export interface pageReportsLogicValues {
     stripQueryParams: boolean
     tileVisualizations: Record<TileId, TileVisualizationOption>
     tiles: SectionTile[]
+    tilesByTab: PageReportTabRows
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -370,6 +540,9 @@ export interface pageReportsLogicActions {
     setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => {
         isPathCleaningEnabled: boolean
     } // webAnalyticsLogic
+    backToDirectory: () => {
+        value: true
+    }
     loadPages: (searchTerm?: string) => {
         searchTerm: string
     }
@@ -394,6 +567,18 @@ export interface pageReportsLogicActions {
             searchTerm: string
         }
     }
+    openPageReport: (
+        url: string,
+        source: PageReportOpenSource,
+        position?: number | null
+    ) => {
+        position: number | null
+        source: PageReportOpenSource
+        url: string
+    }
+    setPageReportTab: (tab: PageReportTab) => {
+        tab: PageReportTab
+    }
     setPageUrl: (url: string | string[] | null) => {
         url: string | string[] | null
     }
@@ -407,12 +592,17 @@ export interface pageReportsLogicActions {
         tileId: TileId
         visualization: TileVisualizationOption
     }
+    trackDirectoryCtaClicked: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface pageReportsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasPageUrl: (pageUrl: string | null) => boolean
+        isDirectoryEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        tilesByTab: (tiles: SectionTile[]) => PageReportTabRows
         isLoading: (pagesUrlsLoading: boolean, isInitialLoad: boolean) => boolean
         pathCleaningFilters: (currentTeam: TeamPublicType | TeamType | null) => PathCleaningFilter[]
         pageUrlOptions: (
@@ -429,7 +619,8 @@ export interface pageReportsLogicMeta {
             shouldFilterTestAccounts: boolean,
             compareFilter: CompareFilter,
             isPathCleaningEnabled: boolean,
-            selectedHost: string | null
+            selectedHost: string | null,
+            isDirectoryEnabled: boolean
         ) =>
             | {
                   avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined
@@ -501,7 +692,8 @@ export interface pageReportsLogicMeta {
             stripQueryParams: boolean,
             shouldFilterTestAccounts: boolean,
             selectedHost: string | null,
-            isPathCleaningEnabled: boolean
+            isPathCleaningEnabled: boolean,
+            isDirectoryEnabled: boolean
         ) => (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
         tiles: (
             queries:
@@ -612,6 +804,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
+        openPageReport: (url: string, source: PageReportOpenSource, position: number | null = null) => ({
+            url,
+            source,
+            position,
+        }),
+        backToDirectory: true,
+        setPageReportTab: (tab: PageReportTab) => ({ tab }),
+        trackDirectoryCtaClicked: true,
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
@@ -632,6 +832,16 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                     return url
                 },
+                openPageReport: (_state, { url }) => url,
+                backToDirectory: () => null,
+            },
+        ],
+        pageReportTab: [
+            PageReportTab.Overview as PageReportTab,
+            {
+                setPageReportTab: (_state, { tab }) => tab,
+                openPageReport: () => PageReportTab.Overview,
+                backToDirectory: () => PageReportTab.Overview,
             },
         ],
         pageUrlSearchTerm: [
@@ -732,6 +942,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     selectors: {
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
+        isDirectoryEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY],
+        ],
+        tilesByTab: [(s) => [s.tiles], (tiles: SectionTile[]): PageReportTabRows => groupPageReportTiles(tiles)],
         isLoading: [
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
@@ -762,6 +978,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.compareFilter,
                 s.isPathCleaningEnabled,
                 s.selectedHost,
+                s.isDirectoryEnabled,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -771,7 +988,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
                 isPathCleaningEnabled: boolean,
-                selectedHost: string | null
+                selectedHost: string | null,
+                isDirectoryEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -803,7 +1021,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     pageUrl,
                     stripQueryParams,
                     selectedHost,
-                    isPathCleaningEnabled
+                    isPathCleaningEnabled,
+                    isDirectoryEnabled
                 )
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
@@ -938,13 +1157,21 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.selectedHost, s.isPathCleaningEnabled],
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.shouldFilterTestAccounts,
+                s.selectedHost,
+                s.isPathCleaningEnabled,
+                s.isDirectoryEnabled,
+            ],
             (
                 pageUrl: string | null,
                 stripQueryParams: boolean,
                 shouldFilterTestAccounts: boolean,
                 selectedHost: string | null,
-                isPathCleaningEnabled: boolean
+                isPathCleaningEnabled: boolean,
+                isDirectoryEnabled: boolean
             ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
@@ -981,7 +1208,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl
-                            ? createPageReportsFilters(pageUrl, stripQueryParams, selectedHost, isPathCleaningEnabled)
+                            ? createPageReportsFilters(
+                                  pageUrl,
+                                  stripQueryParams,
+                                  selectedHost,
+                                  isPathCleaningEnabled,
+                                  isDirectoryEnabled
+                              )
                             : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
@@ -1263,10 +1496,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
+        openPageReport: ({ source, position }) => {
+            posthog.capture('web analytics page report opened', { source, row_position: position })
+        },
+        backToDirectory: () => {
+            posthog.capture('web analytics page report back to directory', { method: 'breadcrumb' })
+        },
+        setPageReportTab: ({ tab }) => {
+            posthog.capture('web analytics page report tab changed', { tab })
+        },
+        trackDirectoryCtaClicked: () => {
+            posthog.capture('web analytics page reports cta clicked', { location: 'search_and_ai' })
+        },
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
         loadPages: ({ searchTerm }) => {
+            if (values.isDirectoryEnabled) {
+                return
+            }
             actions.loadPagesUrls({ searchTerm })
         },
         setDates: () => {
@@ -1293,6 +1541,18 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             if (pageURL && pageURL !== values.pageUrl) {
                 actions.setPageUrl(pageURL)
             }
+            if (!values.isDirectoryEnabled) {
+                return
+            }
+            if (!pageURL && values.pageUrl) {
+                actions.setPageUrl(null)
+            }
+            const tab = isPageReportTab(searchParams[PAGE_REPORT_TAB_PARAM])
+                ? searchParams[PAGE_REPORT_TAB_PARAM]
+                : PageReportTab.Overview
+            if (tab !== values.pageReportTab) {
+                actions.setPageReportTab(tab)
+            }
         },
     }),
 
@@ -1306,6 +1566,23 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
+            return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
+        },
+        openPageReport: () => {
+            const { [PAGE_REPORT_TAB_PARAM]: _tab, ...searchParams } = router.values.searchParams
+            return ['/web/page-reports', { ...searchParams, pageURL: values.pageUrl }, router.values.hashParams]
+        },
+        backToDirectory: () => {
+            const { [PAGE_REPORT_TAB_PARAM]: _tab, pageURL: _pageURL, ...searchParams } = router.values.searchParams
+            return ['/web/page-reports', searchParams, router.values.hashParams]
+        },
+        setPageReportTab: () => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.pageReportTab === PageReportTab.Overview) {
+                delete searchParams[PAGE_REPORT_TAB_PARAM]
+            } else {
+                searchParams[PAGE_REPORT_TAB_PARAM] = values.pageReportTab
+            }
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
     }),
