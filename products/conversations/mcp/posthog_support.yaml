@@ -1,5 +1,7 @@
-# MCP tools for contacting PostHog's own support team as the signed-in user.
-# These are not the conversations-* tools, which work on the user's own support inbox.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations --file ../../products/conversations/mcp/posthog_support.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: PostHog support
 feature: posthog_support
 url_prefix: /support
@@ -8,7 +10,6 @@ tools:
     posthog-support-ticket-create:
         operation: posthog_support_tickets_create
         enabled: true
-        feature_flag: posthog-support-agent-tickets
         annotations:
             readOnly: false
             destructive: false
@@ -16,12 +17,13 @@ tools:
         title: Open a ticket with PostHog support
         description: >
             Open a support ticket with the PostHog support team, sent and verified as the signed-in user, about the
-            project in the URL. A person on the support team reads every ticket, so use this only as a last step.
-            Before you call it: search the docs with docs-search, check the project with health-issues-list and the
-            other read tools, and try the fix the docs give. Show the user the ticket text and get their OK before you
-            send it. Put everything support needs in the first message: exact error text, event names, flag keys, SDK
-            names and versions, links to the PostHog pages involved, and what you already tried. Never include
-            secrets, API keys or personal data. For a request to permanently delete events, use request_type
-            data_deletion with a HogQL query that has a time range, its current event count, and deletion_consent
-            set to true only after the user confirms. Do not use this tool for the user's own customers' tickets:
-            those are the conversations-tickets-* tools.
+            project in the URL. A person on the support team reads every ticket, so use this only as a last step. Before
+            you call it: search the docs with docs-search, check the project with health-issues-list and the other read
+            tools, and try the fix the docs give. Show the user the ticket text and get their OK before you send it. Put
+            everything support needs in the first message: exact error text, event names, flag keys, SDK names and
+            versions, links to the PostHog pages involved, and what you already tried. Never include secrets, API keys
+            or personal data. For a request to permanently delete events, use request_type data_deletion with a HogQL
+            query that has a time range, its current event count, and deletion_consent set to true only after the user
+            confirms. Do not use this tool for the user's own customers' tickets: those are the conversations-tickets-*
+            tools.
+        feature_flag: posthog-support-agent-tickets
