@@ -1104,6 +1104,33 @@ describe('Hogflow Executor', () => {
                 })
             })
 
+            it('a run parked before its message step was protected is protected from its next wake', async () => {
+                const hogFlow = createHogFlow({
+                    actions: {
+                        delay: { type: 'delay', config: { delay_duration: '7d' } },
+                        message: {
+                            type: 'function_push',
+                            config: { template_id: 'template-native-push', inputs: {} },
+                        } as any,
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'message', type: 'continue' },
+                        { from: 'message', to: 'exit', type: 'continue' },
+                    ],
+                })
+                const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 1 }).toMillis())
+                expect(invocation.state.sensitive).toBeUndefined()
+                editFlow(hogFlow, (flow) => {
+                    ;(flow.actions.find((a) => a.id === 'message')!.config as any).sensitive = true
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.invocation.state.currentAction?.id).toBe('delay')
+                expect(result.invocation.state.sensitive).toBe(true)
+            })
+
             describe('wait_until_time_window edits', () => {
                 // The fixed test clock is 2025-01-01T00:00:00Z (a Wednesday)
                 const buildWindowFlow = (config: Record<string, any>): HogFlow =>

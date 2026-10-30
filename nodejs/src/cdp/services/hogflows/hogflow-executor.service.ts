@@ -301,6 +301,12 @@ export class HogFlowExecutorService {
         const messageAssets: MessageAssetRow[] = []
         const conversionWatchers: ConversionWatcherRow[] = []
 
+        // A run that started before a step was protected must keep it out of its snapshot too, even when
+        // a recovery path later holds only the workflow id.
+        if (hasSensitiveMessageStep(invocation.hogFlow)) {
+            invocation.state.sensitive = true
+        }
+
         // A run enrolls on its first execution, before any exit check: a run that exits immediately
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
         // overstate the rate.

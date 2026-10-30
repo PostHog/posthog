@@ -184,9 +184,14 @@ describe('HogInvocationResultsService', () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
+                const person = { id: 'person-1', properties: { code: '482913' } }
                 Object.assign(invocation.state, state, {
                     event: { ...invocation.state.event, ...(state as any).event },
-                    currentAction: { id: 'message', startedAtTimestamp: 0, hogFunctionState: { vmState } },
+                    currentAction: {
+                        id: 'message',
+                        startedAtTimestamp: 0,
+                        hogFunctionState: { vmState, globals: { person } },
+                    },
                 })
                 await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
@@ -195,6 +200,7 @@ describe('HogInvocationResultsService', () => {
                 )) as Record<string, any>
                 expect(globals.variables).toEqual(variables)
                 expect(globals.currentAction.hogFunctionState.vmState).toEqual(variables && vmState)
+                expect(globals.currentAction.hogFunctionState.globals.person).toEqual(variables && person)
             }
         )
 
