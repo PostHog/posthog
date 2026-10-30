@@ -174,3 +174,56 @@ class TestSubjectLength(TestCase):
     def test_overlong_input_carries_no_email_or_domain(self, _name: str, kwargs: dict[str, str]) -> None:
         subject = normalize_subject(**kwargs)
         assert subject.email is None and subject.domain is None
+
+
+def _block_rule(target_type: str, target_value: str) -> SnapshotRule:
+    rule = SnapshotRule.from_wire(
+        {"id": "a", "targetType": target_type, "targetValue": target_value, "effect": "block", "scope": "all_access"}
+    )
+    assert rule is not None
+    return rule
+
+
+class TestLookalikeAddresses(TestCase):
+    @parameterized.expand(
+        [
+            ("fullwidth dot", "email_domain", "example.com", "user@sub\uff0eexample.com", True),
+            ("ideographic dot", "email_domain", "example.com", "user@sub\u3002example.com", True),
+            ("halfwidth ideographic dot", "email_domain", "example.com", "user@sub\uff61example\uff61com", True),
+            ("small full stop", "email_domain", "example.com", "user@example\ufe52com", True),
+            ("one dot leader", "email_domain", "example.com", "user@example\u2024com", True),
+            ("zero-width space in the domain", "email_domain", "example.com", "user@exa\u200bmple.com", True),
+            ("zero-width space in the address", "email", "abuser@example.com", "abu\u200bser@example.com", True),
+            ("pattern", "email_pattern", "abuser*@example.com", "abuser7@example\u3002com", True),
+            ("email root", "email_root", "farm.bot@example.com", "farm\uff0ebot+1@example.com", True),
+            ("gmail root", "email_root", "dot@gmail.com", "d\u3002o.t@gmail\uff0ecom", True),
+            ("ascii address is unchanged", "email_domain", "example.com", "user@notexample.com", False),
+            ("shared suffix is not a subdomain", "email_domain", "example.com", "user@not\u3002example.org", False),
+        ]
+    )
+    def test_block_rule_reads_lookalikes_as_ascii(
+        self, _name: str, target_type: str, target_value: str, email: str, blocked: bool
+    ) -> None:
+        index = build_index([_block_rule(target_type, target_value)])
+        decided = deciding_rule(index, normalize_subject(email=email), Surface.APP, NOW)
+        assert (decided is not None) is blocked
+
+    def test_exemption_covers_only_the_exact_spelling(self) -> None:
+        rule = SnapshotRule.from_wire(
+            {
+                "id": "a",
+                "targetType": "email",
+                "targetValue": "ops@example.com",
+                "effect": "exempt",
+                "scope": "email_code",
+            }
+        )
+        assert rule is not None
+        index = build_index([rule])
+        assert deciding_rule(index, normalize_subject(email="ops@example.com"), Surface.EMAIL_CODE, NOW) is not None
+        assert deciding_rule(index, normalize_subject(email="o\u200bps@example.com"), Surface.EMAIL_CODE, NOW) is None
+
+    def test_lookalike_protected_domain_is_not_protected(self) -> None:
+        index = build_index([_block_rule("everyone", "")])
+        assert deciding_rule(index, normalize_subject(email="staff@posthog.com"), Surface.APP, NOW) is None
+        assert deciding_rule(index, normalize_subject(email="staff@posthog\u3002com"), Surface.APP, NOW) is not None
