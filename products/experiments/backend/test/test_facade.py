@@ -38,6 +38,7 @@ from products.experiments.backend.facade.contracts import (
     EndedExperiment,
     ExperimentChanged,
     ExperimentValidationError,
+    LinkedExperiment,
     StoredPrimaryResult,
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
@@ -520,6 +521,54 @@ class TestExperimentFlagIds(BaseTest):
 
         assert api.experiment_flag_ids([self.team.id, listed_team.id], include_deleted=include_deleted) == {
             flag_ids[key] for key in expected
+        }
+
+
+class TestFlagLiveExperiments(BaseTest):
+    def test_lists_the_experiments_that_are_not_deleted_per_listed_flag(self) -> None:
+        now = timezone.now()
+        flag_ids: dict[str, int] = {}
+        experiment_ids: dict[str, int] = {}
+        for flag_key, name, start_date, end_date, deleted, archived in [
+            ("running", "running", now, None, False, False),
+            ("running", "draft on the same flag", None, None, False, False),
+            ("stopped", "stopped", now - timedelta(days=1), now, False, False),
+            ("archived", "archived", now, None, False, True),
+            ("deleted", "deleted", now, None, True, False),
+            ("deleted_null", "deleted_null", now, None, None, False),
+            ("unlisted", "unlisted", now, None, False, False),
+        ]:
+            if flag_key not in flag_ids:
+                flag_ids[flag_key] = FeatureFlag.objects.create(team=self.team, key=flag_key, created_by=self.user).id
+            experiment_ids[name] = Experiment.objects.create(
+                team=self.team,
+                name=name,
+                feature_flag_id=flag_ids[flag_key],
+                start_date=start_date,
+                end_date=end_date,
+                deleted=deleted,
+                archived=archived,
+            ).id
+        flag_ids["no_experiment"] = FeatureFlag.objects.create(team=self.team, key="none", created_by=self.user).id
+        listed = {key: flag_id for key, flag_id in flag_ids.items() if key != "unlisted"}
+
+        def linked(name: str, is_running: bool) -> LinkedExperiment:
+            return LinkedExperiment(id=experiment_ids[name], name=name, is_running=is_running)
+
+        experiments = api.live_experiments_by_flag(listed.values())
+
+        assert {flag_id: set(linked_experiments) for flag_id, linked_experiments in experiments.items()} == {
+            flag_ids["running"]: {linked("running", True), linked("draft on the same flag", False)},
+            flag_ids["stopped"]: {linked("stopped", False)},
+            flag_ids["archived"]: {linked("archived", True)},
+        }
+        assert {key: api.flag_has_live_experiment(flag_id) for key, flag_id in listed.items()} == {
+            "running": True,
+            "stopped": True,
+            "archived": True,
+            "deleted": False,
+            "deleted_null": False,
+            "no_experiment": False,
         }
 
 

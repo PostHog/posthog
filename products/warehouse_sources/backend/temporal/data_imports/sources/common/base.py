@@ -632,6 +632,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
         when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
         return None
 
+    def uploaded_file_name(self, source_model: "ExternalDataSource") -> str | None:
+        """The name of the file the source imports, for a source that imports an uploaded file. None by default."""
+        return None
+
 
 class SourceExtractionNotImplementedError(NotImplementedError):
     """A source class carries no `source_for_pipeline` of its own, so only the base stub is left.

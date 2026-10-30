@@ -41,6 +41,7 @@ import {
     SchemaEditorAction,
     useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     IncrementalSyncBlockedMessageMap,
     StatusTagSetting,
@@ -56,6 +57,7 @@ import type { ExternalDataSchemaApi } from 'products/warehouse_sources/frontend/
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
+import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '../SourceScene/tabs/replaceFileLogic'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
@@ -104,6 +106,14 @@ export function ConfigurationTab({
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
+    const { openReplaceFile } = useActions(replaceFileLogic({ sourceId }))
+    const fileUpload: FileUploadDetails | undefined = isFileUploadSource(source)
+        ? {
+              fileName: source?.file_name ?? null,
+              onReplaceFile: () => openReplaceFile(replaceFileTarget(schema)),
+              replaceDisabledReason: replaceFileDisabledReason(schema),
+          }
+        : undefined
 
     switch (section) {
         case 'details':
@@ -115,6 +125,7 @@ export function ConfigurationTab({
                     updateSchema={updateSchema}
                     onConfigureSyncMethod={onConfigureSyncMethod}
                     syncHistoryUrl={syncHistoryUrl}
+                    fileUpload={fileUpload}
                 />
             )
         case 'sync-method':
@@ -171,6 +182,12 @@ function SectionHeader({ title, description }: { title: string; description?: st
     )
 }
 
+interface FileUploadDetails {
+    fileName: string | null
+    onReplaceFile: () => void
+    replaceDisabledReason?: string
+}
+
 function DetailsSection({
     schema,
     reloadSchema,
@@ -178,6 +195,7 @@ function DetailsSection({
     updateSchema,
     onConfigureSyncMethod,
     syncHistoryUrl,
+    fileUpload,
 }: {
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
@@ -185,6 +203,8 @@ function DetailsSection({
     updateSchema: (schema: ExternalDataSourceSchema) => void
     onConfigureSyncMethod: () => void
     syncHistoryUrl?: string
+    /** Set for a file upload schema, which refreshes by replacing its file and not by syncing. */
+    fileUpload?: FileUploadDetails
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
 
@@ -192,7 +212,11 @@ function DetailsSection({
         <div>
             <SectionHeader
                 title="Details"
-                description="Enable or disable syncing for this schema, see its current state, and trigger a sync on demand."
+                description={
+                    fileUpload
+                        ? 'See the current state of this table and replace the file it imports.'
+                        : 'Enable or disable syncing for this schema, see its current state, and trigger a sync on demand.'
+                }
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                 {schema.incremental_sync_blocked && (
@@ -203,70 +227,78 @@ function DetailsSection({
                         {IncrementalSyncBlockedMessageMap[schema.incremental_sync_blocked]}
                     </LemonBanner>
                 )}
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex flex-col">
-                        <span>Enabled</span>
-                        <span className="text-xs text-muted max-w-md">
-                            When enabled, this schema runs on the configured schedule and data is imported into PostHog.
-                            Disabling pauses all syncs — existing data stays in place but is not updated until you
-                            re-enable.
-                        </span>
+                {!fileUpload && (
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col">
+                            <span>Enabled</span>
+                            <span className="text-xs text-muted max-w-md">
+                                When enabled, this schema runs on the configured schedule and data is imported into
+                                PostHog. Disabling pauses all syncs — existing data stays in place but is not updated
+                                until you re-enable.
+                            </span>
+                        </div>
+                        <SchemaEditorAction schema={schema}>
+                            <LemonSwitch
+                                checked={schema.should_sync}
+                                label={schema.should_sync ? 'Syncing' : 'Disabled'}
+                                onChange={(active) => {
+                                    // A blocked table is not routed away here on purpose. An operator who fixed
+                                    // the duplicates or added the key at the source has to be able to turn the
+                                    // table back on themselves; the banner above says what the last run found.
+                                    if (active && !schema.sync_type) {
+                                        // No sync method saved yet — open the sync method section to set one up.
+                                        onConfigureSyncMethod()
+                                        return
+                                    }
+                                    if (!active && schema.sync_type === 'cdc') {
+                                        LemonDialog.open({
+                                            title: 'Disable CDC table?',
+                                            content: (
+                                                <div className="text-sm text-secondary space-y-2">
+                                                    <p>
+                                                        Disabling <strong>{schema.table?.name ?? schema.name}</strong>{' '}
+                                                        will remove it from the replication publication. Changes made
+                                                        while disabled will be permanently lost.
+                                                    </p>
+                                                    <p>
+                                                        Re-enabling this table will require a{' '}
+                                                        <strong>full resync</strong> to ensure data consistency.
+                                                    </p>
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Disable',
+                                                status: 'danger',
+                                                onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                            },
+                                            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                        })
+                                    } else if (!active && schema.sync_type === 'webhook') {
+                                        LemonDialog.open({
+                                            title: 'Disable webhook sync?',
+                                            description:
+                                                'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                            primaryButton: {
+                                                children: 'Disable',
+                                                status: 'danger',
+                                                onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    } else {
+                                        updateSchema({ ...schema, should_sync: active })
+                                    }
+                                }}
+                            />
+                        </SchemaEditorAction>
                     </div>
-                    <SchemaEditorAction schema={schema}>
-                        <LemonSwitch
-                            checked={schema.should_sync}
-                            label={schema.should_sync ? 'Syncing' : 'Disabled'}
-                            onChange={(active) => {
-                                // A blocked table is not routed away here on purpose. An operator who fixed
-                                // the duplicates or added the key at the source has to be able to turn the
-                                // table back on themselves; the banner above says what the last run found.
-                                if (active && !schema.sync_type) {
-                                    // No sync method saved yet — open the sync method section to set one up.
-                                    onConfigureSyncMethod()
-                                    return
-                                }
-                                if (!active && schema.sync_type === 'cdc') {
-                                    LemonDialog.open({
-                                        title: 'Disable CDC table?',
-                                        content: (
-                                            <div className="text-sm text-secondary space-y-2">
-                                                <p>
-                                                    Disabling <strong>{schema.table?.name ?? schema.name}</strong> will
-                                                    remove it from the replication publication. Changes made while
-                                                    disabled will be permanently lost.
-                                                </p>
-                                                <p>
-                                                    Re-enabling this table will require a <strong>full resync</strong>{' '}
-                                                    to ensure data consistency.
-                                                </p>
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Disable',
-                                            status: 'danger',
-                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                        },
-                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                    })
-                                } else if (!active && schema.sync_type === 'webhook') {
-                                    LemonDialog.open({
-                                        title: 'Disable webhook sync?',
-                                        description:
-                                            'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
-                                        primaryButton: {
-                                            children: 'Disable',
-                                            status: 'danger',
-                                            onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                } else {
-                                    updateSchema({ ...schema, should_sync: active })
-                                }
-                            }}
-                        />
-                    </SchemaEditorAction>
-                </div>
+                )}
+                {fileUpload && (
+                    <div className="flex items-center justify-between">
+                        <span className="text-muted">File</span>
+                        <span>{fileUpload.fileName ?? 'Unknown'}</span>
+                    </div>
+                )}
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Current status</span>
                     {schema.status ? (
@@ -313,34 +345,49 @@ function DetailsSection({
                 </div>
             </div>
             <div className="mt-4 flex gap-2 flex-wrap">
-                <SchemaEditorAction schema={schema}>
-                    {({ disabledReason }) => (
-                        <Tooltip
-                            title={
-                                schema.sync_type === 'cdc'
-                                    ? 'Trigger a CDC extraction run now.'
-                                    : schema.incremental
-                                      ? 'Sync incremental data since the last run.'
-                                      : 'Sync all data.'
-                            }
-                        >
+                {fileUpload ? (
+                    <SchemaEditorAction schema={schema}>
+                        {({ disabledReason }) => (
                             <LemonButton
                                 type="primary"
-                                onClick={() => reloadSchema(schema)}
-                                disabledReason={
-                                    disabledReason ??
-                                    (!schema.sync_type
-                                        ? 'Set up the sync method first'
-                                        : schema.status === 'Running'
-                                          ? 'A sync is already running'
-                                          : undefined)
+                                onClick={fileUpload.onReplaceFile}
+                                disabledReason={disabledReason ?? fileUpload.replaceDisabledReason}
+                                data-attr="schema-replace-file"
+                            >
+                                Replace file
+                            </LemonButton>
+                        )}
+                    </SchemaEditorAction>
+                ) : (
+                    <SchemaEditorAction schema={schema}>
+                        {({ disabledReason }) => (
+                            <Tooltip
+                                title={
+                                    schema.sync_type === 'cdc'
+                                        ? 'Trigger a CDC extraction run now.'
+                                        : schema.incremental
+                                          ? 'Sync incremental data since the last run.'
+                                          : 'Sync all data.'
                                 }
                             >
-                                {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
-                            </LemonButton>
-                        </Tooltip>
-                    )}
-                </SchemaEditorAction>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => reloadSchema(schema)}
+                                    disabledReason={
+                                        disabledReason ??
+                                        (!schema.sync_type
+                                            ? 'Set up the sync method first'
+                                            : schema.status === 'Running'
+                                              ? 'A sync is already running'
+                                              : undefined)
+                                    }
+                                >
+                                    {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
+                                </LemonButton>
+                            </Tooltip>
+                        )}
+                    </SchemaEditorAction>
+                )}
                 {schema.status === 'Running' && (
                     <SchemaEditorAction schema={schema}>
                         {({ disabledReason }) => (
