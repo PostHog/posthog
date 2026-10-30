@@ -17,7 +17,6 @@ user vectors from the dt=D interactions and embeddings snapshots through `user_v
 """
 
 import datetime
-from collections import Counter
 from collections.abc import Mapping
 
 import numpy as np
@@ -27,9 +26,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from posthog import settings
-from posthog.models import Team
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.features import DAYS_SINCE_LAST_VIEW_CAP, EMBEDDING_DIMENSIONS
 from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
     owner_tags,
@@ -41,15 +39,23 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, REVIEWERS_TABLE, USER_INTERACTIONS_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    REVIEWERS_TABLE,
+    USER_INTERACTIONS_TABLE,
+    team_organizations,
+)
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     EMBEDDING_COLUMNS,
+    HISTORY_BUCKETS,
     UI_ACTION_FIRST_COLUMNS,
     USER_DISMISS,
     USER_INTERACTION_COLUMNS,
     USER_OPEN,
     USER_VECTOR_KINDS,
+    OrganizationUser,
     known_before,
+    prior_views,
     user_vectors,
 )
 from products.signals.dags.inbox_ranking.nn.dag import NN_ASSET_KWARGS, NN_EXAMPLES_TABLE
@@ -64,15 +70,7 @@ PAIR_EXAMPLES_SCHEMA_VERSION = 1
 _REPORT_HEAD = HEADS_BY_NAME["open"]
 PAIR_HORIZON_DAYS = _REPORT_HEAD.horizon_days
 PAIR_HEADS = PAIR_HEAD_NAMES
-DAYS_SINCE_VIEW_CAP = 90.0
-# (name, lowest, highest) prior views per bucket. The within-user grade needs enough rows in the
-# buckets with real history to be readable.
-HISTORY_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
-    ("0", 0, 0),
-    ("1_9", 1, 9),
-    ("10_49", 10, 49),
-    ("50_plus", 50, None),
-)
+DAYS_SINCE_VIEW_CAP = DAYS_SINCE_LAST_VIEW_CAP
 REVIEWERS_SOURCE = "reviewers"
 IMPRESSIONS_SOURCE = "impressions"
 
@@ -85,7 +83,6 @@ LABEL_INTERACTION_COLUMNS = (
     *UI_ACTION_FIRST_COLUMNS,
 )
 REVIEWER_COLUMNS = ("report_id", "user_distinct_id")
-_VIEW_COLUMN = "first_viewed_at"
 
 _PAIR_EXAMPLES_FIELDS: list[tuple[str, pa.DataType]] = [
     ("snapshot_date", pa.date32()),
@@ -153,11 +150,7 @@ def pair_rows(
         .drop_columns(["vector"])
         .to_pylist()
     }
-    prior_views: Counter[tuple[str, str]] = Counter()
-    for row in users_history.select(["report_team_id", "user_distinct_id", _VIEW_COLUMN]).to_pylist():
-        organization_id = organizations.get(row["report_team_id"])
-        if organization_id is not None and known_before(row[_VIEW_COLUMN], as_of):
-            prior_views[(organization_id, row["user_distinct_id"])] += 1
+    views = prior_views(users_history, as_of, organizations=organizations)
     suggested = (
         {(row["report_id"], row["user_distinct_id"]) for row in reviewers.select(list(REVIEWER_COLUMNS)).to_pylist()}
         if reviewers is not None
@@ -188,7 +181,11 @@ def pair_rows(
                 ),
                 "user_open_reports": open_vector["n_reports"] if open_vector is not None else 0,
                 "user_dismiss_reports": dismiss_vector["n_reports"] if dismiss_vector is not None else 0,
-                "prior_views": prior_views[(organization_id, user)] if organization_id is not None else 0,
+                "prior_views": (
+                    views[OrganizationUser(organization_id=organization_id, user_distinct_id=user)]
+                    if organization_id is not None
+                    else 0
+                ),
                 "days_since_last_view": days_since_last_view,
                 "has_history": open_vector is not None or dismiss_vector is not None,
                 "is_suggested_reviewer": (
@@ -360,13 +357,6 @@ def build_pair_examples(
         "birth_days_with_reviewers": dagster.MetadataValue.int(days_with_reviewers),
         "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
         "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
-    }
-
-
-def team_organizations(team_ids: frozenset[int]) -> dict[int, str]:
-    return {
-        team_id: str(organization_id)
-        for team_id, organization_id in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
     }
 
 

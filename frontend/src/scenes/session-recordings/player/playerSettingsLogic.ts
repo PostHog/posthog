@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
-export type WatchPanelSection = 'overview' | 'linked-issues'
+export type WatchPanelSection = 'overview' | 'observations'
 export type WatchDebugDock = 'bottom' | 'right'
 
 export enum TimestampFormat {
@@ -66,6 +66,9 @@ export interface playerSettingsLogicValues {
 export interface playerSettingsLogicActions {
     dismissDebugHint: () => {
         value: true
+    }
+    openWatchPanelSection: (section: WatchPanelSection) => {
+        section: WatchPanelSection
     }
     setAutoplayDirection: (autoplayDirection: AutoplayDirection) => {
         autoplayDirection: AutoplayDirection
@@ -181,6 +184,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
         setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
         toggleWatchPanelSection: (section: WatchPanelSection) => ({ section }),
+        openWatchPanelSection: (section: WatchPanelSection) => ({ section }),
         setWatchDebugDock: (dock: WatchDebugDock) => ({ dock }),
         dismissDebugHint: true,
         setLegacyDebugLinkPending: (pending: boolean) => ({ pending }),
@@ -265,7 +269,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setPlayerControlsOverlay: (_, { playerControlsOverlay }) => playerControlsOverlay,
             },
         ],
-        // Lets a person in the watch-layout experiment switch back to the classic page
         preferClassicReplayLayout: [
             false,
             { persist: true },
@@ -302,6 +305,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             {
                 toggleWatchPanelSection: (state, { section }) =>
                     state.includes(section) ? state.filter((s) => s !== section) : [...state, section],
+                openWatchPanelSection: (state, { section }) => (state.includes(section) ? state : [...state, section]),
             },
         ],
     })),
@@ -390,8 +394,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         receivedFeatureFlags: (received: boolean) => {
             if (received && values.legacyDebugLinkPending) {
                 actions.setLegacyDebugLinkPending(false)
-                if (isNewReplayLayout(values.replayLayout) && !values.debugMode) {
-                    actions.setDebugMode(true)
+                if (isNewReplayLayout(values.replayLayout)) {
+                    if (!values.debugMode) {
+                        actions.setDebugMode(true)
+                    }
+                } else if (!values.sidebarOpen) {
+                    actions.setSidebarOpen(true)
                 }
             }
         },
@@ -407,12 +415,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     urlToAction(({ actions, values }) => {
-        const syncClassicSidebar = (searchParams: Record<string, any>, hashParams: Record<string, any>): boolean => {
+        const syncClassicSidebar = (searchParams: Record<string, any>, hashParams: Record<string, any>): void => {
             const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
             }
-            return inspectorSideBarOpen
         }
         return {
             ['**/shared/*']: (_, searchParams) => {
@@ -440,15 +447,28 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 }
             },
             [urls.replay(ReplayTabs.Home)]: (_, searchParams, hashParams, { initial }) => {
-                const inspectorSideBarOpen = syncClassicSidebar(searchParams, hashParams)
+                if (searchParams.debug === true && !values.debugMode) {
+                    actions.setDebugMode(true)
+                }
+                const inspectorSideBarOpen =
+                    searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
+                if (!inspectorSideBarOpen) {
+                    return
+                }
                 // The page copies the param into every URL it writes.
-                const legacyLink = inspectorSideBarOpen && !!initial
+                const legacyLink = !!initial
+                // The layout decides whether the link opens the sidebar or Debug, and an opened sidebar persists, so
+                // the choice waits for the flags.
                 if (legacyLink && !values.receivedFeatureFlags) {
                     actions.setLegacyDebugLinkPending(true)
+                    return
                 }
-                const legacyDebugLink = legacyLink && isNewReplayLayout(values.replayLayout)
-                if ((searchParams.debug === true || legacyDebugLink) && !values.debugMode) {
-                    actions.setDebugMode(true)
+                if (isNewReplayLayout(values.replayLayout)) {
+                    if (legacyLink && !values.debugMode) {
+                        actions.setDebugMode(true)
+                    }
+                } else if (!values.sidebarOpen) {
+                    actions.setSidebarOpen(true)
                 }
             },
             // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive

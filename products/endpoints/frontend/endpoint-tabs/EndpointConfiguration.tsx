@@ -17,6 +17,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -96,6 +97,12 @@ export function EndpointConfiguration(): JSX.Element {
 
     const effectiveDataFreshness =
         dataFreshness ?? viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
+    const dataFreshnessOptions = DATA_FRESHNESS_OPTIONS.some((option) => option.value === effectiveDataFreshness)
+        ? DATA_FRESHNESS_OPTIONS
+        : [
+              ...DATA_FRESHNESS_OPTIONS,
+              { value: effectiveDataFreshness, label: humanFriendlyDuration(effectiveDataFreshness) },
+          ]
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
     const materializationExpanded = leftActiveKeys.includes('materialization')
@@ -148,7 +155,7 @@ export function EndpointConfiguration(): JSX.Element {
                                         <LemonSelect
                                             value={effectiveDataFreshness}
                                             onChange={setDataFreshness}
-                                            options={DATA_FRESHNESS_OPTIONS}
+                                            options={dataFreshnessOptions}
                                         />
                                     </AccessControlAction>
                                 </div>

@@ -7,8 +7,11 @@ from django.core.cache import cache
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
+
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +29,7 @@ _CHANNEL_CLAIM_TTL_SECONDS = 60
 _MAX_CHANNEL_LIST_PAGES = 50
 
 
-def has_inbox_scopes(integration: Integration) -> bool:
+def has_inbox_scopes(integration: WorkspaceIntegration) -> bool:
     """Whether the install granted the onboarding scopes. Gated on this rather than a feature flag."""
     return not SlackIntegration(integration).missing_scopes(INBOX_ONBOARDING_REQUIRED_SCOPES)
 
@@ -39,12 +42,24 @@ def _get_team_channel(team_id: int) -> str | None:
     return get_default_slack_notification_channel(team_id)
 
 
-def _set_team_channel(team_id: int, value: str) -> None:
+def _get_team_channel_integration_id(team_id: int) -> int | None:
+    from products.signals.backend.facade.api import (
+        get_default_slack_notification_integration_id,  # noqa: PLC0415 — keeps the signals temporal stack off the slack import path
+    )
+
+    return get_default_slack_notification_integration_id(team_id)
+
+
+def _set_team_channel(integration: WorkspaceIntegration, value: str) -> None:
     from products.signals.backend.facade.api import (
         set_default_slack_notification_channel,  # noqa: PLC0415 — keeps the signals temporal stack off the slack import path
     )
 
-    set_default_slack_notification_channel(team_id, value)
+    set_default_slack_notification_channel(integration.team_id, value, integration_id=integration.id)
+
+
+def _team_has_other_slack_workspace(integration: WorkspaceIntegration) -> bool:
+    return any(row.id != integration.id for row in IntegrationManager.slack.any.list(integration.team_id))
 
 
 def _channel_target(channel_id: str, channel_name: str) -> str:
@@ -99,10 +114,12 @@ def _claim_channel_creation(slack_team_id: str) -> bool:
     )
 
 
-def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
+# nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
+def ensure_inbox_channel(integration: WorkspaceIntegration) -> tuple[str, str] | None:
     """Find-or-create #posthog-inbox, persist it as the team's default notification channel,
     and return (channel_id, "#name"). Returns None when the channel must be created but the
-    install lacks ``channels:manage`` — callers fall back to manual instructions.
+    install lacks ``channels:manage``, or when another connected workspace owns the team channel —
+    callers fall back to manual instructions.
 
     Idempotent: reuses the configured channel, then any existing #posthog-inbox, before creating.
     """
@@ -111,15 +128,22 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
 
     configured = _get_team_channel(team_id)
     if configured:
+        owner_id = _get_team_channel_integration_id(team_id)
+        # This workspace cannot see a channel that another workspace owns, so replacing it would move
+        # the team's notifications to this workspace without anyone choosing that.
+        if owner_id is not None and owner_id != integration.id:
+            return None
         channel_id = channel_id_from_target(configured)
         if _channel_exists(slack, channel_id):
             return channel_id, channel_name_from_target(configured)
+        if owner_id is None and _team_has_other_slack_workspace(integration):
+            return None
 
     # Without channels:manage we can't create, so the only option is to find an already-created channel.
     if slack.missing_scopes(INBOX_CHANNEL_REQUIRED_SCOPES):
         existing = _find_inbox_channel(slack)
         if existing:
-            _set_team_channel(team_id, _channel_target(*existing))
+            _set_team_channel(integration, _channel_target(*existing))
             return existing
         return None
 
@@ -128,7 +152,7 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
         # than racing a second create — the claim holder will finish and persist it.
         existing = _find_inbox_channel(slack)
         if existing:
-            _set_team_channel(team_id, _channel_target(*existing))
+            _set_team_channel(integration, _channel_target(*existing))
             return existing
         return None
 
@@ -148,11 +172,11 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
             return None
         result = found
 
-    _set_team_channel(team_id, _channel_target(*result))
+    _set_team_channel(integration, _channel_target(*result))
     return result
 
 
-def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_id: str) -> bool:
+def invite_user_to_inbox(integration: WorkspaceIntegration, channel_id: str, slack_user_id: str) -> bool:
     """Invite a Slack user into the inbox channel; existing membership counts as success.
 
     A bot isn't auto-added to a channel it creates and can't invite others to one it's not in, so on
@@ -183,7 +207,7 @@ def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_i
     return False
 
 
-def is_inbox_channel(integration: Integration, channel_id: str) -> bool:
+def is_inbox_channel(integration: WorkspaceIntegration, channel_id: str) -> bool:
     """True when ``channel_id`` is this team's inbox channel — by configured id, else by name
     (the name fallback covers the window before the team default is written)."""
     configured = _get_team_channel(integration.team_id)

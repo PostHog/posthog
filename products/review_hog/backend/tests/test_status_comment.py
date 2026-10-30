@@ -721,7 +721,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         patched = mock_request.call_args_list[1].kwargs["json"]["body"]
         assert status_marker(str(report.id)) in patched
 
-    @patch(f"{_MODULE}.Integration")
+    @patch(f"{_MODULE}.IntegrationManager")
     def test_pinned_integration_row_skips_the_selection_probe(
         self,
         mock_integration_model: MagicMock,
@@ -749,7 +749,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         )
 
         mock_integration.first_for_team_repository.assert_not_called()
-        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=self.team.id)
+        mock_integration_model.github.oauth.get.assert_called_once_with(self.team.id, 42)
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
 
 

@@ -217,7 +217,6 @@ export interface CodeVerificationForm {
 export interface loginLogicValues {
     devLoginTimeSavedLabel: string | null // devLoginLogic
     devUsers: DevUser[] // devLoginLogic
-    devUsersLoading: boolean // devLoginLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
     autoRedirectAttemptedForEmail: string | null
@@ -272,7 +271,6 @@ export interface loginLogicActions {
     devLogin: (email: string) => {
         email: string
     } // devLoginLogic
-    loadDevUsers: (_: any) => any // devLoginLogic
     clearGeneralError: () => {
         value: true
     }
@@ -447,9 +445,9 @@ export const loginLogic = kea<loginLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             devLoginLogic,
-            ['devUsers', 'devUsersLoading', 'devLoginTimeSavedLabel'],
+            ['devUsers', 'devLoginTimeSavedLabel'],
         ],
-        actions: [devLoginLogic, ['devLogin', 'loadDevUsers']],
+        actions: [devLoginLogic, ['devLogin']],
     })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),

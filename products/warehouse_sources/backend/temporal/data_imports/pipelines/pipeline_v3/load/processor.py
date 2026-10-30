@@ -23,16 +23,17 @@ from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    CURRENT_HISTORY_PARTITION,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     has_engine_seq,
@@ -169,6 +170,7 @@ def _read_existing_rows_by_first_pk(
     existing_delta_table: deltalake.DeltaTable,
     first_pk: str,
     first_components: list[Any],
+    partition: tuple[str, str] | None = None,
 ) -> pa.Table:
     """Read the existing rows whose `first_pk` value is in `first_components`.
 
@@ -177,12 +179,15 @@ def _read_existing_rows_by_first_pk(
     unimplemented, so pushing an `in` predicate down onto a string primary key raises
     `ArrowNotImplementedError`. When that happens, read the table and filter in PyArrow
     after casting the key to `string`, which has working kernels.
+
+    `partition` limits both reads to one partition, as `(column, value)`.
     """
+    partitions = None if partition is None else [(partition[0], "=", partition[1])]
     try:
-        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components)])
+        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components), *(partitions or [])])
     except pa.lib.ArrowNotImplementedError:
         logger.warning("cdc_delete_enrichment_pushdown_fallback", primary_key=first_pk)
-        existing = existing_delta_table.to_pyarrow_table()
+        existing = existing_delta_table.to_pyarrow_table(partitions=partitions)
         key = existing.column(first_pk).cast(pa.string())
         wanted = pa.array(first_components, pa.string())
         return existing.filter(pc.is_in(key, value_set=wanted))
@@ -241,7 +246,18 @@ def _enrich_cdc_rows(
                 # For composite PKs that IN is a superset — narrow in PyArrow below.
                 first_pk = present_pks[0]
                 first_components = list({t[0] for t in enrich_key_set})
-                existing_rows = _read_existing_rows_by_first_pk(existing_delta_table, first_pk, first_components)
+                history = history_naming_of(pa_table.column_names) if cdc_write_mode == "scd2_append" else None
+                # The open rows of a partitioned history table all sit in its current partition.
+                partition_column = history.partition_column if history is not None else None
+                current_partition = (
+                    (partition_column, CURRENT_HISTORY_PARTITION)
+                    if partition_column is not None
+                    and partition_column in (existing_delta_table.metadata().partition_columns or [])
+                    else None
+                )
+                existing_rows = _read_existing_rows_by_first_pk(
+                    existing_delta_table, first_pk, first_components, current_partition
+                )
 
                 # For composite PKs the IN filter is a superset — narrow to exact matches.
                 if len(present_pks) > 1 and existing_rows.num_rows > 0:
@@ -260,20 +276,20 @@ def _enrich_cdc_rows(
                 # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
                 # enrich with the most recent state rather than a historical one.
                 if (
-                    cdc_write_mode == "scd2_append"
+                    history is not None
                     and existing_rows.num_rows > 0
-                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                    and history.valid_to in existing_rows.column_names
                 ):
-                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(history.valid_to)))
 
                 # TOAST fill first so DELETE enrichment copies resolved values,
                 # not the nulls standing in for omitted columns.
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
-                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows, history)
 
                 # Only place the previous state is still in hand to compare against.
                 if verify_deletes and delete_key_set:
-                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows, history)
                     if not report.ok:
                         CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
@@ -732,6 +748,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     _release_pipeline_lock_for_job(export_signal)
 
+    if job_completed:
+        _resume_schedule_after_ad_hoc_run(export_signal)
+
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
 # surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
@@ -759,6 +778,37 @@ def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
     # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
     return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=5),
+    reraise=True,
+)
+def _resume_schedule_with_retry(export_signal: ExportSignalMessage) -> bool:
+    return resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id, export_signal.job_id)
+
+
+def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
+    try:
+        if _resume_schedule_with_retry(export_signal):
+            logger.info(
+                "schedule_resumed_after_ad_hoc_run",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                external_data_job_id=export_signal.job_id,
+            )
+    except Exception as e:
+        # The job is already Completed, so a failed unpause must not fail and retry the batch.
+        logger.error(
+            "failed_to_resume_schedule_after_ad_hoc_run",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
@@ -1626,10 +1676,14 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type="scd2_append").time(),
             ):
+                # The lane stamped the batch with its table's validity columns, so the batch names them.
+                history = history_naming_of(pa_table.column_names)
                 scd2_writer = Scd2DeltaWriter(
                     delta_table_ref,
-                    valid_from_column=SCD2_VALID_FROM_COLUMN,
-                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                    valid_from_column=history.valid_from,
+                    valid_to_column=history.valid_to,
+                    partition_column=history.partition_column,
+                    current_partition=CURRENT_HISTORY_PARTITION,
                 )
                 delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
