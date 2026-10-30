@@ -587,6 +587,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             mock_record_outcome.assert_not_called()
 
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_insight_response_identity_matches_query_analytics(self, mock_calculate: mock.MagicMock) -> None:
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=False,
+            timezone=self.team.timezone,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+            {"from_dashboard": str(dashboard.id), "refresh": "blocking"},
+            HTTP_X_REQUEST_ID=request_id,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertIn(f'request_id;desc="{request_id}"', response["Server-Timing"])
+        self.assertEqual(mock_calculate.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+
     def test_get_insight_in_shared_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}

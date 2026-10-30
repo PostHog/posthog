@@ -652,7 +652,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                lemonToast.error('Failed to load tickets.')
+                // The background poll for the unread badge runs on every page, so a transient
+                // failure there would toast on surfaces that have nothing to do with support
+                if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
+                    lemonToast.error('Failed to load tickets.')
+                }
             } finally {
                 actions.setTicketsLoading(false)
             }
