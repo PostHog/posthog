@@ -63,7 +63,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             ("Weekly acquisition", self.team.pk),
         }
         assert all("token" not in str(item) for item in response.json())
-        assert {item["name"]: item["password_required"] for item in response.json()} == {
+        assert {item["name"]: item["password_protected"] for item in response.json()} == {
             "Product overview": True,
             "Weekly acquisition": False,
         }
@@ -195,16 +195,16 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert response.status_code == 200
         review = {item["kind"]: item for item in response.json()}
         assert set(review) == {"insight", "notebook", "recording"}
-        assert review["insight"]["password_required"]
-        assert review["notebook"]["password_required"]
-        assert not review["recording"]["password_required"]
+        assert review["insight"]["password_protected"]
+        assert review["notebook"]["password_protected"]
+        assert not review["recording"]["password_protected"]
         assert review["insight"]["url"] == f"/project/{self.team.pk}/insights/{insight.short_id}"
         assert review["notebook"]["url"] == f"/project/{self.team.pk}/notebooks/{notebook.short_id}"
         assert review["recording"]["url"] == f"/project/{self.team.pk}/replay/{recording.session_id}"
         grace_share.password_required = False
         grace_share.save(update_fields=["password_required"])
         review = {item["kind"]: item for item in self.client.get(self.url + "offboarding_preview/").json()}
-        assert not review["notebook"]["password_required"]
+        assert not review["notebook"]["password_protected"]
         for kind, path in (("notebook", "notebooks"), ("recording", "session_recordings")):
             response = self.client.patch(
                 f"/api/projects/{self.team.pk}/{path}/{review[kind]['resource_id']}/sharing",

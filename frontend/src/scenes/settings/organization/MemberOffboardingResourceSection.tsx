@@ -187,7 +187,7 @@ export function MemberOffboardingResourceSection({
                                                       : 'offboarding-disable-dashboard'
                                               }
                                           />
-                                          {resource.password_required && (
+                                          {resource.password_protected && (
                                               <Tooltip title="Password protected">
                                                   <span
                                                       className="flex text-secondary"

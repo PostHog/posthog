@@ -12,7 +12,7 @@ class OffboardingResource:
     team_id: int
     project_name: str
     created_at: datetime | None = None
-    password_required: bool = False
+    password_protected: bool = False
     url: str | None = None
     destination_type: str | None = None
     destination: str | None = None

@@ -181,7 +181,7 @@ class MemberOffboardingResourceSerializer(serializers.Serializer):
     destination = serializers.CharField(
         required=False, allow_null=True, help_text="Subscription recipients, Slack channels, or safe webhook host."
     )
-    password_required = serializers.BooleanField(help_text="Whether all active public links require a password.")
+    password_protected = serializers.BooleanField(help_text="Whether all active public links require a password.")
     url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
 
 
