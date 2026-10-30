@@ -790,7 +790,7 @@ def raise_if_recipient_undeliverable(campaign_key: str, email: str) -> None:
         logger.warning("email_workflows_undeliverable_read_failed", error=str(err))
         return
     if refused:
-        raise EmailRecipientUndeliverableError(f"workflows refused {email} as undeliverable under {campaign_key}")
+        raise EmailRecipientUndeliverableError(f"workflows refused the recipient as undeliverable under {campaign_key}")
 
 
 def was_email_delivered(campaign_key: str, email: str) -> bool:
