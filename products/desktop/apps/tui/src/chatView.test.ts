@@ -550,7 +550,7 @@ describe("ChatView", () => {
 
 describe("shimmer", () => {
   it("sweeps a highlight along the text without changing what it says", () => {
-    const frames = [0, 80, 160].map((now) => shimmer("Running", now));
+    const frames = [0, 160, 320].map((now) => shimmer("Running", now));
 
     expect(new Set(frames).size).toBe(3);
     // Bold shares faint's end code, so in a faint pane it turned the text after it bright.

@@ -1,5 +1,5 @@
 import { Box, type DOMElement, Text } from "ink";
-import type { ReactElement, RefObject } from "react";
+import { memo, type ReactElement, type RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
 import { posthogOrange, selectionBackground } from "../theme";
 import { todayGlyph } from "../today";
@@ -231,7 +231,7 @@ function rowKey(row: SidebarRow, index: number): string {
   return `${row.kind}:${index}`;
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   boxRef,
   notice,
   rows,
@@ -303,4 +303,4 @@ export function Sidebar({
       </Text>
     </Box>
   );
-}
+});

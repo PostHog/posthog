@@ -39,6 +39,8 @@ const instance = render(root(Root), {
   exitOnCtrlC: false,
   // Forced on so Cmd and Ctrl+Shift arrive as modifiers where the terminal supports it; others ignore it.
   kittyKeyboard: { mode: "enabled" },
+  // Streams and spinners ask for far more frames than a terminal needs; the cap is what keeps the CPU down.
+  maxFps: 12,
 });
 mouse.enable();
 mounted.__posthogTuiMounted = true;
