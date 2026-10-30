@@ -604,6 +604,41 @@ fn test_inject_keeps_hashbang_first_and_maps_shifted_code() {
 }
 
 #[test]
+fn test_inject_keeps_hashbang_first_in_hashbang_only_file() {
+    // The hashbang runs to EOF, with and without a trailing newline, so the snippet goes at
+    // the end of the file on a line of its own.
+    for source in ["#!/usr/bin/env node\n", "#!/usr/bin/env node"] {
+        let pair = make_named_pair(
+            "cli.js",
+            source,
+            json!({
+                "version": 3,
+                "file": "cli.js",
+                "sources": [],
+                "names": [],
+                "mappings": "",
+            }),
+        );
+
+        let pairs = inject_pairs(vec![pair], Some("release")).expect("Failed to inject pairs");
+        let pair = pairs.first().expect("Failed to get first pair");
+        let content = &pair.source.inner.content;
+        let mut lines = content.lines();
+        assert_eq!(
+            lines.next(),
+            Some("#!/usr/bin/env node"),
+            "content: {content}"
+        );
+        assert!(
+            lines
+                .next()
+                .is_some_and(|line| line.starts_with("!function(){")),
+            "content: {content}"
+        );
+    }
+}
+
+#[test]
 fn test_inject_adopts_bundler_debug_id() {
     // The bundler already stamped a debug id into the chunk and its map. Inject must adopt it
     // as the chunk id and still apply the mapping adjustment for the prepended snippet — the

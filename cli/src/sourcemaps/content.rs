@@ -280,6 +280,16 @@ impl MinifiedSourceFile {
             let code_snippet = build_code_snippet(chunk_id, release_id)?;
             match hashbang_end(source_content) {
                 0 => magic_source.prepend(&code_snippet),
+                // `append_left` at EOF falls back to the intro, ahead of the hashbang, so a
+                // hashbang-only file gets the snippet appended on a line of its own.
+                end if end == source_content.len() => {
+                    let line_break = if source_content.ends_with('\n') {
+                        ""
+                    } else {
+                        "\n"
+                    };
+                    magic_source.append(&format!("{line_break}{code_snippet}"))
+                }
                 end => magic_source.append_left(end as u32, &code_snippet),
             }
             .map_err(|err| anyhow!("Failed to insert code snippet: {err}"))?;
