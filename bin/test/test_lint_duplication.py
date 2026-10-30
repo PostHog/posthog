@@ -302,6 +302,41 @@ class TestCommittedScanTree(unittest.TestCase):
                 1,
             )
 
+    def test_failed_post_checkout_hook_does_not_leave_a_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "tracked.py").write_text("committed\n")
+            subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "initial"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+
+            hook = repo / ".git" / "hooks" / "post-checkout"
+            hook.write_text("#!/bin/sh\nexit 1\n")
+            hook.chmod(0o755)
+
+            with patch("bin.lint_duplication.run_jscpd", return_value=[]) as run_jscpd:
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(repo)],
+                ):
+                    self.assertEqual(main(), 2)
+
+            run_jscpd.assert_not_called()
+            self.assertEqual(
+                json.loads((repo / "duplication-scan-status.json").read_text()),
+                {"status": "failed"},
+            )
+            self.assertEqual(
+                subprocess.check_output(["git", "worktree", "list", "--porcelain"], cwd=repo, text=True).count(
+                    "worktree "
+                ),
+                1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

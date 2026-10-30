@@ -215,17 +215,17 @@ def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
 def scan_revision(repo: Path, revision: str, scan_dir: Path) -> list[dict]:
     worktree = scan_dir / "worktree"
     scan_dir.mkdir()
-    add = subprocess.run(
-        ["git", "worktree", "add", "--detach", str(worktree), revision],
-        capture_output=True,
-        text=True,
-        cwd=repo,
-    )
-    if add.returncode != 0:
-        print(add.stderr[-2000:])
-        print(f"duplication lint could not check out {revision}")
-        raise SystemExit(2)
     try:
+        add = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), revision],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+        )
+        if add.returncode != 0:
+            print(add.stderr[-2000:])
+            print(f"duplication lint could not check out {revision}")
+            raise SystemExit(2)
         return run_jscpd(worktree, scan_dir / "report")
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
