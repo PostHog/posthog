@@ -372,10 +372,7 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
 def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
     # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
     # string on `:`, so every field is present, empty when the finding has none.
-    reason = finding.evidence.get("reason")
-    return ":".join(
-        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
-    )
+    return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
 
 
 class ExperimentVersionConflict(APIException):

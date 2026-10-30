@@ -44,6 +44,7 @@ const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/eval
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
 const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
@@ -293,6 +294,45 @@ describe('TraceScene', () => {
                 )
             }
         )
+
+        it('exports the trace with its time and shows the button as busy until the export starts', async () => {
+            let releaseExport = (): void => {}
+            const exportStarted = new Promise<void>((resolve) => {
+                releaseExport = resolve
+            })
+            const exportBodies: unknown[] = []
+            useMocks({
+                post: {
+                    [EXPORT_URL]: async ({ request }) => {
+                        exportBodies.push(await request.json())
+                        await exportStarted
+                        return [
+                            201,
+                            {
+                                id: 7,
+                                status: 'pending',
+                                filename: 'trace-1.json',
+                                createdAt: '2026-09-01T10:20:00Z',
+                                expiresAfter: null,
+                                exception: null,
+                            },
+                        ]
+                    },
+                },
+            })
+            const { findByText } = renderNewView()
+            const button = (await findByText('Export')).closest('button')
+            if (!button) {
+                throw new Error('expected the export action to render as a button')
+            }
+
+            fireEvent.click(button)
+
+            await waitFor(() => expect(exportBodies).toEqual([{ timestamp_hint: '2026-09-01T10:15:00Z' }]))
+            expect(button.classList.contains('LemonButton--loading')).toBe(true)
+            releaseExport()
+            await waitFor(() => expect(button.classList.contains('LemonButton--loading')).toBe(false))
+        })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
             const { findByText, queryByText } = renderNewView({ [DATASETS_FLAG]: enabled })
