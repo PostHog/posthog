@@ -276,6 +276,44 @@ describe('hog error-tracking upload', () => {
         }
     })
 
+    test('--include-source leaves out sources that match an ignore glob, also through a symlinked root', async () => {
+        // The fixture's DWARF names its sources under this folder.
+        const sources = '/tmp/hog-parity-native'
+        rmSync(sources, { recursive: true, force: true })
+        cpSync(join(NATIVE, '../src'), sources, { recursive: true })
+        cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
+        const plan = async (ignore: string[], linked = false): Promise<string> => {
+            const folder = project({})
+            if (linked) {
+                symlinkSync(sources, join(folder, 'linked'))
+            }
+            const path = linked ? 'linked' : sources
+            writeFileSync(
+                join(folder, 'posthog.json'),
+                JSON.stringify({ errorTracking: { sources: [{ path, ignore }] } })
+            )
+            const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
+                env: { CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+            expect(result.exitCode).toBe(0)
+            return result.json().symbolSets[0].contentHash
+        }
+        try {
+            const all = await plan([])
+            rmSync(join(sources, 'checkout.c'))
+            const withoutCheckout = await plan([])
+            cpSync(join(NATIVE, '../src/checkout.c'), join(sources, 'checkout.c'))
+
+            expect(withoutCheckout).not.toBe(all)
+            expect(await plan(['checkout.c'])).toBe(withoutCheckout)
+            expect(await plan(['checkout.c'], true)).toBe(withoutCheckout)
+        } finally {
+            rmSync(sources, { recursive: true, force: true })
+        }
+    })
+
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {
         const repository = project({ ...GIT_REPO, 'app/mapping.txt': SMALL_MAPPING })
         const outside = project({})

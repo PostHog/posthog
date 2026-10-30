@@ -90,6 +90,8 @@ export interface DsymSlice {
     uuid: string
     path: string
     data: Uint8Array
+    // The whole file the slice came from, which source collection reads.
+    file: Uint8Array
 }
 
 // What `dwarfdump --uuid` and `lipo -thin` give posthog-cli: every slice of every binary in the
@@ -115,7 +117,7 @@ export function dsymSlices(bundle: string, include: (path: string) => boolean = 
             const [object] = openArchive(new BufferSource(part))
             const uuid = object?.debugId()
             if (object?.format === 'macho' && uuid) {
-                slices.push({ uuid: uuid.toUpperCase(), path, data: part })
+                slices.push({ uuid: uuid.toUpperCase(), path, data: part, file: bytes })
             }
         }
     }

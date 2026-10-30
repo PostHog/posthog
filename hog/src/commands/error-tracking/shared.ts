@@ -64,6 +64,11 @@ export const UPLOAD_OPTIONS = {
         type: 'boolean',
         description: 'JavaScript and CSS: remove sourcemap references and delete the maps after a successful upload',
     },
+    includeSource: {
+        type: 'boolean',
+        description:
+            'dSYM and native files: bundle the source files their debug info names, and replace what PostHog has',
+    },
     batchSize: {
         type: 'string',
         placeholder: 'count',
@@ -90,6 +95,7 @@ interface RawOptions {
     force?: boolean
     skipOnConflict?: boolean
     deleteAfter?: boolean
+    includeSource?: boolean
     batchSize?: string
     concurrency?: string
     dryRun?: boolean
@@ -141,6 +147,7 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
         batchSize: options.batchSize === undefined ? undefined : count('--batch-size', options.batchSize, 50),
         concurrency: count('--concurrency', options.concurrency ?? env.POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY, 10),
         deleteAfter: options.deleteAfter === true,
+        includeSource: options.includeSource === true,
         dryRun: options.dryRun === true,
     }
 }

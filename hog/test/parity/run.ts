@@ -93,6 +93,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
     const folder = mkdtempSync(join(tmpdir(), 'hog-parity-'))
     const home = mkdtempSync(join(tmpdir(), 'hog-parity-home-'))
     write(folder, scenario.files())
+    scenario.setup?.()
     const server = startFakeServer(scenario.server)
     try {
         const env = environment(server.url, home)

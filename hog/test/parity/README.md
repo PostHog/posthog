@@ -27,6 +27,7 @@ The symbol-set upload scenarios then start from the files posthog-cli wrote in t
 Native scenarios compare `hog error-tracking upload` with `posthog-cli symbol-sets upload`, which takes ELF files, Mach-O files and dSYM bundles from one folder.
 `native/build.sh` builds the binaries from the small C files in `native/src/` with Xcode's clang and ld.lld. Their DWARF records `/tmp/hog-parity-native` as the build folder.
 The fixtures cover a fat dSYM, loose Mach-O DWARF files, files without debug info or a build ID, and two files that share a build ID.
+The `--include-source` scenarios put `native/src/` back in that folder first with the `setup` hook, and one scenario leaves it empty to cover sources that can't be read.
 
 Hermes scenarios run the React Native steps in order with `before`: inject the Metro bundle, clone into the composed map, then upload.
 The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes keys, odd numbers and escapes that the serializer has to reproduce.

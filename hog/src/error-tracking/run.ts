@@ -41,6 +41,7 @@ import {
     type NativeFile,
     type NativeProblem,
 } from './native/package'
+import { sourceStep } from './native/sources'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
 
@@ -56,6 +57,7 @@ export interface ErrorTrackingOptions {
     batchSize?: number
     concurrency: number
     deleteAfter: boolean
+    includeSource: boolean
     dryRun: boolean
 }
 
@@ -472,7 +474,7 @@ export async function upload(
     )
     if (nativeArtifacts.length > 0) {
         const before = skipped.length
-        const native = packageNative(nativeArtifacts, selection.cwd, skipped)
+        const native = packageNative(nativeArtifacts, selection.cwd, options.includeSource, skipped, warnings)
         if (native.length === 0 && planned.length === 0) {
             const details = skipped
                 .slice(before)
@@ -503,8 +505,9 @@ export async function upload(
                 reported.id = releaseId
             }
         }
+        // posthog-cli forces source bundles, because the files on disk change between runs of one build.
         const policy = {
-            force: options.force,
+            force: options.force || (options.includeSource && !options.skipOnConflict),
             skipOnConflict: options.skipOnConflict,
             batchSize: options.batchSize ?? 10,
         }
@@ -691,12 +694,28 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
         "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
 }
 
+// A path the DWARF names can reach the source folder through a symlink, or the folder can be one,
+// so the globs match the path as written and its canonical form, and either one ignores it.
+function sourceIgnored(root: Root, folder: string): (path: string) => boolean {
+    const canonical = (path: string): string => {
+        try {
+            return realpathSync(path)
+        } catch {
+            return path
+        }
+    }
+    const realFolder = canonical(folder)
+    return (path) => isIgnored(root, folder, path) || isIgnored(root, realFolder, canonical(path))
+}
+
 // `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
 // split per slice, and a dSYM wins over a native file with the same ID.
 function packageNative(
     artifacts: Artifact[],
     cwd: string,
-    skipped: Skip[]
+    includeSource: boolean,
+    skipped: Skip[],
+    warnings: string[]
 ): { artifact: Artifact; upload: SymbolSetUpload }[] {
     const owners = new Map<SymbolSetUpload, Artifact>()
     const files: { file: NativeFile; artifact: Artifact }[] = []
@@ -725,16 +744,32 @@ function packageNative(
                 reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
             })
     ).map((file) => {
-        const upload = nativeUpload(file)
+        const { root } = byFile.get(file)!
+        const folder = resolve(cwd, root.path)
+        const sources = includeSource
+            ? sourceStep(file.data, 'native', warnings, sourceIgnored(root, folder))
+            : undefined
+        const upload = nativeUpload(file, sources)
         owners.set(upload, byFile.get(file)!)
         return upload
     })
     const dsyms: SymbolSetUpload[] = []
     for (const artifact of artifacts.filter((candidate) => isDsymBundle(candidate.path))) {
         try {
+            // Sources come from the whole binary, so every slice of a fat binary carries all of them.
+            const steps = new Map<string, ReturnType<typeof sourceStep>>()
             const folder = resolve(cwd, artifact.root.path)
-            for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
-                const upload = dsymUpload(slice)
+            const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
+            const uploads = slices.map((slice) => {
+                if (includeSource && !steps.has(slice.path)) {
+                    steps.set(
+                        slice.path,
+                        sourceStep(slice.file, 'dsym', warnings, sourceIgnored(artifact.root, folder))
+                    )
+                }
+                return dsymUpload(slice, steps.get(slice.path))
+            })
+            for (const upload of uploads) {
                 owners.set(upload, artifact)
                 dsyms.push(upload)
             }
