@@ -4,6 +4,7 @@ import {
   expandPane,
   focusPane,
   type LayoutState,
+  newChat,
   openTask,
   panes,
   showToday,
@@ -208,8 +209,8 @@ export function sidebarRows({
   };
 
   // Today comes first, naming the main view while it shows the briefing. Split workspaces follow, each followed by
-  // a gap. Chats comes last: the main view's new chat while it has one, single tasks the page does not hold, then
-  // the whole list. A split task shows in both places; its row under Chats opens it full width.
+  // a gap. Chats comes last: a New chat row (the main view's while it has one, else it opens one there), single
+  // tasks the page does not hold, then the whole list. A split task shows in both places; its row under Chats opens it full width.
   const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
   let newChatPaneId: string | null = null;
   const rows: SidebarRow[] = [
@@ -252,7 +253,7 @@ export function sidebarRows({
   });
   rows.push(
     { kind: "section", label: "All chats" },
-    ...(newChatPaneId ? [taskRow(null, newChatPaneId, false)] : []),
+    taskRow(null, newChatPaneId, false),
     ...unlisted,
   );
 
@@ -314,7 +315,7 @@ export function activateRow(
       return row.paneId ? focusPane(layout, row.paneId) : showToday(layout);
     case "task": {
       if (row.paneId) return focusPane(layout, row.paneId);
-      if (!row.taskId) return layout;
+      if (!row.taskId) return newChat(layout);
       const split = allPanes(layout).find((p) => p.taskId === row.taskId);
       return split
         ? expandPane(layout, split.id)
@@ -336,6 +337,7 @@ export function selectionKey(row: SidebarRow | undefined): string | null {
   switch (row?.kind) {
     // A split task also has a row under Chats, so its workspace row goes by its pane.
     case "task":
+      if (!row.nested && !row.taskId) return "new";
       return row.taskId && !row.nested
         ? `task:${row.taskId}`
         : `pane:${row.paneId}`;

@@ -95,7 +95,8 @@ describe("sidebarRows", () => {
       "  Task b",
       "",
       "## All chats",
-      "Task a",
+      "New chat",
+            "Task a",
       "Task b",
       "Task c",
     ]);
@@ -126,7 +127,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-      "Task a",
+            "Task a",
     ]);
     const mainPane = activeWorkspace(empty).focusedPaneId;
     expect(rows[1]).toEqual({ kind: "today", paneId: null });
@@ -152,9 +153,21 @@ describe("sidebarRows", () => {
       "Today",
       "",
       "## All chats",
-      "Task a",
+      "New chat",
+            "Task a",
     ]);
     expect(shown[1]).toEqual({ kind: "today", paneId: mainPane });
+    // The row stays while the main view shows something else, and opens a new chat there.
+    expect(shown[4]).toMatchObject({
+      kind: "task",
+      taskId: null,
+      paneId: null,
+    });
+    const fresh = activateRow(today as LayoutState, shown[4]);
+    expect(fresh !== "viewMore" && activeWorkspace(fresh).root).toMatchObject({
+      taskId: null,
+      today: undefined,
+    });
   });
 
   it("puts each workspace above Chats with a gap after it", () => {
@@ -182,6 +195,7 @@ describe("sidebarRows", () => {
       "  Task d",
       "",
       "## All chats",
+      "New chat",
       "Task a",
       "Task b",
       "Task c",
@@ -204,6 +218,7 @@ describe("sidebarRows", () => {
       "Today",
       "",
       "## All chats",
+      "New chat",
       "Task old",
       "Task a",
     ]);
@@ -232,7 +247,8 @@ describe("sidebarRows", () => {
       "  New chat",
       "",
       "## All chats",
-      "[loading]",
+      "New chat",
+            "[loading]",
     ]);
     expect(rows[5]).toMatchObject({ kind: "task", indicator: null });
   });
@@ -251,7 +267,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-      "[signedOut]",
+            "[signedOut]",
     ]);
   });
 
@@ -268,6 +284,7 @@ describe("sidebarRows", () => {
       "> Workspace #1",
       "",
       "## All chats",
+      "New chat",
       "[empty]",
     ]);
     const rows = sidebarRows({
@@ -357,13 +374,13 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Today, gap, Workspace #1, a, b, gap, Chats, a, z, View more
+  // Work, Today, gap, Workspace #1, a, b, gap, Chats, New chat, a, z, View more
 
   it.each([
     ["down", 4, 1, 5],
     ["up past the workspace heading to Today", 4, -1, 1],
     ["down past the gap and Chats", 5, 1, 8],
-    ["down at the end", 10, 1, 10],
+    ["down at the end", 11, 1, 11],
     ["up past Chats and the gap", 8, -1, 5],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
@@ -376,15 +393,15 @@ describe("sidebar selection", () => {
       paneOfA,
     );
 
-    const expanded = activateRow(layout, rows[8]);
+    const expanded = activateRow(layout, rows[9]);
     expect(
       expanded !== "viewMore" && activeWorkspace(expanded).root,
     ).toMatchObject({ kind: "pane", taskId: "a" });
 
-    const opened = activateRow(layout, rows[9]);
+    const opened = activateRow(layout, rows[10]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
 
-    expect(activateRow(layout, rows[10])).toBe("viewMore");
+    expect(activateRow(layout, rows[11])).toBe("viewMore");
   });
 
   it("tells a split task's two rows apart, so the cursor stays on the one picked", () => {
@@ -447,14 +464,15 @@ describe("sidebar selection", () => {
       "Today",
       "",
       "## All chats",
+      "New chat",
       "Task a",
       "Task mine",
       "Task b",
     ]);
-    expect(rows[5]).toMatchObject({ local: true, indicator: "alive" });
+    expect(rows[6]).toMatchObject({ local: true, indicator: "alive" });
 
     // Down to b, then up past the local chat to a, each opening in the main view.
-    let cursor = selectionKey(rows[5]);
+    let cursor = selectionKey(rows[6]);
     for (const step of [1, -1, -1] as const) {
       const index = moveSelection(rows, cursorIndex(rows, cursor), step);
       cursor = selectionKey(rows[index]);
@@ -466,6 +484,7 @@ describe("sidebar selection", () => {
         "Today",
         "",
         "## All chats",
+        "New chat",
         "Task a",
         "Task mine",
         "Task b",
@@ -501,7 +520,7 @@ describe("sidebar selection", () => {
       "",
       "## All chats",
       "New chat",
-      "Task a",
+            "Task a",
       "Task new",
       "Task b",
       "[viewMore]",
