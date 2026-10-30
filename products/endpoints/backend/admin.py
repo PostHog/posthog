@@ -17,7 +17,6 @@ class EndpointVersionInline(admin.TabularInline):
         "version",
         "is_active",
         "query_kind",
-        "data_freshness_seconds",
         "is_materialized_display",
         "saved_query_name",
         "saved_query_status",
@@ -234,6 +233,8 @@ class EndpointVersionAdmin(admin.ModelAdmin):
             super()
             .get_queryset(request)
             .select_related("endpoint", "endpoint__team", "saved_query", "saved_query__table", "created_by")
+            # data_freshness_seconds reads the node target, so prefetch it once for the whole page.
+            .prefetch_related(EndpointVersion.frequency_nodes_prefetch())
         )
 
     @admin.display(description="Endpoint")
