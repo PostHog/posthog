@@ -28,8 +28,9 @@ const LEFT_BUTTON = 0;
 const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
 // Reports presses and releases, in SGR form so columns past 223 still parse.
-const ENABLE = "\x1b[?1000h\x1b[?1006h";
-const DISABLE = "\x1b[?1000l\x1b[?1006l";
+// Plus bracketed paste, so a pasted block reaches a composer as one paste.
+const ENABLE = "\x1b[?1000h\x1b[?1006h\x1b[?2004h";
+const DISABLE = "\x1b[?1000l\x1b[?1006l\x1b[?2004l";
 
 export function extractMouse(text: string): {
   keys: string;
@@ -66,7 +67,11 @@ export function hitTest<T>(
   return null;
 }
 
-export type MouseEvents = EventEmitter<{ click: [Click]; wheel: [Wheel] }>;
+export type MouseEvents = EventEmitter<{
+  click: [Click];
+  wheel: [Wheel];
+  keys: [string];
+}>;
 
 // Sits between the terminal and Ink, so mouse reports never reach Ink as keystrokes.
 export class MouseInput {
@@ -96,7 +101,10 @@ export class MouseInput {
       const { keys, clicks, wheels } = extractMouse(data.toString("utf8"));
       for (const click of clicks) this.events.emit("click", click);
       for (const wheel of wheels) this.events.emit("wheel", wheel);
-      if (keys) stream.write(keys);
+      if (keys) {
+        this.events.emit("keys", keys);
+        stream.write(keys);
+      }
     };
     source.on("data", this.onData);
     // A listener alone does not restart a stream that was paused explicitly, such as after the theme query.

@@ -1,7 +1,9 @@
+import { StdinBuffer } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, measureElement, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { ChatView } from "../chatView";
+import { Composer, isAppKey } from "../composer";
 import {
   activeWorkspace,
   closeFocused,
@@ -96,6 +98,15 @@ export function App({
       chats.current.set(paneId, chat);
     }
     return chat;
+  };
+  const composers = useRef(new Map<string, Composer>());
+  const composerFor = (paneId: string): Composer => {
+    let composer = composers.current.get(paneId);
+    if (!composer) {
+      composer = new Composer(() => repaint((tick) => tick + 1));
+      composers.current.set(paneId, composer);
+    }
+    return composer;
   };
   const scrollPane = (paneId: string, lines: number): void => {
     chatFor(paneId).scrollBy(lines);
@@ -271,18 +282,32 @@ export function App({
     const hit = hitTest(wheel, panes);
     if (hit) scrollPane(hit[0], wheel.delta * 3);
   };
-  const handlers = useRef({ onClick, onWheel });
-  handlers.current = { onClick, onWheel };
+  // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
+  const onKey = (sequence: string): void => {
+    if (layout.focus !== "pane" || isAppKey(sequence)) return;
+    composerFor(workspace.focusedPaneId).handleInput(sequence);
+  };
+  const handlers = useRef({ onClick, onWheel, onKey });
+  handlers.current = { onClick, onWheel, onKey };
 
   useEffect(() => {
     if (!mouse) return;
     const click = (at: Click): void => handlers.current.onClick(at);
     const wheel = (at: Wheel): void => handlers.current.onWheel(at);
+    const keys = new StdinBuffer();
+    keys.on("data", (sequence) => handlers.current.onKey(sequence));
+    keys.on("paste", (text) =>
+      handlers.current.onKey(`\x1b[200~${text}\x1b[201~`),
+    );
+    const raw = (data: string): void => keys.process(data);
     mouse.on("click", click);
     mouse.on("wheel", wheel);
+    mouse.on("keys", raw);
     return () => {
       mouse.off("click", click);
       mouse.off("wheel", wheel);
+      mouse.off("keys", raw);
+      keys.destroy();
     };
   }, [mouse]);
 
@@ -311,6 +336,7 @@ export function App({
           task={taskOf(node.taskId)}
           runs={runs}
           chat={chatFor(node.id)}
+          composer={composerFor(node.id)}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />
       </Box>

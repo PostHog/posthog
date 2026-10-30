@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared";
 import { Box, Text, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatView } from "../chatView";
+import type { Composer } from "../composer";
 import {
   type CloudRuns,
   emptyRunView,
@@ -39,12 +40,14 @@ export function Pane({
   task,
   runs,
   chat,
+  composer,
   focused,
 }: {
   title: string;
   task: Task | undefined;
   runs: CloudRuns;
   chat: ChatView;
+  composer: Composer;
   focused: boolean;
 }): ReactElement {
   const body = useRef(null);
@@ -83,6 +86,9 @@ export function Pane({
   });
   const run = task?.latest_run;
 
+  const composerLines = width > 0 ? composer.render(width, focused) : [];
+  const chatHeight = height - composerLines.length - (view.error ? 1 : 0);
+
   let content: ReactElement;
   if (!task) content = <Text dimColor>Open a task from Work.</Text>;
   else if (!run) content = <Text dimColor>This task has no runs yet.</Text>;
@@ -94,8 +100,8 @@ export function Pane({
     // pi renders at the pane's measured size; each line is already styled and fitted to the width.
     content = (
       <>
-        {(width > 0
-          ? chat.render(width, height - (view.error ? 1 : 0))
+        {(width > 0 && chatHeight > 0
+          ? chat.render(width, chatHeight)
           : []
         ).map((line, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
@@ -113,14 +119,21 @@ export function Pane({
       <Text bold={focused} dimColor={!focused} wrap="truncate-end">
         {title}
       </Text>
-      <Box
-        ref={body}
-        flexGrow={1}
-        flexDirection="column"
-        justifyContent="flex-end"
-        overflow="hidden"
-      >
-        {content}
+      <Box ref={body} flexGrow={1} flexDirection="column" overflow="hidden">
+        <Box
+          flexGrow={1}
+          flexDirection="column"
+          justifyContent="flex-end"
+          overflow="hidden"
+        >
+          {content}
+        </Box>
+        {composerLines.map((line, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positions on screen
+          <Text key={`composer-${index}`} wrap="truncate-end">
+            {line}
+          </Text>
+        ))}
       </Box>
     </Box>
   );
