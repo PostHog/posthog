@@ -72148,15 +72148,6 @@ export namespace Schemas {
       enabled: boolean;
     }
 
-    export interface MemberOffboardingRequest {
-      /**
-         * Resource identifiers explicitly retained by an organization admin. All other resources are disabled.
-         * @maxItems 10000
-         * @items.maxLength 200
-         */
-      keep?: string[];
-    }
-
     /**
      * * `dashboard` - Dashboard
      * * `insight` - Insight
@@ -72174,7 +72165,7 @@ export namespace Schemas {
     } as const;
 
     export interface MemberOffboardingResource {
-      /** Opaque identifier used to keep this resource during offboarding. */
+      /** Opaque identifier used to update this resource during offboarding. */
       id: string;
       /** The kind of public object or automated delivery.
        *
@@ -89667,6 +89658,17 @@ export namespace Schemas {
          */
       text?: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
+    }
+
+    export interface PatchedMemberOffboardingUpdate {
+      /**
+         * Resource identifiers to update immediately.
+         * @maxItems 1000
+         * @items.maxLength 200
+         */
+      ids?: string[];
+      /** Whether the selected resources should be enabled. */
+      enabled?: boolean;
     }
 
     export interface PatchedMessageCategory {

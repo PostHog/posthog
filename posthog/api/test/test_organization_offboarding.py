@@ -70,8 +70,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             f"/project/{self.team.pk}/dashboard/{shared.pk}",
         }
 
-    @parameterized.expand([("delete",), ("post",)])
-    def test_removal_disables_all_dashboard_tokens_and_preserves_other_members_links(self, method: str) -> None:
+    def test_legacy_removal_disables_all_dashboard_tokens_and_preserves_other_members_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
         shares = [SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)]
         shares.append(
@@ -81,11 +80,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         )
         other = Dashboard.objects.create(team=self.team, created_by=self.user)
         other_share = SharingConfiguration.objects.create(team=self.team, dashboard=other, enabled=True)
-        response = (
-            self.client.delete(self.url)
-            if method == "delete"
-            else self.client.post(self.url + "offboard/", {}, format="json")
-        )
+        response = self.client.delete(self.url)
         assert response.status_code == 204
         assert not OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
         for share in shares:
@@ -101,9 +96,16 @@ class TestOrganizationOffboarding(APIBaseTest):
         disabled = Dashboard.objects.create(team=self.team, created_by=self.departing)
         kept_share = SharingConfiguration.objects.create(team=self.team, dashboard=kept, enabled=True)
         disabled_share = SharingConfiguration.objects.create(team=self.team, dashboard=disabled, enabled=True)
-        response = self.client.post(
-            self.url + "offboard/", {"keep": [f"public_link:dashboard:{self.team.pk}:{kept.pk}"]}, format="json"
+        response = self.client.patch(
+            self.url + "offboarding_resources/",
+            {"ids": [f"public_link:dashboard:{self.team.pk}:{disabled.pk}"], "enabled": False},
+            format="json",
         )
+        assert response.status_code == 204
+        assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
+        disabled_share.refresh_from_db()
+        assert not disabled_share.enabled
+        response = self.client.post(self.url + "offboard/", {}, format="json")
         assert response.status_code == 204
         kept_share.refresh_from_db()
         disabled_share.refresh_from_db()
@@ -115,8 +117,10 @@ class TestOrganizationOffboarding(APIBaseTest):
         dashboard = Dashboard.objects.create(team=other_team, created_by=self.departing)
         share = SharingConfiguration.objects.create(team=other_team, dashboard=dashboard, enabled=True)
         assert self.client.get(self.url + "offboarding/").json() == []
-        response = self.client.post(
-            self.url + "offboard/", {"keep": [f"public_link:dashboard:{other_team.pk}:{dashboard.pk}"]}, format="json"
+        response = self.client.patch(
+            self.url + "offboarding_resources/",
+            {"ids": [f"public_link:dashboard:{other_team.pk}:{dashboard.pk}"], "enabled": False},
+            format="json",
         )
         assert response.status_code == 400
         assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
@@ -209,7 +213,13 @@ class TestOrganizationOffboarding(APIBaseTest):
         grace_share.save(update_fields=["password_required"])
         review = {item["kind"]: item for item in self.client.get(self.url + "offboarding/").json()}
         assert not review["notebook"]["password_required"]
-        response = self.client.post(self.url + "offboard/", {"keep": [review["insight"]["id"]]}, format="json")
+        response = self.client.patch(
+            self.url + "offboarding_resources/",
+            {"ids": [review["notebook"]["id"], review["recording"]["id"]], "enabled": False},
+            format="json",
+        )
+        assert response.status_code == 204
+        response = self.client.post(self.url + "offboard/", {}, format="json")
         assert response.status_code == 204
         insight_share.refresh_from_db()
         assert insight_share.enabled
@@ -234,7 +244,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             team=self.team, **{kind: resource}, enabled=True, shared_by=self.departing
         )
         assert self.client.get(self.url + "offboarding/").json() == []
-        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert self.client.delete(self.url).status_code == 204
         resource.deleted = False
         resource.save(update_fields=["deleted"])
         share.refresh_from_db()
@@ -277,3 +287,62 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert response.json() == []
         assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
         assert SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).count() == 2
+
+    def test_confirming_removal_preserves_current_sharing(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        share.refresh_from_db()
+        assert share.enabled
+
+    def test_immediate_sharing_changes_can_be_reversed_without_reviving_old_tokens(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
+        current = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        grace = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, expires_at=timezone.now() + timedelta(minutes=5)
+        )
+        expired = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=False, expires_at=timezone.now() - timedelta(minutes=5)
+        )
+        payload = {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}"], "enabled": False}
+        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 204
+        assert not SharingConfiguration.objects.filter(team=self.team, dashboard=dashboard, enabled=True).exists()
+        payload["enabled"] = True
+        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 204
+        current.refresh_from_db()
+        dashboard.refresh_from_db()
+        grace.refresh_from_db()
+        expired.refresh_from_db()
+        assert current.enabled
+        assert current.shared_by_id == self.user.pk
+        assert dashboard.is_shared
+        assert not grace.enabled
+        assert not expired.enabled
+        assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
+        assert ActivityLog.objects.filter(
+            team_id=self.team.pk, scope="Dashboard", item_id=str(dashboard.pk), activity="sharing enabled"
+        ).exists()
+
+    def test_bulk_update_rolls_back_when_a_resource_is_unavailable(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing)
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.patch(
+            self.url + "offboarding_resources/",
+            {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}", "unavailable"], "enabled": False},
+            format="json",
+        )
+        assert response.status_code == 400
+        share.refresh_from_db()
+        assert share.enabled
+
+    def test_resource_updates_require_an_admin_removing_another_member(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing)
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        payload = {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}"], "enabled": False}
+        self.client.force_login(self.departing)
+        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 403
+        self.client.force_login(self.user)
+        own_url = f"/api/organizations/@current/members/{self.user.uuid}/offboarding_resources/"
+        assert self.client.patch(own_url, payload, format="json").status_code == 403
+        share.refresh_from_db()
+        assert share.enabled

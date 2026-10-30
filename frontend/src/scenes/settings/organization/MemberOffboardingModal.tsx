@@ -23,18 +23,27 @@ const RESOURCE_ICONS = {
 
 export function MemberOffboardingModal(): JSX.Element {
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { member, resources, resourcesLoading, loadError, keep, removedLoading, getSelectionLabel } =
-        useValues(memberOffboardingLogic)
+    const {
+        member,
+        resources,
+        resourcesLoading,
+        loadError,
+        keep,
+        removedLoading,
+        savingResourcesLoading,
+        getSelectionLabel,
+    } = useValues(memberOffboardingLogic)
     const { close, loadResources, setKeep, disableResources, remove } = useActions(memberOffboardingLogic)
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
+    const busyReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const hasResources = !resourcesLoading && !loadError && !!resources?.length
 
     return (
         <LemonModal
             isOpen={!!member}
-            onClose={removedLoading ? undefined : close}
+            onClose={busyReason ? undefined : close}
             title={
                 isSelf
                     ? 'Leave organization?'
@@ -43,11 +52,7 @@ export function MemberOffboardingModal(): JSX.Element {
             width={hasResources ? 720 : 576}
             footer={
                 <>
-                    <LemonButton
-                        type="secondary"
-                        onClick={close}
-                        disabledReason={removedLoading ? 'Removing member…' : undefined}
-                    >
+                    <LemonButton type="secondary" onClick={close} disabledReason={busyReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -55,11 +60,12 @@ export function MemberOffboardingModal(): JSX.Element {
                         status="danger"
                         loading={removedLoading}
                         disabledReason={
-                            resourcesLoading
+                            busyReason ||
+                            (resourcesLoading
                                 ? 'Checking public resources…'
                                 : loadError || resources === null
                                   ? 'Load the resource review before continuing'
-                                  : undefined
+                                  : undefined)
                         }
                         onClick={remove}
                         data-attr="confirm-org-member-offboarding"
@@ -85,7 +91,7 @@ export function MemberOffboardingModal(): JSX.Element {
                     <h3>Publicly shared resources</h3>
                     <p>
                         These resources were shared by this member and are accessible to anyone with the link. You can
-                        disable public sharing. This won't delete them.
+                        disable public sharing. This won't delete them. Changes apply immediately, even if you cancel.
                     </p>
                     {!isSelf && (
                         <div className="relative h-9">
@@ -107,8 +113,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                       rowAriaLabel: (resource) => `Select ${resource.name}`,
                                       headerAriaLabel: 'Select all resources on this page',
                                       clearSelectionKey: member?.user.uuid,
-                                      isRowSelectable: () =>
-                                          removedLoading ? { disabledReason: 'Removing member…' } : true,
+                                      isRowSelectable: () => (busyReason ? { disabledReason: busyReason } : true),
                                       barPortalTarget: bulkBarTarget,
                                       actionsPlacement: 'start',
                                       barClassName: 'justify-start! px-0! [&>span]:min-w-0 [&>span]:truncate',
@@ -118,7 +123,8 @@ export function MemberOffboardingModal(): JSX.Element {
                                               type="secondary"
                                               status="danger"
                                               size="small"
-                                              disabledReason={removedLoading ? 'Removing member…' : undefined}
+                                              loading={savingResourcesLoading}
+                                              disabledReason={busyReason}
                                               onClick={() => {
                                                   disableResources([...ctx.selectedKeys])
                                                   ctx.clearSelection()
@@ -172,9 +178,10 @@ export function MemberOffboardingModal(): JSX.Element {
                                           render: (_: unknown, resource: NonNullable<typeof resources>[number]) => (
                                               <div className="flex items-center gap-2">
                                                   <LemonSwitch
+                                                      loading={savingResourcesLoading}
                                                       checked={keep.includes(resource.id)}
                                                       onChange={(enabled) => setKeep(resource.id, enabled)}
-                                                      disabledReason={removedLoading ? 'Removing member…' : undefined}
+                                                      disabledReason={busyReason}
                                                       aria-label={`Public sharing for ${resource.name}`}
                                                       data-attr="offboarding-disable-dashboard"
                                                   />

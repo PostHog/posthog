@@ -61,6 +61,9 @@ const meta: Meta<typeof MemberOffboardingModal> = {
     component: MemberOffboardingModal,
     decorators: [
         mswDecorator({
+            patch: {
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_resources/': () => [204, null],
+            },
             get: {
                 '/api/organizations/:organizationId/members/:userUuid/offboarding/': resources,
                 '/api/organizations/:organizationId/members/:userUuid/scoped_api_keys/': { has_keys: false, keys: [] },

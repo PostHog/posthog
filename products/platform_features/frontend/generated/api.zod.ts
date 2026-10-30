@@ -301,18 +301,17 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
-export const membersOffboardCreateBodyKeepItemMax = 200
+export const membersOffboardingResourcesPartialUpdateBodyIdsItemMax = 200
 
-export const membersOffboardCreateBodyKeepMax = 10000
+export const membersOffboardingResourcesPartialUpdateBodyIdsMax = 1000
 
-export const MembersOffboardCreateBody = /* @__PURE__ */ zod.object({
-    keep: zod
-        .array(zod.string().max(membersOffboardCreateBodyKeepItemMax))
-        .max(membersOffboardCreateBodyKeepMax)
+export const MembersOffboardingResourcesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.string().max(membersOffboardingResourcesPartialUpdateBodyIdsItemMax))
+        .max(membersOffboardingResourcesPartialUpdateBodyIdsMax)
         .optional()
-        .describe(
-            'Resource identifiers explicitly retained by an organization admin. All other resources are disabled.'
-        ),
+        .describe('Resource identifiers to update immediately.'),
+    enabled: zod.boolean().optional().describe('Whether the selected resources should be enabled.'),
 })
 
 /**

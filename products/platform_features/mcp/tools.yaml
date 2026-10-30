@@ -330,6 +330,10 @@ tools:
         disabled_reason:
             Offboarding is an organization settings workflow. Its organization-wide resource review and member
             removal are kept together in that UI; this change does not expose an MCP offboarding workflow.
+    org-member-offboarding-update:
+        operation: members_offboarding_resources_partial_update
+        enabled: false
+        disabled_reason: Resource updates are part of the organization settings offboarding UI.
     org-member-offboarding-review:
         operation: members_offboarding_retrieve
         enabled: false
