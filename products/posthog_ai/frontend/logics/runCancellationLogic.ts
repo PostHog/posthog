@@ -15,6 +15,8 @@ export interface RunCancellationLogicProps {
 
 export type CancellationState = 'waiting' | 'sending' | null
 
+export const CANCEL_TURN_END_GRACE_MS = 10_000
+
 function confirmsAgentReady(entry: StoredLogEntry, runId: string): boolean {
     const { method, params } = entry.notification
     if (entry.source_run_id && entry.source_run_id !== runId) {
@@ -66,10 +68,16 @@ export interface runCancellationLogicActions {
     cancelPermissionDelivery: () => {
         value: true
     } // runStreamLogic
+    markTurnComplete: (isReplay?: boolean) => {
+        isReplay: boolean
+    } // runStreamLogic
     cancelWhenReady: () => {
         value: true
     }
     cancellationFailed: () => {
+        value: true
+    }
+    cancellationUnanswered: () => {
         value: true
     }
     clearCancellation: () => {
@@ -106,7 +114,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
             runStreamLogic(props),
             ['bootstrappedRunId', 'bootstrappedTaskId', 'currentRunStatus', 'log'],
         ],
-        actions: [runStreamLogic(props), ['cancelPermissionDelivery']],
+        actions: [runStreamLogic(props), ['cancelPermissionDelivery', 'markTurnComplete']],
     })),
     actions({
         requestCancellation: true,
@@ -114,6 +122,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
         setCancellationState: (state: CancellationState) => ({ state }),
         // Its own action, so a listener can tell a failed Stop from the clear that a turn end brings.
         cancellationFailed: true,
+        cancellationUnanswered: true,
         clearCancellation: true,
     }),
     reducers({
@@ -160,6 +169,12 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
                 if (response.error) {
                     throw new Error('Agent rejected cancellation')
                 }
+                if (!disposables.isDisposed && cache.cancelRequest === request && values.bootstrappedRunId === runId) {
+                    disposables.add(() => {
+                        const timer = setTimeout(() => actions.cancellationUnanswered(), CANCEL_TURN_END_GRACE_MS)
+                        return () => clearTimeout(timer)
+                    }, 'cancelTurnEndGrace')
+                }
             } catch (error) {
                 if (!disposables.isDisposed && cache.cancelRequest === request && values.bootstrappedRunId === runId) {
                     actions.cancellationFailed()
@@ -170,9 +185,17 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
         },
         cancellationFailed: () => {
             cache.cancelRequest = undefined
+            cache.disposables.dispose('cancelTurnEndGrace')
+        },
+        cancellationUnanswered: () => {
+            if (values.cancellationState === 'sending') {
+                actions.markTurnComplete()
+                actions.clearCancellation()
+            }
         },
         clearCancellation: () => {
             cache.cancelRequest = undefined
+            cache.disposables.dispose('cancelTurnEndGrace')
         },
         [runStreamLogic(props).actionTypes.appendEntries]: () => {
             if (values.cancellationState === 'waiting') {

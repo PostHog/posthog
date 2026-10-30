@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import type { StoredLogEntry } from '../types/wireTypes'
-import { runCancellationLogic } from './runCancellationLogic'
+import { CANCEL_TURN_END_GRACE_MS, runCancellationLogic } from './runCancellationLogic'
 import { runStreamLogic } from './runStreamLogic'
 
 jest.mock('products/tasks/frontend/generated/api', () => ({ tasksRunsCommandCreate: jest.fn() }))
@@ -160,6 +160,40 @@ describe('runCancellationLogic', () => {
         }).toFinishAllListeners()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(logic.values.cancellationState).toBeNull()
+    })
+
+    it.each([
+        ['an idle agent that never ends a turn', false, null, true],
+        ['an agent that ends the turn, before the next turn starts', true, null, false],
+    ])('settles a stop confirmed by %s', async (_case, turnEnds, expectedState, expectedTurnComplete) => {
+        jest.useFakeTimers()
+        try {
+            attach()
+            stream.actions.ingestAcpFrame(ready())
+            stream.actions.ingestAcpFrame(prompt())
+            jest.mocked(tasksRunsCommandCreate).mockResolvedValueOnce({
+                jsonrpc: '2.0',
+                result: { cancelled: true },
+            })
+            logic.actions.requestCancellation()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.cancellationState).toBe('sending')
+
+            if (turnEnds) {
+                stream.actions.ingestAcpFrame({
+                    type: 'notification',
+                    source_run_id: 'run-1',
+                    notification: { method: '_posthog/turn_complete' },
+                })
+                stream.actions.pushHumanMessage('and the mobile funnel?')
+            }
+            await jest.advanceTimersByTimeAsync(CANCEL_TURN_END_GRACE_MS)
+
+            expect(logic.values.cancellationState).toBe(expectedState)
+            expect(stream.values.turnComplete).toBe(expectedTurnComplete)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it.each(['network', 'agent'])('allows retry after a %s cancellation error', async (failure) => {
