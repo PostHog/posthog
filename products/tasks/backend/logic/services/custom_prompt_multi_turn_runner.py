@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import asyncio
 import logging
@@ -366,6 +367,10 @@ class MultiTurnSession:
                 label,
                 type(error).__name__,
             )
+            if isinstance(error, ValidationError):
+                json_retry_prompt += "\n\nCorrect these validation errors in your previous output:\n" + json.dumps(
+                    error.errors(include_input=False, include_context=False, include_url=False)
+                )
         retry_label = f"{label or 'followup'} json retry"
         retry_message = await self.send_followup_raw(json_retry_prompt, label=retry_label)
         return self._parse_and_validate(retry_message, model, label=retry_label, validation_context=validation_context)

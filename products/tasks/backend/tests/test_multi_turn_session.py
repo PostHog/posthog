@@ -1415,7 +1415,11 @@ class TestMultiTurnSessionRetry:
         assert poll.await_count == len(replies)
         if retry_reply is not None:
             assert poll.await_args_list[1].kwargs["skip_lines"] == 10
-            assert cast(AsyncMock, session._workflow_handle).signal.await_args_list[1].args[1] == "Return valid JSON"
+            retry_prompt = cast(AsyncMock, session._workflow_handle).signal.await_args_list[1].args[1]
+            assert retry_prompt.startswith("Return valid JSON")
+            if first_reply == '{"value": "private-value"}':
+                assert "value must match the validation context" in retry_prompt
+                assert "private-value" not in retry_prompt
             assert "asking for JSON once" in caplog.text
         assert "private-reply-text" not in caplog.text
         assert "private-value" not in caplog.text
