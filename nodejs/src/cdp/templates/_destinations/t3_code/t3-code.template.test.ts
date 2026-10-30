@@ -54,6 +54,15 @@ describe('t3 code template', () => {
         })
     })
 
+    it('sends the event and person when a workflow saved through the API leaves Data out', async () => {
+        const { params } = await stagedRequest({ ...inputs, payload: null })
+
+        expect(parseJSON(params.body!)).toMatchObject({
+            event: { event: 'event-name' },
+            person: { properties: { email: 'example@posthog.com' } },
+        })
+    })
+
     it.each([
         ['a list', ['first', 'second']],
         ['a string', 'checkout failed'],

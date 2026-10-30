@@ -220,11 +220,11 @@ A `function` node with `template_id: "template-t3-code"` starts a T3 Code agent 
 ```
 
 - **The URL comes from T3 Code.** If you also have the T3 Code `schedule_task` tool, create the task there first with `schedule: {type: "webhook", signature: {header: "x-hub-signature-256", encoding: "hex", prefix: "sha256=", secret: "<new random secret>"}, dedupe: {replayKey: "{{headers.x-posthog-delivery-id}}"}}`, and use the `webhookUrl` it returns. Put the same secret in `signing_secret`. No `webhookUrl` means T3 Connect remote access is off, so PostHog can't reach the task: ask the user to turn it on. Otherwise ask the user to copy the URL from the task in T3 Code under Settings > Scheduled tasks.
-- **The T3 Code task's prompt decides what the agent sees.** The request body is `payload` plus an `instructions` key, so the task's prompt reads `{{body.instructions}}`, `{{body.event.event}}` or `{{body.person.properties.email}}`. Write the task prompt to use them. A `payload` that is not an object arrives as `{{body.data}}`. The `{...}` placeholders in the step's inputs are PostHog templates, and the `{{...}}` ones belong to the T3 Code prompt.
+- **The T3 Code task's prompt decides what the agent sees.** The request body is `payload` (the event and person when left out) plus an `instructions` key, so the task's prompt reads `{{body.instructions}}`, `{{body.event.event}}` or `{{body.person.properties.email}}`. Write the task prompt to use them. A `payload` that is not an object arrives as `{{body.data}}`. The `{...}` placeholders in the step's inputs are PostHog templates, and the `{{...}}` ones belong to the T3 Code prompt.
 - `webhook_url` and `signing_secret` are secrets: they are stored encrypted and never returned. Never put them in `instructions` or `payload`.
 - Each request carries an `x-posthog-delivery-id` header that stays the same across retries. The `dedupe` replay key above makes T3 Code start one run for a retried request.
-- The step retries rate limits (429) and server errors. It fails with a message that says what to fix when the signature is wrong (401), the URL has no task (404), the task is turned off (409), or the body is over 1 MB (413). The step result is `{"deliveryId"}`.
-- The step is behind the `workflow-t3-code-step` feature flag. Without the flag, the save fails with "Template not found".
+- The step retries rate limits (429) and server errors. It fails with a message that says what to fix when the signature is wrong (401), the URL has no task (404), the task is turned off (409), the request is older than the task's maximum delivery age (410), or the body is over 1 MB (413). Set `output_variable` to keep the step result, `{"deliveryId"}`.
+- The step is behind the `workflow-t3-code-step` feature flag. Without the flag, a workflow cannot add the step, and the save fails with "Template not found". Steps saved before the flag went off keep running.
 
 ### Opt out of messages step
 

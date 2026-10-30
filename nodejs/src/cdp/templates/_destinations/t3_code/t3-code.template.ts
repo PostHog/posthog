@@ -21,7 +21,7 @@ let failureReasons := {
   '429': 'T3 Code is limiting requests to this task. Add a delay or a condition before this step so it sends fewer requests.'
 }
 
-let payload := inputs.payload ?? {}
+let payload := inputs.payload ?? {'event': event, 'person': person}
 if (typeof(payload) != 'object') {
   payload := {'data': payload}
 }
