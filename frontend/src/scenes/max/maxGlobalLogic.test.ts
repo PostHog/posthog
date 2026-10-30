@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
