@@ -697,6 +697,8 @@ export async function cloneMaps(
     let reported: ReleaseReport | null = null
     let releaseId: string | null = null
     if (options.releaseMode === 'symbol-set') {
+        // Without release flags, the release `inject` stamped stays, and the upload binds to it.
+        releaseId = from.map.releaseId
         const fields = await releaseFields(ctx, options)
         if (releaseRequested(fields) || from.map.releaseId === null) {
             const resolved = resolveJsRelease(fields, ctx.runtime.env, from.path, warnings)

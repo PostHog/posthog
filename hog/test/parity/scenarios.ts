@@ -222,6 +222,15 @@ SCENARIOS.push(
         }
     ),
     hermes(
+        'clone-symbol-set-keeps-release',
+        hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, symbolSet),
+        () => HERMES_BUILD,
+        {
+            before: [hermesArgs.inject('android', [...appRelease, ...symbolSet])],
+            randomIds: true,
+        }
+    ),
+    hermes(
         'clone-debug-id',
         hermesArgs.clone('ios/main.jsbundle.map', 'ios/hbc/main.jsbundle.hbc.composed.map'),
         () => EXPO_BUILD

@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "android/hbc/index.android.bundle.hbc.composed.map": "utf8:{\"release_id\":\"3fd4c79f-4dd7-53b7-b5f3-e51dce5a9e80\",\"chunk_id\":\"<v7-1>\",\"mappings\":\"AAAA,SACA,cAAAC\",\"names\":[\"App\",\"<global>\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}",
+    "android/index.android.bundle": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"<v7-1>\")}catch(e){}}();var __BUNDLE_START_TIME__=this.nativePerformanceNow?nativePerformanceNow():Date.now();\nfunction App(){return \"héllo\"}App();\n//# sourceMappingURL=index.android.bundle.map\n//# chunkId=<v7-1>",
+    "android/index.android.bundle.map": "utf8:{\"release_id\":\"3fd4c79f-4dd7-53b7-b5f3-e51dce5a9e80\",\"chunk_id\":\"<v7-1>\",\"mappings\":\"qTACA;AAAA,SAAUA\",\"names\":[\"App\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_test\":{\"a\":\" /é\\u0001\",\"b\":1.0,\"big\":1.8446744073709552e19,\"n\":-0.0,\"z\":1e21}}"
+  }
+}
