@@ -24,6 +24,8 @@ def notify_claim_taken_over(*, report: SignalReport, previous: ReportClaim, acto
                 body=report.title or "",
                 target_type=TargetType.USER,
                 target_id=str(previous.actor_user_id),
+                # Keeps the activity panel from folding takeovers of different reports into one group.
+                resource_id=str(report.id),
                 source_url=f"/project/{report.team_id}/inbox/reports/{report.id}",
                 idempotency_key=f"report-claim-taken-over:{previous.claim_id}",
             )

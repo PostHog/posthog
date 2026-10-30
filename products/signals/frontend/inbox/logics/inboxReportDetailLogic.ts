@@ -390,7 +390,6 @@ export interface inboxReportDetailLogicValues {
     reportChecksError: string | null
     reportChecksLoading: boolean
     reportClaimant: _UserApi | null
-    teammateClaimHolder: _UserApi | null
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -409,6 +408,7 @@ export interface inboxReportDetailLogicValues {
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
     shouldPollReportTasks: boolean
+    teammateClaimHolder: _UserApi | null
     trailingCharts: ReportChartApi[]
 }
 
