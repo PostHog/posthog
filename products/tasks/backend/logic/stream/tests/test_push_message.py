@@ -3,12 +3,12 @@ import pytest
 from products.tasks.backend.logic.stream.push_message import MAX_PUSH_MESSAGE_BYTES, PushMessage
 
 
-def acp(kind: str, text: str = "") -> dict[str, object]:
+def acp(kind: str, text: str = "", meta: dict[str, object] | None = None) -> dict[str, object]:
     return {
         "type": "notification",
         "notification": {
             "method": "session/update",
-            "params": {"update": {"sessionUpdate": kind, "content": {"type": "text", "text": text}}},
+            "params": {"update": {"sessionUpdate": kind, "content": {"type": "text", "text": text}, "_meta": meta}},
         },
     }
 
@@ -55,6 +55,18 @@ def pi(kind: str, text: str = "", message_id: str = "message-1") -> dict[str, ob
         ([acp("agent_message_chunk", "a\ud800b\udfffc")], "a�b�c"),
         ([acp("agent_message_chunk", "a" * 996 + "\ud800extra")], "a" * 996 + "…"),
         ([acp("agent_message_chunk", "🦔" * 400)], "🦔" * 249 + "…"),
+        *[
+            (
+                [
+                    acp("agent_message_chunk", "Fixed "),
+                    acp(kind, "Child reply", {metadata_key: {"parentToolCallId": "parent-tool"}}),
+                    acp("agent_message_chunk", "the chart."),
+                ],
+                "Fixed the chart.",
+            )
+            for metadata_key in ("posthog", "claudeCode")
+            for kind in ("tool_call", "agent_message_chunk", "agent_message", "turn_completed")
+        ],
     ],
 )
 def test_push_message_keeps_only_the_latest_reply(events: list[dict[str, object]], expected: str) -> None:

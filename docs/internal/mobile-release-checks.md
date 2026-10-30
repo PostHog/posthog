@@ -64,6 +64,8 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
 - **Chat notification fallback.** With stream Redis unavailable or slow, confirm chat completion and
   input-needed pushes use the task status body and turn-end processing continues. Preview reads use
   0.5-second socket and connection timeouts.
+  While a Claude or Codex task replies, run a background subagent. Confirm the push keeps the parent
+  reply preview when the subagent calls tools, sends messages, or finishes.
 - **Recovery and appearance.** Disconnect during refresh or send, then reconnect. Show a retryable error,
   preserve the draft and avoid duplicate sends. Check light and dark appearance, a narrow supported phone,
   larger text and screen-reader labels on the main actions.

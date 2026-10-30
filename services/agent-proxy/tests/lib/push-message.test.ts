@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { updatePushMessage } from '@/lib/push-message.js'
 
-function acp(kind: string, text = ''): Record<string, unknown> {
+function acp(kind: string, text = '', meta?: Record<string, unknown>): Record<string, unknown> {
     return {
         type: 'notification',
         notification: {
             method: 'session/update',
-            params: { update: { sessionUpdate: kind, content: { type: 'text', text } } },
+            params: { update: { sessionUpdate: kind, content: { type: 'text', text }, _meta: meta } },
         },
     }
 }
@@ -59,6 +59,16 @@ describe('push message preview', () => {
         },
         { events: [acp('agent_message_chunk', 'a\ud800b\udfffc')], expected: 'a�b�c' },
         { events: [acp('agent_message_chunk', 'a'.repeat(996) + '\ud800extra')], expected: 'a'.repeat(996) + '…' },
+        ...['posthog', 'claudeCode'].flatMap((metadataKey) =>
+            ['tool_call', 'agent_message_chunk', 'agent_message', 'turn_completed'].map((kind) => ({
+                events: [
+                    acp('agent_message_chunk', 'Fixed '),
+                    acp(kind, 'Child reply', { [metadataKey]: { parentToolCallId: 'parent-tool' } }),
+                    acp('agent_message_chunk', 'the chart.'),
+                ],
+                expected: 'Fixed the chart.',
+            }))
+        ),
     ])('keeps only the latest reply: $expected', ({ events, expected }) => {
         let message: string | null = null
         for (const event of events) {

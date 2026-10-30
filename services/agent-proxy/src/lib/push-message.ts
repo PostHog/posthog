@@ -16,6 +16,13 @@ export function updatePushMessage(event: Record<string, unknown>, previous: stri
     const params = record(notification['params'])
     const update = event['type'] === 'pi_event' ? record(event['event']) : record(params['update'])
     const kind = event['type'] === 'pi_event' ? update['type'] : update['sessionUpdate']
+    const meta = record(update['_meta'])
+    for (const metadataKey of ['posthog', 'claudeCode']) {
+        const parent = record(meta[metadataKey])['parentToolCallId']
+        if (typeof parent === 'string' && parent.length > 0) {
+            return null
+        }
+    }
     const result = record(notification['result'])
 
     if (

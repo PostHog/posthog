@@ -44,6 +44,14 @@ class PushMessage:
             update = pi_event if isinstance(pi_event, dict) else {}
             kind = update.get("type")
 
+        meta = update.get("_meta")
+        meta = meta if isinstance(meta, dict) else {}
+        for metadata_key in ("posthog", "claudeCode"):
+            agent_meta = meta.get(metadata_key)
+            parent = agent_meta.get("parentToolCallId") if isinstance(agent_meta, dict) else None
+            if isinstance(parent, str) and parent:
+                return None
+
         kind = kind if isinstance(kind, str) else None
         result = notification.get("result")
         result = result if isinstance(result, dict) else {}
