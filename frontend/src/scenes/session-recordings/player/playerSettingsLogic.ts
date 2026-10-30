@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
-export type WatchPanelSection = 'overview' | 'linked-issues'
+export type WatchPanelSection = 'overview'
 export type WatchDebugDock = 'bottom' | 'right'
 
 export enum TimestampFormat {
@@ -125,7 +125,7 @@ export interface playerSettingsLogicActions {
         dock: WatchDebugDock
     }
     toggleWatchPanelSection: (section: WatchPanelSection) => {
-        section: WatchPanelSection
+        section: 'overview'
     }
 }
 
