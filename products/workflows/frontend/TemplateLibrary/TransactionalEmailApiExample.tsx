@@ -9,12 +9,12 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-type SnippetLanguage = 'node' | 'python' | 'curl'
+type SnippetLanguage = 'api' | 'node' | 'python'
 
 const LANGUAGE_OPTIONS: { value: SnippetLanguage; label: string; 'data-attr': string }[] = [
+    { value: 'api', label: 'API', 'data-attr': 'transactional-email-api-example-api' },
     { value: 'node', label: 'Node.js', 'data-attr': 'transactional-email-api-example-node' },
     { value: 'python', label: 'Python', 'data-attr': 'transactional-email-api-example-python' },
-    { value: 'curl', label: 'curl', 'data-attr': 'transactional-email-api-example-curl' },
 ]
 
 const INSTALL_COMMANDS: Partial<Record<SnippetLanguage, string>> = {
@@ -31,7 +31,7 @@ export function TransactionalEmailApiExample({
     variables?: string[]
 }): JSX.Element {
     const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
-    const [language, setLanguage] = useState<SnippetLanguage>('node')
+    const [language, setLanguage] = useState<SnippetLanguage>('api')
 
     const projectToken = currentTeam?.api_token ?? '<ph_project_api_key>'
     const host = apiHostOrigin()
@@ -91,16 +91,16 @@ result = posthog.emails.send(
 )
 print(result.id)`,
         },
-        curl: {
+        api: {
             language: Language.Bash,
             code: `curl -X POST ${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging/send/email/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: password-reset-123" \\
   -d '{
-    "template": { "id": "${templateId}" },
+    "template_id": "${templateId}",
     "to": "jane@example.com",
-    "identifiers": { "distinct_id": "jane-distinct-id" },
+    "distinct_id": "jane-distinct-id",
     "message_data": { ${dataEntries(': ')} }
   }'`,
         },
