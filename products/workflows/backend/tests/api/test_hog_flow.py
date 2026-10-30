@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
@@ -57,6 +58,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.contracts import WorkflowAccessDenied
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
@@ -65,6 +67,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
+    set_workflow_enabled,
 )
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
@@ -8521,6 +8524,109 @@ class TestReplayVisionActionValidation(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         assert mock_invoke.call_count == (1 if mock_async_functions else 0)
+
+
+class TestT3CodeStepOwnership(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.owner = self.user
+        self.flow = HogFlow.objects.create(
+            team=self.team,
+            name="Fix signup errors",
+            created_by=self.owner,
+            trigger={"type": "event", "filters": {}},
+            actions=[
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {"template_id": "template-t3-code", "inputs": {}},
+                },
+            ],
+        )
+
+    def _log_in_as(self, who: str) -> User:
+        if who == "owner":
+            return self.owner
+        level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
+        teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
+        if who == "shared_editor":
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=str(self.flow.id),
+                organization_member=OrganizationMembership.objects.get(user=teammate),
+                access_level="editor",
+            )
+        self.client.force_login(teammate)
+        return teammate
+
+    @parameterized.expand(
+        [
+            ("owner", status.HTTP_200_OK),
+            ("shared_editor", status.HTTP_200_OK),
+            ("admin", status.HTTP_200_OK),
+            ("teammate", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_only_the_owner_or_someone_they_share_with_can_change_it(self, who: str, expected: int) -> None:
+        self._log_in_as(who)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", {"name": "Fix every error"}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
+        if who == "teammate":
+            assert "T3 Code step" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("owner", False, status.HTTP_200_OK),
+            ("shared_editor", False, status.HTTP_200_OK),
+            ("teammate", False, status.HTTP_403_FORBIDDEN),
+            ("teammate", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_only_the_owner_or_someone_they_share_with_can_run_it(
+        self, who: str, mock_async_functions: bool, expected: int
+    ) -> None:
+        self._log_in_as(who)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d1"}},
+                    "mock_async_functions": mock_async_functions,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    def test_a_teammate_cannot_turn_it_on_from_a_canvas(self) -> None:
+        teammate = self._log_in_as("teammate")
+
+        with pytest.raises(WorkflowAccessDenied):
+            set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
 
 
 class TestRunScoutActionValidation(APIBaseTest):
