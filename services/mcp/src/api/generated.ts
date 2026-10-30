@@ -10730,6 +10730,15 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    export type ValueLabels = typeof ValueLabels[keyof typeof ValueLabels];
+
+
+    export const ValueLabels = {
+      Auto: 'auto',
+      Show: 'show',
+      Hide: 'hide',
+    } as const;
+
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -10741,8 +10750,12 @@ export namespace Schemas {
     export interface ChartSettingsDisplay {
       color?: string | null;
       displayType?: DisplayType | null;
+      /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+      excludeFromTotal?: boolean | null;
       label?: string | null;
       trendLine?: boolean | null;
+      /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+      valueLabels?: ValueLabels | null;
       yAxisPosition?: YAxisPosition | null;
     }
 

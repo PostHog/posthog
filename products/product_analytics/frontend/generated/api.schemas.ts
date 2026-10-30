@@ -8168,6 +8168,14 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+export type ValueLabelsApi = (typeof ValueLabelsApi)[keyof typeof ValueLabelsApi]
+
+export const ValueLabelsApi = {
+    Auto: 'auto',
+    Show: 'show',
+    Hide: 'hide',
+} as const
+
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
 
 export const YAxisPositionApi = {
@@ -8178,8 +8186,12 @@ export const YAxisPositionApi = {
 export interface ChartSettingsDisplayApi {
     color?: string | null
     displayType?: DisplayTypeApi | null
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean | null
     label?: string | null
     trendLine?: boolean | null
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: ValueLabelsApi | null
     yAxisPosition?: YAxisPositionApi | null
 }
 
