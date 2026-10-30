@@ -117,13 +117,18 @@ export function variableLines(changes: VariableChange[], style: Styler): string[
     return [
         'Variables:',
         ...changes.map((change) => {
+            // A name can come from the endpoint in PostHog, which another member can edit.
+            const name = escapeControls(change.name)
             if (change.change === 'add') {
-                return style(`  + ${change.name} (${change.type})`, 'green')
+                return style(`  + ${name} (${escapeControls(change.type ?? '')})`, 'green')
             }
             if (change.change === 'retype') {
-                return style(`  ~ ${change.name} (${change.from} → ${change.type})`, 'yellow')
+                return style(
+                    `  ~ ${name} (${escapeControls(change.from ?? '')} → ${escapeControls(change.type ?? '')})`,
+                    'yellow'
+                )
             }
-            return style(`  - ${change.name}`, 'red')
+            return style(`  - ${name}`, 'red')
         }),
     ]
 }
