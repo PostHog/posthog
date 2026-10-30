@@ -31,10 +31,6 @@ OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FO
 # Origin of a CDN that caches the /uploaded_media route, e.g. "https://us-media.posthog.com". Empty serves
 # media URLs from SITE_URL, so every load reaches Django.
 UPLOADED_MEDIA_PUBLIC_URL = os.getenv("UPLOADED_MEDIA_PUBLIC_URL", "").rstrip("/")
-# Cloudflare zone and API token (with the Cache Purge permission) for the UPLOADED_MEDIA_PUBLIC_URL host.
-# When either is empty, a takedown cannot purge the CDN and cached copies stay until they expire.
-UPLOADED_MEDIA_CDN_PURGE_ZONE_ID = os.getenv("UPLOADED_MEDIA_CDN_PURGE_ZONE_ID", "")
-UPLOADED_MEDIA_CDN_PURGE_TOKEN = os.getenv("UPLOADED_MEDIA_CDN_PURGE_TOKEN", "")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
     "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"
 )

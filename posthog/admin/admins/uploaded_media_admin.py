@@ -8,23 +8,8 @@ import structlog
 
 from posthog.models import UploadedMedia
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.storage.uploaded_media_cdn import CdnPurgeResult, purge_media_from_cdn
 
 logger = structlog.get_logger(__name__)
-
-_CDN_PURGE_MESSAGES: dict[CdnPurgeResult, tuple[int, str]] = {
-    CdnPurgeResult.PURGED: (messages.SUCCESS, "Asked the CDN to drop its cached copies."),
-    CdnPurgeResult.NOT_CONFIGURED: (
-        messages.WARNING,
-        "CDN purge is not configured on this instance, so CDN copies stay cached until someone purges them.",
-    ),
-    CdnPurgeResult.FAILED: (
-        messages.ERROR,
-        "The CDN purge failed, so CDN copies are still cached. Run the action again or purge the URLs by hand.",
-    ),
-}
-
-_BROWSER_CACHE_NOTE = "Copies already saved by browsers or email clients can't be recalled."
 
 
 @admin.register(UploadedMedia)
@@ -88,9 +73,18 @@ class UploadedMediaAdmin(admin.ModelAdmin):
     def has_stored_file(self, obj: UploadedMedia) -> bool:
         return obj.media_location is not None
 
-    def _report_cdn_purge(self, request: HttpRequest, media: list[UploadedMedia]) -> None:
-        level, message = _CDN_PURGE_MESSAGES[purge_media_from_cdn(media)]
-        self.message_user(request, f"{message} {_BROWSER_CACHE_NOTE}", level)
+    def _report_urls_to_purge(self, request: HttpRequest, media: list[UploadedMedia]) -> None:
+        # Earlier successful responses carry a years-long immutable cache header, so a CDN in front
+        # of the media host keeps serving them until someone purges these URLs there.
+        if not media:
+            return
+        urls = ", ".join(item.get_absolute_url() for item in media)
+        self.message_user(
+            request,
+            f"Purge these URLs in the CDN so cached copies stop loading: {urls}. "
+            "Copies already saved by browsers or email clients can't be recalled.",
+            messages.WARNING,
+        )
 
     @admin.action(description="Stop serving the selected images at their public URL")
     def disable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
@@ -100,8 +94,7 @@ class UploadedMediaAdmin(admin.ModelAdmin):
                 self.log_change(request, item, "Stopped serving at the public URL.")
                 logger.info("uploaded_media.serving_disabled", media_id=str(item.id), team_id=item.team_id)
         self.message_user(request, f"Stopped serving {len(media)} image(s).", messages.SUCCESS)
-        # Purge every selected image, including ones already stopped, so a failed purge can be retried.
-        self._report_cdn_purge(request, media)
+        self._report_urls_to_purge(request, media)
 
     @admin.action(description="Serve the selected images at their public URL again")
     def enable_serving(self, request: HttpRequest, queryset: QuerySet[UploadedMedia]) -> None:
@@ -148,5 +141,4 @@ class UploadedMediaAdmin(admin.ModelAdmin):
                 f"Could not delete the stored file of {failed} image(s). Their public URL stays off. Try again.",
                 messages.ERROR,
             )
-        if deleted:
-            self._report_cdn_purge(request, deleted)
+        self._report_urls_to_purge(request, deleted)

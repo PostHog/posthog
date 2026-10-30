@@ -2,7 +2,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.models import CHANGE, LogEntry
-from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -51,16 +50,8 @@ class TestUploadedMediaAdminServingActions(BaseTest):
             "Resumed serving at the public URL.",
         ]
 
-    @override_settings(
-        UPLOADED_MEDIA_PUBLIC_URL="https://media.example.com",
-        UPLOADED_MEDIA_CDN_PURGE_ZONE_ID="zone-for-tests",
-        UPLOADED_MEDIA_CDN_PURGE_TOKEN="fake-token-for-tests",
-    )
-    @patch("posthog.storage.uploaded_media_cdn.purge_urls")
     @patch("posthog.models.uploaded_media.object_storage.delete")
-    def test_delete_removes_the_bytes_of_stopped_images_only_and_purges_their_cdn_url(
-        self, delete_object, purge_urls
-    ) -> None:
+    def test_delete_removes_the_bytes_of_stopped_images_only(self, delete_object) -> None:
         UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=timezone.now())
 
         self._run_action("delete_stored_file", self.target, self.bystander)
@@ -71,7 +62,6 @@ class TestUploadedMediaAdminServingActions(BaseTest):
         assert self.target.media_location is None
         assert self.bystander.media_location == "media_uploads/bystander"
         assert self._log_messages(self.target) == ["Deleted the stored file permanently."]
-        assert purge_urls.call_args.args == ([f"https://media.example.com/uploaded_media/{self.target.id}"],)
 
     @patch("posthog.models.uploaded_media.object_storage.delete", side_effect=ObjectStorageError("delete failed"))
     def test_failed_delete_keeps_the_location_so_staff_can_retry(self, _delete_object) -> None:
