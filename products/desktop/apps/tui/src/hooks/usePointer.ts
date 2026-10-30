@@ -18,7 +18,7 @@ import {
 } from "../mouse";
 import { openImage, openUrl } from "../openUrl";
 import { Gesture } from "../selection";
-import type { SidebarRow } from "../sidebar";
+import { isSelectable, type SidebarRow } from "../sidebar";
 import type { FlashNotice } from "./useNotice";
 
 function boxOf(element: DOMElement): ScreenBox {
@@ -103,11 +103,8 @@ export function usePointer({
       const onScreen = click.row - sidebar.top;
       const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
       const row = rows[index];
-      if (
-        row?.kind === "task" ||
-        row?.kind === "workspace" ||
-        row?.kind === "viewMore"
-      ) {
+      // A click opens what the keyboard can select, and a workspace's label too.
+      if (row && (isSelectable(row) || row.kind === "workspace")) {
         setNavigating(row.kind !== "viewMore");
         activate(index);
       } else {
