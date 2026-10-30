@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
@@ -142,8 +142,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         kind = request.validated_query_data.get("kind")
         status = request.validated_query_data.get("status")
-        return cast(SuggestionPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_suggestions(
                 self.team_id,

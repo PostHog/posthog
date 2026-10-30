@@ -11,9 +11,9 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals
-from posthog.api.pagination import select_page
 from posthog.dataclasses import frozen
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
 from products.workflows.backend.facade.enums import WorkflowProposalStatus

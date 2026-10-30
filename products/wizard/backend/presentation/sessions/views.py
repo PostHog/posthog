@@ -7,7 +7,7 @@ returns DTO-shaped responses. No model imports.
 
 import time
 from collections.abc import AsyncIterator, Mapping
-from typing import Any, cast
+from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -23,7 +23,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.models.scoping import team_scope
@@ -164,9 +164,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query.is_valid(raise_exception=True)
         workflow_id = query.validated_data.get("workflow_id")
         skill_id = query.validated_data.get("skill_id") or None
-        paginator = cast(WizardSessionPagination, self.paginator)
-        return paginator.get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: wizard_facade.list_for_team(
                 self.team_id, workflow_id=workflow_id, skill_id=skill_id, page=page

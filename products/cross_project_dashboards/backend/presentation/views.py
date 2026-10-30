@@ -11,7 +11,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
@@ -79,9 +79,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     @extend_schema(responses={200: CrossProjectDashboardListItemSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        paginator = cast(CrossProjectDashboardPagination, self.paginator)
-        return paginator.get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_dashboards(organization_id=self.organization_id, user=self._user(), page=page),
             serializer_class=CrossProjectDashboardListItemSerializer,
@@ -165,9 +163,7 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
     @extend_schema(parameters=[PARENT_DASHBOARD_ID], responses={200: CrossProjectDashboardTileSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        paginator = cast(CrossProjectDashboardPagination, self.paginator)
-        return paginator.get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: api.list_tiles(
                 organization_id=self.organization_id, dashboard_id=self._dashboard_id(), user=self._user(), page=page

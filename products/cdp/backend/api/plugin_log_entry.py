@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -6,7 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.paging import Page, PageRequest
 
@@ -69,5 +69,4 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 count=count_plugin_log_entries(**filters),
             )
 
-        paginator = cast(PluginLogEntryPagination, self.paginator)
-        return paginator.get_paginated_facade_response(request, self, fetch)
+        return facade_page_response(self, fetch)

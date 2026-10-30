@@ -50,7 +50,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.file_system.ranked_search import FileRef, FileSystemRankedSearch, search_session
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.mixins import validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -829,8 +829,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Page(results=[], count=count)
             return Page(results=self._typed_page_by_views(queryset, views, page, descending=descending), count=count)
 
-        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
-        response = paginator.get_paginated_facade_response(request, self, fetch)
+        response = facade_page_response(self, fetch)
         response.data["users"] = self._created_by_users(response.data["results"])
         return response
 

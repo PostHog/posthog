@@ -25,7 +25,7 @@ from posthog.schema import RecordingsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -773,8 +773,7 @@ class SessionRecordingPlaylistViewSet(
 
             return Page(results=combined, count=db_count + synth_count)
 
-        paginator = cast(SessionRecordingPlaylistPagination, self.paginator)
-        return paginator.get_paginated_facade_response(request, self, fetch)
+        return facade_page_response(self, fetch)
 
     def _split_page(
         self,

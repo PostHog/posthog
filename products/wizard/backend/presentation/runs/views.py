@@ -12,6 +12,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
@@ -105,9 +106,8 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else None
         )
         filters = ListWizardRunsInput(team_id=self.team_id, statuses=statuses, created_after=created_after)
-        paginator = cast(WizardRunPagination, self.paginator)
-        return paginator.get_paginated_facade_response(
-            request, self, lambda page: wizard_facade.list_runs(filters, page), serializer_class=WizardRunSerializer
+        return facade_page_response(
+            self, lambda page: wizard_facade.list_runs(filters, page), serializer_class=WizardRunSerializer
         )
 
     @extend_schema(

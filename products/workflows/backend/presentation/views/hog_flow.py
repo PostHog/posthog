@@ -51,7 +51,7 @@ from posthog.api.app_metrics2 import (
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -5271,7 +5271,6 @@ class HogFlowViewSet(
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = self._list_query()
-        paginator = cast(HogFlowPagination, self.paginator)
 
         def fetch(page_request: PageRequest) -> Page[Workflow]:
             try:
@@ -5299,7 +5298,7 @@ class HogFlowViewSet(
                 self._workflow_last_runs = list_workflow_last_runs(self.team_id, request.user.id, loop_ids)
             return page
 
-        return paginator.get_paginated_facade_response(request, self, fetch)
+        return facade_page_response(self, fetch)
 
     @validated_request(
         query_serializer=SendCalendarQuerySerializer,
@@ -6023,9 +6022,7 @@ class HogFlowViewSet(
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
         instance = self._workflow_ref()
-        paginator = cast(HogFlowPagination, self.paginator)
-        return paginator.get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: list_revisions(instance.id, page),
             serializer_class=HogFlowRevisionBasicSerializer,
@@ -6115,9 +6112,7 @@ class HogFlowViewSet(
                     {"status": f"Must be one of: {', '.join(WorkflowProposalStatus.values)}."}
                 )
             self._proposals_hog_flow = instance
-            paginator = cast(HogFlowPagination, self.paginator)
-            return paginator.get_paginated_facade_response(
-                request,
+            return facade_page_response(
                 self,
                 lambda page: list_proposals(hog_flow_id=instance.id, status=requested_status or None, page=page),
                 serializer_class=WorkflowProposalSerializer,

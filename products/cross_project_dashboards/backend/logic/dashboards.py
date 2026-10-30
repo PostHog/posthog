@@ -8,11 +8,11 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 
 from rest_framework import serializers
 
-from posthog.api.pagination import select_page
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.cross_project_dashboards.backend.facade import contracts
 from products.cross_project_dashboards.backend.logic.access import assert_can_reference_insight, visible_project_ids

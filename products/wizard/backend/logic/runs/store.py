@@ -8,8 +8,8 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.pagination import select_page
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.wizard.backend.facade.config import WIZARD_RUN_DEADLINE
 from products.wizard.backend.facade.contracts import (

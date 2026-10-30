@@ -4,8 +4,8 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from posthog.api.pagination import select_page
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,

@@ -14,10 +14,10 @@ from django.db.models.functions import Coalesce
 
 from django_filters import BooleanFilter, FilterSet
 
-from posthog.api.pagination import select_page
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import (
     Workflow,

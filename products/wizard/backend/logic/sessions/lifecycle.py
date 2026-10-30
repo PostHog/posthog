@@ -10,8 +10,8 @@ from django.db import IntegrityError, transaction
 import structlog
 from kombu.exceptions import OperationalError
 
-from posthog.api.pagination import select_page
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
 from products.wizard.backend.facade.enums import WizardSessionRunPhase

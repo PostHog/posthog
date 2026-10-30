@@ -5,8 +5,8 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from posthog.api.pagination import select_page
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
