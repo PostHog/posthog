@@ -44,6 +44,9 @@ describe('Gauge', () => {
         )
 
         expect(chart.gauge()).toMatchObject({ value: '78%', min: '0%', max: '100%' })
+        expect(chart.element.querySelector<HTMLElement>('[data-attr="hog-chart-gauge-value"]')?.style.color).toBe(
+            'rgb(255, 170, 0)'
+        )
         const tooltip = await hoverGauge(chart.element)
         expect(tooltip.textContent).toContain('Busy · 70% – 90%')
         const swatch = tooltip.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-swatch"]')

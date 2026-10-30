@@ -493,7 +493,11 @@ function GaugeInner({
                                     fontSize: text.value.fontSize,
                                     fontWeight: value === null ? 400 : GAUGE_VALUE_FONT_WEIGHT,
                                     lineHeight: 1.1,
-                                    ...(value === null ? (labelColor ? { color: labelColor } : MUTED_STYLE) : null),
+                                    ...(value === null
+                                        ? labelColor
+                                            ? { color: labelColor }
+                                            : MUTED_STYLE
+                                        : { color: arcColor }),
                                 }}
                             >
                                 {text.value.text}
