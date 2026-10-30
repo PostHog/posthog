@@ -15,7 +15,7 @@ function Workbench({
   auth: TuiAuth;
   mouse?: MouseEvents;
 }): ReactElement {
-  const { work, runs, chats } = useMemo(() => {
+  const { work, runs, chats, control } = useMemo(() => {
     const api = new PostHogAPIClient(
       auth.apiHost,
       () => auth.getAccessToken(),
@@ -23,7 +23,15 @@ function Workbench({
     );
     return { work: new WorkList(api), ...createCloud(auth, api) };
   }, [auth]);
-  return <App work={work} runs={runs} chats={chats} mouse={mouse} />;
+  return (
+    <App
+      work={work}
+      runs={runs}
+      chats={chats}
+      control={control}
+      mouse={mouse}
+    />
+  );
 }
 
 export function Root({

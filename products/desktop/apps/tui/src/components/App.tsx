@@ -32,6 +32,12 @@ import {
   splitSizes,
 } from "../layout";
 import {
+  type ModelChoice,
+  modelSheet,
+  type PiControl,
+  parseSlash,
+} from "../models";
+import {
   type Click,
   hitTest,
   type MouseEvents,
@@ -44,6 +50,7 @@ import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
   cursorIndex,
+  indicatorFor,
   moveSelection,
   selectionKey,
   sidebarRows,
@@ -54,6 +61,9 @@ import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
 
 const PAGE_SIZE = 10;
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 interface OpenModal {
   sheet: Sheet;
@@ -90,11 +100,13 @@ export function App({
   work,
   runs,
   chats,
+  control,
   mouse,
 }: {
   work: WorkList;
   runs: CloudRuns;
   chats: PiChats;
+  control: (taskId: string, runId: string) => PiControl;
   mouse?: MouseEvents;
 }): ReactElement {
   const { exit } = useApp();
@@ -119,6 +131,15 @@ export function App({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   // Modal sheets the app opened, one per pane; they take the pane's keys until closed.
   const [modals, setModals] = useState<Map<string, OpenModal>>(new Map());
+  // Models: the last list a live run gave us, each task's model, and picks held until a pane's run is live.
+  const knownModels = useRef<ModelChoice[] | null>(null);
+  const [taskModels, setTaskModels] = useState<Map<string, ModelChoice>>(
+    new Map(),
+  );
+  const [heldModels, setHeldModels] = useState<Map<string, ModelChoice>>(
+    new Map(),
+  );
+  const appliedHolds = useRef(new Set<string>());
   const closeModal = (paneId: string): void =>
     setModals((current) => {
       const next = new Map(current);
@@ -245,11 +266,112 @@ export function App({
     return listed ?? known.get(taskId);
   };
 
+  const openModal = (
+    paneId: string,
+    sheet: Sheet,
+    choose: (index: number) => void,
+  ): void => {
+    const current = sheet.items.findIndex((item) => item.current);
+    setModals((open) =>
+      new Map(open).set(paneId, { sheet, index: Math.max(0, current), choose }),
+    );
+  };
+
+  const openModelSheet = (paneId: string, task: Task | undefined): void => {
+    const run = task?.latest_run;
+    if (task && run && indicatorFor(task, false) === "alive") {
+      const live = control(task.id, run.id);
+      setNotice("Loading models…");
+      live.models().then(
+        ({ available, current }) => {
+          setNotice(null);
+          knownModels.current = available;
+          if (current)
+            setTaskModels((models) => new Map(models).set(task.id, current));
+          openModal(
+            paneId,
+            modelSheet(available, current, "Switches this chat's model now."),
+            (index) => {
+              const model = available[index];
+              live.setModel(model).then(
+                () =>
+                  setTaskModels((models) =>
+                    new Map(models).set(task.id, model),
+                  ),
+                (error: unknown) =>
+                  flashNotice(`Couldn't switch model: ${messageOf(error)}`),
+              );
+            },
+          );
+        },
+        (error: unknown) =>
+          flashNotice(`Couldn't load models: ${messageOf(error)}`),
+      );
+      return;
+    }
+    const available = knownModels.current;
+    if (!available) {
+      flashNotice(
+        "The model list comes from a running chat. Send a message first.",
+      );
+      return;
+    }
+    const held =
+      heldModels.get(paneId) ?? (task ? taskModels.get(task.id) : undefined);
+    openModal(
+      paneId,
+      modelSheet(
+        available,
+        held ?? null,
+        "Applies once this chat's run starts.",
+      ),
+      (index) =>
+        setHeldModels((models) =>
+          new Map(models).set(paneId, available[index]),
+        ),
+    );
+  };
+
+  // A pick made while the run was not live is applied as soon as its sandbox is.
+  const onRunLive = (paneId: string, taskId: string, runId: string): void => {
+    const held = heldModels.get(paneId);
+    if (!held || appliedHolds.current.has(runId)) return;
+    appliedHolds.current.add(runId);
+    control(taskId, runId)
+      .setModel(held)
+      .then(
+        () => {
+          setTaskModels((models) => new Map(models).set(taskId, held));
+          setHeldModels((models) => {
+            const next = new Map(models);
+            next.delete(paneId);
+            return next;
+          });
+        },
+        (error: unknown) =>
+          flashNotice(`Couldn't switch model: ${messageOf(error)}`),
+      );
+  };
+
+  const flashNotice = (text: string): void => {
+    setNotice(text);
+    setTimeout(() => setNotice(null), SEND_ERROR_MS);
+  };
+
   const onSubmit = (paneId: string, text: string): void => {
     const pane = layout.workspaces
       .flatMap((w) => panes(w.root))
       .find((candidate) => candidate.id === paneId);
     const current = taskOf(pane?.taskId ?? null);
+    const slash = parseSlash(text);
+    if (slash?.command === "model") {
+      openModelSheet(paneId, current);
+      return;
+    }
+    if (slash?.command === "new") {
+      setLayout(newChat);
+      return;
+    }
     setPending((messages) => new Map(messages).set(paneId, text));
     (current ? chats.reply(current, text) : chats.start(text)).then(
       (task) => {
@@ -554,6 +676,11 @@ export function App({
               dismissed,
             }}
             modal={modals.get(node.id) ?? null}
+            model={
+              heldModels.get(node.id)?.name ??
+              (node.taskId ? taskModels.get(node.taskId)?.name : undefined)
+            }
+            onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
             focused={!sidebarFocused && node.id === workspace.focusedPaneId}
           />
         </Box>

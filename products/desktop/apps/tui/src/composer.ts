@@ -1,5 +1,6 @@
 import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import {
+  CombinedAutocompleteProvider,
   CURSOR_MARKER,
   decodeKittyPrintable,
   Editor,
@@ -39,6 +40,12 @@ export function isTyping(sequence: string): boolean {
   return [...sequence].every((char) => char >= " " && char !== "\u007f");
 }
 
+// Commands the TUI handles itself; anything else starting with / goes to the agent.
+export const SLASH_COMMANDS = [
+  { name: "model", description: "Switch this chat's model" },
+  { name: "new", description: "Start a new chat" },
+];
+
 const DIM = (text: string): string => `\u001b[2m${text}\u001b[22m`;
 
 // pi's editor, hosted in a pane: it asks this stub to repaint instead of owning the terminal.
@@ -57,6 +64,9 @@ export class Composer {
       borderColor: DIM,
       selectList: getSelectListTheme(),
     });
+    this.editor.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(SLASH_COMMANDS, process.cwd()),
+    );
     this.editor.onSubmit = (text) => {
       if (!text.trim()) return;
       this.editor.addToHistory(text);
