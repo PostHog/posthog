@@ -13,6 +13,8 @@ export const taskContextMenuInput = z.object({
   worktreePath: z.string().optional(),
   folderPath: z.string().optional(),
   isPinned: z.boolean().optional(),
+  // Omit to hide the read/unread item.
+  isUnread: z.boolean().optional(),
   isSuspended: z.boolean().optional(),
   canStop: z.boolean().optional(),
   isInCommandCenter: z.boolean().optional(),
@@ -62,6 +64,8 @@ const externalAppAction = z.discriminatedUnion("type", [
 ]);
 
 const taskAction = z.discriminatedUnion("type", [
+  // Carries no direction: the label and the resolver derive it from `isUnread`.
+  z.object({ type: z.literal("toggle-unread") }),
   z.object({ type: z.literal("rename") }),
   z.object({ type: z.literal("pin") }),
   z.object({ type: z.literal("suspend") }),

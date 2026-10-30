@@ -5,6 +5,8 @@ import type {
 } from "@posthog/core/context-menu/schemas";
 
 export type TaskContextMenuIntent =
+  | { type: "mark-read" }
+  | { type: "mark-unread" }
   | { type: "rename" }
   | { type: "pin" }
   | { type: "suspend" }
@@ -20,9 +22,11 @@ export type TaskContextMenuIntent =
 
 export function resolveTaskContextMenuIntent(
   action: TaskAction,
-  flags: { isSuspended?: boolean },
+  flags: { isSuspended?: boolean; isUnread?: boolean },
 ): TaskContextMenuIntent {
   switch (action.type) {
+    case "toggle-unread":
+      return flags.isUnread ? { type: "mark-read" } : { type: "mark-unread" };
     case "rename":
       return { type: "rename" };
     case "pin":

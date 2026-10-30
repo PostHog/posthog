@@ -2,7 +2,7 @@
 
 Vocabulary settled while working on the product. Pure vocabulary — no spec, no implementation detail beyond what a term needs to be unambiguous.
 
-- **PostHog Review / Code review / ReviewHog** — three names for one product. **PostHog Review** is the product name on every outward surface (GitHub, MCP, API docs, UI prose). **Code review** is the in-app page and nav name only. **ReviewHog** is the internal codename for code, logs, and developer docs. The `posthog-review` label starts a review.
+- **PostHog Review / Code review / ReviewHog** — three names for one product. **PostHog Review** is the product name on every outward surface (GitHub, MCP, API docs, UI prose). **Code review** is the in-app page and nav name only. **ReviewHog** is the internal codename for code, logs, and developer docs. An `@posthog review` comment starts a review, and no label does.
 - **Finding body** — the reviewer's description of a problem (`Issue.issue`, persisted as `ReviewIssueFinding.body`). Dual-audience text: it is rendered verbatim in the published comment AND consumed by three downstream LLM stages (the validator's `ISSUE` payload, dedup's fresh/prior finding payloads, and future turns' covered-findings block).
 - **Validator argumentation** — the validator's why-valid / why-dismissed reasoning (`IssueValidation.argumentation`). For a _valid_ finding it is presentation-only (humans + the copy-paste fix prompt); its only pipeline consumer is dedup's `prior_ruling`, and only when the finding was _dismissed_.
 - **Published copy** — what humans read on GitHub (inline comment sections, report body) and in the Code review UI. Today it is byte-identical to the pipeline payload; nothing requires that.

@@ -31,12 +31,16 @@ if TYPE_CHECKING:
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
-# The first entry covers a run from this repo, where the resolver is at packages/owners-yaml and the
-# engine's own home is under products/stamphog/packages/. The sibling `owners/` covers two cases:
-# the vendored layout that downstream repos copy, and the review sandbox, which receives this
-# directory at <checkout>/tools/pr-approval-agent with the resolver beside it at
-# <checkout>/tools/owners. Neither of those layouts has a first entry to find, so they fall through
-# to the sibling.
+# The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
+# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with the
+# resolver beside it at <checkout>/tools/owners. The second entry covers a run from this repo, where
+# the resolver is at packages/owners-yaml and the engine's own home is under
+# products/stamphog/packages/, which has no `owners/` sibling.
+#
+# The sibling goes first because the sandbox extracts it from the same trusted payload as this file,
+# so it is always beside the engine there. The repo-root offset is a path in the PR checkout. If a PR
+# symlink moves the engine deeper in the tree, that offset lands on a directory the PR controls, and
+# checking it first would import the PR's code in place of the trusted resolver.
 #
 # Both entries are fixed offsets from this file, and not a discovered repo root.
 # `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
@@ -46,9 +50,8 @@ if TYPE_CHECKING:
 def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
     engine_dir = engine_file.resolve().parent
     # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
-    # four levels up. In the sandbox and in a vendored copy that offset points outside the tree and
-    # finds nothing, which is what makes the sibling the answer there.
-    return (engine_dir.parents[3] / "packages" / "owners-yaml", engine_dir.parent / "owners")
+    # four levels up.
+    return (engine_dir.parent / "owners", engine_dir.parents[3] / "packages" / "owners-yaml")
 
 
 _OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))

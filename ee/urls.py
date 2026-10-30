@@ -10,6 +10,9 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.admin.oauth2 import admin_oauth2_callback
+from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
+from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
@@ -18,12 +21,10 @@ from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values
 from products.cdp.backend.api import hooks
 
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
-from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_connect, vercel_sso
-from ee.middleware import admin_oauth2_callback
 
-from .api import authentication, billing, conversation, core_memory, organization_billing, project_billing
+from .api import billing, conversation, core_memory, organization_billing, project_billing
 
 
 def extend_api_router() -> None:
@@ -171,7 +172,7 @@ else:
 
 
 urlpatterns: list[Any] = [
-    path("api/saml/metadata/", authentication.saml_metadata_view),
+    path("api/saml/metadata/", saml_metadata_view),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     re_path(

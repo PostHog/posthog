@@ -359,6 +359,11 @@ def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[St
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
 
 
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
+    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+
+
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
     """Deletes the named destinations of one alert. An id of another alert is left alone."""
     return alert_destinations.delete_alert_destinations(

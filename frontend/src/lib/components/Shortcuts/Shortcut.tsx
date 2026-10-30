@@ -3,8 +3,8 @@ import { ReactElement, cloneElement, forwardRef, isValidElement } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { RenderKeybind } from './RenderKeybind'
 import { ShortcutType } from './shortcutLogic'
-import { RenderKeybind } from './ShortcutMenu'
 import { convertPlatformKeybind, useShortcut } from './useShortcut'
 
 export function keybindToKeyboardShortcutProps(keybind: string[]): Record<string, boolean> {
