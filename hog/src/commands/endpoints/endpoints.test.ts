@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
+import { pushPlanLines } from './push'
+
 const AGENT = { ...TEST_CREDENTIALS, CLAUDECODE: '1' }
 const BASE = 'https://ph.example.com/api/environments/7/'
 
@@ -197,6 +199,26 @@ describe('hog endpoints', () => {
 
         expect(result.stdout).toContain('\\x1b]52;c;eA==\\x07Weekly signups')
         expect(result.stdout).not.toContain('\u001b')
+    })
+
+    test('push previews escape variable names and rejection reasons from PostHog', () => {
+        const name = '\u001b]52;c;eA==\u0007x'
+        const item = {
+            name: 'weekly',
+            path: 'weekly.yaml',
+            action: 'skip' as const,
+            reason: `${name} is used by the query`,
+            changes: [],
+            variables: [
+                { name, change: 'remove' as const },
+                { name, change: 'retype' as const, type: 'String', from: 'Number' },
+            ],
+        }
+
+        const lines = pushPlanLines([item], (text) => text).join('\n')
+
+        expect(lines).toContain('\\x1b]52;c;eA==\\x07x')
+        expect(lines).not.toContain('\u001b')
     })
 
     test('push asks agents for --yes before it changes anything', async () => {
