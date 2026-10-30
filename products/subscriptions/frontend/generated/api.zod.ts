@@ -218,6 +218,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
+                charts_in_thread: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: post the generated charts as a reply in the Slack thread instead of in the main message, so the main message holds only the report summary. Defaults to false when omitted. Email and Microsoft Teams reports ignore it. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
                 include_feedback: zod
                     .boolean()
                     .optional()
@@ -453,6 +459,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                charts_in_thread: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: post the generated charts as a reply in the Slack thread instead of in the main message, so the main message holds only the report summary. Defaults to false when omitted. Email and Microsoft Teams reports ignore it. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -694,6 +706,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                charts_in_thread: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: post the generated charts as a reply in the Slack thread instead of in the main message, so the main message holds only the report summary. Defaults to false when omitted. Email and Microsoft Teams reports ignore it. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
                     ),
                 include_feedback: zod
                     .boolean()
