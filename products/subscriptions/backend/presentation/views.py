@@ -679,7 +679,7 @@ def _raise_for_refusal(call: Callable[[], contracts.SubscriptionRecord]) -> cont
     try:
         return call()
     except contracts.SubscriptionRequestInvalidError as refusal:
-        raise ValidationError(as_serializer_error(ValidationError(refusal.detail)))
+        raise ValidationError(as_serializer_error(ValidationError(refusal.detail, code=refusal.code)))
     except contracts.SubscriptionPermissionDeniedError as refusal:
         raise exceptions.PermissionDenied(refusal.message)
     except contracts.SubscriptionQuotaExceededError as refusal:
@@ -1032,6 +1032,35 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: Request, **kwargs: object) -> Response:
         return self.update(request, partial=True, **kwargs)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        request=None,
+        responses={200: SubscriptionSerializer},
+        description=(
+            "Make the requesting user the owner of this subscription and enable it. Deliveries run with "
+            "the owner's access, so this is how a subscription continues after its owner left."
+        ),
+    )
+    # Scope is resolved dynamically in dangerously_get_required_scopes so an AI subscription also
+    # requires query:read (enabling it starts the AI HogQL pipeline). A static required_scopes here
+    # would short-circuit that check.
+    @action(methods=["POST"], detail=True)
+    def take_ownership(self, request: Request, **kwargs: object) -> Response:
+        subscription = self._get_subscription()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        updated = _raise_for_refusal(
+            lambda: api.take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                user=cast(User, request.user),
+                viewer=self.user_access_control,
+                subscription_id=subscription.id,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        )
+        return Response(_write_response(updated, partial=True))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},

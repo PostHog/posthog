@@ -18,7 +18,8 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -401,6 +402,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def _disabled_email_sub(self) -> int:
         return Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -1089,6 +1091,54 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "enabled"
         assert "this delivery channel is not currently supported" in response.json()["detail"]
+
+    def _disabled_subscription_of_a_former_member(self) -> Subscription:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reader@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="left behind",
+            created_by=former_member,
+            enabled=False,
+        )
+
+    def test_patch_enabled_true_rejected_when_the_owner_left(self):
+        subscription = self._disabled_subscription_of_a_former_member()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        # The frontend keys its "take ownership" offer, and the cause it shows, on this code.
+        assert response.json()["code"] == "owner_left_organization"
+        assert (
+            "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
+        )
+
+    def test_take_ownership_enables_the_subscription_as_the_requester(self):
+        subscription = self._disabled_subscription_of_a_former_member()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by == self.user
+        assert subscription.enabled is True
+        assert response.json()["created_by"]["id"] == self.user.id
+        # created_by is excluded from the save diff, so the takeover logs its own activity.
+        takeover = ActivityLog.objects.get(
+            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+        )
+        assert takeover.detail is not None
+        assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
+        assert takeover.user == self.user
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
@@ -1985,6 +2035,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2030,6 +2081,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2092,6 +2144,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # candidate-rrule check honors the new `until_date` and lets it through.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2147,6 +2200,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     ):
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",

@@ -13,6 +13,11 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 
+# The API error codes for a write refused because the owner can no longer run the resource, one per cause.
+# Shared by subscriptions and alerts; the frontend offers to take ownership when it sees either.
+OWNER_LEFT_ORGANIZATION_CODE = "owner_left_organization"
+OWNER_LOST_ACCESS_CODE = "owner_lost_access"
+
 
 class CreatorLeftOrganizationError(Exception):
     """A background query refused to run because its owner is no longer in the organization."""
@@ -53,6 +58,23 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
         # A model with no scope has no access rules, so there is nothing to deny.
         if resource is not None and not user_access_control.check_access_level_for_object(obj, "viewer"):
             raise UserAccessControlError(resource, "viewer", str(obj.pk))
+
+
+def owner_unavailable_code(error: Exception) -> str:
+    """The API error code for `error`, as raised by `assert_creator_can_run`. A deleted owner counts as one who left."""
+    return OWNER_LEFT_ORGANIZATION_CODE if isinstance(error, CreatorLeftOrganizationError) else OWNER_LOST_ACCESS_CODE
+
+
+def describe_owner_unavailable(user: Optional[User], error: Exception) -> str:
+    """One sentence on why `user` can no longer run a resource, for the person trying to enable it.
+
+    `error` is what `assert_creator_can_run` raised for them.
+    """
+    if user is None:
+        return "It runs with the access of its creator, whose account was deleted."
+    if isinstance(error, CreatorLeftOrganizationError):
+        return f"It runs with the access of its creator, {user.email}, who is no longer in the organization."
+    return f"It runs with the access of its creator, {user.email}, who no longer has access to the data it reads."
 
 
 def report_creator_access_revoked(

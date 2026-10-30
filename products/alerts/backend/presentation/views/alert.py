@@ -52,10 +52,17 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
+from posthog.query_creator_access import (
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+    owner_unavailable_code,
+)
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -75,6 +82,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -89,6 +97,7 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    assign_alert_owner,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -260,10 +269,11 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
 
 
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
-    """Refuse an AI preview the person asking cannot use.
+    """Refuse an AI preview or takeover the person asking cannot use.
 
     Saved alerts go through ``admit_llm_alert_write`` instead, which checks the alert's
-    creator: a preview has no alert, so the requester is the principal.
+    creator. A preview has no alert, and a takeover makes the requester the creator, so
+    both check the requester.
     """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
@@ -643,6 +653,11 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
+
+
+def _owner_unavailable_message(owner: User | None, error: Exception) -> str:
+    """The refusal for an enable the owner cannot run, naming the owner and the cause."""
+    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)}"
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -1109,6 +1124,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
+        # Checks run as the owner, so an owner who cannot run them would only get the alert disabled again.
+        if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
+            try:
+                assert_creator_can_run(self.instance.created_by, self.instance.team, insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise ValidationError(
+                    {"enabled": [_owner_unavailable_message(self.instance.created_by, error)]},
+                    code=owner_unavailable_code(error),
+                )
         # Enforced from the object-level validate() so it runs on every create and update — including
         # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
         # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
@@ -1229,7 +1253,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        if self.context["request"].method == "POST":
+        # Only a create adds an alert; a takeover is a POST that enables an existing one.
+        if self.instance is None:
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})
 
@@ -1803,6 +1828,42 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: AlertSerializer},
+        description=(
+            "Make the requesting user the owner of this alert and enable it. Checks run with the owner's "
+            "access, so this is how an alert continues after its owner left."
+        ),
+    )
+    @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
+    def take_ownership(self, request, *args, **kwargs):
+        alert = self.get_object()
+        user = cast(User, request.user)
+        try:
+            assert_creator_can_run(user, alert.team, alert.insight)
+        except (CreatorLeftOrganizationError, UserAccessControlError):
+            raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
+        # The scheduled checks run as the owner, so an AI alert needs the requester on the rollout.
+        # An already enabled alert does not pass through the admission below, so it is checked here.
+        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config)
+        # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
+        # the row, so the owner is saved first.
+        with transaction.atomic():
+            # Same lock order as update(): insight, then alert row. The owner write below locks the row.
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            assign_alert_owner(
+                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+            )
+            # The enable below saves this instance, so it must carry the new owner.
+            alert.refresh_from_db(fields=["created_by"])
+            # The enable runs the usual update path, so the insight query is validated as the new owner.
+            serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        return Response(self.get_serializer(serializer.instance).data)
 
     @extend_schema(
         request=None,
