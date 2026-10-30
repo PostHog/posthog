@@ -74,7 +74,7 @@ _RESUME_ISSUE_SKIP_LIMIT = 5000
 logger = structlog.get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SentryResumeConfig:
     """Resume state for Sentry endpoints.
 
