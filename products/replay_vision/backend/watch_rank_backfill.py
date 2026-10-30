@@ -36,6 +36,7 @@ from products.replay_vision.backend.embeddings import (
     team_embeddings_params,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
     AnchorReading,
@@ -185,13 +186,25 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                         .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
                         .values_list("id", flat=True)
                     )
+                    unranked = {
+                        observation_id: reading.rank
+                        for observation_id, reading in written.items()
+                        if UUID(observation_id) in still_unranked
+                    }
                     ReplayObservation.objects.bulk_update(
                         [
-                            ReplayObservation(id=observation_id, watch_rank=reading.rank.to_json())
-                            for observation_id, reading in written.items()
-                            if UUID(observation_id) in still_unranked
+                            ReplayObservation(id=observation_id, watch_rank=rank.to_json())
+                            for observation_id, rank in unranked.items()
                         ],
                         ["watch_rank"],
+                    )
+                    record_ranks(
+                        team_id,
+                        ANCHOR_VERSION,
+                        {
+                            observation_id: NewRank(contrast=rank.contrast, category=rank.category)
+                            for observation_id, rank in unranked.items()
+                        },
                     )
     without_embedding = len(rows) - embedded
     logger.info(

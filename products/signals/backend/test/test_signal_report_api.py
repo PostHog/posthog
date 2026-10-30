@@ -1840,9 +1840,19 @@ class TestSignalReportListAPI(APIBaseTest):
         with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics:
             get_flag = analytics.get_feature_flag
             get_flag.return_value = outcome
-            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
+        list_sql = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if query["sql"].startswith('SELECT "signals_signalreport"."id"') and "ORDER BY" in query["sql"]
+        ]
+        assert len(list_sql) == 1
+        # The sort reads every matching report, so a score subquery repeated in the ORDER BY
+        # multiplies the artefact walks for the whole team.
+        assert list_sql[0].count("'ranking_score'") == 1
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
         assert body["ranker"] == outcome
@@ -2582,12 +2592,12 @@ class TestSignalReportListAPI(APIBaseTest):
         [
             ("short_first_page", 10, 0, 3, False, False),
             ("short_last_page", 2, 2, 1, False, False),
-            ("exact_full_page", 3, 0, 3, True, False),
-            ("full_page_with_more", 2, 0, 2, True, True),
+            ("exact_full_page", 3, 0, 3, False, False),
+            ("full_page_with_more", 2, 0, 2, False, True),
             ("offset_past_the_end", 2, 5, 0, True, False),
         ]
     )
-    def test_search_page_counts_without_a_second_scan_when_the_page_is_short(
+    def test_search_page_counts_without_a_second_scan(
         self, _name: str, limit: int, offset: int, rows: int, runs_count_query: bool, has_next: bool
     ) -> None:
         for i in range(3):
@@ -2595,12 +2605,15 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="Unrelated")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(search="checkout", limit=limit, offset=offset))
+            response = self.client.get(
+                self._list_url(search="checkout", ordering="-created_at", limit=limit, offset=offset)
+            )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["count"] == 3
-        assert len(body["results"]) == rows
+        newest_first = ["Checkout failure 2", "Checkout failure 1", "Checkout failure 0"]
+        assert [r["title"] for r in body["results"]] == newest_first[offset : offset + rows]
         assert (body["next"] is not None) == has_next
         count_queries = [
             q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]

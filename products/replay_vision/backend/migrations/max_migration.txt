@@ -1,1 +1,1 @@
-0140_drop_replayobservationmedia_rec_start_ms
+0143_replay_highlight_autovacuum

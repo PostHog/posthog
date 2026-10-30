@@ -843,6 +843,7 @@
     '__module__',
     '__static_attributes__',
     '__str__',
+    '_activity_context',
     '_activity_trigger',
     '_evaluation_tag_names',
     '_has_experiment',

@@ -688,9 +688,23 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("github_optional", [False, True])
-async def test_select_repository_activity_reuses_previous_selection(monkeypatch, ateam, github_optional):
+@pytest.mark.parametrize(
+    "github_optional,connected,reused",
+    [
+        (False, True, True),
+        (False, False, False),
+        (True, True, True),
+        (True, False, True),
+    ],
+)
+async def test_select_repository_activity_reuses_previous_selection(
+    monkeypatch, ateam, github_optional, connected, reused
+):
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    if connected:
+        await Integration.objects.acreate(
+            team=ateam, kind="github", integration_id="123", config={"installation_id": 123}
+        )
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
@@ -716,7 +730,11 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
             )
         )
 
-    assert result is previous
+    if reused:
+        assert result is previous
+    else:
+        assert result.repository is None
+        assert "No GitHub integration" in result.reason
     assert not select_repo_called
 
 
@@ -727,6 +745,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
     # activity's early read. The retry-once guard must evict the dead connection and
     # succeed on the second attempt rather than letting it escape as error-tracking noise.
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    await Integration.objects.acreate(team=ateam, kind="github", integration_id="123", config={"installation_id": 123})
     attempts = {"n": 0}
 
     def flaky_load(report_id):

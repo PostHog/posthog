@@ -1910,7 +1910,7 @@ export const BICatalogSnapshot: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await canvas.findByRole('link', { name: 'View current catalog entry' }, { timeout: 15000 })
         await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
@@ -1999,8 +1999,8 @@ export const BISourcePreviewLargeSample: Story = {
 const BI_WIDE_TABLE_CONFIG: BIConfig = {
     ...BI_WORKSHEET_CONFIG,
     chartType: ChartDisplayType.ActionsTable,
-    rows: [],
-    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [],
     values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
     filters: [],
     limit: 10000,
