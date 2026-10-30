@@ -151,10 +151,10 @@ class TestLegacyGroupsToFilters(SimpleTestCase):
         assert filters is not None
         CohortFilters.model_validate(filters)
 
-    def test_cohort_not_in_becomes_negation(self) -> None:
-        filters = legacy_groups_to_filters(
-            [{"properties": [{"key": "id", "value": 1, "type": "cohort", "operator": "not_in"}]}]
-        )
+    @parameterized.expand([("without_negation", False), ("with_negation", True)])
+    def test_cohort_not_in_becomes_negation(self, _name: str, negation: bool) -> None:
+        leaf_in = {"key": "id", "value": 1, "type": "cohort", "operator": "not_in", "negation": negation}
+        filters = legacy_groups_to_filters([{"properties": [leaf_in]}])
 
         assert filters is not None
         leaf = filters["properties"]["values"][0]["values"][0]

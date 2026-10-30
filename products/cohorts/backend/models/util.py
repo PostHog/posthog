@@ -181,8 +181,9 @@ def _normalize_legacy_operators(node: dict) -> None:
     elif node.get("type") in ("person", "person_metadata") and node.get("operator") is None:
         node["operator"] = "exact"
     elif node.get("type") == "cohort" and node.get("operator") in ("in", "not_in", None):
+        # Legacy readers negate when either `negation` or `not_in` is set, so the two never cancel out.
         if node.pop("operator", None) == "not_in":
-            node["negation"] = not node.get("negation", False)
+            node["negation"] = True
 
 
 def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
