@@ -27,7 +27,7 @@ use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
 use crate::producer::merge::Capture;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
-pub use batcher::OutputBuffer;
+pub use batcher::{OutputBatch, OutputBuffer};
 pub use cascade::{CaptureCascadeSink, CascadeSink, KafkaCascadeSink, NoopCascadeSink};
 pub use kafka::KafkaMembershipSink;
 pub use marker::{

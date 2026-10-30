@@ -93,6 +93,11 @@ impl CaptureCascadeSink {
     pub fn messages(&self) -> Vec<CascadeMessage> {
         self.0.recorded()
     }
+
+    /// Produce calls made, failed ones included: the round trips a cascade group amortizes.
+    pub fn produce_calls(&self) -> usize {
+        self.0.produce_calls()
+    }
 }
 
 #[async_trait]

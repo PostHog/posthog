@@ -115,19 +115,27 @@ The sweep alternates with live batches, so a large wave of expirations at midnig
 [Time and eviction](time-and-eviction.md) explains the sweep.
 
 Each live sub-batch holds one topic's messages, or one timer tick, in offset order.
-As a guard, before any merge, transfer, cascade, sweep or reconcile message, the worker first produces the membership changes it has buffered, so the order of output matches the order of state changes.
+As a guard, before any merge, transfer, cascade, sweep or reconcile message, the worker first hands the membership changes it has buffered to the producer, so output is submitted in the order of state changes.
 It yields to the async runtime every few milliseconds, so a CPU-heavy backlog cannot starve other tasks.
 
 At the end of an events sub-batch the worker:
 
-1. produces its membership changes and waits for every acknowledgment,
-2. produces first-hop cascade messages, when cascades are enabled,
-3. re-keys events for merged persons to their survivor's partition,
-4. marks the events tracker at the highest event offset of the sub-batch,
-5. advances the partition's live watermark to the newest broker timestamp it folded.
+1. hands its membership changes, and their first-hop cascade messages when cascades are enabled, to the partition's produce window,
+2. re-keys events for merged persons to their survivor's partition and waits for those acknowledgments,
+3. marks the events tracker at the highest event offset of the sub-batch,
+4. advances the partition's live watermark to the newest broker timestamp it folded.
 
-If any produce fails, the worker skips the mark.
-Merge, transfer and cascade messages settle their own trackers as each one is handled.
+The mark does not wait for the membership and cascade acknowledgments.
+Live output is at most once and its state is already committed, so waiting would only hold the partition's live lane for a broker round trip.
+The window holds at most four unacknowledged batches per partition.
+When it is full, the worker waits for the oldest one, so a slow broker shows as lag on that partition, and `output_window_waits_total` counts each wait.
+The worker enqueues each batch's records before it moves on and collects only the acknowledgments later, so records are enqueued in the order of state changes.
+A producer retry can still reorder batches that are in flight together, and the membership consumer's version check puts them back in order ([invariant 28](invariants.md#membership-output)).
+Before a worker stops, it waits for every batch in its window.
+
+If the re-key produce fails, the worker skips the mark.
+Merge and transfer messages settle their own trackers as each one is handled.
+The cascade messages of a sub-batch settle in groups, as [merges and cascades](merges-and-cascades.md#how-a-cascade-flows) describes.
 
 ## Offset tracking
 
@@ -157,7 +165,7 @@ This table is worth knowing before you debug a missing or duplicated membership 
 | Path                                  | Guarantee                                                                                                                                                                                      | Why                                                                                                                                                                                |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Events into Stage 1 state             | At least once across restarts, applied once. Within a tenure, an event whose fold fails on a store error, or whose re-key to a survivor's partition fails, is skipped and later committed past | Offsets commit after the work. A redelivered event is recognized by its replay marks. Only the merge, cascade and seed paths hold a failed offset                                  |
-| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. If the produce fails, the next clean sub-batch marks past it, and a replay finds no transition to emit                          |
+| Event to membership change            | At most once                                                                                                                                                                                   | State commits inside the fold, before the produce. The mark does not wait for the produce, and a replay finds no transition to emit                                                |
 | First-hop cascade messages            | At most once from the live, merge and sweep paths. At least once from seed apply and reconcile                                                                                                 | The live, merge and sweep paths produce them after the flip is committed. Seed apply and reconcile produce them before writing the flip, and retry on failure                      |
 | Sweep expiry of a single-leaf cohort  | At least once while the worker runs                                                                                                                                                            | The sweep produces before it writes, and reschedules the keys on failure. The retry lives in the in-memory queue, so a restart keeps it only with durable restore on               |
 | Sweep expiry that recomposes a cohort | At most once                                                                                                                                                                                   | The composed result is written before it is produced                                                                                                                               |
@@ -335,7 +343,7 @@ Durable restore is enabled.
    The last one, 1204567, is a `$pageview` from p-1.
    Its fold commits the new leaf state to RocksDB without waiting for the disk.
    The leaf flips, so cohort 42 gets an `entered` change for p-1.
-4. At the end of the sub-batch, the worker produces the change and waits for the acknowledgment.
+4. At the end of the sub-batch, the worker hands the change to the producer and marks the offset without waiting for the acknowledgment.
    Processed becomes 1204568.
 5. On the next commit tick, the task flushes the write-ahead log and commits 1204568.
 
@@ -344,10 +352,9 @@ Two variations show the edges.
 - **Backpressure.** If partition 26 already held more than 1,016 events, the default budget of 1,024 would refuse these 8.
   The sub-batch would go to the holdover and fetching for the partition would pause.
   Dispatched would stay at 1204560 until the worker caught up.
-- **Produce failure.** If the produce in step 4 failed, processed would not move.
-  But the leaf state is already committed.
-  When the next sub-batch succeeds, processed jumps past 1204567, and the `entered` is never emitted on the live path.
-  A restart before that would replay 1204567 against the reopened store, see it as a duplicate, and still emit nothing.
+- **Produce failure.** If the produce in step 4 failed, processed would still become 1204568, because the mark does not wait for it.
+  The leaf state is already committed, so the `entered` is never emitted on the live path.
+  A restart that replays 1204567 against the reopened store sees it as a duplicate and still emits nothing.
   Only reconcile repairs it.
 
 ## Optimizations

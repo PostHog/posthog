@@ -1023,41 +1023,6 @@ async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
 }
 
 #[tokio::test]
-async fn a_live_lane_that_keeps_failing_its_produce_still_yields_the_sweep_its_turns() {
-    // The sweep's turn is claimed before a live batch runs, so a batch that fails its produce and
-    // skips the rest of the loop body still owes it. Claiming after the batch instead passes every
-    // test whose live lane succeeds, while a lane that keeps failing holds a due wave until it closes.
-    // Call 1 is the wave's own Entered; every live produce after it fails.
-    let sink = FailingLiveSink::new(2);
-    wave_against_a_full_live_lane(
-        INTERLEAVED_WAVE,
-        INTERLEAVED_LIVE_AFTER,
-        Arc::new(sink.clone()),
-    )
-    .await;
-
-    // `None` is a failed live produce. Each sweep batch after the first runs on the turn the failed
-    // live batch before it owed, rather than all of them once the lane has closed.
-    assert_eq!(
-        sink.outcomes(),
-        [
-            vec![
-                Some(MembershipStatus::Entered),
-                Some(MembershipStatus::Left)
-            ],
-            vec![
-                None,
-                Some(MembershipStatus::Left),
-                None,
-                Some(MembershipStatus::Left)
-            ],
-            vec![None; INTERLEAVED_LIVE_AFTER - 2],
-        ]
-        .concat(),
-    );
-}
-
-#[tokio::test]
 async fn single_does_not_evict_before_its_calendar_midnight_and_does_after() {
     let lsk = behavioral_lsk(&build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata));
     let alice = person(1);
@@ -1582,51 +1547,6 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
-    }
-}
-
-/// A sink that fails every live produce from `fail_from` (1-based) on while letting sweep batches
-/// through, telling them apart by their changes being all `Left`. Records each call as the status of
-/// its first change, or `None` when it failed.
-#[derive(Clone)]
-struct FailingLiveSink {
-    outcomes: Arc<Mutex<Vec<Option<MembershipStatus>>>>,
-    fail_from: usize,
-}
-
-impl FailingLiveSink {
-    fn new(fail_from: usize) -> Self {
-        Self {
-            outcomes: Arc::default(),
-            fail_from,
-        }
-    }
-
-    fn outcomes(&self) -> Vec<Option<MembershipStatus>> {
-        self.outcomes.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl MembershipSink for FailingLiveSink {
-    async fn produce(
-        &self,
-        changes: Vec<CohortMembershipChange>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        let mut outcomes = self.outcomes.lock().unwrap();
-        let call = outcomes.len() + 1;
-        let is_sweep = changes
-            .iter()
-            .all(|change| change.status == MembershipStatus::Left);
-        if call >= self.fail_from && !is_sweep {
-            outcomes.push(None);
-            return changes
-                .iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        outcomes.push(changes.first().map(|change| change.status));
-        changes.iter().map(|_| Ok(())).collect()
     }
 }
 

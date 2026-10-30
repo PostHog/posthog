@@ -194,13 +194,18 @@ That answer is wrong for anyone who really is in the untracked cohort.
    The sweep and reconcile send them only for recomposed cohorts.
    The message carries the flipped cohort, a depth, and the chain of cohorts visited so far.
 2. The topic is co-partitioned with the event stream, so the message comes back to the same worker, the one that owns the person's state.
-3. The worker finds every cohort that references the flipped cohort and recomposes each referrer that composes.
+3. The worker handles a sub-batch of cascade messages as one group.
+   For each message it finds every cohort that references the flipped cohort and recomposes each referrer that composes.
    It reads a single-leaf referenced cohort from its leaf state, a composed one from its Stage 2 row, and an untracked one as not a member.
-4. For each referrer that flips, it produces the membership change and, if the chain may continue, a further cascade message.
-5. Only after both produces are acknowledged does it write the referrers' new Stage 2 bits and mark the offset.
-   A failure pins the partition's cascade commit at that message.
-   Kafka redelivers it after the next restart, and the redelivered message recomputes the same flip.
+   If a message's person already has an unwritten Stage 2 bit in the group, the group settles first, so the message reads the written bit.
+4. For each referrer that flips, the group collects the membership change and, if the chain may continue, a further cascade message.
+   The group produces both topics together, in one round trip.
+5. Only after both produces are acknowledged does it write the group's new Stage 2 bits and mark the group's last offset.
+   A failure pins the partition's cascade commit at the group's first message, and the rest of the sub-batch waits for redelivery.
+   Kafka redelivers them after the next restart, and the redelivered messages recompute the same flips.
    Until then, cascade commits for that partition stall.
+   The flips of the failed group that did reach the topic also have no Stage 2 bit behind them until then.
+   So a later recompute for one of those persons can miss a change, and only reconcile repairs it.
 
 Three limits bound the work:
 

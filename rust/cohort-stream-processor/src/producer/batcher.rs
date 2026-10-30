@@ -20,12 +20,30 @@ impl OutputBuffer {
         self.changes.extend(changes);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
+    /// Take everything buffered as one batch, or `None` when the buffer is empty.
+    /// `source_offset` is the informational offset the batch's first-hop cascades carry.
+    pub fn take_batch(&mut self, source_offset: i64) -> Option<OutputBatch> {
+        if self.changes.is_empty() {
+            return None;
+        }
+        Some(OutputBatch {
+            changes: std::mem::take(&mut self.changes),
+            source_offset,
+        })
     }
+}
 
-    pub fn take(&mut self) -> Vec<CohortMembershipChange> {
-        std::mem::take(&mut self.changes)
+/// Buffered changes ready to produce. [`OutputBuffer::take_batch`] is the only constructor, so a
+/// batch is never empty.
+#[derive(Debug)]
+pub struct OutputBatch {
+    changes: Vec<CohortMembershipChange>,
+    source_offset: i64,
+}
+
+impl OutputBatch {
+    pub fn into_parts(self) -> (Vec<CohortMembershipChange>, i64) {
+        (self.changes, self.source_offset)
     }
 }
 
@@ -47,19 +65,28 @@ mod tests {
     }
 
     #[test]
-    fn push_extend_take_round_trip() {
+    fn take_batch_drains_in_order_and_yields_nothing_when_empty() {
         let mut buffer = OutputBuffer::new();
-        assert!(buffer.is_empty());
+        assert!(
+            buffer.take_batch(0).is_none(),
+            "an empty buffer has no batch"
+        );
 
         buffer.push(change(1));
         buffer.extend([change(2), change(3)]);
-        assert!(!buffer.is_empty());
 
-        let taken = buffer.take();
+        let (taken, source_offset) = buffer
+            .take_batch(9)
+            .expect("three changes buffered")
+            .into_parts();
         assert_eq!(
             taken.iter().map(|c| c.cohort_id).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
-        assert!(buffer.is_empty(), "take leaves the buffer empty");
+        assert_eq!(source_offset, 9);
+        assert!(
+            buffer.take_batch(10).is_none(),
+            "the batch left the buffer empty"
+        );
     }
 }

@@ -45,9 +45,13 @@ pub const CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL: &str = "cascade_cycle_detected_r
 /// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap` (counter). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
-/// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). On the
-/// event path a failure holds the batch; on the sweep/merge paths it drops (at-most-once).
+/// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). The
+/// live, sweep and merge paths drop the cascade (at-most-once); the cascade consumer holds its
+/// offset.
 pub const CASCADE_PRODUCE_ERRORS_TOTAL: &str = "cascade_produce_errors_total";
+/// Cascade messages in one worker sub-batch (histogram). The sub-batch costs one produce round trip
+/// unless a person repeats in it, so small values mean little batching.
+pub const CASCADE_BATCH_MESSAGES: &str = "cascade_batch_messages";
 /// The cascade-consumer commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// Non-zero means a held cascade re-evaluation is stalling the commit. **Alert on a sustained
 /// non-zero level.**
@@ -437,9 +441,12 @@ pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_e
 /// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter).
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
 /// Produce failures on the membership output topic (counter). Not every failure loses data: most
-/// paths hold or reschedule the offset for replay. Sweep stage 2 and merge drop the change,
+/// paths hold or reschedule the offset for replay. Live, sweep stage 2 and merge drop the change,
 /// because their state is already committed.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
+/// Live output batches a worker waited on because its produce window was full (counter). Non-zero
+/// means the broker acks slower than the partition's live output arrives.
+pub const OUTPUT_WINDOW_WAITS_TOTAL: &str = "output_window_waits_total";
 
 /// Sweep cycles that fired, labelled by `loop`
 /// (`eviction`|`redrive`|`merge_gc`|`checkpoint`|`store_stats`) (counter).
