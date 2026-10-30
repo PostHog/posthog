@@ -8,8 +8,10 @@ import {
   matchesKey,
   stripTerminalSequences,
   type TUI,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { RunCommand } from "./models";
+import { orange } from "./theme";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
 const APP_KEYS: KeyId[] = [
@@ -36,6 +38,8 @@ export function isAppKey(sequence: string): boolean {
 const PASTE_START = "\u001b[200~";
 const PLAIN_RULE = /^─+$/;
 const INVERSE = "\u001b[7m";
+// The prompt before the input, "❯ " or "! ", in cells.
+const PROMPT_WIDTH = 2;
 
 // Text a person types or pastes, as opposed to navigation and control keys.
 export function isTyping(sequence: string): boolean {
@@ -60,6 +64,7 @@ const RULE = (text: string): string => `\u001b[2;90m${text}\u001b[22;39m`;
 // pi's editor, hosted in a pane: it asks this stub to repaint instead of owning the terminal.
 export class Composer {
   private readonly editor: Editor;
+  private shellMode = false;
 
   constructor(
     private readonly repaint: () => void,
@@ -76,8 +81,11 @@ export class Composer {
     this.setCommands([]);
     this.editor.onSubmit = (text) => {
       if (!text.trim()) return;
-      this.editor.addToHistory(text);
-      submit(text);
+      const message = this.shellMode ? `!${text}` : text;
+      this.editor.addToHistory(message);
+      // Off before submit, since the app can put a command it could not run back with setText.
+      this.shellMode = false;
+      submit(message);
     };
   }
 
@@ -107,13 +115,26 @@ export class Composer {
     return this.editor.getText().trim() === "";
   }
 
+  // In shell mode the text is a command to run, not a message for the agent.
+  isShellCommand(): boolean {
+    return this.shellMode;
+  }
+
+  // Text with a leading ! comes back as a command in shell mode.
   setText(text: string): void {
-    this.editor.setText(text);
+    this.shellMode = text.startsWith("!");
+    this.editor.setText(this.shellMode ? text.slice(1) : text);
     this.repaint();
   }
 
+  // ! in an empty composer enters shell mode instead of typing; Backspace on an empty command leaves it.
   handleInput(sequence: string): void {
-    this.editor.handleInput(sequence);
+    const empty = this.editor.getText() === "";
+    const bang = sequence === "!" || decodeKittyPrintable(sequence) === "!";
+    if (empty && !this.shellMode && bang) this.shellMode = true;
+    else if (empty && this.shellMode && matchesKey(sequence, "backspace"))
+      this.shellMode = false;
+    else this.editor.handleInput(sequence);
     this.repaint();
   }
 
@@ -123,21 +144,35 @@ export class Composer {
     focused: boolean,
   ): { editor: string[]; popup: string[] } {
     this.editor.focused = focused;
+    // Shell mode turns the rule and the prompt PostHog orange, so it is hard to miss.
+    this.editor.borderColor = this.shellMode ? orange : RULE;
+    const prompt = this.shellMode ? orange("!") : "❯";
     // pi draws its cursor as an inverse block in every pane; only the focused pane shows one.
     const lines = this.editor
-      .render(width)
+      .render(Math.max(1, width - PROMPT_WIDTH))
       .map((line) => line.replace(CURSOR_MARKER, ""))
       .map((line) => (focused ? line : line.replaceAll(INVERSE, "")));
     // pi closes the input with a rule (or a "↓ n more" line); suggestions follow it.
-    const closing = lines.findLastIndex(
+    const found = lines.findLastIndex(
       (line, index) =>
         index > 0 && stripTerminalSequences(line).startsWith("─"),
     );
-    if (closing <= 0) return { editor: lines, popup: [] };
+    const closing = found > 0 ? found : lines.length;
+    // The prompt sits before the first input row, wrapped rows line up under the text, and the rules run full width.
+    const fullWidth = (line: string): string =>
+      `${line}${this.editor.borderColor("─".repeat(Math.max(0, width - visibleWidth(line))))}`;
+    const input = lines
+      .slice(1, closing)
+      .map((line, index) =>
+        index === 0
+          ? `${prompt} ${line}`
+          : `${" ".repeat(PROMPT_WIDTH)}${line}`,
+      );
+    const editor = [fullWidth(lines[0]), ...input];
+    if (found <= 0) return { editor, popup: [] };
     // A plain closing rule goes: the pane edge already closes the input.
-    const keep = PLAIN_RULE.test(stripTerminalSequences(lines[closing]))
-      ? closing
-      : closing + 1;
-    return { editor: lines.slice(0, keep), popup: lines.slice(closing + 1) };
+    if (!PLAIN_RULE.test(stripTerminalSequences(lines[found])))
+      editor.push(fullWidth(lines[found]));
+    return { editor, popup: lines.slice(found + 1) };
   }
 }

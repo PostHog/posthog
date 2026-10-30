@@ -3,6 +3,7 @@ import {
   RemotePiRpcClient,
 } from "@posthog/agent/pi/remote-rpc-client";
 import type { Sheet } from "./sheet";
+import type { ShellResult } from "./shell";
 
 export interface ModelChoice {
   provider: string;
@@ -26,6 +27,8 @@ export interface PiControl {
   commands(): Promise<RunCommand[]>;
   // Stops the agent's current turn.
   abort(): Promise<void>;
+  // Runs a command where the agent runs and adds its output to the agent's context, like ! in pi.
+  bash(command: string): Promise<ShellResult>;
 }
 
 export interface RunCommand {
@@ -63,7 +66,7 @@ export function piControl(
       return response.result;
     },
   });
-  return controlOf(client);
+  return controlOf(client, (command) => client.bash(command));
 }
 
 // The same model, command and stop controls over any pi RPC client, cloud or local.
@@ -72,6 +75,8 @@ export function controlOf(
     PiRemoteRpcClient,
     "getAvailableModels" | "getState" | "setModel" | "getCommands" | "abort"
   >,
+  // The local client sends bash through the runtime, which the remote client's interface does not cover.
+  bash: PiControl["bash"],
 ): PiControl {
   return {
     models: async () => {
@@ -88,6 +93,7 @@ export function controlOf(
       await client.setModel(model.provider, model.id);
     },
     abort: () => client.abort(),
+    bash,
     commands: async () =>
       (await client.getCommands()).map(({ name, description }) => ({
         name,

@@ -12,6 +12,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 
 In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+R reloads all code, Ctrl+Q quits.
 Slash commands: `/model`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
+`!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 
 ## Where things live
 
@@ -31,6 +32,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
+| `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 
 ## Things that bit us

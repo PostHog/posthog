@@ -17,7 +17,23 @@ export type TranscriptLine =
   | { kind: "assistant"; id: string; text: string }
   | ToolLine
   | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
-  | { kind: "actions"; id: string; actions: ShowAction[] };
+  | { kind: "actions"; id: string; actions: ShowAction[] }
+  | ShellLine;
+
+// A shell command the user ran with ! in the composer, not one the agent ran.
+export interface ShellLine {
+  kind: "shell";
+  id: string;
+  command: string;
+  status: string;
+  output: string;
+}
+
+// A command shown before the run's log has it; seen counts the logged runs of the same command when it started.
+export interface PendingShell {
+  line: ShellLine;
+  seen: number;
+}
 
 export interface ToolLine {
   kind: "tool";
@@ -111,6 +127,17 @@ function toLine(item: ConversationItem): TranscriptLine[] {
         : [];
     case "tool_call":
       if (update.title.endsWith(SUMMARY_TOOL)) return [];
+      if ("origin" in update && update.origin === "user_shell") {
+        return [
+          {
+            kind: "shell",
+            id: item.id,
+            command: update.title,
+            status: update.status ?? "pending",
+            output: toolOutput(update.content, update.rawOutput),
+          },
+        ];
+      }
       if (update.title.endsWith(ACTIONS_TOOL)) {
         const input = actionsInput.safeParse(update.rawInput);
         return update.status !== "failed" && input.success
@@ -193,4 +220,22 @@ export function withPending(
   const lastUser = lines.findLast((line) => line.kind === "user");
   if (lastUser?.kind === "user" && lastUser.text === pending) return lines;
   return [...lines, { kind: "user", id: "pending", text: pending }];
+}
+
+// How many runs of a command the transcript already shows.
+export function shellRuns(lines: TranscriptLine[], command: string): number {
+  return lines.filter(
+    (line) => line.kind === "shell" && line.command === command,
+  ).length;
+}
+
+// Commands the user just ran show at once, each until the run's log has a run of it beyond the ones it saw.
+export function withPendingShells(
+  lines: TranscriptLine[],
+  pending: PendingShell[],
+): TranscriptLine[] {
+  const waiting = pending.filter(
+    ({ line, seen }) => shellRuns(lines, line.command) <= seen,
+  );
+  return [...lines, ...waiting.map(({ line }) => line)];
 }

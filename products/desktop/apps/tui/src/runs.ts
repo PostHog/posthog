@@ -97,7 +97,8 @@ export function withListedRun(
 
 // A status line for the pane while a run has nothing of its own to show.
 export function formatDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
+  // The shared conversation builder can close a turn with its negated start time still in place.
+  const seconds = Math.max(0, Math.round(ms / 1000));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   if (hours > 0) return `${hours}h ${minutes}m`;

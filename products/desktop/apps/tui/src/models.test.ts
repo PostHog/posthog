@@ -141,4 +141,33 @@ describe("piControl", () => {
       params: { command: { type: "abort" } },
     });
   });
+
+  it("runs a shell command in the run's sandbox and returns its output", async () => {
+    const result = { output: "clean", exitCode: 0, cancelled: false };
+    const sendCommand = vi.fn(
+      async ({
+        params,
+      }: {
+        params: { command: { id: string; type: string } };
+      }) => ({
+        success: true,
+        result: {
+          id: params.command.id,
+          type: "response",
+          command: params.command.type,
+          success: true,
+          data: result,
+        },
+      }),
+    );
+
+    expect(
+      await piControl(sendCommand as never, "t1", "r1").bash("git status"),
+    ).toMatchObject(result);
+    expect(sendCommand.mock.calls[0][0]).toMatchObject({
+      taskId: "t1",
+      runId: "r1",
+      params: { command: { type: "bash", command: "git status" } },
+    });
+  });
 });
