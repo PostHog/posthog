@@ -1987,6 +1987,9 @@ const scoutNotesCreate = (): ToolBase<ReturnType<typeof ScoutNotesCreateSchema>,
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }

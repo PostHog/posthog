@@ -2556,6 +2556,12 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
+        report_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires read access to inbox reports, and the report must belong to this project."
+            ),
         expires_at: zod
             .string()
             .nullish()
