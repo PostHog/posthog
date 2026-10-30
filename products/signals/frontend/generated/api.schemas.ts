@@ -3825,6 +3825,11 @@ export interface ZendeskTicketSignalExtraApi {
     status: string
 }
 
+export interface GithubIssueDependencyRefApi {
+    repository: string
+    number: number
+}
+
 export interface GithubIssueSignalExtraApi {
     html_url: string
     number: number
@@ -3835,6 +3840,7 @@ export interface GithubIssueSignalExtraApi {
     state: string
     author_login?: string | null
     author_association?: string | null
+    depends_on_issues?: GithubIssueDependencyRefApi[]
 }
 
 export interface LinearIssueSignalExtraApi {
