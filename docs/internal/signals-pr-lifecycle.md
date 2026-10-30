@@ -1,5 +1,7 @@
 # Report completion and late PR attachments
 
+The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 

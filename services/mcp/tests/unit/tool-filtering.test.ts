@@ -1121,6 +1121,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
+            'marketing-analytics-recommendations',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
