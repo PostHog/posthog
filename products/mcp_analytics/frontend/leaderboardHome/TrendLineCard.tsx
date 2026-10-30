@@ -19,6 +19,7 @@ export interface TrendLine {
     key: string
     label: string
     data: number[]
+    color?: string
 }
 
 export function TrendLineCard({
@@ -45,7 +46,7 @@ export function TrendLineCard({
     formatTick: (value: number) => string
 }): JSX.Element {
     const series = useMemo<Series[]>(
-        () => lines.map((line, index) => ({ ...line, color: theme.colors[index % theme.colors.length] })),
+        () => lines.map((line, index) => ({ ...line, color: line.color ?? theme.colors[index % theme.colors.length] })),
         [lines, theme]
     )
     const config = useChartConfig<TimeSeriesLineChartConfig>(

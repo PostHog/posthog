@@ -92,8 +92,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const reliabilityUnavailable = reliabilityFailed || reliabilityRows.length === 0
     const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
-        () => [{ key: 'error-rate', label: 'Error rate', data: reliabilitySeries.errorRatePct }],
-        [reliabilitySeries]
+        () => [
+            { key: 'error-rate', label: 'Error rate', color: theme.colors[4], data: reliabilitySeries.errorRatePct },
+        ],
+        [reliabilitySeries, theme]
     )
     const latencyLines = useMemo(
         () => [
