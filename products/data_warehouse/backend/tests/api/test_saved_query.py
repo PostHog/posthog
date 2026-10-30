@@ -55,6 +55,35 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 
 class TestSavedQuery(APIBaseTest):
+    def test_query_rejects_excessive_view_expansion_before_execution(self) -> None:
+        previous = ""
+        for name in ("leaf", "middle", "top"):
+            query = f"select a.x from {previous} a join {previous} b on a.x = b.x" if previous else "select 1 as x"
+            view = DataWarehouseSavedQuery(team=self.team, name=name, query={"kind": "HogQLQuery", "query": query})
+            view.set_columns({"x": {"hogql": "integer", "clickhouse": "Int64", "valid": True}})
+            view.save()
+            previous = name
+
+        with (
+            patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 6),
+            patch("posthog.hogql.query.sync_execute") as execute,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select * from top"}, "refresh": "force_blocking"},
+            )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("saved view expansions", response.json()["detail"])
+        execute.assert_not_called()
+
+    def test_soft_create_still_skips_column_inference(self) -> None:
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=AssertionError("inference ran")):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "constant_view", "query": {"kind": "HogQLQuery", "query": "select 1"}, "soft_update": True},
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_create_with_folder(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing", created_by=self.user)
 
@@ -1857,8 +1886,15 @@ class TestSavedQuery(APIBaseTest):
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
 
-    @parameterized.expand([("direct", False), ("through_another_view", True)])
-    def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool) -> None:
+    @parameterized.expand(
+        [
+            ("direct", False, False),
+            ("through_another_view", True, False),
+            ("soft_direct", False, True),
+            ("soft_through_another_view", True, True),
+        ]
+    )
+    def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool, soft_update: bool) -> None:
         original_query = "select event as event from events LIMIT 100"
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -1887,6 +1923,7 @@ class TestSavedQuery(APIBaseTest):
             {
                 "query": {"kind": "HogQLQuery", "query": f"select * from {referenced_view}"},
                 "edited_history_id": saved_query["latest_history_id"],
+                "soft_update": soft_update,
             },
         )
 

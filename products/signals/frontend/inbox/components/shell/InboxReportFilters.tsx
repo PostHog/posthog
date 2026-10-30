@@ -15,6 +15,7 @@ import {
 } from '../../filterOptions'
 import { InboxCreatedWindow, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReportPriority } from '../../types'
+import { InboxSourceFilter } from './InboxSourceFilter'
 import { InboxStateFilter } from './InboxStateFilter'
 
 const ALL_PRIORITIES = null
@@ -55,8 +56,11 @@ const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: 
 ]
 
 /**
- * What narrows the report list: priority, then report state, then sort order, then the created-in window. Filter state is
- * persisted via `inboxFiltersLogic`, and the list reloads on change.
+ * What narrows the report list: report state, then priority, then sort order, then the created-in window, then source.
+ * Filter state is persisted via `inboxFiltersLogic`, and the list reloads on change.
+ *
+ * Source goes last because its label grows with the selected scout name. Anywhere earlier, a long name
+ * pushes the controls after it to the right.
  *
  * Reviewer scope is deliberately not here. It sits with triage mode on the other side of the row,
  * because it picks whose inbox this is rather than narrowing the one you are looking at.
@@ -69,12 +73,14 @@ export function InboxReportFilters(): JSX.Element {
         modelSortAvailable,
         timeWindowAvailable,
         createdWindow,
+        sourceFilterAvailable,
     } = useValues(inboxFiltersLogic)
     const { setSort, setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
     const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            <InboxStateFilter />
             <LemonSelect
                 size="small"
                 value={priorityFilter.length === 1 ? priorityFilter[0] : ALL_PRIORITIES}
@@ -85,7 +91,6 @@ export function InboxReportFilters(): JSX.Element {
                 renderButtonContent={() => inboxPriorityFilterLabel(priorityFilter)}
                 data-attr="inbox-filter-priority"
             />
-            <InboxStateFilter />
             <LemonSelect
                 size="small"
                 value={inboxSortOptionKey(activeSortField, activeSortDirection)}
@@ -109,6 +114,7 @@ export function InboxReportFilters(): JSX.Element {
                     data-attr="inbox-filter-created-window"
                 />
             )}
+            {sourceFilterAvailable && <InboxSourceFilter />}
         </div>
     )
 }

@@ -13,7 +13,7 @@ from uuid import UUID
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.user import User
 
 from products.canvas.backend import build_service
@@ -234,9 +234,7 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
         value={
             # They are reading the checklist inside the desktop app.
             "download-desktop": True,
-            "connect-github": Integration.objects.filter(
-                team_id=canvas.team_id, kind=Integration.IntegrationKind.GITHUB
-            ).exists(),
+            "connect-github": IntegrationManager.github.oauth.exists(canvas.team_id),
         },
     )
     layout = default_layout()

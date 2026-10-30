@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 from django.contrib import admin, messages
+from django.contrib.admin import ActionLocation
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -11,6 +12,7 @@ from django.contrib.auth.forms import (
     ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
     UserChangeForm as DjangoUserChangeForm,
 )
+from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX, identify_hasher
 from django.core.exceptions import ValidationError
 from django.db.models import CASCADE, PROTECT, RESTRICT, Model
 from django.db.models.deletion import get_candidate_relations_to_delete
@@ -23,10 +25,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.http import urlencode
 from django.utils.safestring import mark_safe
-from django.utils.translation import (
-    gettext,
-    gettext_lazy as _,
-)
+from django.utils.translation import gettext_lazy as _
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
@@ -52,9 +51,6 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
 
-# Django's default widget masks salt/hash but still shows their first few characters; keep those out of the admin entirely.
-_HIDDEN_SUMMARY_LABELS = {"salt", "hash", "checksum"}
-
 # Every relation is counted with its own capped query, so this bounds how much of a table the
 # confirmation page reads. The exact figure past the cap doesn't change the operator's decision.
 DELETION_SUMMARY_COUNT_CAP = 100
@@ -75,10 +71,19 @@ class UserChangeList(ChangeList):
 
 
 class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
+    # Django's widget shows the first characters of the salt and hash. Show only the algorithm.
+    template_name = "admin/posthog/user/read_only_password_hash.html"
+
     def get_context(self, name: str, value: str | None, attrs: dict[str, Any] | None) -> dict[str, Any]:
         context = super().get_context(name, value, attrs)
-        hidden_labels = {gettext(label) for label in _HIDDEN_SUMMARY_LABELS}
-        context["summary"] = [entry for entry in context["summary"] if entry["label"] not in hidden_labels]
+        context["has_password"] = False
+        context["algorithm"] = None
+        if value and not value.startswith(UNUSABLE_PASSWORD_PREFIX):
+            context["has_password"] = True
+            try:
+                context["algorithm"] = identify_hasher(value).algorithm
+            except ValueError:
+                pass
         return context
 
 
@@ -380,8 +385,10 @@ class UserAdmin(DjangoUserAdmin):
         impersonated = get_impersonated_user(request)
         return impersonated is not None and obj.pk == impersonated.pk
 
-    def get_actions(self, request: HttpRequest, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        actions = super().get_actions(request, *args, **kwargs)
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
+        actions = super().get_actions(request, action_location=action_location)
         # Bulk delete has nowhere to ask for a reason, and it would collect the cascade for every
         # selected account into one page.
         actions.pop("delete_selected", None)

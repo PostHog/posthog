@@ -875,6 +875,27 @@ impl PersonHogLeader for TestLeaderService {
         Err(status)
     }
 
+    async fn raise_person_version(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::RaisePersonVersionRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::RaisePersonVersionResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        let req = request.into_inner();
+        let mut person = self
+            .persons
+            .get(&(req.team_id, req.person_id))
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| Status::not_found("person not found"))?;
+        person.version = person.version.max(req.min_version);
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::RaisePersonVersionResponse {
+                person: Some(person),
+                raised: true,
+            },
+        ))
+    }
+
     async fn get_person(
         &self,
         request: Request<GetPersonRequest>,
@@ -1277,6 +1298,7 @@ impl PersonHogLifecycle for TestLifecycleService {
             .map(|person_id| lifecycle::DeletePersonResult {
                 person_id,
                 outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+                person_version: None,
             })
             .collect();
         Ok(Response::new(lifecycle::DeletePersonsResponse {
