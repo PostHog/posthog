@@ -257,15 +257,6 @@ def pytest_collection_finish() -> None:
     _end_gc_boot_window()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _temporal_test_servers() -> Iterator[None]:
-    from posthog.test.temporal_test_servers import install  # noqa: PLC0415 - defer the SDK import until tests run
-
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        install(monkeypatch)
-        yield
-
-
 def pytest_runtest_setup(item: pytest.Item) -> None:
     from posthog.test import authentication_checks  # noqa: PLC0415
 
