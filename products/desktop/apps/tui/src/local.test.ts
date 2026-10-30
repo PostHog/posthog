@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalSession } from "./local";
 import { type AgentPrompt, promptReply } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
-import { contextFill } from "./usage";
+import { contextFill, shellsStatus } from "./usage";
 
 const emptyView = (): RunView => emptyRunView;
 
@@ -179,6 +179,26 @@ describe("LocalSession", () => {
     expect(await session.control.commands()).toEqual([
       { name: "skill:review", description: "Review a PR" },
     ]);
+  });
+
+  it("keeps the agent's background shell status in its view, as a cloud sandbox logs it", async () => {
+    const { client, listeners } = fakeClient();
+    const session = new LocalSession(client, policies());
+    await session.start();
+    let view = emptyView();
+    session.watch((next) => {
+      view = next;
+    });
+
+    listeners.event?.({
+      type: "extension_ui_request",
+      id: "s1",
+      method: "setStatus",
+      statusKey: "background-shells",
+      statusText: "1 shell · 1 monitor",
+    });
+
+    expect(shellsStatus(view.entries)).toBe("1 shell · 1 monitor");
   });
 
   it("holds the agent's prompts until answered and sends each answer back", async () => {

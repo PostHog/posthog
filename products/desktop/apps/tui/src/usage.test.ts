@@ -1,7 +1,7 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { AgentConversationEvent, StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { contextFill, usageStatus } from "./usage";
+import { contextFill, shellsStatus, usageStatus } from "./usage";
 
 const entry = (event: Partial<AgentConversationEvent>): StoredLogEntry => ({
   type: "pi_event",
@@ -68,5 +68,52 @@ describe("usageStatus", () => {
     expect(usageStatus({ tokens: 50, window: 100 }, 3.12)).toMatch(
       new RegExp(`${"\u001b"}\\[2m • \\$3\\.12${"\u001b"}\\[22m$`),
     );
+  });
+});
+
+describe("shellsStatus", () => {
+  const status = (
+    statusText: string | undefined,
+    statusKey = "background-shells",
+  ) =>
+    ({
+      type: "pi_extension_event",
+      notification: {
+        method: "_posthog/pi_extension_event",
+        params: {
+          type: "extension_ui_request",
+          method: "setStatus",
+          statusKey,
+          statusText,
+        },
+      },
+    }) as never;
+
+  it.each([
+    [
+      "the latest status",
+      [status("1 shell"), status("2 shells · 1 monitor")],
+      "2 shells · 1 monitor",
+    ],
+    [
+      "nothing once the shells are gone",
+      [status("1 shell"), status(undefined)],
+      undefined,
+    ],
+    [
+      "nothing from another extension's status",
+      [status("busy", "other")],
+      undefined,
+    ],
+  ])("reads %s", (_, entries, expected) => {
+    expect(shellsStatus(entries)).toBe(expected);
+  });
+
+  it("puts the shells before the context and cost", () => {
+    expect(
+      stripTerminalSequences(
+        usageStatus({ tokens: 50, window: 100 }, 3.12, "2 shells · 1 monitor"),
+      ),
+    ).toBe("2 shells · 1 monitor • ◑ • $3.12");
   });
 });
