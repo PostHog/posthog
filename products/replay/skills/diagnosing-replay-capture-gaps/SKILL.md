@@ -60,11 +60,14 @@ Read the custom events around each gap. The [lifecycle tags table](./references/
 - `browser offline`: data was buffered offline and may be lost if the tab closed.
 - `$session_id_change` or `$session_ending`: the rest is in another recording. `nextSessionId` names it.
 - A window whose first full snapshot is much later than its first event: the start was lost. That is the "first N can't be played" banner.
-- A window that ends at the last interaction before a navigation, with no next Meta: the next page was not captured.
+- A window that ends at the last interaction before a navigation, with no later Meta and no `$pageview` or `$url_changed` event: the next page was not captured.
 
 ### Step 3: Compare with what the user actually did
 
-Events show pages and actions that the recording lacks:
+Events show pages and actions that the recording lacks.
+Bound the query by time, because `$session_id` alone does not limit the partitions it reads.
+Take `<start>` and `<end>` from `session-recording-get`, or from the first and last snapshot timestamps.
+A session lasts at most 24 hours, so a one-day buffer on each side keeps events from before the recording started:
 
 ```sql
 SELECT
@@ -78,12 +81,14 @@ SELECT
     properties.$lib_version AS lib_version
 FROM events
 WHERE $session_id = '<session_id>'
+    AND timestamp >= toDateTime('<start>') - INTERVAL 1 DAY
+    AND timestamp <= toDateTime('<end>') + INTERVAL 1 DAY
     AND event IN ('$pageview', '$screen', '$pageleave', '$autocapture', '$exception')
 ORDER BY timestamp ASC
 LIMIT 300
 ```
 
-- Events on URLs with no Meta `href` in the recording: those pages were not recorded. Check `$lib_version` on them. A different version or `$lib` means a different app or init.
+- Events on URLs that the recording does not cover: those pages were not recorded. A single-page app changes route without a page load, so compare against Meta `href` values **and** the `href` of `$pageview` and `$url_changed` custom events, and check that snapshots continue around that time. Only then check `$lib_version` on the unrecorded events. A different version or `$lib` means a different app or init.
 - `recording_status` that changes during the session (for example to `disabled`, `paused`, or `buffering`) shows where the SDK stopped.
 - No client events at all after a point (only server-side `$lib` values): the client SDK stopped loading.
 
@@ -99,8 +104,9 @@ If the evidence points outside what you can see (billing limit, proxy config, an
 The config in this recording applies to every session on the same site and SDK version.
 Use it to answer "why only some sessions":
 
-- `sampleRate` below 1, or `triggerGroupSamplingDecisionMade.sampleRate`: most sessions are left out on purpose.
-- `urlTriggers`, `eventTriggers`, or `linkedFlag`: sessions that never match are not recorded. Check the patterns for typos.
+- First find which conditions the SDK used. With `version: 2` and a non-empty `triggerGroups`, a current SDK uses the trigger groups, and `triggerGroupSamplingDecisionMade` events appear. The top-level `sampleRate` and triggers are then only a fallback for SDKs too old for trigger groups.
+- The active sample rate below 1: most sessions are left out on purpose.
+- Active URL, event, or flag conditions: sessions that never match are not recorded. Check the patterns for typos.
 - `minimumDurationMilliseconds`: shorter sessions are dropped.
 - `urlBlocklist`: those pages never record.
 

@@ -40,12 +40,17 @@ The recorder also writes warnings into the console stream with the prefix `[Sess
 | Field                                        | Meaning                                                                             |
 | -------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `enabled`                                    | Replay is on for the project.                                                       |
+| `version`                                    | `2` when the project uses trigger groups, `1` for legacy conditions only.           |
+| `triggerGroups`                              | Trigger groups. Each has its own conditions and sample rate.                        |
 | `sampleRate`                                 | Share of sessions recorded, as a string such as `"0.10"`. `null` means no sampling. |
-| `minimumDurationMilliseconds`                | Sessions shorter than this are not kept.                                            |
 | `urlTriggers`, `eventTriggers`, `linkedFlag` | Recording waits until one matches.                                                  |
 | `triggerMatchType`                           | `any` or `all`: how the triggers combine.                                           |
-| `triggerGroups`                              | Newer trigger groups. Each has its own conditions and sample rate.                  |
+| `minimumDurationMilliseconds`                | Sessions shorter than this are not kept.                                            |
 | `urlBlocklist`                               | URLs where recording pauses.                                                        |
+
+`sampleRate`, `urlTriggers`, `eventTriggers`, `linkedFlag` and `triggerMatchType` are the legacy conditions.
+With `version: 2` and a non-empty `triggerGroups`, a current SDK uses the groups, and the legacy conditions are only a fallback for SDKs too old for trigger groups.
+`triggerGroupSamplingDecisionMade` events, or `$sdk_debug_replay_remote_trigger_matching_config = 'v2_trigger_groups'` on events, confirm the SDK used the groups.
 
 ## Recipes
 
@@ -96,9 +101,16 @@ jq -c '(.data.snapshots | map(.timestamp) | min) as $s
 
 ### Config
 
+Newer posthog-js writes only the replay settings into `$remote_config_received`.
+Older versions write the whole remote config, with the replay settings under `sessionRecording`, which is `false` when replay is off.
+The first command handles both.
+
 ```sh
 jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$remote_config_received") | .data.payload
-  | {enabled, sampleRate, minimumDurationMilliseconds, triggerMatchType, urlTriggers, eventTriggers, linkedFlag, triggerGroups, urlBlocklist}' "$F"
+  | (if type == "object" and has("sessionRecording") then .sessionRecording else . end)
+  | if type == "object"
+    then {version, enabled, sampleRate, minimumDurationMilliseconds, triggerMatchType, urlTriggers, eventTriggers, linkedFlag, triggerGroups, urlBlocklist}
+    else {sessionRecording: .} end' "$F"
 jq -c '.data.snapshots[] | select(.type == 5 and (.data.tag == "$recording_started" or .data.tag == "triggerGroupSamplingDecisionMade")) | {tag: .data.tag, payload: .data.payload}' "$F"
 jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$posthog_config") | .data.payload.config
   | {disable_session_recording, opt_out_capturing_by_default, cookieless_mode, api_host, persistence, session_recording}' "$F"

@@ -99,24 +99,27 @@ jq -c '.data.snapshots[] | select(.type == 5 and .data.tag == "$posthog_config")
 
 Save as `inventory.jq` and run `jq -f inventory.jq "$F"`.
 It reads nodes from full snapshots and from mutation adds.
+Each window has its own recorder, so node ids repeat across windows. The program keys canvases and iframes by window and id.
 
 ```jq
 def nodes: [.data.snapshots[]
+  | .windowId as $w
   | if .type == 2 then .data.node
     elif .type == 3 and .data.source == 0 then (.data.adds // [])[].node
     else empty end
-  | .. | objects | select(has("type") and has("id"))];
+  | .. | objects | select(has("type") and has("id"))
+  | . + {w: $w}];
 def incr($src): [.data.snapshots[] | select(.type == 3 and .data.source == $src)];
 (nodes) as $n
-| ([.data.snapshots[] | select(.type == 3 and .data.source == 0) | (.data.adds // [])[] | .parentId] | unique) as $mutation_parents
+| ([.data.snapshots[] | select(.type == 3 and .data.source == 0) | .windowId as $w | (.data.adds // [])[] | "\($w):\(.parentId)"] | unique) as $mutation_parents
 | {
     full_snapshots: [.data.snapshots[] | select(.type == 2)] | length,
     stylesheets_not_inlined: [$n[] | select(.tagName == "link" and (.attributes.rel // "" | test("stylesheet")) and (.attributes._cssText | not)) | .attributes.href] | unique | .[0:10],
     stylesheets_inlined: [$n[] | select(.tagName == "link" and .attributes._cssText)] | length,
     blocked_placeholders: [$n[] | select(.attributes.rr_width) | {tag: .tagName, class: .attributes.class, w: .attributes.rr_width, h: .attributes.rr_height}] | unique | .[0:10],
-    canvases: [$n[] | select(.tagName == "canvas") | {id, class: .attributes.class, has_data_url: (.attributes.rr_dataURL != null)}] | unique_by(.id) | .[0:10],
-    canvas_ids_with_frames: [incr(9)[] | .data.id] | unique,
-    iframes: [$n[] | select(.tagName == "iframe") | {id, src: (.attributes.src // "" | .[0:120]), content_captured: ((.childNodes // [] | length > 0) or (.id as $i | $mutation_parents | index($i) != null))}] | unique_by(.id) | .[0:10],
+    canvases: [$n[] | select(.tagName == "canvas") | {window: .w, id, class: .attributes.class, has_data_url: (.attributes.rr_dataURL != null)}] | unique_by([.window, .id]) | .[0:10],
+    canvases_with_frames: [incr(9)[] | {window: .windowId, id: .data.id}] | unique,
+    iframes: [$n[] | select(.tagName == "iframe") | {window: .w, id, src: (.attributes.src // "" | .[0:120]), content_captured: ((.childNodes // [] | length > 0) or ("\(.w):\(.id)" as $k | $mutation_parents | index($k) != null))}] | unique_by([.window, .id]) | .[0:10],
     media: [$n[] | select(.tagName == "video" or .tagName == "audio") | {tag: .tagName, src: ((.attributes.src // .attributes.rr_src // "") | .[0:160]), state: .attributes.rr_mediaState}] | unique | .[0:10],
     media_interaction_events: incr(7) | length,
     shadow_hosts: [$n[] | select(.isShadowHost) | .tagName] | unique,
@@ -130,10 +133,11 @@ def incr($src): [.data.snapshots[] | select(.type == 3 and .data.source == $src)
 
 ### What happened around the symptom
 
-Lists events within 5 seconds of a player offset `OFFSET_S`, with times relative to the start.
+Lists events within 5 seconds of a player offset `OFFSET_S`.
+Set `START_MS` to player time 0: the earlier of the recording's `start_time` (in epoch ms) and the first snapshot's `timestamp`.
 
 ```sh
-jq -c --argjson off "$OFFSET_S" '(.data.snapshots | map(.timestamp) | min) as $s
+jq -c --argjson off "$OFFSET_S" --argjson start "$START_MS" '([$start, (.data.snapshots | map(.timestamp) | min)] | min) as $s
   | .data.snapshots[]
   | ((.timestamp - $s) / 1000) as $t
   | select($t >= $off - 5 and $t <= $off + 5)
@@ -142,8 +146,10 @@ jq -c --argjson off "$OFFSET_S" '(.data.snapshots | map(.timestamp) | min) as $s
 
 ### Find the node with an id
 
+Node ids are only unique inside one window, so pass the window id too.
+
 ```sh
-jq -c --argjson id "$NODE_ID" 'first(.data.snapshots[] | (.data.node?, (.data.adds? // [])[]?.node) | .. | objects | select(.id? == $id)) | {tagName, attributes: (.attributes | with_entries(.value |= (tostring | .[0:200])))}' "$F"
+jq -c --argjson id "$NODE_ID" --argjson w "$WINDOW_ID" 'first(.data.snapshots[] | select(.windowId == $w) | (.data.node?, (.data.adds? // [])[]?.node) | .. | objects | select(.id? == $id)) | {tagName, attributes: (.attributes | with_entries(.value |= (tostring | .[0:200])))}' "$F"
 ```
 
 ### Failed network requests

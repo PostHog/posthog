@@ -12,7 +12,7 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 
 **Evidence:**
 
-- `$remote_config_received`: `sampleRate` below 1, `urlTriggers`, `eventTriggers`, `linkedFlag`, `triggerGroups`, `triggerMatchType`.
+- `$remote_config_received`: `version`, `triggerGroups`, and the legacy `sampleRate`, `urlTriggers`, `eventTriggers`, `linkedFlag`, `triggerMatchType`. Read the config notes in [reading-the-export.md](./reading-the-export.md#config-fields-in-remote_config_received) to tell which of these the SDK used.
 - `$recording_started.reason` tells which condition started this recording. `sampled` with triggers configured means the trigger never fired and this session only got in through sampling.
 - `triggerGroupSamplingDecisionMade` shows each group's sample rate and decision.
 - Events: `$sdk_debug_replay_url_trigger_status`, `$sdk_debug_replay_event_trigger_status`, `$sdk_debug_replay_linked_flag_trigger_status` stay `trigger_pending` on sessions that do not record.
@@ -21,7 +21,7 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 
 - A URL trigger regex that cannot match. Check it against the `$current_url` values of real events, including the scheme, subdomain, and slashes.
 - An event trigger that only fires on web. Recording conditions are project-wide and shared by web and mobile, so mobile never records. Add an event that fires on mobile (for example `$screen` or `Application Opened`); event triggers combine with OR.
-- A sample rate set in the collapsed **legacy recording conditions** section of replay settings. The UI hides that section when trigger groups are in use, but the rate still applies. Which pages are missing then looks meaningful but is random per session.
+- A sample rate left in the collapsed **legacy recording conditions** section of replay settings. It is a fallback: it applies when the project has no readable trigger groups, or when the SDK is too old for trigger groups (no `triggerGroupSamplingDecisionMade` events, and an old `$lib_version`). A current SDK with trigger groups ignores it. When it does apply, which pages are missing looks meaningful but is random per session.
 - The customer's own rollout flag or sampling stacked on top of PostHog sampling.
 - Mobile SDK upgrades: older Android SDKs ignored remote sampling and triggers and recorded everything. After an upgrade, the same project settings record fewer sessions.
 - A local `sessionReplayConfig.sampleRate` in a mobile SDK overrides the project rate.

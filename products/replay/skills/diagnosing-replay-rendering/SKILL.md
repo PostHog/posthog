@@ -52,7 +52,9 @@ Then work from the timeline, the console logs and SQL.
 ### Step 1: Pin down the symptom
 
 Get from the prompt what looks wrong, where on the screen, and at what player time.
-Convert the player time to a timestamp: the first snapshot's `timestamp` plus the offset in ms.
+Convert the player time to a timestamp the way the player does.
+Player time 0 is the earlier of the recording's `start_time` (from `session-recording-get`) and the first snapshot's `timestamp`.
+Add the offset in ms to that. Do not start from the first snapshot alone, because `start_time` can be earlier.
 If the prompt does not say what looks wrong, ask once. Do not guess between "black screen" and "missing styles".
 
 ### Step 2: Profile the export and find the platform
@@ -63,12 +65,15 @@ Run the overview and config recipes in [reading-the-export.md](./references/read
 - `img` nodes with `data-posthog-screenshot`, no `$session_options`, or `snapshot_source = mobile`: **mobile**.
   The export already holds mobile wireframes converted to HTML, so you read DOM nodes, not raw wireframes.
 
-Get the SDK name and version with SQL. Many causes depend on a minimum SDK version:
+Get the SDK name and version with SQL. Many causes depend on a minimum SDK version.
+Bound the query by the recording's `start_time` and `end_time`, because `$session_id` alone does not limit the partitions it reads:
 
 ```sql
 SELECT properties.$lib AS lib, properties.$lib_version AS version, properties.$browser AS browser, properties.$os AS os
 FROM events
 WHERE $session_id = '<session_id>'
+    AND timestamp >= toDateTime('<start_time>') - INTERVAL 10 MINUTE
+    AND timestamp <= toDateTime('<end_time>') + INTERVAL 10 MINUTE
 GROUP BY lib, version, browser, os
 ```
 

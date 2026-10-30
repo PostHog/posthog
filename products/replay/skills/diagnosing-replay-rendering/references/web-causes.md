@@ -12,7 +12,7 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 
 - `canvases` in the inventory is not empty.
 - Canvas capture is off: `$remote_config_received.payload.recordCanvas` is false or missing, and `$session_options.payload.sessionRecordingOptions.recordCanvas` is not true.
-- Or capture is on, but `canvas_ids_with_frames` does not include the blank canvas, and the canvas has no `rr_dataURL`.
+- Or capture is on, but `canvases_with_frames` does not include the blank canvas (same window and id), and the canvas has no `rr_dataURL`.
 - Library class names hint at the renderer, for example `maplibregl-canvas` or `mapboxgl-canvas`.
 
 **Causes and fixes:**
