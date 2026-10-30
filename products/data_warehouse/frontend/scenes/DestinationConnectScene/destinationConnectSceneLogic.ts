@@ -64,12 +64,12 @@ export interface destinationConnectSceneLogicActions {
 export interface destinationConnectSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         destinationDefinition: (kind: string | null) => WarehouseDestinationDefinition | null
-        breadcrumbs: (destinationDefinition: WarehouseDestinationDefinition | null) => Breadcrumb[]
         integrationSetup: (kind: string | null) => IntegrationSetupDefinition | null
         setupDefaults: (
             integrationSetup: IntegrationSetupDefinition | null,
             vendorConfig: Record<string, unknown> | null
         ) => Record<string, any> | undefined
+        breadcrumbs: (destinationDefinition: WarehouseDestinationDefinition | null) => Breadcrumb[]
     }
 }
 
