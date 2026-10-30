@@ -505,8 +505,9 @@ def test_compute_skips_deleted_team() -> None:
     assert result.items == []
 
 
+@pytest.mark.parametrize("record_skip_status", [True, False])
 @pytest.mark.parametrize("analysis_level", ["trace", "generation"])
-def test_compute_below_minimum_records_skip_status(mock_team, analysis_level) -> None:
+def test_compute_below_minimum_records_skip_status(mock_team, analysis_level, record_skip_status) -> None:
     from posthog.temporal.ai_observability.clustering_skip_status import get_skip_status
     from posthog.temporal.ai_observability.trace_clustering.activities import _perform_clustering_compute
 
@@ -521,10 +522,14 @@ def test_compute_below_minimum_records_skip_status(mock_team, analysis_level) ->
                 window_start="2025-01-01T00:00:00Z",
                 window_end="2025-01-08T00:00:00Z",
                 analysis_level=analysis_level,
+                record_skip_status=record_skip_status,
             )
         )
 
     assert result.items == []
     status = get_skip_status(mock_team.id, analysis_level)
+    if not record_skip_status:
+        assert status is None
+        return
     assert status is not None
     assert (status.item_count, status.min_required) == (12, MIN_TRACES_FOR_CLUSTERING)

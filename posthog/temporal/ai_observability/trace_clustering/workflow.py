@@ -191,6 +191,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     event_filters=inputs.event_filters,
                     job_id=inputs.job_id,
                     job_name=inputs.job_name,
+                    record_skip_status=inputs.record_skip_status,
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,

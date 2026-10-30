@@ -60,6 +60,12 @@ def clear_skip_status(team_id: int, analysis_level: ClusteringLevel) -> None:
         logger.warning("Failed to clear clustering skip status", team_id=team_id, exc_info=True)
 
 
+def clear_all_skip_statuses(team_id: int) -> None:
+    """A job change makes every recorded count stale, because the counts depend on the job filters."""
+    for level in ("trace", "generation", "evaluation"):
+        clear_skip_status(team_id, level)
+
+
 def get_skip_status(team_id: int, analysis_level: ClusteringLevel) -> ClusteringSkipStatus | None:
     try:
         raw = _redis().get(_cache_key(team_id, analysis_level))

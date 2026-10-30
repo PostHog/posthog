@@ -121,7 +121,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             team_id=inputs.team_id,
             analysis_level=inputs.analysis_level,
         )
-        record_not_enough_items(inputs.team_id, inputs.analysis_level, len(item_ids), min_traces)
+        if inputs.record_skip_status:
+            record_not_enough_items(inputs.team_id, inputs.analysis_level, len(item_ids), min_traces)
         return ClusteringComputeResult(
             clustering_run_id=clustering_run_id,
             items=[],
@@ -135,7 +136,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             num_noise_points=0,
             batch_run_ids={},
         )
-    clear_skip_status(inputs.team_id, inputs.analysis_level)
+    if inputs.record_skip_status:
+        clear_skip_status(inputs.team_id, inputs.analysis_level)
 
     # Fetch summaries to get parent trace_id for generation-level clustering
     summaries = fetch_item_summaries(

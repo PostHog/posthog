@@ -11,6 +11,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
+from posthog.temporal.ai_observability.clustering_skip_status import clear_all_skip_statuses
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
@@ -136,6 +137,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def perform_create(self, serializer):
         instance = serializer.save(team_id=self.team_id)
+        clear_all_skip_statuses(self.team_id)
 
         # Disable the migration-created default job for the same level.
         # Creating a custom job signals the default catch-all is too noisy.
@@ -176,6 +178,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def perform_update(self, serializer):
         instance = serializer.save()
+        clear_all_skip_statuses(self.team_id)
         report_user_action(
             self.request.user,
             "llma clustering job updated",
@@ -195,4 +198,6 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=request,
         )
-        return super().destroy(request, *args, **kwargs)
+        response = super().destroy(request, *args, **kwargs)
+        clear_all_skip_statuses(self.team_id)
+        return response
