@@ -12,7 +12,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 // Matches MAX_TASK_REPOSITORIES in products/cdp/backend/validation.py.
 const MAX_REPOSITORIES = 10
 
-/** Steps saved before the input took a list hold a single `owner/repo` string. */
 function selectedRepositories(value: unknown): string[] {
     if (typeof value === 'string') {
         return value ? [value] : []
@@ -26,8 +25,7 @@ export default function CyclotronJobInputTaskRepository({ value, onChange }: Cus
     const repositories = selectedRepositories(value)
     const selectedKeys = new Set(repositories.map((repository) => repository.toLowerCase()))
 
-    // Which GitHub org to browse is view state only: each saved `owner/repo` string already names
-    // its org, so the choice never needs to persist.
+    // Which GitHub org to browse is view state only: each saved `owner/repo` already names its org.
     const [browsedIntegrationId, setBrowsedIntegrationId] = useState<number | null>(null)
     const integrationId = browsedIntegrationId ?? githubIntegrations[0]?.id
 

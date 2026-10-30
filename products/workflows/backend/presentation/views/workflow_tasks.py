@@ -34,6 +34,7 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.hog_flow import REPOSITORY_SHAPE
 from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
@@ -154,6 +155,17 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "result as `output.<name>`; text fields are cut at 1500 characters."
         ),
     )
+
+    def validate_repository(self, value: str) -> str:
+        if value and not REPOSITORY_SHAPE.fullmatch(value):
+            raise serializers.ValidationError("Repository must be an organization/repo name.")
+        return value
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [self.validate_repository(repository).lower() for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique.")
+        return repositories
 
     def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
         if value is None:

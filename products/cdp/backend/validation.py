@@ -815,7 +815,6 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            # A single string is the shape steps were saved in before the input took a list.
             repositories = [value] if isinstance(value, str) else value
             if (
                 not isinstance(repositories, list)

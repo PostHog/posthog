@@ -8041,6 +8041,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
             ("no_slash", "just-a-name"),
             ("too_many_slashes", "org/repo/extra"),
             ("whitespace_only", " "),
+            ("list_with_a_bad_entry", ["my-org/my-repo", "just-a-name"]),
+            ("duplicate_in_another_case", ["my-org/my-repo", "My-Org/My-Repo"]),
         ]
     )
     def test_rejects_a_repository_that_is_not_org_slash_repo(self, _name, repository):
@@ -8049,8 +8051,14 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__repository"
 
-    def test_accepts_an_org_slash_repo_repository(self):
-        response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
+    @parameterized.expand(
+        [
+            ("legacy_string", "my-org/my-repo"),
+            ("list", ["my-org/my-repo", "my-org/my-docs"]),
+        ]
+    )
+    def test_accepts_org_slash_repo_repositories(self, _name, repository):
+        response = self._post_flow({"repository": {"value": repository}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

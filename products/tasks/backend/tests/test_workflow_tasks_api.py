@@ -35,7 +35,10 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
-from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
+from products.workflows.backend.presentation.views.workflow_tasks import (
+    WorkflowTaskCreateSerializer,
+    WorkflowTasksJWTAuthentication,
+)
 
 SECRET = "test-tasks-create-jwt"
 
@@ -950,6 +953,28 @@ class TestWorkflowTasksAPI(APIBaseTest):
         mapping = SlackThreadTaskMapping.objects.get()
         assert str(mapping.task_run_id) == response.json()["run_id"]
         assert mapping.mentioning_slack_user_id == "U123"
+
+
+class TestWorkflowTaskCreateRepositories(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_slash", {"repositories": ["just-a-name"]}, "repositories"),
+            ("too_many_slashes", {"repositories": ["org/repo/extra"]}, "repositories"),
+            ("duplicate_in_another_case", {"repositories": ["org/repo", "ORG/Repo"]}, "repositories"),
+            ("legacy_no_slash", {"repository": "just-a-name"}, "repository"),
+        ]
+    )
+    def test_rejects_repositories_the_sandbox_cannot_clone(self, _name, body, field):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", **body})
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    def test_lowercases_repositories(self):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", "repositories": ["Org/Repo"]})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["repositories"] == ["org/repo"]
 
 
 class TestWorkflowOriginIsReserved(SimpleTestCase):

@@ -241,7 +241,6 @@ function functionPresentation(action: HogFlowAction): StepPresentation {
                 kind: 'ai-task',
                 title: textInput(action, 'title'),
                 prompt: textInput(action, 'prompt'),
-                // Steps saved before the input took a list hold one string.
                 repositories: asTextList([inputValue(action, 'repository')].flat()),
                 tools: [...asTextList(inputValue(action, 'connectors')), ...asTextList(inputValue(action, 'skills'))],
                 writes: outputKeys(action),
