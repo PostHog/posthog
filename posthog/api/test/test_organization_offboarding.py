@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.utils import timezone
 
@@ -12,7 +12,7 @@ from posthog.models import Organization, OrganizationMembership, SessionRecordin
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -99,11 +99,11 @@ class TestOrganizationOffboarding(APIBaseTest):
         kept_share = SharingConfiguration.objects.create(team=self.team, dashboard=kept, enabled=True)
         disabled_share = SharingConfiguration.objects.create(team=self.team, dashboard=disabled, enabled=True)
         response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [f"public_link:dashboard:{self.team.pk}:{disabled.pk}"], "enabled": False},
+            f"/api/projects/{self.team.pk}/dashboards/{disabled.pk}/sharing",
+            {"enabled": False},
             format="json",
         )
-        assert response.status_code == 204
+        assert response.status_code == 200
         assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
         disabled_share.refresh_from_db()
         assert not disabled_share.enabled
@@ -119,13 +119,6 @@ class TestOrganizationOffboarding(APIBaseTest):
         dashboard = Dashboard.objects.create(team=other_team, created_by=self.departing)
         share = SharingConfiguration.objects.create(team=other_team, dashboard=dashboard, enabled=True)
         assert self.client.get(self.url + "offboarding/").json() == []
-        response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [f"public_link:dashboard:{other_team.pk}:{dashboard.pk}"], "enabled": False},
-            format="json",
-        )
-        assert response.status_code == 400
-        assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
         assert self.client.delete(self.url).status_code == 204
         share.refresh_from_db()
         assert share.enabled
@@ -215,12 +208,13 @@ class TestOrganizationOffboarding(APIBaseTest):
         grace_share.save(update_fields=["password_required"])
         review = {item["kind"]: item for item in self.client.get(self.url + "offboarding/").json()}
         assert not review["notebook"]["password_required"]
-        response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [review["notebook"]["id"], review["recording"]["id"]], "enabled": False},
-            format="json",
-        )
-        assert response.status_code == 204
+        for kind, path in (("notebook", "notebooks"), ("recording", "session_recordings")):
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/{path}/{review[kind]['resource_id']}/sharing",
+                {"enabled": False},
+                format="json",
+            )
+            assert response.status_code == 200
         response = self.client.post(self.url + "offboard/", {}, format="json")
         assert response.status_code == 204
         insight_share.refresh_from_db()
@@ -235,6 +229,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         return Subscription.objects.create(
             team=self.team,
             created_by=creator,
+            dashboard=Dashboard.objects.create(team=self.team, created_by=creator),
             title="Weekly report",
             target_type="email",
             target_value=recipients,
@@ -290,11 +285,11 @@ class TestOrganizationOffboarding(APIBaseTest):
         kept = self.subscription(creator=self.departing, recipients=f"{self.departing.email},other@example.com")
         disabled = self.subscription(creator=self.departing, recipients="other@example.com")
         response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [f"subscription:{disabled.pk}"], "enabled": False},
+            f"/api/projects/{self.team.pk}/subscriptions/{disabled.pk}/",
+            {"enabled": False},
             format="json",
         )
-        assert response.status_code == 204
+        assert response.status_code == 200
         kept.refresh_from_db()
         disabled.refresh_from_db()
         assert kept.enabled and kept.target_value == f"{self.departing.email},other@example.com"
@@ -321,12 +316,24 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert [item["id"] for item in response.json()] == [f"subscription:{subscription.pk}"]
 
     def test_alerts_can_be_kept_or_disabled_without_changing_recipients(self) -> None:
-        insight = Insight.objects.create(team=self.team, created_by=self.departing)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.departing,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
         kept = AlertConfiguration.objects.create(
             team=self.team, insight=insight, created_by=self.departing, name="Keep"
         )
         disabled = AlertConfiguration.objects.create(
-            team=self.team, insight=insight, created_by=self.departing, name="Disable"
+            team=self.team,
+            insight=insight,
+            created_by=self.departing,
+            name="Disable",
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            condition={"type": "absolute_value"},
+            threshold=Threshold.objects.create(
+                team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100}}
+            ),
         )
         unrelated = AlertConfiguration.objects.create(
             team=self.team, insight=insight, created_by=self.user, name="Other"
@@ -337,9 +344,9 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert {item["id"] for item in response.json()} == {f"alert:{kept.pk}", f"alert:{disabled.pk}"}
         assert all(item["kind"] == "alert" for item in response.json())
         response = self.client.patch(
-            self.url + "offboarding_resources/", {"ids": [f"alert:{disabled.pk}"], "enabled": False}, format="json"
+            f"/api/projects/{self.team.pk}/alerts/{disabled.pk}/", {"enabled": False}, format="json"
         )
-        assert response.status_code == 204
+        assert response.status_code == 200
         kept.refresh_from_db()
         disabled.refresh_from_db()
         unrelated.refresh_from_db()
@@ -354,9 +361,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         alert = AlertConfiguration.objects.create(
             team=self.team, insight=insight, created_by=self.departing, owner="platform"
         )
-        response = self.client.patch(
-            self.url + "offboarding_resources/", {"ids": [f"alert:{alert.pk}"], "enabled": False}, format="json"
-        )
+        response = self.client.delete(self.url)
         assert response.status_code == 204
         alert.refresh_from_db()
         assert not alert.enabled
@@ -435,12 +440,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         insight = Insight.objects.create(team=self.team, created_by=self.departing)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, created_by=self.departing)
         with self.captureOnCommitCallbacks(execute=True):
-            assert (
-                self.client.patch(
-                    self.url + "offboarding_resources/", {"ids": [f"alert:{alert.pk}"], "enabled": False}, format="json"
-                ).status_code
-                == 204
-            )
+            assert self.client.delete(self.url).status_code == 204
             alert.refresh_from_db()
             assert not alert.enabled
             disable_configurations.assert_not_called()
@@ -455,7 +455,8 @@ class TestOrganizationOffboarding(APIBaseTest):
         share.refresh_from_db()
         assert share.enabled
 
-    def test_immediate_sharing_changes_can_be_reversed_without_reviving_old_tokens(self) -> None:
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_immediate_sharing_changes_can_be_reversed_without_reviving_old_tokens(self, _export: Mock) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
         current = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         grace = SharingConfiguration.objects.create(
@@ -464,11 +465,21 @@ class TestOrganizationOffboarding(APIBaseTest):
         expired = SharingConfiguration.objects.create(
             team=self.team, dashboard=dashboard, enabled=False, expires_at=timezone.now() - timedelta(minutes=5)
         )
-        payload = {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}"], "enabled": False}
-        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 204
+        payload = {"enabled": False}
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/sharing", payload, format="json"
+            ).status_code
+            == 200
+        )
         assert not SharingConfiguration.objects.filter(team=self.team, dashboard=dashboard, enabled=True).exists()
         payload["enabled"] = True
-        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 204
+        assert (
+            self.client.patch(
+                f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/sharing", payload, format="json"
+            ).status_code
+            == 200
+        )
         current.refresh_from_db()
         dashboard.refresh_from_db()
         grace.refresh_from_db()
@@ -483,40 +494,29 @@ class TestOrganizationOffboarding(APIBaseTest):
             team_id=self.team.pk, scope="Dashboard", item_id=str(dashboard.pk), activity="sharing enabled"
         ).exists()
 
-    def test_bulk_update_rolls_back_when_a_resource_is_unavailable(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing)
-        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}", "unavailable"], "enabled": False},
-            format="json",
-        )
-        assert response.status_code == 400
-        share.refresh_from_db()
-        assert share.enabled
-
-    def test_resource_updates_require_an_admin_removing_another_member(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing)
-        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        payload = {"ids": [f"public_link:dashboard:{self.team.pk}:{dashboard.pk}"], "enabled": False}
-        self.client.force_login(self.departing)
-        assert self.client.patch(self.url + "offboarding_resources/", payload, format="json").status_code == 403
-        self.client.force_login(self.user)
-        own_url = f"/api/organizations/@current/members/{self.user.uuid}/offboarding_resources/"
-        assert self.client.patch(own_url, payload, format="json").status_code == 403
-        share.refresh_from_db()
-        assert share.enabled
-
     def test_subscription_and_alert_changes_save_before_removal_and_can_be_reversed(self) -> None:
         subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
-        insight = Insight.objects.create(team=self.team, created_by=self.departing)
-        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, created_by=self.departing)
-        ids = [f"subscription:{subscription.pk}", f"alert:{alert.pk}"]
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.departing,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            created_by=self.departing,
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            condition={"type": "absolute_value"},
+            threshold=Threshold.objects.create(
+                team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100}}
+            ),
+        )
         for enabled in (False, True):
-            response = self.client.patch(
-                self.url + "offboarding_resources/", {"ids": ids, "enabled": enabled}, format="json"
-            )
-            assert response.status_code == 204
+            for path, identifier in (("subscriptions", subscription.pk), ("alerts", alert.pk)):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.pk}/{path}/{identifier}/", {"enabled": enabled}, format="json"
+                )
+                assert response.status_code == 200, response.json()
             subscription.refresh_from_db()
             alert.refresh_from_db()
             assert subscription.enabled == enabled
@@ -526,16 +526,3 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription.refresh_from_db()
         alert.refresh_from_db()
         assert subscription.enabled and alert.enabled
-
-    def test_bulk_delivery_changes_roll_back_when_an_item_belongs_to_another_member(self) -> None:
-        subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
-        other = self.subscription(creator=self.user, recipients="other@example.com")
-        response = self.client.patch(
-            self.url + "offboarding_resources/",
-            {"ids": [f"subscription:{subscription.pk}", f"subscription:{other.pk}"], "enabled": False},
-            format="json",
-        )
-        assert response.status_code == 400
-        subscription.refresh_from_db()
-        other.refresh_from_db()
-        assert subscription.enabled and other.enabled

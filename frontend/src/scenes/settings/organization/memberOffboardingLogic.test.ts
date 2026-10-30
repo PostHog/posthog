@@ -12,6 +12,7 @@ import { memberOffboardingLogic } from './memberOffboardingLogic'
 const resources = [
     {
         id: 'public_link:dashboard:1:1',
+        resource_id: '1',
         kind: 'dashboard',
         name: 'Product overview',
         team_id: 1,
@@ -19,6 +20,7 @@ const resources = [
     },
     {
         id: 'public_link:insight:1:2',
+        resource_id: '2',
         kind: 'insight',
         name: 'Weekly acquisition',
         team_id: 1,
@@ -40,8 +42,8 @@ describe('memberOffboardingLogic', () => {
                 '/api/organizations/:organization/members/:user/scoped_api_keys/': { has_keys: false, keys: [] },
             },
             patch: {
-                '/api/organizations/:organization/members/:user/offboarding_resources/': async ({ request }) => {
-                    updates.push(await request.json())
+                '/api/projects/:project/:kind/:resource/sharing/': async ({ request }) => {
+                    updates.push({ path: new URL(request.url).pathname, body: await request.json() })
                     return [204, null]
                 },
             },
@@ -63,7 +65,7 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
         membersLogic.actions.loadAllMembersSuccess([MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER])
         await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toFinishAllListeners()
-        expect(updates).toEqual([{ ids: [resources[0].id], enabled: false }])
+        expect(updates).toEqual([{ path: '/api/projects/1/dashboards/1/sharing/', body: { enabled: false } }])
         expect(submitted).toEqual([])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
         expect(submitted).toEqual(['remove'])
@@ -75,7 +77,7 @@ describe('memberOffboardingLogic', () => {
     it('disables selected resources immediately and cancellation does not undo the change', async () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.disableResources([resources[0].id])).toFinishAllListeners()
-        expect(updates).toEqual([{ ids: [resources[0].id], enabled: false }])
+        expect(updates).toEqual([{ path: '/api/projects/1/dashboards/1/sharing/', body: { enabled: false } }])
         expect(logic.values.keep).toEqual([resources[1].id])
         logic.actions.close()
         expect(submitted).toEqual([])
@@ -86,19 +88,16 @@ describe('memberOffboardingLogic', () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         useMocks({
             patch: {
-                '/api/organizations/:organization/members/:user/offboarding_resources/': () => [
-                    500,
-                    { detail: 'Save failed' },
-                ],
+                '/api/projects/:project/:kind/:resource/sharing/': () => [500, { detail: 'Save failed' }],
             },
         })
         await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toDispatchActions([
-            'saveResourcesFailure',
+            'saveResourcesSuccess',
         ])
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
         expect(logic.values.savingResourcesLoading).toBe(false)
         useMocks({
-            patch: { '/api/organizations/:organization/members/:user/offboarding_resources/': () => [204, null] },
+            patch: { '/api/projects/:project/:kind/:resource/sharing/': () => [204, null] },
         })
         await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toDispatchActions([
             'saveResourcesSuccess',
@@ -108,6 +107,45 @@ describe('memberOffboardingLogic', () => {
             'saveResourcesSuccess',
         ])
         expect(logic.values.keep).toContain(resources[0].id)
+    })
+
+    it('keeps successful bulk changes when another resource fails', async () => {
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        useMocks({ patch: { '/api/projects/1/insights/2/sharing/': () => [403, { detail: 'Cannot edit' }] } })
+        await expectLogic(logic, () =>
+            logic.actions.disableResources(resources.map((resource) => resource.id))
+        ).toFinishAllListeners()
+        expect(logic.values.keep).toEqual([resources[1].id])
+        expect(logic.values.savingResourcesLoading).toBe(false)
+    })
+
+    it('uses each resource’s project and API identifier for sharing updates', async () => {
+        const notebook = {
+            ...resources[0],
+            id: 'public_link:notebook:2:uuid',
+            kind: 'notebook',
+            team_id: 2,
+            resource_id: 'short-id',
+        }
+        const recording = {
+            ...resources[0],
+            id: 'public_link:recording:3:uuid',
+            kind: 'recording',
+            team_id: 3,
+            resource_id: 'session-id',
+        }
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding/': [notebook, recording] } })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.disableResources([notebook.id, recording.id])
+        ).toFinishAllListeners()
+        expect(updates).toEqual(
+            expect.arrayContaining([
+                { path: '/api/projects/2/notebooks/short-id/sharing/', body: { enabled: false } },
+                { path: '/api/projects/3/session_recordings/session-id/sharing/', body: { enabled: false } },
+            ])
+        )
+        expect(logic.values.keep).toEqual([])
     })
 
     it('summarizes the selected resource types, including selections beyond one page', async () => {
@@ -127,8 +165,14 @@ describe('memberOffboardingLogic', () => {
     })
 
     it('reviews public links, subscriptions and alerts together and keeps them enabled by default', async () => {
-        const subscription = { ...resources[0], id: 'subscription:1', kind: 'subscription', name: 'Weekly report' }
-        const alert = { ...resources[0], id: 'alert:1', kind: 'alert', name: 'Usage alert' }
+        const subscription = {
+            ...resources[0],
+            id: 'subscription:1',
+            resource_id: '1',
+            kind: 'subscription',
+            name: 'Weekly report',
+        }
+        const alert = { ...resources[0], id: 'alert:1', resource_id: '1', kind: 'alert', name: 'Usage alert' }
         useMocks({
             get: { '/api/organizations/:organization/members/:user/offboarding/': [...resources, subscription, alert] },
         })
@@ -136,10 +180,25 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.publicResources).toEqual(resources)
         expect(logic.values.subscriptions).toEqual([subscription, alert])
         expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), subscription.id, alert.id])
-        await expectLogic(logic, () => logic.actions.disableResources([subscription.id])).toFinishAllListeners()
+        useMocks({
+            patch: {
+                '/api/projects/:project/:kind/:id/': async ({ request }) => {
+                    updates.push({ path: new URL(request.url).pathname, body: await request.json() })
+                    return [200, {}]
+                },
+            },
+        })
+        await expectLogic(logic, () =>
+            logic.actions.disableResources([subscription.id, alert.id])
+        ).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(updates).toEqual([{ ids: [subscription.id], enabled: false }])
-        expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), alert.id])
+        expect(updates).toEqual(
+            expect.arrayContaining([
+                { path: '/api/projects/1/subscriptions/1/', body: { enabled: false } },
+                { path: '/api/projects/1/alerts/1/', body: { enabled: false } },
+            ])
+        )
+        expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
     })
 
     it('skips the resource review when leaving the organization yourself', async () => {

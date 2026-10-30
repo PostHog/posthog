@@ -11,6 +11,7 @@ import { MemberOffboardingModal } from './MemberOffboardingModal'
 const resources = [
     {
         id: 'public_link:dashboard:1:4',
+        resource_id: '4',
         kind: 'dashboard',
         name: 'Product adoption',
         url: '/project/1/dashboard/4',
@@ -20,6 +21,7 @@ const resources = [
     },
     {
         id: 'public_link:dashboard:2:5',
+        resource_id: '5',
         kind: 'dashboard',
         name: 'Growth overview',
         url: '/project/2/dashboard/5',
@@ -29,6 +31,7 @@ const resources = [
     },
     {
         id: 'public_link:dashboard:1:1',
+        resource_id: '1',
         kind: 'dashboard',
         name: 'Product overview',
         url: '/project/1/dashboard/1',
@@ -38,6 +41,7 @@ const resources = [
     },
     {
         id: 'public_link:insight:1:2',
+        resource_id: '2',
         kind: 'insight',
         name: 'Weekly acquisition',
         url: '/project/1/insights/trends01',
@@ -47,6 +51,7 @@ const resources = [
     },
     {
         id: 'public_link:notebook:2:3',
+        resource_id: 'analysis',
         kind: 'notebook',
         name: 'Acquisition analysis',
         url: '/project/2/notebooks/analysis',
@@ -56,6 +61,7 @@ const resources = [
     },
     {
         id: 'subscription:1',
+        resource_id: '1',
         destination_type: 'email',
         destination: 'reports@example.com,team@example.com',
         kind: 'subscription',
@@ -68,6 +74,7 @@ const resources = [
     },
     {
         id: 'alert:1',
+        resource_id: '1',
         kind: 'alert',
         name: 'Weekly usage drop',
         url: '/project/1/alerts?alert_type=insights&alert_id=1',
@@ -84,7 +91,9 @@ const meta: Meta<typeof MemberOffboardingModal> = {
     decorators: [
         mswDecorator({
             patch: {
-                '/api/organizations/:organizationId/members/:userUuid/offboarding_resources/': () => [204, null],
+                '/api/projects/:project/subscriptions/:id/': () => [200, {}],
+                '/api/projects/:project/alerts/:id/': () => [200, {}],
+                '/api/projects/:project/:kind/:resource/sharing/': () => [204, null],
             },
             get: {
                 '/api/organizations/:organizationId/members/:userUuid/offboarding/': resources,
