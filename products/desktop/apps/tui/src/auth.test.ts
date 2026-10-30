@@ -14,7 +14,11 @@ vi.mock("@posthog/harness/extensions/posthog-provider/oauth", () => ({
   refreshPosthog: vi.fn(),
 }));
 
-const credentials = (access: string, expires: number): OAuthCredentials => ({
+// The PostHog provider's credential: pi's shape plus the region its login picked.
+const credentials = (
+  access: string,
+  expires: number,
+): OAuthCredentials & { region: "us" } => ({
   access,
   refresh: `${access}-refresh`,
   expires,
