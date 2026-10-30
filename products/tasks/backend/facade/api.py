@@ -3762,8 +3762,10 @@ def update_task_run(
             and old_status != new_status
             and _carries_final_message(validated_data)
         ):
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": output["final_message"][:FINAL_MESSAGE_MAX_CHARS]}
             run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
-            update_fields.add("state")
+            update_fields.update({"output", "state"})
         elif (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
