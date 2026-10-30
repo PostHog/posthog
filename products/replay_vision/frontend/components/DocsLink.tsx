@@ -19,16 +19,18 @@ export function visionDocsUrl(page?: VisionDocsPage): string {
 /** Docs link for replay vision surfaces. Opens in a new tab so the user keeps their place in the app. */
 export function VisionDocsLink({
     page,
+    anchor,
     dataAttr,
     children,
 }: {
     page?: VisionDocsPage
+    anchor?: string
     dataAttr: string
     children: React.ReactNode
 }): JSX.Element {
     return (
         <Link
-            to={`${visionDocsUrl(page)}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
+            to={`${visionDocsUrl(page)}?utm_medium=in-product&utm_campaign=empty-state-docs-link${anchor ? `#${anchor}` : ''}`}
             target="_blank"
             data-attr={dataAttr}
         >

@@ -325,10 +325,10 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                         )}
                     </div>
                     <div
-                        className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 @[960px]:grid-cols-2 @[960px]:grid-rows-[minmax(0,1fr)] @[960px]:overflow-hidden"
+                        className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 content-start @[840px]:content-stretch @[840px]:grid-cols-2 @[840px]:grid-rows-[minmax(0,1fr)] @[840px]:overflow-hidden"
                         ref={timelineRef}
                     >
-                        <div className="min-h-0 @[960px]:overflow-y-auto">
+                        <div className="@[840px]:min-h-0 @[840px]:overflow-y-auto">
                             <SectionHeader label="Timeline" />
                             <RecordingTimeline
                                 timeline={timeline}
@@ -340,7 +340,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                                 summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
                             />
                         </div>
-                        <div className="min-h-0 @[960px]:overflow-y-auto @[960px]:border-l">
+                        <div className="@[840px]:min-h-0 @[840px]:overflow-y-auto @[840px]:border-l">
                             <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
                         </div>
                     </div>

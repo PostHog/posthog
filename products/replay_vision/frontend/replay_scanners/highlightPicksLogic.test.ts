@@ -178,7 +178,9 @@ describe('highlightPicksLogic', () => {
             const settings = playerSettingsLogic()
             settings.mount()
             for (const position of [0, 1]) {
-                settings.actions.toggleWatchPanelSection('observations')
+                if (settings.values.watchPanelOpenSections.includes('observations')) {
+                    settings.actions.toggleWatchPanelSection('observations')
+                }
                 expect(settings.values.watchPanelOpenSections).not.toContain('observations')
                 logic.actions.highlightPick(logic.values.picks![position], position)
                 expect(settings.values.watchPanelOpenSections).toContain('observations')

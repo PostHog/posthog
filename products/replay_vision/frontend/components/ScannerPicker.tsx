@@ -18,11 +18,13 @@ export function ScannerPicker({
     scanBlock,
     type = 'primary',
     placement = 'bottom-start',
+    fullWidth = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
     type?: 'primary' | 'secondary'
     placement?: 'bottom-start' | 'top-start'
+    fullWidth?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
@@ -93,6 +95,8 @@ export function ScannerPicker({
             <LemonButton
                 size="small"
                 type={type}
+                fullWidth={fullWidth}
+                center={fullWidth}
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}

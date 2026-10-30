@@ -300,7 +300,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         watchPanelOpenSections: [
-            ['observations'] as WatchPanelSection[],
+            [] as WatchPanelSection[],
             { persist: true },
             {
                 toggleWatchPanelSection: (state, { section }) =>

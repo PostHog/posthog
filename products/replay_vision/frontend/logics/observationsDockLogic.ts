@@ -379,10 +379,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
-        const landOnExistingSummary = (): void => {
+        const landOnExistingObservations = (): void => {
+            if (values.observations.length > 0) {
+                actions.openWatchPanelSection('observations')
+            }
             if (values.observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')) {
                 actions.setAutoTab(SessionRecordingSidebarTab.OBSERVATIONS)
-                actions.openWatchPanelSection('observations')
             }
         }
         // The button stays pending for as long as the run it started has something left to report: a
@@ -532,7 +534,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 }
                 if (!cache.openingLoadDone) {
                     cache.openingLoadDone = true
-                    landOnExistingSummary()
+                    landOnExistingObservations()
                 }
                 settleSummarizeIfDone()
 

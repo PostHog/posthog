@@ -22,10 +22,12 @@ export function SummarizeButton({
     sessionId,
     scanBlock,
     inWatchLayout = false,
+    fullWidth = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
     inWatchLayout?: boolean
+    fullWidth?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
@@ -87,7 +89,9 @@ export function SummarizeButton({
     const button = (
         <LemonButton
             size="small"
-            type={hasSummary ? 'tertiary' : 'secondary'}
+            type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
+            fullWidth={fullWidth}
+            center={fullWidth}
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.

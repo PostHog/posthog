@@ -8,7 +8,6 @@ import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/vision
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { DebugModeBanner } from './DebugModeBanner'
-import { MomentTicker } from './MomentTicker'
 import { RecordingCommentsList } from './RecordingCommentsList'
 import { RecordingDebugSection } from './RecordingDebugSection'
 import { RecordingObservationsSection } from './RecordingObservationsSection'
@@ -32,7 +31,6 @@ export function WatchPanel({
     return (
         <div className="flex flex-col gap-4 px-1 pt-3 pb-6" data-attr="watch-panel">
             <DebugModeBanner />
-            {vision && <MomentTicker sessionId={sessionRecordingId} />}
             <RecordingTitleBlock
                 actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
             />
