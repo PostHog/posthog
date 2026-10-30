@@ -111,7 +111,7 @@ class VariantCountSerializer(serializers.Serializer):
 
 
 class ClusterSerializer(serializers.Serializer):
-    id = serializers.CharField(
+    id = serializers.UUIDField(
         help_text="The cluster id. Pass it as `theme` or `group` to `vision-scanners-observations-list` to read members."
     )
     scanner_id = serializers.UUIDField(help_text="The scanner whose observations the cluster groups.")

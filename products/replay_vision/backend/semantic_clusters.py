@@ -144,9 +144,11 @@ def summarize_clusters(
     rows = _readable_ranks(kind, team_id, access, scanner_ids, scope)
     if cluster_id is not None:
         rows = rows.filter(**{column: cluster_id})
+    # Only growth ranks on the window before, so the other orders read the window alone.
+    since = window.previous_from if order == ClusterOrder.GROWTH else window.date_from
     in_window = Q(created_at__gte=window.date_from)
     ranked = (
-        rows.filter(created_at__gte=window.previous_from, created_at__lt=window.date_to)
+        rows.filter(created_at__gte=since, created_at__lt=window.date_to)
         .values(cluster=F(column))
         .annotate(
             window_count=Count("pk", filter=in_window),
@@ -187,6 +189,11 @@ def summarize_clusters(
     }
     members = rows.filter(**{f"{column}__in": cluster_ids})
     weeks = _recent_weeks(members, column, now)
+    previous = (
+        {row["cluster"]: row["previous_count"] for row in page}
+        if order == ClusterOrder.GROWTH
+        else _counts(members.filter(created_at__gte=window.previous_from, created_at__lt=window.date_from), column)
+    )
     window_members = members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to)
     examples = _examples(window_members, column)
     variants = _variant_counts(window_members, column) if by_variant else {}
@@ -207,14 +214,15 @@ def summarize_clusters(
                 name=cluster.get("name") or None,
                 status=cluster_status(
                     now=now,
-                    first_member_at=cluster["created_at"],
+                    # A backfill creates the cluster row after its first members, so the earlier time wins.
+                    first_member_at=min(cluster["created_at"], row["first_seen"]),
                     last_member_at=cluster["last_member_at"],
                     last_week=last_week,
                     week_before=week_before,
                 ),
                 observation_count=row["window_count"],
                 people_count=row["people"],
-                previous_observation_count=row["previous_count"],
+                previous_observation_count=previous.get(row["cluster"], 0),
                 first_seen=row["first_seen"],
                 last_seen=row["last_seen"],
                 example_observation_ids=example_ids,
@@ -277,6 +285,10 @@ def _variant_key(result_field: str) -> Coalesce:
     return Coalesce(
         KeyTextTransform("experiment_variant", result_field), Value(UNATTRIBUTED_VARIANT), output_field=CharField()
     )
+
+
+def _counts(members: QuerySet[ReplayObservationRank], column: str) -> dict[uuid.UUID, int]:
+    return {row["cluster"]: row["n"] for row in members.values(cluster=F(column)).annotate(n=Count("pk"))}
 
 
 def _recent_weeks(

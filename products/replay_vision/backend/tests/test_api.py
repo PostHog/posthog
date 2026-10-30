@@ -5743,13 +5743,15 @@ class TestClusterViewSets(_VisionAPITestCase):
         self.hidden = self._create_scanner(name="hidden")
         now = timezone.now()
         self.big, self.growing, self.secret = (uuid.uuid4() for _ in range(3))
+        # Themes get their own ids, so a theme id sent to the groups endpoint finds nothing.
+        self.theme_of = {cluster: uuid.uuid4() for cluster in (self.big, self.growing, self.secret)}
         for cluster, scanner, age_days in [
             (self.big, self.checkout, 30),
             (self.growing, self.checkout, 3),
             (self.secret, self.hidden, 3),
         ]:
             ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
-                id=cluster,
+                id=self.theme_of[cluster],
                 team=self.team,
                 scanner=scanner,
                 vector_sum=b"",
@@ -5759,10 +5761,12 @@ class TestClusterViewSets(_VisionAPITestCase):
             ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
                 id=cluster, team=self.team, scanner=scanner, vector_sum=b"", last_member_at=now
             )
-            for model in (ReplayScannerSearchTheme, ReplayScannerFeedGroup):
-                model.objects.for_team(self.team.id).filter(id=cluster).update(
-                    created_at=now - timedelta(days=age_days)
-                )
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=self.theme_of[cluster]).update(
+                created_at=now - timedelta(days=age_days)
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).filter(id=cluster).update(
+                created_at=now - timedelta(days=age_days)
+            )
         for session, scanner, cluster, person, age_days, category, variant, experiment in [
             # Two people in the window, one of them twice, plus one member in the window before it.
             ("big-1", self.checkout, self.big, 1, 1, "failure", "test", 0),
@@ -5781,7 +5785,10 @@ class TestClusterViewSets(_VisionAPITestCase):
             row = ReplayObservation.objects.create(
                 scanner=scanner,
                 session_id=session,
-                scanner_snapshot=_snapshot_for(scanner),
+                scanner_snapshot={
+                    **_snapshot_for(scanner),
+                    **({"experiment_targeting": {"experiment_id": experiment}} if experiment else {}),
+                },
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
                 completed_at=created_at,
@@ -5797,7 +5804,7 @@ class TestClusterViewSets(_VisionAPITestCase):
                 contrast=0.3,
                 category=CATEGORY_CODES[category],
                 feed_group_id=cluster,
-                search_theme_id=cluster,
+                search_theme_id=self.theme_of[cluster],
                 person_key=person,
                 experiment_id=experiment,
             )
@@ -5830,13 +5837,16 @@ class TestClusterViewSets(_VisionAPITestCase):
         )
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        names = {str(self.big): "big", str(self.growing): "growing"}
+        ids = {"big": self.big, "growing": self.growing}
+        if kind == "themes":
+            ids = {name: self.theme_of[cluster] for name, cluster in ids.items()}
+        names = {str(cluster): name for name, cluster in ids.items()}
         results = resp.json()["results"]
         self.assertEqual([names[row["id"]] for row in results], expected_order)
-        big = next(row for row in results if row["id"] == str(self.big))
+        big = next(row for row in results if row["id"] == str(ids["big"]))
         self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
         self.assertEqual((big["name"], big["status"]), ("coupon rejected" if kind == "themes" else None, "active"))
-        growing = next(row for row in results if row["id"] == str(self.growing))
+        growing = next(row for row in results if row["id"] == str(ids["growing"]))
         self.assertEqual(growing["status"], "emerging")
         self.assertEqual(len(big["example_observation_ids"]), 3)
         self.assertNotIn(str(self.session_row("big-restricted")), big["example_observation_ids"])
@@ -5845,11 +5855,14 @@ class TestClusterViewSets(_VisionAPITestCase):
         [
             ("readable", "big", 200),
             ("unreadable_scanner", "secret", 404),
+            ("theme_id_on_groups", "big_theme", 404),
             ("unknown", None, 404),
         ]
     )
     def test_retrieve_hides_what_the_caller_cannot_read(self, _name: str, cluster: str | None, status: int) -> None:
-        cluster_id = {"big": self.big, "secret": self.secret}.get(cluster or "", uuid.uuid4())
+        cluster_id = {"big": self.big, "secret": self.secret, "big_theme": self.theme_of[self.big]}.get(
+            cluster or "", uuid.uuid4()
+        )
 
         resp = self.client.get(self.url("groups", f"{cluster_id}/"))
 
@@ -5893,24 +5906,34 @@ class TestClusterViewSets(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3", "big-restricted"}),
-            ("group", {"group": "big"}, {"big-1", "big-2", "big-3", "big-restricted"}),
+            ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3"}),
+            ("group", {"group": "big"}, {"big-1", "big-2", "big-3"}),
             (
                 "group_with_routine",
                 {"group": "big", "include_routine": "true"},
-                {"big-1", "big-2", "big-3", "big-restricted", "big-routine"},
+                {"big-1", "big-2", "big-3", "big-routine"},
             ),
         ]
     )
     def test_observation_list_filters_to_the_members_a_cluster_counts(
         self, _name: str, params: dict[str, str], expected: set[str]
     ) -> None:
-        query = {key: str(self.big) if value == "big" else value for key, value in params.items()}
+        big = {"theme": self.theme_of[self.big], "group": self.big}
+        query = {key: str(big[key]) if value == "big" else value for key, value in params.items()}
 
         resp = self.client.get(self.observations_url(str(self.checkout.id)), {**query, "date_from": "-7d"})
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
+    def test_list_pages_with_offset(self) -> None:
+        params = {"scanner_id": str(self.checkout.id), "order": "people", "limit": "1"}
+
+        first = self.client.get(self.url("groups"), params).json()
+        second = self.client.get(self.url("groups"), {**params, "offset": "1"}).json()
+
+        self.assertEqual(([row["id"] for row in first["results"]], first["has_more"]), ([str(self.growing)], True))
+        self.assertEqual(([row["id"] for row in second["results"]], second["has_more"]), ([str(self.big)], False))
 
 
 class TestClusterStatus(SimpleTestCase):
