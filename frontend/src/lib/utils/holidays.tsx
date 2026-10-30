@@ -1,8 +1,7 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-
-import { FEATURE_FLAGS } from './constants'
 
 // Please remember that in Javascript months are 0-indexed
 // January is 0 and December is 11

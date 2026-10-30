@@ -239,7 +239,7 @@
         "chromium": 3.045,
         "webkit": 2.417
     },
-    "frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
+    "frontend/src/lib/lemon-ui/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
         "chromium": 8.996,
         "webkit": 2.76
     },
