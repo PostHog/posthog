@@ -148,7 +148,6 @@ env:
     # Test processes append each peer lazy load they see here; the peer-lazy-loads job checks them.
     # See posthog/models/scoping/README.md. Set POSTHOG_PEER_LAZY_LOADS: record to collect a new baseline.
     POSTHOG_PEER_LAZY_LOADS_DIR: ${{ github.workspace }}/peer-lazy-loads
-    POSTHOG_PEER_LAZY_LOADS: record
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
