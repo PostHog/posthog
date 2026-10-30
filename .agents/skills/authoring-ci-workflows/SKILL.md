@@ -414,13 +414,16 @@ The repository default is read-only, so a workflow without a block works today a
 
 A trusted-context trigger (`pull_request_target`, `issue_comment`, `workflow_run`) runs with the base repository's token and secrets, so it must never check out the pull request head: that puts contributor code one `run:` step away from those credentials.
 Check out the base ref and read the head commit as data instead.
-`WF016-untrusted-trigger-checkout` blocks the head-sha checkout.
+`WF016-untrusted-trigger-checkout` blocks the head checkout: the `pull_request.head`, `workflow_run.head_sha`, `merge_commit_sha` and `refs/pull/*/(head|merge)` forms, and a `repository:` that resolves to the contributor's fork.
+It sees values, not data flow, so a head commit plumbed through `needs.<job>.outputs` is still the reader's job to catch.
+
+A reusable-workflow call is exempt from `WF015` only while the callee declares its own `permissions:`; a local callee that declares none is reported on the caller, because at that point both inherit the default.
 
 ## Required status checks
 
 The checks that gate a merge live in the `master` branch ruleset, outside this repository, and a renamed job that produces one leaves every pull request waiting for a check that will never report.
 `.github/required-status-checks.txt` mirrors that list so a change to it is a diff, and `WF017-required-status-checks` fails when a listed name has no producing job, or when the job producing it sets `continue-on-error` (which reports the check green whatever the job did).
-A check posted from a step through the checks API, like `Backend CI on Depot / Test results`, counts as produced when its name appears in a `run:` body, `with:` value, or `env:` value.
+A check posted from a step through the checks API, like `Backend CI on Depot / Test results`, counts as produced only when the name sits inside a step that calls the checks API (`check-runs`), so a leftover `echo` of a renamed check does not hide the rename.
 
 After changing the ruleset, run `bin/refresh-required-status-checks` and commit the result with the ruleset change.
 

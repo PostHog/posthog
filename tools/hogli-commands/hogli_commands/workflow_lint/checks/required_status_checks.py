@@ -13,6 +13,13 @@ job does, so the required check is present, green and meaningless. Only the
 job-level key is flagged: a step-level `continue-on-error` on the failure path is
 a deliberate way to keep a gate's reporting steps from masking its verdict.
 
+A check can also exist without a job: `.depot/workflows/ci-backend.yml` posts
+`Backend CI on Depot / Test results` from a step, because Depot's own checks
+carry no output. That counts as produced only when the name appears inside the
+step that posts it through the checks API, not anywhere in any script, so
+renaming or deleting the posting step still fails the rule while a leftover
+`echo` of the name does not pass it.
+
 The live list lives in the `master` ruleset, outside this repository, so it is
 mirrored to `.github/required-status-checks.txt` and read from there: changing
 the required set then shows up as a diff. Refresh it with
@@ -21,6 +28,7 @@ the required set then shows up as a diff. Refresh it with
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
@@ -47,29 +55,26 @@ def _is_continue_on_error(job: Job) -> bool:
     return bool(job.raw.get("continue-on-error"))
 
 
-def _script_texts(page: list[Workflow]) -> list[str]:
-    """Every `run:` body and `with:` value, which is where a posted check's name appears.
+CHECK_POSTING = re.compile(r"check-runs|check_runs|checks\.create|createCheckRun")
 
-    A check can be posted through the checks API instead of existing as a job:
-    `.depot/workflows/ci-backend.yml` posts `Backend CI on Depot / Test results`
-    from a step, so no job carries that display name.
-    """
+
+def _posting_texts(page: list[Workflow]) -> list[str]:
+    """The own texts of each step that posts a check through the checks API."""
     texts: list[str] = []
     for wf in page:
         for job in wf.jobs:
             for step in job.steps:
-                if step.run:
-                    texts.append(step.run)
+                if not (step.run and CHECK_POSTING.search(step.run)):
+                    continue
+                texts.append(step.run)
                 for block in (step.with_, step.raw.get("env")):
                     if isinstance(block, dict):
                         texts.extend(str(value) for value in block.values())
-            env = job.raw.get("env")
-            if isinstance(env, dict):
-                texts.extend(str(value) for value in env.values())
     return texts
 
 
-def _contexts_named_in(blob: str, wanted: list[str]) -> set[str]:
+def _contexts_named_in(texts: list[str], wanted: list[str]) -> set[str]:
+    blob = "\n".join(texts)
     return {name for name in wanted if name in blob}
 
 
@@ -112,8 +117,7 @@ class RequiredStatusChecksCheck(WorkflowCheck):
         pages = [workflows]
         if (root / DEPOT_WORKFLOWS).is_dir():
             pages.append(list(read_workflows(root / DEPOT_WORKFLOWS)))
-        script_text = "\n".join(text for page in pages for text in _script_texts(page) if text)
-        posted = _contexts_named_in(script_text, required)
+        posted = _contexts_named_in([text for page in pages for text in _posting_texts(page)], required)
 
         for name in required:
             if name not in producers and name not in posted:

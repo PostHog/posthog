@@ -7,8 +7,12 @@ that context, and the next `run:` step executes it with those credentials. One
 review comment or one push to a fork is then enough to take the token.
 
 The safe shape checks out the base branch and reads the head commit as data, so
-this notices the head commit reaching a `ref:` and says nothing about scripts
-that merely print or compare it.
+this notices the head commit reaching a `ref:` or a fork's `repository:` and
+says nothing about scripts that merely print or compare it.
+
+A head commit carried through a job output (`ref: ${{ needs.x.outputs.sha }}`)
+is not visible here: the rule sees values, not data flow. A workflow that has to
+plumb one stays on the reader.
 """
 
 from __future__ import annotations
@@ -21,10 +25,19 @@ from ..model import Workflow
 TRUSTED_CONTEXT_TRIGGERS = frozenset({"pull_request_target", "issue_comment", "workflow_run", "issues"})
 
 HEAD_REF = re.compile(
-    r"github\.event\.pull_request\.head\.(sha|ref)"
+    r"github\.event\.pull_request\.head\.(sha|ref|label)"
+    r"|github\.event\.pull_request\.merge_commit_sha"
     r"|github\.head_ref"
     r"|github\.event\.issue\.pull_request"
-    r"|refs/pull/[\w.${{ }}]*/head"
+    r"|github\.event\.workflow_run\.(head_sha|head_branch|head_repository|pull_requests)"
+    r"|refs/pull/[\w.${{ }}\[\]-]*/(head|merge)"
+)
+
+# A checkout of another repository's ref runs that repository's code, so pointing
+# one at the fork's head is the same escape as a head `ref:`.
+FORK_REPOSITORY = re.compile(
+    r"github\.event\.workflow_run\.head_repository"
+    r"|github\.event\.pull_request\.head\.repo"
 )
 
 
@@ -59,19 +72,25 @@ class UntrustedTriggerCheckoutCheck(WorkflowCheck):
                     uses = (step.uses or "").lower()
                     if "checkout" not in uses:
                         continue
-                    ref = str((step.with_ or {}).get("ref") or "")
-                    if not HEAD_REF.search(ref):
+                    inputs = step.with_ or {}
+                    ref = str(inputs.get("ref") or "")
+                    repository = str(inputs.get("repository") or "")
+                    if HEAD_REF.search(ref):
+                        message = f"checkout ref resolves to the PR head: {ref.strip()}"
+                    elif FORK_REPOSITORY.search(repository):
+                        message = f"checkout repository resolves to the contributor's fork: {repository.strip()}"
+                    else:
                         continue
                     result.issues.append(
                         Issue(
                             workflow=wf.path.name,
                             job=job.name,
                             step=step.ref,
-                            message=f"checkout ref resolves to the PR head: {ref.strip()}",
+                            message=message,
                             file=str(wf.path),
                         )
                     )
         return result
 
 
-__all__ = ["UntrustedTriggerCheckoutCheck", "HEAD_REF", "TRUSTED_CONTEXT_TRIGGERS"]
+__all__ = ["UntrustedTriggerCheckoutCheck", "FORK_REPOSITORY", "HEAD_REF", "TRUSTED_CONTEXT_TRIGGERS"]

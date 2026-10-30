@@ -2920,6 +2920,34 @@ class TestExplicitPermissionsCheck:
         _write(tmp_path, "wf.yml", _perm_workflow("push", ""))
         assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
 
+    def test_fails_when_the_called_workflow_declares_no_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", "name: C\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "declares no permissions" in issues[0].message
+
+    def test_passes_when_the_called_workflow_declares_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(
+            wf_dir,
+            "callee.yml",
+            "name: C\non: workflow_call\npermissions:\n  contents: read\njobs:\n  run:\n    runs-on: ubuntu-24.04\n",
+        )
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
 
 # ---------------------------------------------------------------------------
 # WF016 untrusted trigger checkout
@@ -2950,6 +2978,10 @@ class TestUntrustedTriggerCheckoutCheck:
             "${{ github.event.pull_request.head.sha }}",
             "${{ github.head_ref }}",
             "refs/pull/${{ github.event.number }}/head",
+            "${{ github.event.workflow_run.head_sha }}",
+            "${{ github.event.workflow_run.head_branch }}",
+            "${{ github.event.pull_request.merge_commit_sha }}",
+            "refs/pull/12/merge",
         ],
     )
     def test_fails_on_head_ref_under_pull_request_target(self, tmp_path: Path, ref: str) -> None:
@@ -2965,6 +2997,20 @@ class TestUntrustedTriggerCheckoutCheck:
 
     def test_ignores_head_ref_on_plain_pull_request(self, tmp_path: Path) -> None:
         _write(tmp_path, "wf.yml", _checkout_workflow("pull_request", "${{ github.event.pull_request.head.sha }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_fails_on_a_fork_repository_with_a_base_ref(self, tmp_path: Path) -> None:
+        workflow = _checkout_workflow("workflow_run", "${{ github.event.repository.default_branch }}").replace(
+            "          ref:",
+            "          repository: ${{ github.event.workflow_run.head_repository.full_name }}\n          ref:",
+        )
+        _write(tmp_path, "wf.yml", workflow)
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "fork" in issues[0].message
+
+    def test_passes_on_the_base_branch_under_workflow_run(self, tmp_path: Path) -> None:
+        _write(tmp_path, "wf.yml", _checkout_workflow("workflow_run", "${{ github.event.repository.default_branch }}"))
         assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
 
 
@@ -3015,11 +3061,23 @@ class TestRequiredStatusChecksCheck:
         assert len(issues) == 1, [i.render() for i in issues]
         assert "cannot fail" in issues[0].message
 
-    def test_accepts_a_check_posted_from_a_step(self, tmp_path: Path) -> None:
-        # `.depot/workflows/ci-backend.yml` posts its `Test results` check through the API.
-        workflow = _REQUIRED_WF.replace("      - run: echo hi", "      - run: echo Posting Some Posted Check")
+    def test_accepts_a_check_posted_through_the_checks_api(self, tmp_path: Path) -> None:
+        # `.depot/workflows/ci-backend.yml` posts its `Test results` check from a step.
+        posting = (
+            "      - name: Post\n"
+            "        env:\n"
+            "          GATE_CHECK: Some Posted Check\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
         wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
         assert RequiredStatusChecksCheck().run(wfs).issues == []
+
+    def test_does_not_accept_a_name_that_only_appears_in_a_script(self, tmp_path: Path) -> None:
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", "      - run: echo Posting Some Posted Check")
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
 
     def test_skips_when_no_snapshot_exists(self, tmp_path: Path) -> None:
         wf_dir = tmp_path / ".github" / "workflows"

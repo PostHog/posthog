@@ -11,11 +11,15 @@ Two shapes satisfy the rule. One top-level `permissions:` block covers every job
 Per-job `permissions:` is stricter, because each job states its own scopes, so a
 workflow that declares one on every job needs no top-level block.
 
-Reusable-workflow call jobs are exempt: they run the callee's jobs, and the
-callee's own `permissions:` sets their scopes when the caller does not.
+Reusable-workflow call jobs are exempt because they run the callee's jobs, and
+the callee's own `permissions:` sets their scopes when the caller does not. That
+only holds while the callee declares some, so a local callee with no
+`permissions:` anywhere is reported on the caller.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
@@ -46,6 +50,21 @@ def _triggers(wf: Workflow) -> set[str]:
     return set()
 
 
+def _declares_permissions(wf: Workflow) -> bool:
+    return "permissions" in wf.raw or any("permissions" in job.raw for job in wf.jobs)
+
+
+def _local_callee(uses: str, workflows: list[Workflow]) -> Workflow | None:
+    """The parsed callee of a `./.github/workflows/x.yml` call, if it is in this page."""
+    if not uses.startswith("./"):
+        return None
+    target = Path(uses[2:]).as_posix()
+    for candidate in workflows:
+        if candidate.path.as_posix().endswith(target):
+            return candidate
+    return None
+
+
 class ExplicitPermissionsCheck(WorkflowCheck):
     id = "WF015-explicit-permissions"
     label = "explicit permissions"
@@ -67,6 +86,19 @@ class ExplicitPermissionsCheck(WorkflowCheck):
                 continue
             for job in wf.jobs:
                 if job.is_reusable_call:
+                    callee = _local_callee(job.uses or "", workflows)
+                    if callee is not None and not _declares_permissions(callee):
+                        result.issues.append(
+                            Issue(
+                                workflow=wf.path.name,
+                                job=job.name,
+                                message=(
+                                    f"calls {job.uses}, which declares no permissions, so both inherit "
+                                    "the repository default"
+                                ),
+                                file=str(wf.path),
+                            )
+                        )
                     continue
                 if "permissions" in job.raw:
                     continue
