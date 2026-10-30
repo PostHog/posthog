@@ -15,9 +15,9 @@ from django.db.models import QuerySet
 import structlog
 import posthoganalytics
 
-from posthog.api.pagination import select_cursor_page
 from posthog.models import Team
 from posthog.paging import CursorPageRequest, Page
+from posthog.queryset_paging import select_cursor_page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts

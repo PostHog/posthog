@@ -26,7 +26,7 @@ from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.ordering import StableOrderingFilter
-from posthog.api.pagination import FacadeCursorPagination, PrecountedLimitOffsetPagination
+from posthog.api.pagination import FacadeCursorPagination, PrecountedLimitOffsetPagination, facade_cursor_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -1047,8 +1047,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             except dashboards_api.DashboardNotViewable:
                 raise exceptions.PermissionDenied("You do not have access to this resource.")
 
-        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_cursor_page_response(
             self,
             lambda page: api.list_subscription_summaries(
                 team_id=self.team_id,
@@ -1393,8 +1392,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise ValidationError(
                 {"status": [f"Must be one of: {', '.join(sorted(_DELIVERY_STATUS_VALUES))}."]},
             )
-        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_cursor_page_response(
             self,
             lambda page: api.list_subscription_deliveries(
                 team_id=self.team_id,

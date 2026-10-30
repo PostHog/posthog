@@ -22,9 +22,9 @@ from botocore.exceptions import ClientError
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.pagination import select_page
 from posthog.models import Team, User
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts

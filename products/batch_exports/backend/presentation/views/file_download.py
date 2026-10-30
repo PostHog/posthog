@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, cast
+from typing import Any
 
 from django.db import models
 from django.http import HttpResponseRedirect
@@ -20,7 +20,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
@@ -412,8 +412,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: batch_exports_api.list_file_download_runs(self.team_id, page=page),
         )

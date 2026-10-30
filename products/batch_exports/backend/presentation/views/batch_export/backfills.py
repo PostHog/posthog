@@ -2,7 +2,7 @@
 
 import uuid
 import dataclasses
-from typing import Any, cast
+from typing import Any
 
 import structlog
 import posthoganalytics
@@ -11,7 +11,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
-from posthog.api.pagination import FacadeCursorPagination
+from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
@@ -143,8 +143,7 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()
-        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_cursor_page_response(
             self,
             lambda page: batch_exports_api.list_batch_export_backfills(self.team_id, export_id, page=page),
         )

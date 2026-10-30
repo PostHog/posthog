@@ -13,7 +13,6 @@ from django.db import transaction
 
 from posthog.hogql import ast
 
-from posthog.api.pagination import select_page
 from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.integration import (
@@ -25,6 +24,7 @@ from posthog.models.integration import (
     SnowflakeIntegrationError,
 )
 from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,

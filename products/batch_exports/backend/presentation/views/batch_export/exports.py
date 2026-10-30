@@ -3,7 +3,6 @@
 import uuid
 import typing
 import dataclasses
-from typing import cast
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -12,7 +11,7 @@ from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
-from posthog.api.pagination import FacadeLimitOffsetPagination
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.integrations import IntegrationRecord
@@ -695,8 +694,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         return batch_export
 
     def list(self, request: request.Request, *args: typing.Any, **kwargs: typing.Any) -> response.Response:
-        return cast(FacadeLimitOffsetPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_page_response(
             self,
             lambda page: batch_exports_api.list_batch_exports(self.team_id, page=page),
         )
