@@ -329,7 +329,8 @@ class TaskProcessingContext:
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
         the cap as a safety net unless the setting disables it deployment-wide. A task with
-        a profile takes both the exemption and the cap from the profile's `max_wake_minutes`.
+        a profile takes the exemption from the profile's `max_wake_minutes`. Its cap is the
+        lower of `max_wake_minutes` and the setting.
         """
         if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
@@ -338,7 +339,7 @@ class TaskProcessingContext:
         cap = resolve_max_run_duration()
         if cap is None or self.profile_max_wake_minutes is None:
             return cap
-        return timedelta(minutes=self.profile_max_wake_minutes)
+        return min(cap, timedelta(minutes=self.profile_max_wake_minutes))
 
     def _exempt_from_max_run_duration(self) -> bool:
         if self.profile_key:
