@@ -24,7 +24,9 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
@@ -635,7 +637,13 @@ class TestTeamExperimentsSettings(BaseTest):
             flag_cleanup_repository="posthog/posthog",
         )
 
-        assert api.get_team_experiments_settings(self.team.id) == TeamExperimentsSettings(
+        with self.assertNumQueries(1), capture_db_queries() as queries:
+            settings = api.get_team_experiments_settings(self.team.id)
+
+        # A team join must keep the deprecated taxonomy columns deferred, as `TeamManager` does.
+        selected = " ".join(query["sql"] for query in queries.captured_queries)
+        assert [attr for attr in DEPRECATED_ATTRS if f'"{attr}"' in selected] == []
+        assert settings == TeamExperimentsSettings(
             experiment_recalculation_times=("02:00:00", "14:00:00"),
             default_experiment_confidence_level=Decimal("0.90"),
             default_experiment_stats_method="frequentist",

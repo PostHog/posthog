@@ -283,6 +283,7 @@ class ExperimentValidationError(Exception):
 
     def __init__(self, message: str, *, field: str | None = None) -> None:
         super().__init__(message)
+        self.message = message
         # The input field that the message is about, so that an HTTP boundary can report the error on that field.
         # None when the message is about the input as a whole.
         self.field = field
