@@ -168,6 +168,18 @@ function shellsOf(items: ConversationItem[]): number {
   return count;
 }
 
+// A Claude or Codex cloud log holds its first prompt; a pi cloud log omits it, so the task's description stands in.
+// Converted once: a local Claude log rebuilds on every streamed chunk.
+function acpEvents(
+  entries: StoredLogEntry[],
+  taskDescription?: string,
+): ReturnType<typeof convertStoredEntriesToEvents> {
+  const events = convertStoredEntriesToEvents(entries);
+  return taskDescription && !hasSessionPromptEvent(events)
+    ? convertStoredEntriesToEvents(entries, taskDescription)
+    : events;
+}
+
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
 export function transcriptFrom(
   runtime: AgentRuntime | undefined,
@@ -184,16 +196,7 @@ export function transcriptFrom(
           ),
           null,
         )
-      : buildConversationItems(
-          // A Claude or Codex cloud log holds its first prompt; a pi cloud log omits it, so the task's description stands in.
-          convertStoredEntriesToEvents(
-            entries,
-            hasSessionPromptEvent(convertStoredEntriesToEvents(entries))
-              ? undefined
-              : taskDescription,
-          ),
-          null,
-        );
+      : buildConversationItems(acpEvents(entries, taskDescription), null);
   const lines =
     runtime === "pi"
       ? withImages(built.items.flatMap(toLine), entries)

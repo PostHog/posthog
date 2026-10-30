@@ -73,14 +73,34 @@ export function windowed(
   // How far back the pane has paged; the window never shrinks below it as the log grows.
   let windowStart: number | null = null;
   const tailStart = (): number => startOfLast(full.entries, tail);
+  // A streaming agent publishes several times a frame, and each view costs a transcript rebuild, so a burst shows
+  // its first view at once and the rest as one view a frame later.
+  let timer: NodeJS.Timeout | null = null;
+  let unshown = false;
   const show = (): void => {
+    unshown = false;
     const start = Math.min(windowStart ?? tailStart(), tailStart());
     onView({ ...full, entries: full.entries.slice(start), windowStart: start });
+  };
+  const hold = (): void => {
+    timer = setTimeout(() => {
+      timer = null;
+      if (unshown) {
+        show();
+        hold();
+      }
+    }, PUBLISH_FRAME_MS);
+    timer.unref?.();
   };
   return {
     publish: (next) => {
       full = next;
+      if (timer) {
+        unshown = true;
+        return;
+      }
       show();
+      hold();
     },
     loadOlder: () => {
       const current = windowStart ?? tailStart();
@@ -103,6 +123,8 @@ export interface RunSubscription {
 }
 
 const OLDER_PAGE_SIZE = 500;
+// One frame at Ink's default rate: the shortest gap between two views of a streaming local chat.
+export const PUBLISH_FRAME_MS = 33;
 // How long a run's stream stays open after its last subscriber leaves. Panes and the turn tracker stop and restart
 // their subscriptions within one render; a stream closed in that gap reopened at its latest entry and lost, or
 // replayed, what landed in between.

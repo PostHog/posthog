@@ -3,7 +3,7 @@ import type { CloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
 import { THINKING_ACTIVITIES } from "@posthog/core/sessions/thinkingActivities";
 import type { CloudTaskUpdatePayload, StoredLogEntry } from "@posthog/shared";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentUp,
   applyUpdate,
@@ -11,6 +11,7 @@ import {
   deliveryFailure,
   emptyRunView,
   formatDuration,
+  PUBLISH_FRAME_MS,
   type RunView,
   runNotice,
   type SessionLogs,
@@ -257,6 +258,12 @@ describe("agentUp", () => {
 });
 
 describe("windowed", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const full = (count: number): RunView => ({
     ...emptyRunView,
     loaded: true,
@@ -276,6 +283,7 @@ describe("windowed", () => {
 
     // A new entry arrives: the window keeps what was paged in and takes the new tail.
     window.publish(full(11));
+    vi.advanceTimersByTime(PUBLISH_FRAME_MS);
     expect(ids(seen.at(-1) as RunView)).toEqual([
       "e5",
       "e6",
@@ -332,6 +340,21 @@ describe("windowed", () => {
       "p3",
       "e3",
     ]);
+  });
+
+  it("shows a burst's first view at once and the rest as one view a frame later", () => {
+    const seen: RunView[] = [];
+    const window = windowed((view) => seen.push(view), { tail: 3, page: 2 });
+    window.publish(full(1));
+    window.publish(full(2));
+    window.publish(full(3));
+    expect(seen).toHaveLength(1);
+    vi.advanceTimersByTime(PUBLISH_FRAME_MS);
+    expect(seen).toHaveLength(2);
+    expect(ids(seen.at(-1) as RunView)).toEqual(["e0", "e1", "e2"]);
+    // A quiet frame leaves nothing to show.
+    vi.advanceTimersByTime(PUBLISH_FRAME_MS);
+    expect(seen).toHaveLength(2);
   });
 
   it("passes a short log through whole", () => {
