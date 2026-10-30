@@ -1,5 +1,5 @@
-import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
@@ -17,11 +17,11 @@ import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-s
 import type { TuiAuth } from "./auth";
 import { currentRepository, PiChats } from "./chats";
 import { LocalSession } from "./local";
+import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { CloudRuns } from "./runs";
 
 export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
-const LOCAL_SESSIONS = join(homedir(), ".config", "posthog-tui", "local");
 
 interface TokenSource {
   getAccessToken(): Promise<string>;
@@ -183,6 +183,7 @@ export function createCloud(
     noMcpApps,
     logger,
   );
+  const localChats = new LocalChats();
   const sendPi: PiCommand = async (input) =>
     engine.sendCommand({ ...input, ...(await context()) });
   return {
@@ -192,10 +193,9 @@ export function createCloud(
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;
-      mkdirSync(LOCAL_SESSIONS, { recursive: true });
       const session = new LocalSession(
         await piClients.create({
-          sessionFile: join(LOCAL_SESSIONS, `${id}.jsonl`),
+          sessionFile: localChats.sessionFile(id),
           taskContext: { taskId: id, cwd: process.cwd() },
         }),
         mcp,

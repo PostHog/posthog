@@ -56,6 +56,19 @@ describe("PiChats", () => {
     expect(started.latest_run?.status).toBe("queued");
   });
 
+  it("starts a local chat as a pi task with no run", async () => {
+    const { api, chats } = setup();
+
+    await chats.createLocal("Fix the flaky test");
+
+    expect(api.createTask).toHaveBeenCalledWith({
+      description: "Fix the flaky test",
+      repository: "posthog/posthog",
+      runtime: "pi",
+    });
+    expect(api.createTaskRun).not.toHaveBeenCalled();
+  });
+
   it("sends a reply straight into a run that is still going", async () => {
     const { api, sendMessage, chats } = setup();
 

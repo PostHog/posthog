@@ -17,14 +17,17 @@ const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
   asleep: "gray",
 };
 
+// A square marks a chat that runs on this machine, a dot one that runs in the cloud.
 function IndicatorGlyph({
   indicator,
+  local,
 }: {
   indicator: Indicator | null;
+  local: boolean;
 }): ReactElement {
   if (indicator === "working") return <Spinner />;
   return indicator ? (
-    <Text color={INDICATOR_COLORS[indicator]}>●</Text>
+    <Text color={INDICATOR_COLORS[indicator]}>{local ? "▪" : "●"}</Text>
   ) : (
     <Text> </Text>
   );
@@ -68,7 +71,10 @@ function Row({
           ) : (
             (row.indicator || !row.nested) && (
               <>
-                <IndicatorGlyph indicator={row.indicator} />{" "}
+                <IndicatorGlyph
+                  indicator={row.indicator}
+                  local={row.local}
+                />{" "}
               </>
             )
           )}

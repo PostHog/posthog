@@ -27,6 +27,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices |
 | `chats.ts` | Starting and replying to pi cloud runs |
 | `local.ts` | Local chats: the harness as a child process (`createPiRpcClient` + `PiRuntime`), with a pi session file each |
+| `localChats.ts` | Local chats' pi session files under `~/.config/posthog-tui/local/`, one per task id, and linking older `local:<uuid>` files to new task rows |
 | `models.ts` | `/model`, the run's slash commands and abort, over `pi/rpc` (cloud) or the local client |
 | `transcript.ts` | Log entries to transcript lines, reusing the desktop's `buildConversationItems` |
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
@@ -53,5 +54,6 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 
 - Local chats pass the TUI's OAuth token to the gateway. A real local run had not been tried when this was written.
 - Before a run exists, `/` lists only the built-in commands. The plan is bundled skills and the repo's `.claude/skills` from disk, then user skills with the desktop's upload step.
-- Local chats are not in the Work list; they live in the layout and their pi session files under `~/.config/posthog-tui/local/`.
+- A local chat is a pi task with no run, as in the desktop app, and its conversation lives only in its pi session file on this machine. The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
+- The desktop app keeps its own local pi session files, so a TUI local chat opened there shows no conversation, and the reverse.
 - Divider corners do not join. Box borders cannot place junctions; drawing dividers from the computed sizes would.
