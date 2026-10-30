@@ -64,6 +64,20 @@ describe("Composer", () => {
     expect(repaints).toBeGreaterThan(0);
   });
 
+  it("deletes the word before the cursor on Ctrl+Backspace, as Ghostty sends Option+Backspace", () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    for (const key of [..."two words", "\x1b[127;5u"])
+      composer.handleInput(key);
+
+    const lines = composer.render(30, true).editor;
+    expect(lines.map((line) => stripTerminalSequences(line).trim())).toContain(
+      "❯ two",
+    );
+  });
+
   it("hands the text to submit on Enter, then clears", () => {
     const sent: string[] = [];
     const composer = new Composer(

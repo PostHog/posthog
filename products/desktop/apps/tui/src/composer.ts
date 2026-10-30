@@ -222,6 +222,9 @@ export class Composer {
     if (empty && !this.shellMode && bang) this.shellMode = true;
     else if (empty && this.shellMode && matchesKey(sequence, "backspace"))
       this.shellMode = false;
+    // Ghostty sends Option+Backspace as Ctrl+Backspace, which pi's editor does not bind; Alt+Backspace deletes a word.
+    else if (matchesKey(sequence, "ctrl+backspace"))
+      this.editor.handleInput("\x1b\x7f");
     else if (!this.deleteMarker(sequence)) this.editor.handleInput(sequence);
     this.repaint();
   }
