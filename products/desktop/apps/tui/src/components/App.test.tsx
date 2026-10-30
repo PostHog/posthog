@@ -972,7 +972,8 @@ describe("App", () => {
   });
 
   it("shows an empty new chat after Ctrl+N on a local chat the pane started itself", async () => {
-    savePrefs({ newChatPlace: "local" });
+    // A remembered model pick, as a /model leaves behind, queues one more state update when the chat starts.
+    savePrefs({ newChatPlace: "local", lastModel: STARTING_MODEL });
     const { output, press, drawnSince, close } = localApp({
       createLocal: async () =>
         ({ id: "t6", title: "Greeting", runtime: "pi" }) as Task,

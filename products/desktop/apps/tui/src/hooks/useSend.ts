@@ -372,13 +372,17 @@ export function useSend({
       shell: text.startsWith("!"),
       billing: loadPrefs().billing,
     };
-    setPending((messages) => new Map(messages).set(pendingKey, text));
-    const clearPending = (): void =>
+    // React runs these updaters later, so each one captures the key it works on, never the variable.
+    const paneKey = pendingKey;
+    setPending((messages) => new Map(messages).set(paneKey, text));
+    const clearPending = (): void => {
+      const key = pendingKey;
       setPending((messages) => {
         const next = new Map(messages);
-        next.delete(pendingKey);
+        next.delete(key);
         return next;
       });
+    };
     // A new chat's message moves to its task, so it stays with the chat when the pane shows another.
     const pendingFor = (taskId: string): void => {
       clearPending();
@@ -445,6 +449,7 @@ export function useSend({
         claudeToken: loadClaudeToken() !== null,
       });
       if (blocker) {
+        clearPending();
         flashNotice(blocker, here);
         return;
       }
