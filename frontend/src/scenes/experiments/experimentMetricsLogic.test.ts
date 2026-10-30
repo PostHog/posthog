@@ -700,6 +700,27 @@ describe('experimentMetricsLogic', () => {
                 loads: 1,
                 expectedTriggers: [],
             },
+            {
+                name: 'refreshes results whose window ended at launch once they are an hour old',
+                experiment: { ...EXPERIMENT, start_date: hoursAgo(2) } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(2) },
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh results whose window ended at launch before they are an hour old',
+                experiment: { ...EXPERIMENT, start_date: hoursAgo(0.5) } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(0.5) },
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh results whose window ended hours after launch before the stale threshold',
+                experiment: { ...EXPERIMENT, start_date: hoursAgo(5) } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(2) },
+                loads: 1,
+                expectedTriggers: [],
+            },
         ])('$name', async ({ experiment, latest, loads, expectedTriggers }) => {
             const postedTriggers: string[] = []
             useMocks({

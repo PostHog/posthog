@@ -85,6 +85,14 @@ const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 /** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
 const STALE_RESULTS_THRESHOLD_HOURS = 12
+/**
+ * A result whose window ends this close to start_date counts almost no exposures, so it goes stale after the
+ * shorter threshold instead. The threshold gives exposures time to arrive before the refresh. A refresh starts at
+ * least the threshold after the old window end, so a window that ended after launch gets at most one extra
+ * recalculation, while the threshold is not shorter than the window.
+ */
+const LAUNCH_RESULTS_WINDOW_HOURS = 1
+const LAUNCH_RESULTS_STALE_THRESHOLD_HOURS = 1
 /** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
 const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
@@ -203,11 +211,24 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
     return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
 
-const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean =>
-    STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
-    currentMetricUuids(experiment).length > 0 &&
-    !!recalculation.query_to &&
-    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
+    if (
+        !STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) ||
+        currentMetricUuids(experiment).length === 0 ||
+        !recalculation.query_to
+    ) {
+        return false
+    }
+    const queryTo = dayjs.utc(recalculation.query_to)
+    const ageHours = dayjs.utc().diff(queryTo, 'hour', true)
+    if (ageHours > STALE_RESULTS_THRESHOLD_HOURS) {
+        return true
+    }
+    const windowEndsAtLaunch =
+        !!experiment.start_date &&
+        queryTo.diff(dayjs.utc(experiment.start_date), 'hour', true) <= LAUNCH_RESULTS_WINDOW_HOURS
+    return windowEndsAtLaunch && ageHours >= LAUNCH_RESULTS_STALE_THRESHOLD_HOURS
+}
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T

@@ -165,14 +165,17 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_latest_is_returned", 1, False),
-            ("stale_latest_starts_new", 13, True),
+            ("fresh_latest_is_returned", 30 * 24, 2, False),
+            ("stale_latest_starts_new", 30 * 24, 13, True),
+            ("launch_window_latest_starts_new", 2, 2, True),
         ]
     )
     def test_stale_refresh_checks_result_age_with_server_time(
-        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+        self, name: str, started_hours_ago: int, query_to_hours_ago: int, expects_new_run: bool
     ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
+        exp.start_date = timezone.now() - timedelta(hours=started_hours_ago)
+        exp.save()
         latest = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
