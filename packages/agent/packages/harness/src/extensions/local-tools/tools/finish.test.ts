@@ -16,6 +16,17 @@ describe("finish tool", () => {
 
   it.each([
     {
+      name: "caller-managed assessment run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "signal_report",
+        callerEndsRun: true,
+      },
+      expected: false,
+    },
+    {
       name: "background cloud run with an unknown origin (fetch failed)",
       ctx: { cwd: "/repo", requestFinish },
       meta: { environment: "cloud", background: true },

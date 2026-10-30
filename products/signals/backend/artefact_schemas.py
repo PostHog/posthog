@@ -26,7 +26,16 @@ from enum import Enum
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
@@ -795,6 +804,16 @@ class NoteArtefact(BaseModel):
 
     note: str = Field(description="The note text (markdown allowed).")
     author: str | None = Field(default=None, description="Optional label for who authored the note.")
+    analytics_query_context: list[dict[str, JsonValue]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Frozen source queries that gate access to the note's evidence.",
+    )
+    source_check_ids: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Follow-up checks whose evidence informed this note.",
+    )
 
     @field_validator("note")
     @classmethod

@@ -12,7 +12,9 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, CancelledError
+
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
@@ -35,6 +37,7 @@ from products.signals.backend.report_monitoring_aggregation import (
 )
 from products.signals.backend.report_monitoring_assessment import (
     MonitoringAssessment,
+    exhaust_monitoring_assessment,
     finish_monitoring_assessment,
     poll_monitoring_assessment,
 )
@@ -54,7 +57,9 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 class TestMonitoringAggregation(SimpleTestCase):
-    @parameterized.expand([("inconclusive",), ("technical_errors",), ("collector_failure",), ("resumed",)])
+    @parameterized.expand(
+        [("inconclusive",), ("technical_errors",), ("collector_failure",), ("resumed",), ("cancelled",)]
+    )
     async def test_assessment_stops_after_a_decision_or_bounded_execution_errors(self, scenario: str) -> None:
         executions: list[int] = []
         closures: list[str] = []
@@ -64,8 +69,8 @@ class TestMonitoringAggregation(SimpleTestCase):
                 closures.append(inputs.attempt_id)
                 return True
             executions.append(inputs.execution)
-            if scenario == "collector_failure":
-                raise ActivityError(
+            if scenario in {"collector_failure", "cancelled"}:
+                error = ActivityError(
                     "Synthetic collector interruption",
                     scheduled_event_id=1,
                     started_event_id=2,
@@ -74,6 +79,9 @@ class TestMonitoringAggregation(SimpleTestCase):
                     activity_id="assessment",
                     retry_state=None,
                 )
+                if scenario == "cancelled":
+                    raise error from CancelledError("Synthetic cancellation")
+                raise error
             return (
                 "done" if scenario == "inconclusive" or (scenario == "resumed" and inputs.execution == 2) else "errored"
             )
@@ -87,9 +95,13 @@ class TestMonitoringAggregation(SimpleTestCase):
             ),
             patch("products.signals.backend.temporal.monitoring_assessment.workflow.sleep", new_callable=AsyncMock),
         ):
-            await MonitoringAssessmentWorkflow().run(inputs)
+            if scenario == "cancelled":
+                with self.assertRaises(ActivityError):
+                    await MonitoringAssessmentWorkflow().run(inputs)
+            else:
+                await MonitoringAssessmentWorkflow().run(inputs)
         assert executions == ([0, 1, 2] if scenario == "technical_errors" else [1, 2] if scenario == "resumed" else [0])
-        assert closures == ([] if scenario in {"inconclusive", "resumed"} else [inputs.attempt_id])
+        assert closures == ([] if scenario in {"inconclusive", "resumed", "cancelled"} else [inputs.attempt_id])
 
     @parameterized.expand(
         [
@@ -412,6 +424,8 @@ class TestReportMonitoringAggregation(BaseTest):
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
 
     def _request_assessment(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         save_monitoring_result(self._evaluation(0, "inconclusive"))
         save_monitoring_result(self._evaluation(1, "inconclusive"))
         assert self._aggregate() == MonitoringAggregation.ASSESSMENT_REQUIRED
@@ -537,6 +551,7 @@ class TestReportMonitoringAggregation(BaseTest):
         ).exists()
 
     def test_collector_recovers_saved_answer_and_ignores_a_later_task_run(self) -> None:
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
         self._request_assessment()
         assert self.attempt is not None
         task = Task.objects.create(
@@ -584,6 +599,7 @@ class TestReportMonitoringAggregation(BaseTest):
 
     def test_assessment_dispatch_reuses_task_and_retries_only_invalid_execution(self) -> None:
         self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
         self._request_assessment()
         assert self.attempt is not None
         for _ in range(2):
@@ -595,13 +611,24 @@ class TestReportMonitoringAggregation(BaseTest):
             )
         task = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:0")
         assert task.json_schema is not None
-        assert "final_results" in task.description
+        assert "final_results" not in task.description
         run = task.runs.get()
-        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "read_only"
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "signals_assessment"
+        assert "final_results" in run.state["initial_prompt_override"]
+        assert run.state["caller_ends_run"] is True
+        assert "analytics_query_context" in run.state
         assert run.state["monitoring_assessment_run_id"] == str(run.id)
         run.output = {"resolved": True, "reasoning": "This response lacks supporting references.", "evidence_refs": []}
         run.status = "completed"
         run.save(update_fields=["output", "status"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "pending"
+        )
+        run.completed_at = self.now - timedelta(minutes=3)
+        run.save(update_fields=["completed_at"])
         assert (
             poll_monitoring_assessment(
                 team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
@@ -632,3 +659,93 @@ class TestReportMonitoringAggregation(BaseTest):
         )
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.CLOSED
+
+    def test_assessment_defers_when_consent_is_withdrawn(self) -> None:
+        self._request_assessment()
+        assert self.attempt is not None
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        assert (
+            poll_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+            )
+            == "pending"
+        )
+        assert not Task.objects.filter(origin_key=f"monitoring-assessment:{self.attempt.id}:0").exists()
+
+    def test_assessment_prompt_respects_the_acting_users_metric_access(self) -> None:
+        self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        query = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "properties": [
+                    {"key": "secret_plan", "value": ["invented_private_tier"], "type": "event", "operator": "exact"}
+                ],
+            },
+        }
+        SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).update(
+            config={"query": query, "baseline_value": 37}, soak_minutes=30
+        )
+        for check in self.checks:
+            check.refresh_from_db()
+        self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
+        self.attempt = complete_implementation(
+            team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now - timedelta(hours=1)
+        )
+        assert self.attempt is not None
+        self._request_assessment()
+        SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt=self.attempt).update(
+            explanation="Invented restricted measurement", evidence_refs=["invented-private-reference"]
+        )
+        with patch(
+            "products.signals.backend.report_metric_access.get_restricted_properties_with_group_type_index_for_team",
+            return_value=[RestrictedProperty(name="secret_plan", property_type=1)],
+        ):
+            assert (
+                poll_monitoring_assessment(
+                    team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id, execution=0
+                )
+                == "pending"
+            )
+        task = Task.objects.get(team=self.team, origin_key=f"monitoring-assessment:{self.attempt.id}:0")
+        prompt = task.runs.get().state["initial_prompt_override"]
+        assert "invented_private_tier" not in prompt
+        assert "Invented restricted measurement" not in prompt
+        assert "invented-private-reference" not in prompt
+        assert "cannot read" in prompt
+        assert task.runs.get().state["analytics_query_context"] == [query, query]
+
+    def test_exhaustion_recovers_the_same_task_before_closing(self) -> None:
+        self.enterContext(patch("products.tasks.backend.facade.api.signal_workflow_completion"))
+        self._request_assessment()
+        assert self.attempt is not None
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Assess saved evidence",
+            internal=True,
+            origin_key=f"monitoring-assessment:{self.attempt.id}:0",
+        )
+        run = TaskRun.objects.create(team=self.team, task=task, status="in_progress")
+        run.state = {"monitoring_assessment_run_id": str(run.id)}
+        run.save(update_fields=["state"])
+        assert not exhaust_monitoring_assessment(
+            team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id
+        )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.MONITORING
+        run.output = {
+            "resolved": True,
+            "reasoning": "Saved evidence establishes resolution.",
+            "evidence_refs": ["observation:synthetic"],
+        }
+        run.save(update_fields=["output"])
+        with patch("django.core.cache.cache.get", side_effect=RuntimeError("Synthetic cache outage")):
+            assert exhaust_monitoring_assessment(
+                team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id
+            )
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert Task.objects.filter(origin_key__startswith=f"monitoring-assessment:{self.attempt.id}:").count() == 1

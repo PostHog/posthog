@@ -107,6 +107,7 @@ McpScopePreset = Literal[
     "signals_scout_reports",
     "signals_scout_experiment",
     "signals_research",
+    "signals_assessment",
     "signals_implementation",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
@@ -456,13 +457,13 @@ def resolve_scopes(
             # writes code and logs its work on the report, so the scratchpad adds reach into
             # one more surface rather than a new class of capability.
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
-        elif scopes == "signals_research":
+        elif scopes in {"signals_research", "signals_assessment"}:
             # The report research run: reads, plus durable memory, and nothing else. See
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` and `inbox:write` come back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")
-            resolved = [*reads, *scratchpad]
+            resolved = [*reads, *(scratchpad if scopes == "signals_research" else [])]
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

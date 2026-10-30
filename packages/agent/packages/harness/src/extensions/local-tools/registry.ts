@@ -54,6 +54,7 @@ export interface LocalToolGateMeta {
    * relay and thread replies still reach the agent.
    */
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
 }
 
 /**

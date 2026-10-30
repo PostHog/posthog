@@ -104,6 +104,7 @@ export const finishTool = defineLocalTool({
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
+    meta?.callerEndsRun !== true &&
     meta?.taskOriginProduct !== "scout_suggestions" &&
     meta?.taskOriginProduct !== "review_hog" &&
     ((meta?.taskOriginProduct !== undefined &&

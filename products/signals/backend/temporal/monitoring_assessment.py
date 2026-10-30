@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from typing import Literal
 from uuid import UUID
@@ -6,10 +7,10 @@ from django.conf import settings
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError, is_cancelled_exception
 
 from posthog.dataclasses import frozen
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
 
@@ -29,7 +30,7 @@ async def poll_monitoring_assessment_activity(
         poll_monitoring_assessment,
     )
 
-    return await database_sync_to_async(poll_monitoring_assessment)(
+    return await database_sync_to_async_pool(poll_monitoring_assessment)(
         team_id=inputs.team_id,
         report_id=UUID(inputs.report_id),
         attempt_id=UUID(inputs.attempt_id),
@@ -40,10 +41,10 @@ async def poll_monitoring_assessment_activity(
 @activity.defn
 async def exhaust_monitoring_assessment_activity(inputs: MonitoringAssessmentInput) -> bool:
     from products.signals.backend.report_monitoring_assessment import (  # noqa: PLC0415 -- keep agent dependencies off workflow imports
-        finish_monitoring_assessment,
+        exhaust_monitoring_assessment,
     )
 
-    return await database_sync_to_async(finish_monitoring_assessment)(
+    return await database_sync_to_async_pool(exhaust_monitoring_assessment)(
         team_id=inputs.team_id, report_id=UUID(inputs.report_id), attempt_id=UUID(inputs.attempt_id)
     )
 
@@ -64,8 +65,10 @@ class MonitoringAssessmentWorkflow:
                         start_to_close_timeout=timedelta(minutes=2),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
-                except ActivityError:
-                    # Do not launch another judgment when an interrupted collector may have a live task.
+                except ActivityError as error:
+                    if is_cancelled_exception(error):
+                        raise
+                    # Recovery reconnects to saved tasks without launching another judgment.
                     await self._exhaust(inputs)
                     return
                 if result == "done":
@@ -91,16 +94,20 @@ class MonitoringAssessmentWorkflow:
                 workflow.continue_as_new(inputs)
 
 
-async def start_monitoring_assessment(team_id: int, report_id: str, attempt_id: str) -> None:
-    client = await async_connect()
-    try:
-        await client.start_workflow(
-            MonitoringAssessmentWorkflow.run,
-            MonitoringAssessmentInput(team_id=team_id, report_id=report_id, attempt_id=attempt_id),
-            id=f"signals-monitoring-assessment-{team_id}-{attempt_id}",
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        )
-    except WorkflowAlreadyStartedError:
-        pass
+async def start_monitoring_assessment(
+    team_id: int, report_id: str, attempt_id: str, *, timeout_seconds: float = 2
+) -> None:
+    async with asyncio.timeout(timeout_seconds):
+        client = await async_connect()
+        try:
+            await client.start_workflow(
+                MonitoringAssessmentWorkflow.run,
+                MonitoringAssessmentInput(team_id=team_id, report_id=report_id, attempt_id=attempt_id),
+                id=f"signals-monitoring-assessment-{team_id}-{attempt_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                rpc_timeout=timedelta(seconds=timeout_seconds),
+            )
+        except WorkflowAlreadyStartedError:
+            pass
