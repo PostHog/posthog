@@ -20361,8 +20361,6 @@
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   ORDER BY "posthog_organization"."id" ASC
   LIMIT 1
-  FOR
-  UPDATE
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.350
