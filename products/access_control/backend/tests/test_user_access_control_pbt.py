@@ -440,11 +440,14 @@ def _most_specific_tier(
 def oracle_most_specific_object_level(
     specs: list[RowSpec], order: list[AccessControlLevel]
 ) -> Optional[AccessControlLevel]:
-    # Mirrors resolve_most_specific_object_access, restated from the rules rather than the code:
-    # the nearest scope with any rule decides (object rows before resource rows), and inside a
-    # scope the most specific subject decides: member -> max(roles) -> the everyone-row. A more
-    # specific rule wins even when it gives a lower level. None when no rule matches.
-    return _most_specific_tier(specs, "object", order) or _most_specific_tier(specs, "resource", order)
+    explicit_object_rules = [s for s in specs if s.target != "team_default"]
+    explicit_level = _most_specific_tier(explicit_object_rules, "object", order)
+    if explicit_level is not None:
+        return explicit_level
+    resource_level = _most_specific_tier(specs, "resource", order)
+    if resource_level == NO_ACCESS_LEVEL:
+        return NO_ACCESS_LEVEL
+    return _most_specific_tier(specs, "object", order) or resource_level
 
 
 def oracle_most_specific_object_access(

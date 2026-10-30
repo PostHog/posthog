@@ -53,7 +53,13 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
             # Within the object scope, the member's own row decides even when it grants less
             ("member_deny_beats_role_grant", {"member": "none", "role_a": "editor"}, "none", "object", "member"),
             ("member_grant_beats_role_deny", {"member": "editor", "role_a": "none"}, "editor", "object", "member"),
-            # The object's own default row is more specific than any resource-wide rule
+            (
+                "resource_member_grant_beats_role_deny_for_object_default",
+                {"resource_member": "viewer", "resource_role_a": "none", "object_default": "manager"},
+                "manager",
+                "object",
+                "default",
+            ),
             (
                 "object_default_deny_beats_resource_grant",
                 {"object_default": "none", "resource_default": "editor"},
@@ -62,10 +68,10 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
                 "default",
             ),
             (
-                "object_default_grant_beats_resource_deny",
+                "resource_deny_gates_object_default_grant",
                 {"object_default": "editor", "resource_default": "none"},
-                "editor",
-                "object",
+                "none",
+                "resource",
                 "default",
             ),
         ]
@@ -79,6 +85,42 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
         assert resolved.access_level == expected_level
         assert resolved.source == expected_source
         assert resolved.source_subject == expected_subject
+
+    @parameterized.expand(
+        [
+            (resource_subject, resource_level, object_level, sharing)
+            for resource_subject in ("resource_member", "resource_role_a", "resource_default")
+            for resource_level, object_level, sharing in (
+                ("none", "viewer", None),
+                ("none", "manager", None),
+                ("viewer", "editor", None),
+                ("viewer", "manager", None),
+                ("editor", "viewer", None),
+                ("viewer", "none", None),
+                ("none", "manager", "member"),
+                ("none", "manager", "role_a"),
+            )
+        ]
+    )
+    def test_resource_gate_preserves_explicit_sharing(
+        self, resource_subject: str, resource_level: str, object_level: str, sharing: str | None
+    ) -> None:
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        rules = {resource_subject: resource_level, "object_default": object_level}
+        if sharing:
+            rules[sharing] = "viewer"
+        self._apply(rules)
+        expected = "viewer" if sharing else "none" if resource_level == "none" else object_level
+        uac = self.user_access_control
+
+        assert uac.get_user_access_level(self.dashboard) == expected
+        assert uac.bulk_object_access_levels("dashboard", [(str(self.dashboard.id), self.dashboard.created_by_id)]) == {
+            str(self.dashboard.id): expected
+        }
+        assert uac.filter_queryset_by_access_level(Dashboard.objects.filter(pk=self.dashboard.pk)).exists() == (
+            expected != "none"
+        )
 
     def test_no_entitlement_resolves_to_system_default(self):
         self._apply({"member": "none"})
@@ -113,6 +155,24 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
         [
             # A rule about the source reaches the tables it syncs
             ("source_deny_reaches_the_table", {"this_source": "none"}, "none", "parent_object"),
+            (
+                "table_default_respects_resource_deny",
+                {"this_table_default": "editor", "resource_member": "none"},
+                "none",
+                "resource",
+            ),
+            (
+                "source_default_respects_resource_deny",
+                {"this_source": "editor", "resource_member": "none"},
+                "none",
+                "resource",
+            ),
+            (
+                "source_member_grant_overrides_resource_deny",
+                {"this_source_member": "viewer", "resource_member": "none"},
+                "viewer",
+                "parent_object",
+            ),
             # The table's own default row is nearer than the source, so it wins — under the
             # enforced ladder the source's row would win here
             (
@@ -134,6 +194,8 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
             "this_table_member": ("warehouse_table", str(self.table.id), self.membership),
             "this_table_default": ("warehouse_table", str(self.table.id), None),
             "this_source": ("external_data_source", str(self.source.id), None),
+            "this_source_member": ("external_data_source", str(self.source.id), self.membership),
+            "resource_member": ("warehouse_objects", None, self.membership),
         }
         for target, level in rules.items():
             resource, resource_id, member = targets[target]
