@@ -596,3 +596,12 @@ class TeamExperimentsSettingsUpdate:
     default_sequential_testing_enabled: bool | Unset = UNSET
     default_sequential_tuning_parameter: int | None | Unset = UNSET
     flag_cleanup_repository: str | None | Unset = UNSET
+
+
+@frozen
+class LinkedExperiment:
+    """An experiment that is not deleted, as the flag it uses lists it."""
+
+    id: int
+    name: str
+    is_running: bool
