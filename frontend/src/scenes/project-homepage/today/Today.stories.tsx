@@ -971,6 +971,120 @@ export const HomeWithRecentRanking: Story = {
     },
 }
 
+function feedHighlight(
+    item: Omit<HighlightsApi['items'][number], 'score'> & { score?: number }
+): HighlightsApi['items'][number] {
+    return { score: 0.5, ...item }
+}
+
+const FEED_HIGHLIGHTS: HighlightsApi = {
+    ...HIGHLIGHTS,
+    items: [
+        HIGHLIGHTS.items[0],
+        HIGHLIGHTS.items[1],
+        feedHighlight({
+            key: 'ticket_sla:4821',
+            label: 'risk',
+            title: 'Ticket #4821 assigned to you breaches its SLA within 24 hours',
+            detail: 'Open it and reply before the deadline.',
+            url: '/support/tickets/4821',
+            series: null,
+            score: 0.8,
+            priority: 'P1',
+            source: 'ticket_sla',
+            product: 'conversations',
+        }),
+        feedHighlight({
+            key: 'rage:/pricing',
+            label: 'risk',
+            title: '86 people rage-clicked on /pricing in the last 7 days',
+            detail: '412 rage clicks · Top element: ‘Compare plans’',
+            url: '/replay/home',
+            series: [21, 34, 29, 48, 66, 92, 122],
+            score: 0.7,
+            priority: 'P2',
+            source: 'rage',
+            product: 'web_analytics',
+        }),
+        HIGHLIGHTS.items[2],
+        feedHighlight({
+            key: 'flags:new-onboarding',
+            label: 'risk',
+            title: 'Flag ‘new-onboarding’ reached 64% fewer users in the last 7 days',
+            detail: '1,820 → 655 · Check the code that calls it',
+            url: '/feature_flags/31',
+            series: null,
+            score: 0.62,
+            priority: 'P2',
+            source: 'flags',
+            product: 'feature_flags',
+        }),
+        HIGHLIGHTS.items[3],
+        feedHighlight({
+            key: 'workflows:trial-ending',
+            label: 'risk',
+            title: 'Workflow ‘Trial ending reminder’ failed 37 times in the last 7 days',
+            detail: '12% of its runs failed',
+            url: '/workflows/18',
+            series: null,
+            score: 0.58,
+            priority: 'P2',
+            source: 'workflows',
+            product: 'workflows',
+        }),
+        HIGHLIGHTS.items[4],
+        feedHighlight({
+            key: 'experiments:annual-nudge',
+            label: 'opportunity',
+            title: 'Experiment ‘Annual plan nudge’ reached 41 users in the last 14 days',
+            detail: 'Stop it or increase the rollout',
+            url: '/experiments/14',
+            series: null,
+            score: 0.45,
+            priority: 'P3',
+            source: 'experiments',
+            product: 'experiments',
+        }),
+        feedHighlight({
+            key: 'data_catalog_approvals',
+            label: 'opportunity',
+            title: '3 certification suggestions wait for approval',
+            detail: 'Review them in the data catalog.',
+            url: '/data-management/catalog',
+            series: null,
+            score: 0.4,
+            priority: 'P3',
+            source: 'data_catalog_approvals',
+            product: 'warehouse_suggestions',
+        }),
+        feedHighlight({
+            key: 'flags:legacy-export',
+            label: 'opportunity',
+            title: 'Flag ‘legacy-export’ had no evaluations in the last 14 days',
+            detail: 'Delete it if no code uses it',
+            url: '/feature_flags/12',
+            series: null,
+            score: 0.3,
+            priority: 'P4',
+            source: 'flags',
+            product: 'feature_flags',
+        }),
+        HIGHLIGHTS.items[5],
+    ],
+}
+
+export const HomeWithFullFeed: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Feed' }))
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/today/highlights/': FEED_HIGHLIGHTS },
+        }),
+    ],
+}
+
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }

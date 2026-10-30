@@ -175,6 +175,7 @@ function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {
         id: spec.id,
         title: spec.title,
         summary: spec.summary,
+        summary_lead: spec.summary.split('\n\n')[0].replaceAll('**', ''),
         status: spec.status,
         total_weight: spec.signalCount,
         signal_count: spec.signalCount,

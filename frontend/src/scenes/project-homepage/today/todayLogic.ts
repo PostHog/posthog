@@ -36,6 +36,7 @@ import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/ge
 
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
+import { feedRowSource } from './todayFeedText'
 import {
     VISIBLE_ROWS,
     forYouRows,
@@ -81,9 +82,27 @@ export interface TodayReportOpenContext {
 }
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'walk_through' | 'report_page'
+export type TodayAskSource = 'walk_through' | 'report_page' | 'feed'
 
 export type TodayList = 'for_you' | 'recents'
+
+export type TodayForYouView = 'list' | 'feed'
+
+/** One feed card, as the hover and click events describe it. */
+export interface TodayFeedCardEvent {
+    kind: TodayForYouRow['kind']
+    key: string
+    source: string
+    position: number
+    priority: string | null
+}
+
+export interface TodayFeedSource {
+    label: string
+    count: number
+    /** The first row from this source, which supplies the source's icon. */
+    row: TodayForYouRow
+}
 
 export interface TodayReports {
     results: SignalReport[]
@@ -185,6 +204,11 @@ export interface todayLogicValues {
     forYouOpenCount: number
     forYouReady: boolean
     forYouRows: TodayForYouRows
+    forYouView: TodayForYouView
+    forYouViewChoice: TodayForYouView | null
+    feedSource: string | null
+    feedRows: TodayForYouRow[]
+    feedSources: TodayFeedSource[]
     forYouVisibleRows: TodayForYouRow[]
     frequentObjects: FileSystemEntry[]
     frequentObjectsLoading: boolean
@@ -331,6 +355,22 @@ export interface todayLogicActions {
     setHomeScrollTop: (top: number | null) => {
         top: number | null
     }
+    feedCardClicked: (
+        card: TodayFeedCardEvent,
+        target: string
+    ) => {
+        card: TodayFeedCardEvent
+        target: string
+    }
+    feedCardHovered: (card: TodayFeedCardEvent) => {
+        card: TodayFeedCardEvent
+    }
+    setFeedSource: (source: string | null) => {
+        source: string | null
+    }
+    setForYouView: (view: TodayForYouView) => {
+        view: TodayForYouView
+    }
     setListExpanded: (
         list: TodayList,
         expanded: boolean
@@ -469,6 +509,10 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
+        setForYouView: (view: TodayForYouView) => ({ view }),
+        setFeedSource: (source: string | null) => ({ source }),
+        feedCardHovered: (card: TodayFeedCardEvent) => ({ card }),
+        feedCardClicked: (card: TodayFeedCardEvent, target: string) => ({ card, target }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -618,6 +662,8 @@ export const todayLogic = kea<todayLogicType>([
         topReports: {
             setUseSampleData: () => null,
         },
+        forYouViewChoice: [null as TodayForYouView | null, { persist: true }, { setForYouView: (_, { view }) => view }],
+        feedSource: [null as string | null, { setFeedSource: (_, { source }) => source }],
         listExpanded: [
             { for_you: false, recents: false } as Record<TodayList, boolean>,
             {
@@ -742,6 +788,29 @@ export const todayLogic = kea<todayLogicType>([
         forYouOpenCount: [
             (s) => [s.forYouRows],
             ({ rows }: TodayForYouRows): number => rows.filter((row) => !row.done).length,
+        ],
+        // The experiment only sets the starting view. A view the person picks wins from then on.
+        forYouView: [
+            (s) => [s.forYouViewChoice, s.featureFlags],
+            (choice: TodayForYouView | null, featureFlags: FeatureFlagsSet): TodayForYouView =>
+                choice ?? (featureFlags[FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW] === 'test' ? 'feed' : 'list'),
+        ],
+        feedSources: [
+            (s) => [s.forYouRows],
+            ({ rows }: TodayForYouRows): TodayFeedSource[] => {
+                const sources = new Map<string, TodayFeedSource>()
+                for (const row of rows) {
+                    const label = feedRowSource(row)
+                    const source = sources.get(label)
+                    sources.set(label, source ? { ...source, count: source.count + 1 } : { label, count: 1, row })
+                }
+                return [...sources.values()]
+            },
+        ],
+        feedRows: [
+            (s) => [s.forYouRows, s.feedSource],
+            ({ rows }: TodayForYouRows, feedSource: string | null): TodayForYouRow[] =>
+                feedSource ? rows.filter((row) => feedRowSource(row) === feedSource) : rows,
         ],
         forYouVisibleRows: [
             (s) => [s.forYouRows, s.listExpanded],
@@ -873,6 +942,27 @@ export const todayLogic = kea<todayLogicType>([
             setUseSampleData: () => {
                 actions.loadTopReports()
                 actions.loadFrequentObjects()
+            },
+            setForYouView: ({ view }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today for you view changed', { view })
+            },
+            setFeedSource: ({ source }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today feed filtered', { source })
+            },
+            feedCardHovered: ({ card }) => {
+                cache.hoveredFeedCards ??= new Set<string>()
+                if (cache.hoveredFeedCards.has(card.key)) {
+                    return
+                }
+                cache.hoveredFeedCards.add(card.key)
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today feed card hovered', { ...card, filter: values.feedSource })
+            },
+            feedCardClicked: ({ card, target }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today feed card clicked', { ...card, target, filter: values.feedSource })
             },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })

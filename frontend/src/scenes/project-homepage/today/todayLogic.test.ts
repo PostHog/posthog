@@ -89,6 +89,25 @@ describe('todayLogic', () => {
         )
     })
 
+    it.each([
+        { variant: 'test', choice: null, view: 'feed' },
+        { variant: 'control', choice: null, view: 'list' },
+        { variant: false, choice: null, view: 'list' },
+        { variant: 'test', choice: 'list', view: 'list' },
+        { variant: 'control', choice: 'feed', view: 'feed' },
+    ] as const)(
+        'opens the $view view for the $variant variant when the choice is $choice',
+        ({ variant, choice, view }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW]: variant })
+            const logic = todayLogic()
+            logic.mount()
+            if (choice) {
+                logic.actions.setForYouView(choice)
+            }
+            expect(logic.values.forYouView).toEqual(view)
+        }
+    )
+
     afterEach(() => {
         jest.useRealTimers()
         jest.restoreAllMocks()

@@ -1,0 +1,246 @@
+.TodayFeed {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 172px;
+    gap: 24px;
+    align-items: start;
+
+    @container main-content (max-width: 760px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.TodayFeed__posts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0;
+    margin: 6px 0 0;
+    list-style: none;
+}
+
+.TodayFeed__end {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 16px 0 0;
+    font-size: 13px;
+    color: var(--today-faint);
+
+    &::before,
+    &::after {
+        flex: 1;
+        height: 1px;
+        content: '';
+        background: var(--today-line);
+    }
+}
+
+.TodayFeedCard {
+    overflow: hidden;
+    background: var(--today-card);
+    border: 1px solid var(--today-line);
+    border-radius: 14px;
+    box-shadow: var(--today-card-shadow);
+
+    &[data-done] {
+        .TodayFeedCard__title,
+        .TodayFeedCard__lead {
+            color: var(--today-muted);
+        }
+
+        .TodayFeedCard__avatar,
+        .TodayFeedCard__trend {
+            filter: grayscale(1);
+            opacity: 0.45;
+        }
+    }
+}
+
+// The avatar spans both header rows, and the title centers on it when there is no meta line.
+.TodayFeedCard__header {
+    display: grid;
+    grid-template-areas:
+        'avatar title'
+        'avatar meta';
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: center;
+    padding: 14px 16px 0;
+
+    &:not(:has(.TodayFeedCard__meta)) .TodayFeedCard__title {
+        grid-row: 1 / span 2;
+    }
+}
+
+.TodayFeedCard__avatar {
+    --today-feed-avatar-bg: color-mix(in srgb, var(--today-feed-tint, var(--today-ink)) 14%, var(--today-card));
+
+    display: grid;
+    grid-area: avatar;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    cursor: default;
+    background: var(--today-feed-avatar-bg);
+    border-radius: 12px;
+
+    .quill-icon-stack {
+        --icon-stack-size: 26px;
+        --quill-icon-stack-ring: var(--today-feed-avatar-bg);
+    }
+
+    .quill-icon-stack__slot {
+        transform: rotate(-7deg);
+    }
+}
+
+.TodayFeedCard__title {
+    grid-area: title;
+    align-self: end;
+    margin: 0;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 22px;
+    color: var(--today-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    a {
+        color: inherit;
+    }
+
+    a:hover {
+        text-decoration: underline;
+        text-decoration-color: var(--today-line);
+        text-underline-offset: 3px;
+    }
+}
+
+.TodayFeedCard__meta {
+    grid-area: meta;
+    align-self: start;
+    margin: 0;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--today-muted);
+}
+
+.TodayFeedCard__priority {
+    font-weight: 600;
+    color: var(--today-risk);
+}
+
+.TodayFeedCard__body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px 0;
+}
+
+.TodayFeedCard__quote {
+    margin: 0;
+    overflow: hidden;
+    font-size: 12.5px;
+    line-height: 20px;
+    color: var(--today-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.TodayFeedCard__lead {
+    margin: 0;
+    font-size: 15px;
+    line-height: 22px;
+    color: var(--today-body-text);
+    text-wrap: pretty;
+}
+
+.TodayFeedCard__figure {
+    margin: 0;
+    font-size: 13px;
+    line-height: 22px;
+    color: var(--today-muted);
+
+    strong {
+        margin-right: 4px;
+        font-size: 15px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--today-ink);
+    }
+}
+
+.TodayFeedCard__trend {
+    height: 48px;
+    margin-top: 8px;
+}
+
+.TodayFeedCard__chips {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 8px;
+}
+
+.TodayFeedCard__actions {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    padding: 4px 8px;
+    margin-top: 14px;
+    border-top: 1px solid var(--today-line);
+}
+
+.TodayFeedCard__primary {
+    margin-left: auto;
+    color: var(--today-ink);
+}
+
+.TodayFeedSources {
+    position: sticky;
+    top: 16px;
+    display: flex;
+    flex-direction: column;
+    margin-top: 6px;
+
+    @container main-content (max-width: 760px) {
+        display: none;
+    }
+
+    > * {
+        justify-content: flex-start;
+    }
+
+    > [aria-pressed='true'] {
+        color: var(--today-ink);
+        background: color-mix(in srgb, var(--today-ink) 6%, var(--today-paper));
+    }
+}
+
+.TodayFeedSources__icon {
+    display: flex;
+    width: 16px;
+
+    .quill-icon-stack {
+        --icon-stack-size: 16px;
+        --quill-icon-stack-ring: transparent;
+    }
+
+    .quill-icon-stack__slot {
+        transform: none;
+    }
+}
+
+.TodayFeedSources__label {
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.TodayFeedSources__count {
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
+}

@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { Button, Skeleton } from '@posthog/quill'
+import { Button, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TodayFeed } from './TodayFeed'
 import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
-import { todayLogic } from './todayLogic'
+import { type TodayForYouView, todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
 
 function TodayRowsSkeleton(): JSX.Element {
@@ -50,13 +51,29 @@ export function TodayForYou(): JSX.Element {
         moreReportsLoading,
         listExpanded,
         isNewProject,
+        forYouView,
     } = useValues(todayLogic)
-    const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
+    const { showMoreForYou, setListExpanded, retryFailedLoads, setForYouView } = useActions(todayLogic)
 
     return (
         <section className="TodayHome__list" aria-label="For you today">
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading count={forYouReady ? forYouOpenCount : undefined}>For you today</TodayHomeHeading>
+                {forYouReady && forYouRows.rows.length > 0 && (
+                    <ToggleGroup
+                        size="sm"
+                        aria-label="View"
+                        value={[forYouView]}
+                        onValueChange={([view]) => view && setForYouView(view as TodayForYouView)}
+                    >
+                        <ToggleGroupItem value="list" data-attr="today-for-you-view-list">
+                            List
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="feed" data-attr="today-for-you-view-feed">
+                            Feed
+                        </ToggleGroupItem>
+                    </ToggleGroup>
+                )}
             </div>
             {!forYouReady ? (
                 <TodayRowsSkeleton />
@@ -68,6 +85,8 @@ export function TodayForYou(): JSX.Element {
                             : 'Nothing needs you today. Changes in your data that need you show up here.'}
                     </p>
                 )
+            ) : forYouView === 'feed' ? (
+                <TodayFeed />
             ) : (
                 <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
             )}
