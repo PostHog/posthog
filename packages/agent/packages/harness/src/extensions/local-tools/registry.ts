@@ -30,6 +30,7 @@ export interface LocalToolCtx {
   requestFinish?: (
     status: "completed" | "failed",
     message?: string,
+    report?: string,
   ) => Promise<void>;
 }
 

@@ -174,9 +174,17 @@ describe("finish tool", () => {
     const spy = vi.fn(async () => {});
     const result = await finishTool.handler(
       { cwd: "/repo", requestFinish: spy },
-      { status: "failed", reason: "ran out of quota" },
+      {
+        status: "failed",
+        reason: "ran out of quota",
+        report: "Partial report",
+      },
     );
-    expect(spy).toHaveBeenCalledWith("failed", "ran out of quota");
+    expect(spy).toHaveBeenCalledWith(
+      "failed",
+      "ran out of quota",
+      "Partial report",
+    );
     expect(result.isError).toBeUndefined();
   });
 

@@ -53,6 +53,7 @@ import {
   type FileEnrichmentDeps,
 } from "@posthog/harness/extensions/enrichment";
 import {
+  buildFinishRunUpdate,
   isCloudRun,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
@@ -3088,13 +3089,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!config || !taskId || !taskRunId) {
       return undefined;
     }
-    return async (status, message) => {
+    return async (status, message, report) => {
       try {
-        await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
-          status,
-          ...(status === "failed" && message ? { error_message: message } : {}),
-          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
-        });
+        await new PostHogAPIClient(config).updateTaskRun(
+          taskId,
+          taskRunId,
+          buildFinishRunUpdate(status, message, report),
+        );
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
         throw error;
