@@ -59,6 +59,8 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
         alert_cap_reached("daily_run", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
+    if routing.is_every_page_in_source_repository:
+        return IntakeOutcome(status="docs_in_source_repo")
     in_flight = in_flight_writer_runs(writer)
     if routing.section and routing.section in in_flight.busy_sections:
         return IntakeOutcome(status="section_busy")

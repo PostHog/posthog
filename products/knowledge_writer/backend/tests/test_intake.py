@@ -193,6 +193,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
     assert len(run_states) == 2
     assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
+    assert all(state["include_live_context"] is False for state in run_states)
 
 
 @pytest.mark.django_db
@@ -300,6 +301,37 @@ def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "pull_request_url, expected_status",
+    [
+        ("https://github.com/PostHog/posthog/pull/123", "docs_in_source_repo"),
+        ("https://github.com/PostHog/posthog-js/pull/123", "started"),
+    ],
+)
+def test_a_request_whose_every_page_is_sourced_from_its_own_repository_starts_no_writer(
+    team, writer_env, pull_request_url, expected_status
+) -> None:
+    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, SECTION_PAGE))
+    assert verdict.request is not None
+    verdict = dataclasses.replace(verdict, request=dataclasses.replace(verdict.request, source_url=pull_request_url))
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(
+            LIST_PULL_REQUESTS,
+            side_effect=_open_on_github(published_page_paths=("logs/logql-api", "session-replay/retention")),
+        ),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        outcome = intake.submit(verdict, team_id=team.id)
+
+    assert outcome.status == expected_status
+    assert start_workflow.called is (expected_status == "started")
+    assert (tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id) is not None) is (
+        expected_status == "started"
+    )
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("author_login, expected_status", [(WRITER_APP_LOGIN, "joined"), ("someone-else", "started")])
 def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
     team, writer_env, author_login, expected_status
@@ -370,6 +402,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
     assert new_run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
+    assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
     assert "fff999" in task.description and "Only touch the API reference." in task.description
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)

@@ -74,7 +74,17 @@ class DocsCommandRequest:
     requested_by_user_id: int
 
 
-IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "section_busy", "joined", "started"]
+IntakeStatus = Literal[
+    "no_docs",
+    "unconfigured",
+    "duplicate",
+    "capped",
+    "shadow",
+    "docs_in_source_repo",
+    "section_busy",
+    "joined",
+    "started",
+]
 
 
 @dataclass(frozen=True)
