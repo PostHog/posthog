@@ -9,7 +9,13 @@ from django.db.models import Count
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+)
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.renderers import BaseRenderer
@@ -599,6 +605,14 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
     return dict(counts)
 
 
+@extend_schema_serializer(many=False)
+class ActionListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned."
+    )
+    results = ActionSerializer(many=True, help_text="Actions on this page, or every matching action without `limit`.")
+
+
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -735,7 +749,8 @@ class ActionViewSet(
                 OpenApiTypes.STR,
                 description="Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
             ),
-        ]
+        ],
+        responses={200: ActionListResponseSerializer(many=False)},
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
