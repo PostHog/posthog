@@ -66,33 +66,46 @@ describe("CloudRuns.agentRestarted", () => {
     }) as StoredLogEntry;
   const since = Date.UTC(2026, 0, 1, 0, 0, 30);
 
-  it("waits past the run's earlier start for its agent to start again, watching it meanwhile", async () => {
-    const { engine, runs } = setup();
-    let done = false;
-    const restarted = runs.agentRestarted("t1", "r1", since).then(() => {
-      done = true;
-    });
-    await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
+  const claudeStarted = (second: number): StoredLogEntry =>
+    ({
+      type: "notification",
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString(),
+      notification: { method: "_posthog/run_started", params: {} },
+    }) as StoredLogEntry;
 
-    engine.emit(CloudTaskEvent.Update, {
-      taskId: "t1",
-      runId: "r1",
-      kind: "snapshot",
-      newEntries: [started(1)],
-      status: "queued",
-    });
-    await Promise.resolve();
-    expect(done).toBe(false);
-    engine.emit(CloudTaskEvent.Update, {
-      taskId: "t1",
-      runId: "r1",
-      kind: "logs",
-      newEntries: [started(60)],
-    });
+  it.each([
+    ["pi", started],
+    ["Claude Code", claudeStarted],
+  ])(
+    "waits past the run's earlier start for its %s agent to start again, watching it meanwhile",
+    async (_, started) => {
+      const { engine, runs } = setup();
+      let done = false;
+      const restarted = runs.agentRestarted("t1", "r1", since).then(() => {
+        done = true;
+      });
+      await vi.waitFor(() => expect(engine.watch).toHaveBeenCalled());
 
-    await restarted;
-    expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
-  });
+      engine.emit(CloudTaskEvent.Update, {
+        taskId: "t1",
+        runId: "r1",
+        kind: "snapshot",
+        newEntries: [started(1)],
+        status: "queued",
+      });
+      await Promise.resolve();
+      expect(done).toBe(false);
+      engine.emit(CloudTaskEvent.Update, {
+        taskId: "t1",
+        runId: "r1",
+        kind: "logs",
+        newEntries: [started(60)],
+      });
+
+      await restarted;
+      expect(engine.unwatch).toHaveBeenCalledWith("t1", "r1");
+    },
+  );
 
   it("restarts a watcher still streaming the run's previous life, and leaves it open for the panes", async () => {
     const { engine, runs } = setup();

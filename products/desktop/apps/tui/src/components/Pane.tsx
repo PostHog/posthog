@@ -18,6 +18,7 @@ import {
   type RunSubscription,
   type RunView,
   runNotice,
+  runStarted,
   setupProgress,
   withListedRun,
 } from "../runs";
@@ -342,9 +343,7 @@ export function Pane({
   // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
-    (local
-      ? view.loaded
-      : view.entries.some((entry) => entry.type === "pi_run_started"));
+    (local ? view.loaded : view.entries.some(runStarted));
   // A stopped sandbox took its shells with it, whatever its last status said.
   const shells =
     live && view.sandboxAlive !== false

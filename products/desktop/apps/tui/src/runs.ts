@@ -57,6 +57,14 @@ const AGENT_RESTART_TIMEOUT_MS = 10 * 60_000;
 // The server's clock can run a little ahead of this machine's.
 const CLOCK_SKEW_MS = 5_000;
 
+// The sandbox's agent has reported in: pi writes its own entry, Claude Code and Codex the run_started notification.
+export function runStarted(entry: StoredLogEntry): boolean {
+  return (
+    entry.type === "pi_run_started" ||
+    entry.notification?.method === "_posthog/run_started"
+  );
+}
+
 export function applyUpdate(
   view: RunView,
   update: CloudTaskUpdatePayload,
@@ -426,7 +434,7 @@ export class CloudRuns {
       const started = (entries: StoredLogEntry[]): boolean =>
         entries.some(
           (entry) =>
-            entry.type === "pi_run_started" &&
+            runStarted(entry) &&
             (Date.parse(entry.timestamp ?? "") || 0) >= since - CLOCK_SKEW_MS,
         );
       const listener = (update: CloudTaskUpdatePayload): void => {
