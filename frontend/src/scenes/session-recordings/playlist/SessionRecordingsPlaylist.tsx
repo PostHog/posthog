@@ -17,14 +17,15 @@ import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { WatchPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/WatchPicksListColumn'
-import { watchPicksLogic } from 'products/replay_vision/frontend/replay_scanners/watchPicksLogic'
+import { HighlightPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/HighlightPicksListColumn'
+import { highlightPicksLogic } from 'products/replay_vision/frontend/replay_scanners/highlightPicksLogic'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { isNewReplayLayout } from './replayLayout'
+import { ReplayFilterBar } from './ReplayFilterBar'
+import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
 import { replayListColumnLogic } from './replayListColumnLogic'
 import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
@@ -62,9 +63,6 @@ export function SessionRecordingsPlaylist({
         }
     }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
 
-    // The column unmounts while the list is collapsed.
-    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey ?? 'playlist' }))
-
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const windowSaysVertical = isWindowLessThan('xl')
@@ -76,21 +74,33 @@ export function SessionRecordingsPlaylist({
     }
     const isVerticalLayout = layoutRef.current
 
-    const layout = (
-        <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
-            {isVerticalLayout ? (
-                <VerticalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
-            ) : (
-                <HorizontalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
-            )}
-        </div>
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const feedLayout = watchLayout && isFeedReplayLayout(replayLayout)
+
+    const columns = isVerticalLayout ? (
+        <VerticalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
+    ) : feedLayout ? (
+        <FeedHorizontalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
+    ) : (
+        <HorizontalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
     )
+    const columnsClassName = cn('w-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')
+
+    const layout =
+        feedLayout && props.type !== 'collection' ? (
+            <div className="w-full h-full flex flex-col gap-2">
+                <FeedFilterBar />
+                <div className={cn(columnsClassName, 'flex-1 min-h-0')}>{columns}</div>
+            </div>
+        ) : (
+            <div className={cn(columnsClassName, 'h-full')}>{columns}</div>
+        )
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             {picksInList ? (
                 <BindLogic
-                    logic={watchPicksLogic}
+                    logic={highlightPicksLogic}
                     props={{ logicKey: logicProps.logicKey ?? 'playlist', playlistLogicProps: logicProps }}
                 >
                     {layout}
@@ -109,21 +119,30 @@ type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'picksInList' | 'watchLa
 
 function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
+    if (props.watchLayout && isNewReplayLayout(replayLayout)) {
+        return <WatchPlaylistColumn {...props} picksInList={picksInList} />
+    }
+    if (isPlaylistCollapsed || !picksInList) {
+        return <Playlist {...props} />
+    }
+    return <HighlightPicksListColumn recordingsList={<Playlist {...props} />} />
+}
+
+// Owns the column logic, so the chosen segment survives the column unmounting when the list collapses, and only
+// the new layout mounts it.
+function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const playlistLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
+    const logicKey = props.logicKey ?? 'playlist'
+    useMountedLogic(replayListColumnLogic({ logicKey, playlistLogicProps: playlistLogic.props }))
     if (isPlaylistCollapsed) {
         return <Playlist {...props} />
     }
-    if (props.watchLayout && isNewReplayLayout(replayLayout)) {
-        const logicKey = props.logicKey ?? 'playlist'
-        return picksInList ? (
-            <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
-        ) : (
-            <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
-        )
-    }
-    if (picksInList) {
-        return <WatchPicksListColumn recordingsList={<Playlist {...props} />} />
-    }
-    return <Playlist {...props} />
+    return picksInList ? (
+        <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
+    ) : (
+        <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
+    )
 }
 
 function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
@@ -168,6 +187,68 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
             </div>
             <PlayerWrapper {...props} className="h-full flex-1 shrink" />
         </>
+    )
+}
+
+function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
+    const feedRef = useRef<HTMLDivElement>(null)
+
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey: 'playlist-resizer-feed',
+        containerRef: feedRef,
+        persistent: true,
+        persistPrefix: '2026-10-23',
+        placement: 'left',
+        closeThreshold: 100,
+        onToggleClosed: (shouldBeClosed) => setPlaylistCollapsed(shouldBeClosed),
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    return (
+        <>
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
+            <div
+                ref={feedRef}
+                className={cn('relative flex flex-col shrink-0', {
+                    'w-3': isPlaylistCollapsed,
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    isPlaylistCollapsed
+                        ? {}
+                        : {
+                              width: desiredSize ?? 400,
+                              minWidth: 'min-content',
+                              maxWidth: '50%',
+                          }
+                }
+                data-attr="replay-feed-column"
+            >
+                <PlaylistColumn {...props} picksInList={picksInList} />
+                {!isPlaylistCollapsed && (
+                    <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
+                )}
+            </div>
+        </>
+    )
+}
+
+function FeedFilterBar(): JSX.Element {
+    const { filters, totalFiltersCount, activeSessionRecordingId } = useValues(sessionRecordingsPlaylistLogic)
+    const { setFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <ReplayFilterBar
+            filters={filters}
+            setFilters={setFilters}
+            totalFiltersCount={totalFiltersCount}
+            currentSessionRecordingId={activeSessionRecordingId}
+            onReload={() => maybeLoadSessionRecordings()}
+            savedFilterChips
+        />
     )
 }
 
@@ -255,7 +336,7 @@ function PlayerWrapper({
         pinnedFilters,
         sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+    const { setFilters, applySavedFilter, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -279,6 +360,7 @@ function PlayerWrapper({
                         resetFilters={resetFilters}
                         filters={filters}
                         setFilters={setFilters}
+                        applySavedFilter={applySavedFilter}
                         totalFiltersCount={totalFiltersCount}
                         allowReplayHogQLFilters={allowHogQLFilters}
                         pinnedFilters={pinnedFilters}
@@ -339,7 +421,7 @@ function PlayerWrapper({
                 <div className="mt-20">
                     <EmptyMessage
                         title="No recording selected"
-                        description="Please select a recording from the list on the left"
+                        description="Pick a recording from the list to watch it"
                         buttonText="Learn more about recordings"
                         buttonTo="https://posthog.com/docs/user-guides/recordings"
                     />

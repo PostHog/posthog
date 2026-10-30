@@ -152,7 +152,7 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
     },
     post: {
         '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,

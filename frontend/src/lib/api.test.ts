@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import * as oauthClient from 'lib/oauth/oauthClient'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -84,7 +85,7 @@ describe('API helper', () => {
                 expect(fakeFetch).toHaveBeenCalledWith(
                     path === 'proxy'
                         ? 'https://example.com/v1/runs/run-1/stream?resync=1'
-                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'log_entries' : 'stream'}/`,
                     expect.objectContaining({
                         signal: controller.signal,
                         ...(path !== 'history' ? { headers: streamHeaders } : {}),
@@ -187,6 +188,118 @@ describe('API helper', () => {
     })
 
     describe('query endpoints', () => {
+        it('observes response phases without changing the query result', async () => {
+            const requestId = '11111111-1111-4111-8111-111111111111'
+            let clock = 10
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => clock)
+            const observeTiming = jest.fn()
+            fakeFetch.mockImplementation(async () => {
+                clock = 110
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'X-Request-ID': requestId, 'X-Envoy-Upstream-Service-Time': '80' }),
+                    text: async () => {
+                        clock = 310
+                        return JSON.stringify(FAKE_FETCH_RESULT)
+                    },
+                }
+            })
+
+            try {
+                await expect(
+                    api.query(
+                        { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                        { requestOptions: { onRequestTiming: observeTiming } }
+                    )
+                ).resolves.toEqual(FAKE_FETCH_RESULT)
+                expect(observeTiming).toHaveBeenCalledTimes(1)
+                expect(observeTiming).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        request_total_ms: 300,
+                        time_to_headers_ms: 100,
+                        body_read_ms: 200,
+                        json_parse_ms: 0,
+                        http_status: 200,
+                        http_request_id: requestId,
+                        envoy_upstream_ms: 80,
+                    })
+                )
+                expect(observeTiming.mock.calls[0][0]).not.toHaveProperty('url')
+                expect(observeTiming.mock.calls[0][0]).not.toHaveProperty('query')
+            } finally {
+                now.mockRestore()
+            }
+        })
+
+        it('keeps successful queries successful when a timing observer throws', async () => {
+            await expect(
+                api.query(
+                    { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    {
+                        requestOptions: {
+                            onRequestTiming: () => {
+                                throw new Error('observer failed')
+                            },
+                        },
+                    }
+                )
+            ).resolves.toEqual(FAKE_FETCH_RESULT)
+        })
+
+        it('preserves a body-read cancellation when a timing observer throws', async () => {
+            const abort = new DOMException('Cancelled', 'AbortError')
+            fakeFetch.mockResolvedValue({
+                ok: true,
+                status: 200,
+                text: () => Promise.reject(abort),
+            })
+            const observer = jest.fn(() => {
+                throw new Error('observer failed')
+            })
+
+            await expect(
+                api.query(
+                    { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    { requestOptions: { onRequestTiming: observer } }
+                )
+            ).rejects.toBe(abort)
+            expect(observer).toHaveBeenCalledWith(
+                expect.objectContaining({ http_status: 200, body_read_ms: expect.any(Number) })
+            )
+        })
+
+        it('observes rejected response headers before the error body is consumed', async () => {
+            let clock = 10
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => clock)
+            const observer = jest.fn()
+            fakeFetch.mockImplementation(async () => {
+                clock = 110
+                return {
+                    ok: false,
+                    status: 500,
+                    headers: new Headers({ 'X-Request-ID': '11111111-1111-4111-8111-111111111111' }),
+                    json: async () => {
+                        clock = 310
+                        return { detail: 'error' }
+                    },
+                }
+            })
+            try {
+                await expect(
+                    api.query(
+                        { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                        { requestOptions: { onRequestTiming: observer } }
+                    )
+                ).rejects.toMatchObject({ status: 500 })
+                expect(observer).toHaveBeenCalledWith(
+                    expect.objectContaining({ request_total_ms: 300, time_to_headers_ms: 100, http_status: 500 })
+                )
+            } finally {
+                now.mockRestore()
+            }
+        })
+
         it('adds query kind to the query URL when present', async () => {
             await api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
 
@@ -347,6 +460,37 @@ describe('API helper', () => {
         afterEach(() => {
             window.localStorage.removeItem(OAUTH_SESSION_KEY)
         })
+
+        it.each([new TypeError('Failed to fetch'), new DOMException('Cancelled', 'AbortError')])(
+            'clears the preceding response identity when an auth retry throws %s',
+            async (failure) => {
+                const refresh = jest.spyOn(oauthClient, 'refreshAccessToken').mockResolvedValue('refreshed-token')
+                const observer = jest.fn()
+                fakeFetch
+                    .mockResolvedValueOnce({
+                        ok: false,
+                        status: 401,
+                        headers: new Headers({ 'X-Request-ID': '11111111-1111-4111-8111-111111111111' }),
+                    })
+                    .mockRejectedValueOnce(failure)
+                try {
+                    await expect(
+                        api.query(
+                            { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                            { requestOptions: { onRequestTiming: observer } }
+                        )
+                    ).rejects.toBeInstanceOf(failure.name === 'AbortError' ? DOMException : NetworkError)
+                    expect(fakeFetch).toHaveBeenCalledTimes(2)
+                    expect(observer).toHaveBeenCalledTimes(1)
+                    expect(observer.mock.calls[0][0]).toMatchObject({ resource_timing_status: 'missing_request_id' })
+                    expect(observer.mock.calls[0][0].http_status).toBeUndefined()
+                    expect(observer.mock.calls[0][0].http_request_id).toBeUndefined()
+                    expect(observer.mock.calls[0][0].time_to_headers_ms).toBeUndefined()
+                } finally {
+                    refresh.mockRestore()
+                }
+            }
+        )
 
         it('attaches the bearer token to requests routed to the OAuth backend host', async () => {
             await api.get('/api/projects/2/insights/')

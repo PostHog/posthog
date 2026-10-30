@@ -16,15 +16,17 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
-from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -80,6 +82,12 @@ from .artefact_schemas import (
 )
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
+from .implementation_repositories import (
+    MAX_IMPLEMENTATION_REPOSITORIES,
+    InvalidImplementationRepository,
+    normalize_implementation_repositories,
+    repositories_missing_from_installations,
+)
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
     MAX_SCOUT_REPORT_NOTES,
@@ -224,6 +232,17 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ),
     )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
+    config_set = _SourceConfigField(
+        required=False,
+        write_only=True,
+        help_text="Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.",
+    )
+    config_remove = serializers.ListField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=False),
+        required=False,
+        write_only=True,
+        help_text="Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.",
+    )
 
     class Meta:
         model = SignalSourceConfig
@@ -233,6 +252,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "source_type",
             "enabled",
             "config",
+            "config_set",
+            "config_remove",
             "created_at",
             "updated_at",
             "status",
@@ -288,6 +309,21 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
+        if "config_set" in attrs or "config_remove" in attrs:
+            if self.instance is None:
+                raise serializers.ValidationError("config_set and config_remove are only supported on update.")
+            if "config" in attrs:
+                raise serializers.ValidationError("Use either config or config_set/config_remove.")
+            config_set = attrs.pop("config_set", {})
+            config_remove = attrs.pop("config_remove", [])
+            if not isinstance(config_set, dict):
+                raise serializers.ValidationError({"config_set": "config_set must be a JSON object"})
+            if set(config_set).intersection(config_remove):
+                raise serializers.ValidationError("A config key cannot be both set and removed.")
+            merged_config = {**self.instance.config, **config_set}
+            for key in config_remove:
+                merged_config.pop(key, None)
+            attrs["config"] = merged_config
         config = attrs.get("config")
         # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
         # rejected, not silently persisted.
@@ -397,14 +433,26 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
-    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    issue_tracking_integration = IntegrationReferenceField(
+        kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
         required=False,
         allow_null=True,
         help_text=(
             "Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker "
             "issue in for each pull request it makes. Null turns tracker issues off, which is the "
             "default."
+        ),
+    )
+    default_slack_notification_integration = IntegrationReferenceField(
+        kinds=["slack"],
+        auth_types="any",
+        source="default_slack_notification_integration_id",
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Connected Slack integration that owns `default_slack_notification_channel`. Send it together "
+            "with the channel. A channel saved without it is routed through the team's oldest Slack "
+            "integration, and clearing the channel clears this too."
         ),
     )
     issue_tracking_config = serializers.DictField(
@@ -470,6 +518,34 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
     )
+    implementation_repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=MAX_IMPLEMENTATION_REPOSITORIES,
+        help_text=(
+            "Extra GitHub repositories, as 'organization/repository', that self-driving implementation "
+            "tasks can read and write within the connected GitHub App's permissions, for example an "
+            "assets repository for PR screenshots. A task gets only the entries with the same owner as "
+            "its selected repository. They are not cloned, and the PR still targets the selected "
+            "repository. Each new entry must be reachable through one of the project's GitHub "
+            "installations. Changes apply to tasks started afterwards. Empty by default."
+        ),
+    )
+    anomaly_scoring_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
+            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
+            "stop new scores; events written before stay. Turning it on does not enroll a project that "
+            "anomaly_scoring_available reports as not covered."
+        ),
+    )
+    anomaly_scoring_available = serializers.SerializerMethodField(
+        help_text=(
+            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
+            "PostHog decides which projects anomaly scoring covers."
+        )
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -488,6 +564,24 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         for field in STEERING_FIELDS.values():
             representation[field] = representation[field] or ""
         return representation
+
+    def validate_implementation_repositories(self, value: list[str]) -> list[str]:
+        try:
+            repositories = normalize_implementation_repositories(value)
+        except InvalidImplementationRepository as error:
+            raise serializers.ValidationError(str(error))
+        # Entries already stored passed this check when they were added, so removing one never
+        # waits on GitHub.
+        stored = set(getattr(self.instance, "implementation_repositories", None) or [])
+        added = [repository for repository in repositories if repository not in stored]
+        team_id = self.instance.team_id if self.instance is not None else self.context["get_team"]().id
+        missing = repositories_missing_from_installations(team_id, added)
+        if missing:
+            raise serializers.ValidationError(
+                f"The project's GitHub connection can't reach {', '.join(missing)}. "
+                "Give the PostHog GitHub App access to it in your GitHub installation settings, then try again."
+            )
+        return repositories
 
     def validate_pull_request_label(self, value: str | None) -> str | None:
         # One stored shape for "use the default", so a team that clears the box does not get a
@@ -512,6 +606,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         return self._reports_today_count(obj)
 
     @extend_schema_field(serializers.BooleanField())
+    def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
+        return covers_team(parse_config(read_payload()), obj.team)
+
+    @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
         if obj.max_reports_per_day is None:
             return False
@@ -524,6 +622,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "default_slack_notification_integration",
             "autostart_base_branches",
             "scout_instructions",
             "research_instructions",
@@ -535,12 +634,22 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "github_issue_writeback_enabled",
             "pull_request_label_enabled",
             "pull_request_label",
+            "implementation_repositories",
+            "anomaly_scoring_enabled",
+            "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "reports_generated_today", "daily_report_limit_reached", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "anomaly_scoring_available",
+            "reports_generated_today",
+            "daily_report_limit_reached",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (
@@ -558,17 +667,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             },
         }
 
-    def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
-        if value is None:
-            return None
-        if not is_supported_external_issue_provider(value.kind):
-            raise serializers.ValidationError(
-                f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
-            )
-        return value
+    def validate_default_slack_notification_integration(self, value: IntegrationRecord | None) -> int | None:
+        return value.id if value is not None else None
 
     def validate(self, attrs: dict) -> dict:
         attrs = super().validate(attrs)
+        # A new channel without its workspace must not keep the old binding, which may name a
+        # workspace that cannot see the new channel.
+        if "default_slack_notification_channel" in attrs and (
+            not attrs["default_slack_notification_channel"] or "default_slack_notification_integration_id" not in attrs
+        ):
+            attrs["default_slack_notification_integration_id"] = None
         # The target only makes sense against an integration, and the two can arrive in either the
         # same PATCH or separate ones, so fall back to what is already stored.
         integration = (
@@ -594,7 +703,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             )
         # The repository reaches a GitHub path, so a name it cannot hold fails here rather than on
         # every run.
-        if integration.kind == Integration.IntegrationKind.GITHUB:
+        if integration.kind == IntegrationKind.GITHUB:
             try:
                 validated_github_repository(config["repository"])
             except serializers.ValidationError as error:
@@ -2171,7 +2280,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
-        if obj.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if obj.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED, SignalReport.Status.MONITORING}:
             return "done"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
@@ -2286,8 +2395,8 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
+        decile = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score_decile", None)
+        return inbox_merge_key(decile, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):

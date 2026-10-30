@@ -1,3 +1,4 @@
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     WarehouseParentTableNotFoundError,
     iter_parent_pages_from_warehouse,
     iter_parent_pages_with_positions,
+    parent_table_id,
+    pin_parent_table_version,
     resolve_parent_table_ref,
 )
 
@@ -594,6 +597,68 @@ def test_a_pinned_version_keeps_its_positions_through_a_compaction(tmp_path: Pat
         start_position=ScanPosition(fragment_index=2, row_offset=0, table_uri=uri, version=pinned),
     )
     assert [row["id"] for page in resumed for row in page.rows] == before[6:]
+
+
+def _table_with_a_later_commit(tmp_path: Path) -> tuple[str, int, ParentTableRef]:
+    uri = _write_parent_table(tmp_path)
+    checkpointed = deltalake.DeltaTable(uri).version()
+    deltalake.write_deltalake(
+        uri, pa.table({"id": ["1"], "last_seen": ["2026-04-01"], "title": ["z"]}), mode="overwrite"
+    )
+    return uri, checkpointed, ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+
+def test_pin_parent_table_version_reads_the_checkpointed_snapshot(tmp_path: Path) -> None:
+    uri, checkpointed, newest = _table_with_a_later_commit(tmp_path)
+
+    with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
+        pinned = pin_parent_table_version(newest, checkpointed)
+
+    assert pinned == ParentTableRef(uri=uri, version=checkpointed)
+    assert sorted(
+        row["id"] for page in _patched_reader(uri, version=checkpointed, columns=["id"], page_size=10) for row in page
+    ) == ["1", "2", "3"]
+
+
+def test_pin_parent_table_version_keeps_the_current_pin(tmp_path: Path) -> None:
+    _uri, _checkpointed, newest = _table_with_a_later_commit(tmp_path)
+
+    assert pin_parent_table_version(newest, newest.version) is newest
+
+
+@pytest.mark.parametrize(
+    "rollback,sweep_budget,version_offset",
+    [
+        (timedelta(0), timedelta(0), 0),
+        (warehouse_parent.MAX_SNAPSHOT_ROLLBACK, warehouse_parent.MAX_SNAPSHOT_ROLLBACK, 0),
+        (warehouse_parent.MAX_SNAPSHOT_ROLLBACK, warehouse_parent.RESUMED_SWEEP_BUDGET, 5),
+    ],
+    ids=["outside_the_vacuum_window", "no_retention_left_for_the_sweep", "newer_than_the_table"],
+)
+def test_pin_parent_table_version_refuses_a_version_it_cannot_vouch_for(
+    rollback: timedelta, sweep_budget: timedelta, version_offset: int, tmp_path: Path
+) -> None:
+    _uri, checkpointed, newest = _table_with_a_later_commit(tmp_path)
+
+    with (
+        patch.object(warehouse_parent, "delta_storage_options", return_value={}),
+        patch.object(warehouse_parent, "MAX_SNAPSHOT_ROLLBACK", rollback),
+        patch.object(warehouse_parent, "RESUMED_SWEEP_BUDGET", sweep_budget),
+    ):
+        assert pin_parent_table_version(newest, checkpointed + version_offset) is None
+
+
+def test_parent_table_id_survives_writes_but_not_a_rebuild(tmp_path: Path) -> None:
+    uri, checkpointed, newest = _table_with_a_later_commit(tmp_path)
+
+    with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
+        original = parent_table_id(ParentTableRef(uri=uri, version=checkpointed))
+        assert original is not None
+        assert parent_table_id(newest) == original
+
+        shutil.rmtree(uri)
+        rebuilt = ParentTableRef(uri=_write_parent_table(tmp_path), version=0)
+        assert parent_table_id(rebuilt) != original
 
 
 def test_scan_position_matches_only_its_own_table_version_and_filter() -> None:

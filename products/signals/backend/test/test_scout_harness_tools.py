@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -1964,6 +1966,11 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
+    @pytest.fixture(autouse=True)
+    def mock_target_dns(self) -> Iterator[None]:
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}):
+            yield
+
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload

@@ -18,6 +18,9 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("This is task task-123");
     expect(prompt).toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Task-Id: task-123");
+    expect(prompt).toContain(
+      "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) from a [PostHog Desktop task](https://us.posthog.com/code/task/task-123)*",
+    );
     expect(prompt).toContain("Keep the patch small.");
     expect(prompt).toContain("<directory>/tmp/a&amp;b</directory>");
     expect(prompt).toContain("<directory>/tmp/&lt;shared&gt;</directory>");
@@ -56,6 +59,7 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Task-Id: task-123");
     expect(prompt).not.toContain('git commit -m "$(cat');
+    expect(prompt).not.toContain("/code/task/");
     expect(prompt).toContain("Use the existing pull request.");
     expect(prompt).toContain("## Keeping the task summary");
     expect(prompt).toContain("task_summary_update");

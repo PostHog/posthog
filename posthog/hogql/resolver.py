@@ -9,6 +9,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
+from posthog.hogql.compilation import MAX_VIEW_DEPTH, CompilationBudget, bounded_compilation, compilation_budget
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -282,6 +283,7 @@ def _mark_view_body(query: ast.SelectQuery | ast.SelectSetQuery, view_name: str)
         _mark_view_body(branch, view_name)
 
 
+@bounded_compilation
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
@@ -442,6 +444,9 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        self._compilation_budget = compilation_budget.get() or CompilationBudget()
+        self._resolving_saved_views: set[str] = set()
+        self._pending_saved_view: str | None = None
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -463,6 +468,7 @@ class Resolver(CloningVisitor):
         return self._scope_table_column_aliases.setdefault(id(scope), {})
 
     def visit(self, node: ast.AST | None):
+        self._compilation_budget.check_time()
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
@@ -1014,6 +1020,7 @@ class Resolver(CloningVisitor):
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
         array_join_aliases = []
+        array_join_placeholders: dict[str, ast.FieldAliasType] = {}
         if node.array_join_list:
             for expr in node.array_join_list:
                 ac.visit(expr)
@@ -1021,7 +1028,8 @@ class Resolver(CloningVisitor):
             for key in array_join_aliases:
                 if key in node_type.aliases:
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
-                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                array_join_placeholders[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                node_type.aliases[key] = array_join_placeholders[key]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -1119,6 +1127,17 @@ class Resolver(CloningVisitor):
                     # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
+            for array_join_expr in new_node.array_join_list:
+                if isinstance(array_join_expr, ast.Alias) and isinstance(array_join_expr.type, ast.FieldAliasType):
+                    array_join_expr.type = ast.ArrayJoinAliasType(
+                        alias=array_join_expr.alias, type=array_join_expr.type.type
+                    )
+                    if not array_join_expr.hidden:
+                        node_type.aliases[array_join_expr.alias] = array_join_expr.type
+                    # SELECT columns resolved against the pass 1 placeholder, so give it the item type.
+                    placeholder = array_join_placeholders.get(array_join_expr.alias)
+                    if placeholder is not None:
+                        placeholder.type = array_join_expr.type.resolve_constant_type(self.context)
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -1470,16 +1489,23 @@ class Resolver(CloningVisitor):
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
-                self.current_view_depth += 1
-
-                node.table = parse_select(str(database_table.query))
+                if database_table.name in self._resolving_saved_views:
+                    raise QueryError(f"Circular dependency detected in view '{database_table.name}'")
+                if self.current_view_depth >= MAX_VIEW_DEPTH:
+                    raise QueryError(
+                        f"Query exceeds the limit of {MAX_VIEW_DEPTH} nested saved views. Reduce the view nesting depth."
+                    )
+                view_query = str(database_table.query)
+                self._compilation_budget.expand_view(view_query)
+                node.table = parse_select(view_query)
                 _mark_view_body(node.table, database_table.name)
-
                 node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
-                return node
+                previous_pending = self._pending_saved_view
+                self._pending_saved_view = database_table.name
+                try:
+                    return self.visit(node)
+                finally:
+                    self._pending_saved_view = previous_pending
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
@@ -1593,6 +1619,8 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
+            view_name = self._pending_saved_view
+            self._pending_saved_view = None
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
@@ -1603,7 +1631,16 @@ class Resolver(CloningVisitor):
                 elif node.join_type is not None:
                     node.alias = self._synthesize_join_alias(scope, node)
 
-            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            # Only the body is on the dependency path; next_join contains sibling views.
+            if view_name is not None:
+                self._resolving_saved_views.add(view_name)
+                self.current_view_depth += 1
+            try:
+                node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            finally:
+                if view_name is not None:
+                    self.current_view_depth -= 1
+                    self._resolving_saved_views.remove(view_name)
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:

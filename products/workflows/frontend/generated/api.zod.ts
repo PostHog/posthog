@@ -3416,6 +3416,37 @@ export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
+ */
+export const workflowDataSuggestionsBuildForEventsBodyEventsItemMax = 400
+
+export const workflowDataSuggestionsBuildForEventsBodyEventsMax = 5
+
+export const workflowDataSuggestionsBuildForEventsBodyRetryDefault = false
+
+export const WorkflowDataSuggestionsBuildForEventsBody = /* @__PURE__ */ zod.object({
+    events: zod
+        .array(
+            zod
+                .string()
+                .max(workflowDataSuggestionsBuildForEventsBodyEventsItemMax)
+                .describe('An event name, exactly as the project sends it.')
+        )
+        .min(1)
+        .max(workflowDataSuggestionsBuildForEventsBodyEventsMax)
+        .describe(
+            'The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.'
+        ),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildForEventsBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one for these events failed. Leave it false when asking for a running build's status."
+        ),
+})
+
+/**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
 export const workflowDataSuggestionsGenerateBodyRefreshDefault = false
@@ -3483,7 +3514,9 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     snippets: zod
         .record(zod.string(), zod.string())
         .optional()
-        .describe('Customer.io snippet name to its content, inlined where a message uses `{% snippet \"name\" %}`.'),
+        .describe(
+            'Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.'
+        ),
     segment_cohorts: zod
         .record(zod.string(), zod.number())
         .optional()

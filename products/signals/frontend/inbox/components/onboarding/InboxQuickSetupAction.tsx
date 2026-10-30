@@ -15,15 +15,14 @@ import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
 
 export function InboxQuickSetupAction(): JSX.Element {
-    const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
+    const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
     const {
         hasGithubIntegration,
         isGithubOptionalSetup,
-        quickSetupReady,
+        quickActivationPending,
         saving,
         error,
         shouldResumeQuickSetup,
-        failedOperation,
     } = useValues(inboxSetupLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const scoutDisabledReason = useScoutCreateDisabledReason()
@@ -32,12 +31,13 @@ export function InboxQuickSetupAction(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
-    useEffect(() => startSetup(), [startSetup])
     useEffect(() => {
         if (!restrictionReason && !scoutDisabledReason) {
             resumeQuickSetup()
         }
     }, [shouldResumeQuickSetup, resumeQuickSetup, restrictionReason, scoutDisabledReason])
+
+    const busy = saving || quickActivationPending
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
@@ -46,12 +46,8 @@ export function InboxQuickSetupAction(): JSX.Element {
                     type="primary"
                     status="alt"
                     onClick={() => activateQuickSetup()}
-                    loading={saving}
-                    disabledReason={
-                        restrictionReason ||
-                        scoutDisabledReason ||
-                        (!quickSetupReady ? 'Loading your available sources and general scout' : undefined)
-                    }
+                    loading={busy}
+                    disabledReason={restrictionReason || scoutDisabledReason}
                     data-attr="inbox-quick-activate"
                 >
                     Activate Self-Driving
@@ -73,18 +69,12 @@ export function InboxQuickSetupAction(): JSX.Element {
                 />
             )}
             {error && (
-                <LemonBanner type="error">
-                    {error}
+                <LemonBanner type="error" className="w-full">
+                    <span>{error}</span>
                     <LemonButton
                         size="small"
-                        onClick={
-                            failedOperation === 'scouts' || failedOperation === 'sources'
-                                ? retry
-                                : quickSetupReady
-                                  ? () => activateQuickSetup('retry')
-                                  : startSetup
-                        }
-                        loading={saving}
+                        onClick={retry}
+                        loading={busy}
                         disabledReason={restrictionReason || scoutDisabledReason}
                     >
                         Retry

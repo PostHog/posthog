@@ -5,23 +5,22 @@ already grouped.
 
 The embedding consumer assigns one observation per message, and the semantics backfill assigns a scanner's rows in
 chunks, both through `assign_semantics_batch`. It locks the scanner's semantic centre for the whole chunk, so two
-writers never race on its clusters, and writes both ids to each observation's rank in the same transaction, so a
+writers never race on its clusters, and writes both ids to each observation's rank row in the same transaction, so a
 redelivered message finds them already there.
 """
 
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from itertools import batched
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Case, F, Func, JSONField, Value, When
 
 import numpy as np
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
@@ -29,6 +28,7 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
 )
+from products.replay_vision.backend.observation_ranks import CATEGORY_NAMES, set_rank_clusters
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
@@ -38,15 +38,13 @@ from products.replay_vision.backend.semantic_space import (
     semantic_vector,
     unpack,
 )
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
-from products.replay_vision.backend.watch_rank import current_rank
+from products.replay_vision.backend.watch_rank import current_ranks
 from products.replay_vision.backend.watch_themes import ThemeAssignment, ThemeBatch, belongs_in_theme
 
 # Clusters with no member for this long are deleted, since the feed's longest window no longer reaches them.
 SEMANTIC_RETENTION = timedelta(days=90)
 # Pruning runs on one in this many assignments of a scanner, which keeps it rare and still bounds the tables.
 _PRUNE_EVERY = 500
-_MERGE_CHUNK = 500
 
 
 @frozen
@@ -100,20 +98,27 @@ def assign_semantics_batch(
                 )
             )
             keys = [_as_uuid(item.observation_id) for item in items]
+            ids = [key for key in keys if key]
             rows = {
                 row["id"]: row
-                for row in ReplayObservation.objects.filter(
-                    team_id=team_id, id__in=[key for key in keys if key]
-                ).values("id", "watch_rank", "scanner_result", "scanner_snapshot")
+                for row in ReplayObservation.objects.filter(team_id=team_id, id__in=ids).values(
+                    "id", "scanner_result", "scanner_snapshot"
+                )
             }
+            ranks = dict(
+                current_ranks(team_id)
+                .filter(observation_id__in=ids, feed_group_id__isnull=True)
+                .values_list("observation_id", "category")
+            )
             center_sum = unpack(center.vector_sum).copy()
             member_count = center.member_count
             group_writes = ClusterWrites(ReplayScannerFeedGroup, team_id, scanner_id)
             themes: ThemeBatch | None = None
             for item, key in zip(items, keys):
                 row = rows.get(key) if key else None
-                rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
-                if row is None or rank is None or rank.get("group"):
+                # Only a ranked row without a group yet takes one, so a redelivered message changes nothing.
+                category = CATEGORY_NAMES.get(ranks.get(key, 0)) if key else None
+                if row is None or category is None:
                     continue
                 v = semantic_vector(item.vector)
                 space = scanner_space(center_sum, member_count, v)
@@ -138,7 +143,7 @@ def assign_semantics_batch(
                         row["scanner_snapshot"],
                     )
                     and belongs_in_theme(
-                        category=rank["category"],
+                        category=category,
                         scanner_type=scanner["scanner_type"],
                         valence=scanner["prompt_valence"],
                         output=output,
@@ -161,11 +166,10 @@ def assign_semantics_batch(
             center.save(update_fields=["vector_sum", "member_count"])
             if pruning_due:
                 _prune(team_id, scanner_id, items[-1].now)
-            merge_watch_ranks(
+            set_rank_clusters(
                 team_id,
                 {
-                    observation_id: {"group": str(assignment.group_id)}
-                    | ({"theme": str(assignment.theme.theme_id)} if assignment.theme else {})
+                    observation_id: (assignment.group_id, assignment.theme.theme_id if assignment.theme else None)
                     for observation_id, assignment in assigned.items()
                 },
             )
@@ -181,31 +185,6 @@ def _as_uuid(observation_id: str) -> uuid.UUID | None:
         return uuid.UUID(observation_id)
     except ValueError:
         return None
-
-
-def merge_watch_ranks(team_id: int, keys_by_observation: dict[str, dict[str, Any]]) -> None:
-    """Add keys to each observation's rank without rewriting what another writer put there, and drop the retired
-    duplicate link."""
-    without_duplicate = Func(
-        F("watch_rank"), Value("duplicate_of"), template="(%(expressions)s)", arg_joiner=" - ", output_field=JSONField()
-    )
-    # Postgres tries each CASE branch in turn per row, so one update stays at a few hundred observations.
-    for chunk in batched(keys_by_observation.items(), _MERGE_CHUNK, strict=False):
-        keys = Case(
-            *(
-                When(id=observation_id, then=Value(observation_keys, output_field=JSONField()))
-                for observation_id, observation_keys in chunk
-            ),
-            default=Value({}, output_field=JSONField()),
-            output_field=JSONField(),
-        )
-        ReplayObservation.objects.filter(
-            team_id=team_id, id__in=[observation_id for observation_id, _ in chunk]
-        ).update(
-            watch_rank=Func(
-                without_duplicate, keys, template="%(expressions)s", arg_joiner=" || ", output_field=JSONField()
-            )
-        )
 
 
 def _valence_unknown_for_row(

@@ -8,7 +8,6 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
-import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/Shortcuts/utils/DebugCHQueries'
@@ -28,8 +27,6 @@ export function GlobalShortcuts(): null {
     const hesoyamInFlight = useRef(false)
     const { superpowersEnabled, user, excludedFromPostHogTeamCohort } = useValues(superpowersLogic)
     const { setExcludedFromPostHogTeamCohort } = useActions(superpowersLogic)
-    const { shortcutMenuOpen } = useValues(shortcutLogic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
@@ -49,14 +46,6 @@ export function GlobalShortcuts(): null {
             toggleCommand('keyboard-shortcut')
         },
         priority: 10,
-    })
-
-    useShortcut({
-        name: 'ToggleShortcutMenu',
-        keybind: [keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback],
-        intent: 'Toggle shortcut menu',
-        interaction: 'function',
-        callback: () => setShortcutMenuOpen(!shortcutMenuOpen),
     })
 
     useShortcut({
