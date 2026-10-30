@@ -518,6 +518,8 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryLimitMax = 10000
+
 export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
@@ -533,7 +535,11 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .describe(
             "Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     quarantined_only: zod
         .boolean()

@@ -1099,6 +1099,7 @@ export type ConversationsTicketsListParams = {
     emails?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1183,6 +1184,7 @@ export const ConversationsTicketsListSla = {
 export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**

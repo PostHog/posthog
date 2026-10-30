@@ -1756,6 +1756,7 @@ export type PlatformAlertsListParams = {
     legacy_configuration_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
