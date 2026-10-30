@@ -1,6 +1,5 @@
-//! Canvas mutations. posthog-js draws each canvas frame as an encoded `ImageBitmap(Blob(ArrayBuffer))`, and rrweb's
-//! command recorder also passes buffers, `ImageData` and typed arrays of pixels. A data URI in an `HTMLImageElement`
-//! `src` moves out with the data URI scan, and a remote `src` holds no image bytes, so it stays.
+//! Canvas mutations: the `ImageBitmap(Blob(ArrayBuffer))` frames of posthog-js, and the buffers, `ImageData` and pixel arrays of rrweb's command recorder.
+//! The data URI scan reads an `HTMLImageElement` `src`, and a remote `src` holds no image bytes.
 
 use crate::bytescan::{self as scan, Span};
 
@@ -12,7 +11,6 @@ const PIXEL_ARRAYS: &[&str] = &["Uint8Array", "Uint8ClampedArray"];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasImage {
     Base64(Span),
-    /// The first argument of an `ImageData`, or the numbers of a typed array that can hold pixels.
     Pixels(Span),
 }
 

@@ -1,6 +1,5 @@
 //! Moves inline images out of a v4 block. Each raster data URI becomes an `image:v4` reference, and its decoded bytes
-//! go to the flush's image pack. An image that the image scrub cannot read, or that is over a cap, becomes a
-//! [`Declined`] marker, and its bytes are not stored.
+//! go to the flush's image pack. An image the image scrub cannot read, or one over a cap, becomes a [`Declined`] marker.
 //!
 //! The scan is one pass over the colons, for `data:image/` in any case. A data URI looks the same in an attribute, a CSS `url()`, a
 //! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
@@ -22,7 +21,6 @@ pub const DECLINED_PREFIX: &str = "image:v4:declined:";
 /// Readers of the dataset accept only these exact markers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Declined {
-    /// The dataset keeps no AVIF image, inline or fetched.
     Avif,
     OverLimit,
     Undecodable,
@@ -64,8 +62,8 @@ const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
         .with_decode_allow_trailing_bits(true),
 );
 
-/// The longest media type and parameters a data URI has before its comma. A raster type with parameters, such as
-/// `image/png;charset=utf-8;base64`, fits. The bound keeps the scan linear.
+/// The longest media type and parameters a taken data URI has before its comma. A raster type with parameters, such
+/// as `image/png;charset=utf-8;base64`, fits. The bound keeps the scan linear.
 const MAX_META: usize = 64;
 
 #[derive(Debug, Clone, Copy)]
@@ -104,7 +102,6 @@ pub struct ImageSink<'k> {
     pub images: Vec<Image>,
     /// SVG data URIs, the only images left inline.
     pub left_inline: u32,
-    /// Indexed by [`Declined`].
     pub declined: [u32; Declined::ALL.len()],
 }
 
@@ -128,8 +125,7 @@ impl<'k> ImageSink<'k> {
         }
     }
 
-    /// The bytes name the media type, because a page can label a data URI with any type: a font as `image/ttf`, or
-    /// nothing at all.
+    /// The bytes name the media type, because a page can label a data URI with any type: a font as `image/ttf`, or nothing at all.
     pub(crate) fn take(&mut self, bytes: Vec<u8>) -> String {
         match self.store(bytes) {
             Ok(reference) => reference,
@@ -233,9 +229,9 @@ fn is_descriptor(bytes: &[u8], start: usize) -> bool {
 }
 
 /// Whether the payload may go on past the break at `end`. The run before the break is then only a prefix of the image,
-/// so the caller reads on with [`wrapped_end`]. Line-wrapped base64 continues it, and so does an escape inside it: an
-/// escaped slash (`\/` or `\u002F`), or a CSS escape such as `\2f `, which arrives with its backslash doubled. Only the
-/// `\"` that closes a quoted CSS url ends it for sure.
+/// so the caller reads on with [`wrapped_end`]. Line-wrapped base64 continues it, and so does an escape inside it: an escaped
+/// slash (`\/` or `\u002F`), or a CSS escape such as `\2f `, which arrives with its backslash doubled. Only the `\"`
+/// that closes a quoted CSS url ends it for sure.
 fn continues_past(bytes: &[u8], end: usize) -> bool {
     let mut position = end;
     let mut line_break = false;
@@ -264,8 +260,7 @@ fn continues_past(bytes: &[u8], end: usize) -> bool {
 enum DataUri {
     NotImage,
     Svg,
-    /// The reference or marker, and where the URI ends.
-    Replaced(String, usize),
+    Replaced { replacement: String, end: usize },
 }
 
 /// The longest `ftyp` box the scan reads for its brands. Real files list a handful of brands in far fewer bytes.
@@ -336,8 +331,7 @@ fn wrapped_payload(bytes: &[u8], start: usize, end: usize) -> Vec<u8> {
 }
 
 /// Where a data URI ends whose payload is not base64: at the end of its JSON string, at the quote or parenthesis that
-/// opened it, or at whitespace when no quote opened it, as in a srcset. Only its own quote ends a quoted URI, because a
-/// URL may hold an unencoded `'` or `)`.
+/// opened it, or at whitespace when no quote opened it. A URL may hold a bare `'` or `)`, so a quoted URI ends only at its own quote.
 fn uri_end(bytes: &[u8], start: usize, from: usize) -> usize {
     let opener = start.checked_sub(1).map(|at| bytes[at]);
     // `\"` opens a quoted CSS url in stylesheet text. A `"` after an even number of backslashes opens the JSON string.
@@ -381,8 +375,7 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
 
 enum Meta {
     Read(String, usize),
-    /// No payload follows: a quote or an escape comes before any comma, or whitespace marks the bytes as text.
-    Unterminated,
+    NoPayload,
     TooLong(String),
 }
 
@@ -402,7 +395,7 @@ fn read_meta(bytes: &[u8], start: usize) -> Meta {
                 meta.push('/');
                 at += 6;
             }
-            Some([b'"' | b'\\', ..] | []) | None => return Meta::Unterminated,
+            Some([b'"' | b'\\', ..] | []) | None => return Meta::NoPayload,
             Some([byte, ..]) => {
                 whitespace |= byte.is_ascii_whitespace();
                 meta.push(char::from(byte.to_ascii_lowercase()));
@@ -411,7 +404,7 @@ fn read_meta(bytes: &[u8], start: usize) -> Meta {
         }
     }
     if whitespace {
-        Meta::Unterminated
+        Meta::NoPayload
     } else {
         Meta::TooLong(meta)
     }
@@ -426,7 +419,10 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
         // A browser reads parameters of any length, so the URI can hold an image whose payload the scan cannot find.
         Meta::TooLong(meta) if meta.starts_with("image/") => {
             let end = uri_end(bytes, start, meta_start);
-            return DataUri::Replaced(sink.decline(Declined::Undecodable), end);
+            return DataUri::Replaced {
+                replacement: sink.decline(Declined::Undecodable),
+                end,
+            };
         }
         _ => return DataUri::NotImage,
     };
@@ -446,7 +442,7 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
                 None => sink.decline(Declined::Undecodable),
             },
         };
-        return DataUri::Replaced(replacement, end);
+        return DataUri::Replaced { replacement, end };
     }
     let run_end = bytes[payload_start..]
         .iter()
@@ -470,11 +466,10 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     } else {
         sink.take_base64(&wrapped_payload(bytes, payload_start, end))
     };
-    DataUri::Replaced(replacement, end)
+    DataUri::Replaced { replacement, end }
 }
 
-/// Replaces every inline image in `bytes` but SVG with its reference or a marker. Returns the input unchanged when it
-/// holds none.
+/// Replaces every inline image in `bytes` but SVG with its reference or a marker. Returns the input unchanged when it holds none.
 pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, [u8]> {
     let mut out: Option<Vec<u8>> = None;
     let mut copied_to = 0;
@@ -493,7 +488,7 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
         match read_data_uri(bytes, start, sink) {
             DataUri::NotImage => {}
             DataUri::Svg => sink.left_inline += 1,
-            DataUri::Replaced(replacement, end) => {
+            DataUri::Replaced { replacement, end } => {
                 let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
                 out.extend_from_slice(&bytes[copied_to..start]);
                 out.extend_from_slice(replacement.as_bytes());
@@ -887,7 +882,6 @@ mod tests {
             extract_images(spaced.as_bytes(), &mut images),
             Cow::Borrowed(_)
         ));
-        // A run with no break at all could be the parameters of an image, so it goes in one piece.
         let unbroken = format!("{};", "data:image/".repeat(200_000));
         let mut images = sink(ImageLimits::default());
         assert_eq!(

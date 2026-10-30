@@ -159,7 +159,6 @@ pub struct UrlRewrite {
 pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
     url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
-    /// Indexed by [`Declined`].
     pub removed_images: [u64; Declined::ALL.len()],
 }
 

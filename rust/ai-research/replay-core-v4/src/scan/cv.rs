@@ -842,7 +842,6 @@ mod tests {
             |image: Value| commands(json!([{"property": "drawImage", "args": [image, 0, 0]}]));
         let blob = "/args/0/data/0/base64";
         let cases = [
-            // posthog-js's frame.
             (
                 commands(json!([{"property": "clearRect", "args": [0, 0, 8, 8]},
                     {"property": "drawImage", "args": [bitmap("image/webp", b"RIFF\x00\x00\x00\x00WEBPframe"), 0, 0, 8, 8]}])),
@@ -855,7 +854,6 @@ mod tests {
                 format!("/data/commands/1/args/0{blob}"),
                 Outcome::Stored("image/gif"),
             ),
-            // One command without a list, in a WebGL context.
             (
                 webgl(
                     "texImage2D",
