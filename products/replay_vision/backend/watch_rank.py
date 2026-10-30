@@ -435,10 +435,14 @@ def select_embedding_picks(
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
         window_values = _cap_feed_groups(window_rows(fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR), cap)
+    # The entries carry everything ranking reads, so only ids load here, and the endpoint gates its page's rows on
+    # experiment access. A stored entry outlives a deleted observation until its feed rebuilds.
+    live = set(
+        ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values)).values_list("id", flat=True)
+    )
+    window_values = {observation_id: entry for observation_id, entry in window_values.items() if observation_id in live}
     if not window_values:
         return []
-    # The entries carry everything ranking reads, so no observation row loads until the endpoint fetches its page,
-    # which also gates that page's rows on experiment access.
     viewed = set(
         views_by(viewer_id, window.as_of)
         .filter(observation_id__in=list(window_values))

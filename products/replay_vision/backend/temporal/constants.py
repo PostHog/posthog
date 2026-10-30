@@ -274,5 +274,5 @@ HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule
 HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
 HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
-# One team's build is bounded by its 120s statement timeout, so a heartbeat per team arrives well inside this.
-HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=3)
+# Covers one team's build of a few statements, each cut off by the activity's query budget.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)

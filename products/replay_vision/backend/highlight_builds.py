@@ -227,9 +227,10 @@ def stored_generation(team_id: int, anchor_version: int, as_of: datetime) -> int
     return max(current_by_then) if current_by_then else min(build[0] for build in state.builds)
 
 
-def rebuild_changed_feeds(anchor_version: int, *, on_team: Callable[[], None] | None = None) -> int:
+def rebuild_changed_feeds(anchor_version: int, *, on_team: Callable[[], bool] | None = None) -> int:
     """Rebuild teams whose ranks changed since their last build, least recently tried first, skipping any team another
-    process is building. A team whose build fails waits behind the others. `on_team` runs before each team's build.
+    process is building. A team whose build fails waits behind the others. `on_team` runs before each team's build, and
+    a false return stops the sweep.
     Returns how many it built."""
     now = timezone.now()
     states = ReplayHighlightFeedState.objects.unscoped()
@@ -244,8 +245,8 @@ def rebuild_changed_feeds(anchor_version: int, *, on_team: Callable[[], None] | 
     states.filter(team_id__in=due).update(attempted_at=now)
     built = 0
     for team_id in due:
-        if on_team is not None:
-            on_team()
+        if on_team is not None and not on_team():
+            break
         try:
             built += build_highlight_feed(team_id, anchor_version, wait=False) is not None
         except Exception:
