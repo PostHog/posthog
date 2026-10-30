@@ -64,6 +64,7 @@ import { DividerColumn, PaneTree } from "./PaneTree";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
 import { Sidebar } from "./Sidebar";
+import { Welcome } from "./Welcome";
 
 export interface Session {
   account?: string;
@@ -286,34 +287,35 @@ export function App({
     flashNotice,
   });
 
-  const { onSubmit, pending, reopening, undelivered, welcome } = useSend({
-    layout,
-    setLayout,
-    setFresh,
-    chats,
-    taskOf,
-    resetWork,
-    local: { isLocal, localFor, clear: clearLocal, markActive },
-    places: { placeFor, setPlace },
-    composerFor,
-    modalFor,
-    openModal,
-    openModelSheet,
-    openEffortSheet,
-    openModeSheet,
-    pickFor,
-    compact,
-    openSearch: search.toggle,
-    openSettings: settings.toggle,
-    repos: repoPicker,
-    onChatStarted,
-    setTitles,
-    runShell,
-    notice,
-    login,
-    logout,
-    runSetup,
-  });
+  const { onSubmit, pending, reopening, undelivered, welcome, welcomeStep } =
+    useSend({
+      layout,
+      setLayout,
+      setFresh,
+      chats,
+      taskOf,
+      resetWork,
+      local: { isLocal, localFor, clear: clearLocal, markActive },
+      places: { placeFor, setPlace },
+      composerFor,
+      modalFor,
+      openModal,
+      openModelSheet,
+      openEffortSheet,
+      openModeSheet,
+      pickFor,
+      compact,
+      openSearch: search.toggle,
+      openSettings: settings.toggle,
+      repos: repoPicker,
+      onChatStarted,
+      setTitles,
+      runShell,
+      notice,
+      login,
+      logout,
+      runSetup,
+    });
 
   const sidebar = useSidebar({
     layout,
@@ -535,6 +537,14 @@ export function App({
 
   if (search.open) return <Search search={search} />;
   if (settings.open) return <Settings settings={settings} />;
+  if (welcomeStep)
+    return (
+      <Welcome
+        step={welcomeStep}
+        modal={modalFor(workspace.focusedPaneId)}
+        notice={notice.shown?.text ?? null}
+      />
+    );
 
   // A chat's notice falls back to the sidebar while no pane on screen shows the chat.
   const sidebarNotice =

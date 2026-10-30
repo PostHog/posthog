@@ -38,6 +38,7 @@ export interface Sheets {
     paneId: string,
     sheet: Sheet,
     choose: (index: number, text?: string) => void,
+    dismiss?: () => void,
   ) => void;
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
 }
@@ -157,7 +158,7 @@ export function useSheets({
       const modal = modals.get(paneId);
       return modal ? withTyped(paneId, modal) : promptModal(paneTaskId(paneId));
     },
-    openModal: (paneId, sheet, choose) => {
+    openModal: (paneId, sheet, choose, dismiss) => {
       // The cursor starts on the item the setting holds, else the first one that can be chosen.
       const held = sheet.items.findIndex((item) => item.current);
       const current =
@@ -169,6 +170,7 @@ export function useSheets({
           sheet,
           index: Math.max(0, current),
           choose,
+          dismiss,
           edit: (sequence) => {
             typed.set(
               paneId,
