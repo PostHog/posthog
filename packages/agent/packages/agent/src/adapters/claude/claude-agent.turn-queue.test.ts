@@ -1,7 +1,8 @@
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
-import type {
-  SDKMessage,
-  SDKUserMessage,
+import {
+  type SDKMessage,
+  type SDKUserMessage,
+  query as sdkQuery,
 } from "@anthropic-ai/claude-agent-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -17,7 +18,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn(),
 }));
 
-vi.mock("./mcp/tool-metadata", () => ({
+vi.mock("./mcp/tool-metadata", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp/tool-metadata")>()),
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   setMcpToolApprovalStates: vi.fn(),
@@ -181,6 +183,70 @@ async function runningTurnWithQueuedSecond(
 describe("ClaudeAcpAgent turn queue input dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([
+    {
+      name: "rebuilds the query when the context window changed",
+      liveBetas: undefined,
+      rebuilds: 1,
+    },
+    {
+      name: "keeps the query when the context window is unchanged",
+      liveBetas: ["context-1m-2025-08-07"],
+      rebuilds: 0,
+    },
+  ])("$name before the next prompt", async ({ liveBetas, rebuilds }) => {
+    const sessionId = "s-context-window";
+    const harness = installHarness(sessionId);
+    const session = (
+      harness.agent as unknown as {
+        session: {
+          modelId: string;
+          liveBetas?: string[];
+          queryOptions: Record<string, unknown>;
+        };
+      }
+    ).session;
+    session.modelId = "claude-opus-5-5";
+    session.liveBetas = liveBetas;
+    session.queryOptions.betas = ["context-1m-2025-08-07"];
+    const rebuiltQuery = createMockQuery();
+    vi.mocked(sdkQuery).mockReturnValue(
+      rebuiltQuery as unknown as ReturnType<typeof sdkQuery>,
+    );
+
+    const prompt = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "next" }],
+    });
+    await tick();
+    await tick();
+
+    expect(vi.mocked(sdkQuery).mock.calls).toHaveLength(rebuilds);
+    if (rebuilds) {
+      const [{ prompt: rebuiltInput, options }] =
+        vi.mocked(sdkQuery).mock.calls[0];
+      expect(options).toMatchObject({
+        betas: ["context-1m-2025-08-07"],
+        resume: sessionId,
+      });
+      const sent = await (rebuiltInput as AsyncIterable<SDKUserMessage>)
+        [Symbol.asyncIterator]()
+        .next();
+      expect(JSON.stringify(sent.value?.message.content)).toContain("next");
+      expect(harness.pushed).toHaveLength(0);
+    } else {
+      expect(harness.pushed).toHaveLength(1);
+    }
+
+    const activeQuery = rebuilds ? rebuiltQuery : harness.query;
+    echoTurn(activeQuery, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    activeQuery._mockHelpers.sendMessage(createSuccessResult());
+    await tick();
+    activeQuery._mockHelpers.complete();
+    await expect(prompt).resolves.toBeDefined();
   });
 
   it("holds a queued prompt out of the SDK input until the running turn settles", async () => {

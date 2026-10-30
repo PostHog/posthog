@@ -334,6 +334,10 @@ function isSdkMcpServer(
   return cfg.type === "sdk";
 }
 
+function betasKey(betas: string[] | undefined): string {
+  return (betas ?? []).join(",");
+}
+
 function externalMcpServers(
   servers: Record<string, McpServerConfig> | undefined,
 ): Record<string, McpServerConfig> {
@@ -825,6 +829,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (this.session.queryClosed) {
       throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
     }
+
+    await this.applyPendingBetas();
 
     const hasInFlightTurns =
       this.session.activeTurn !== null || this.session.turnQueue.length > 0;
@@ -2340,6 +2346,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.budgetGuard?.onConversationCleared();
       session.input = newInput;
       session.queryOptions = newOptions;
+      session.liveBetas = newOptions.betas;
       session.abortController = newAbortController;
       session.contextUsed = undefined;
 
@@ -2612,6 +2619,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private async applyPendingBetas(): Promise<void> {
+    const session = this.session;
+    if (
+      session.querySwap ||
+      session.activeTurn !== null ||
+      session.turnQueue.length > 0 ||
+      !supports1MContext(session.modelId ?? "") ||
+      betasKey(session.queryOptions.betas) === betasKey(session.liveBetas)
+    ) {
+      return;
+    }
+    await this.withQuerySwap(session, () =>
+      this.performRefresh(
+        session,
+        externalMcpServers(session.queryOptions.mcpServers),
+      ),
+    );
+  }
+
   private refreshSession(
     mcpServers: Record<string, McpServerConfig>,
   ): Promise<void> {
@@ -2701,6 +2727,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       prev.query = newQuery;
       prev.input = newInput;
       prev.queryOptions = newOptions;
+      prev.liveBetas = newOptions.betas;
       prev.abortController = newAbortController;
 
       const result = await withTimeout(
@@ -3343,6 +3370,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       query: q,
       sdkSessionId: sessionId,
       queryOptions: options,
+      liveBetas: options.betas,
       buildInProcessMcpServers,
       localToolsServerNames,
       input,
