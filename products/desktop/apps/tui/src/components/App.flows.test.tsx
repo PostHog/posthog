@@ -332,6 +332,34 @@ describe("App flows", () => {
     }
   });
 
+  it("spins the chat's sidebar dot as soon as a message is sent, before the run has echoed it", async () => {
+    // An idle run, and a reply that never lands: the log stays as it was, and only the pending message says a
+    // turn began.
+    const app = cloudApp({
+      view: {
+        ...emptyRunView,
+        loaded: true,
+        status: "in_progress",
+        entries: [
+          { type: "pi_run_started", timestamp: new Date().toISOString() },
+        ],
+      },
+      chats: { reply: () => new Promise(() => {}) },
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toMatch(/● Cloud chat/),
+      );
+      app.press("keep going");
+      app.press("\r");
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Cloud chat/),
+      );
+    } finally {
+      app.close();
+    }
+  });
+
   it("closes a split pane only on a second Ctrl+C, and quits the last pane the same way", async () => {
     const split = splitFocused(openTask(initialLayout(), "c1"), "row");
     const app = cloudApp({ layout: split });

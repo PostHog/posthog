@@ -17,7 +17,7 @@ import { noticeIn, useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
 import { useRepoPicker } from "../hooks/useRepoPicker";
-import { useSearch } from "../hooks/useSearch";
+import { type SearchState, useSearch } from "../hooks/useSearch";
 import { type Send, useSend } from "../hooks/useSend";
 import type { CodexCloudClient } from "../hooks/useSettings";
 import { useSettings } from "../hooks/useSettings";
@@ -225,21 +225,9 @@ export function App({
     onRefresh: refreshLocalActive,
   });
 
-  const turns = useTurns({
-    layout,
-    runs: runs ?? null,
-    taskOf,
-    localSessions,
-  });
-  const search = useSearch({
-    work,
-    recent: page.tasks,
-    known,
-    setLayout,
-    working: turns.working,
-    waiting: turns.waiting,
-    local: { active: localActive, running: new Set(localSessions.keys()) },
-  });
+  // The search opens from a callback only, so the send hook reaches it through a ref: the search needs the turns,
+  // and the turns need the send hook's pending messages.
+  const latestSearch = useRef<SearchState | null>(null);
 
   // Today's briefing can be hidden from settings; the sidebar and the main view follow the switch at once.
   const [showToday, setShowToday] = useState(() => loadPrefs().showToday);
@@ -328,7 +316,7 @@ export function App({
       openModeSheet,
       pickFor,
       compact,
-      openSearch: search.toggle,
+      openSearch: () => latestSearch.current?.toggle(),
       openHelp: () => setHelpOpen(true),
       openSettings: settings.toggle,
       repos: repoPicker,
@@ -342,6 +330,29 @@ export function App({
       codexCloud: session?.codexCloud,
       mcp: session?.mcp,
     });
+  // Chats with a message on its way; a new chat's message waits on its pane until the chat has a task.
+  const pendingTaskIds = useMemo(
+    () =>
+      new Set([...pending.keys()].filter((id) => isLocal(id) || taskOf(id))),
+    [pending, isLocal, taskOf],
+  );
+  const turns = useTurns({
+    layout,
+    runs: runs ?? null,
+    taskOf,
+    localSessions,
+    pending: pendingTaskIds,
+  });
+  const search = useSearch({
+    work,
+    recent: page.tasks,
+    known,
+    setLayout,
+    working: turns.working,
+    waiting: turns.waiting,
+    local: { active: localActive, running: new Set(localSessions.keys()) },
+  });
+  latestSearch.current = search;
 
   const sidebar = useSidebar({
     layout,
