@@ -9,8 +9,13 @@ from posthog.redis import get_client as get_redis_client
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    audience_page_size,
+    get_batch_audience_person_ids,
+    get_batch_audience_person_ids_snapshot,
+)
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
@@ -47,6 +52,23 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         result = get_batch_audience_person_ids(self.team, FILTERS, dedupe_key=dedupe_key)
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand(
+        [
+            ("email_dedupe", "email", 10, [1, 3, 4, 5]),
+            ("no_dedupe", None, 10, [1, 2, 3, 4, 5]),
+            # The cap cuts the audience in id order, so the resolver's truncation sees the same first persons.
+            ("capped", None, 2, [1, 2]),
+        ]
+    )
+    def test_snapshot_query_returns_the_whole_audience_in_id_order(self, _name, dedupe_key, limit, expected_indices):
+        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
+
+        result = get_batch_audience_person_ids_snapshot(
+            self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings()
+        )
+
+        assert result == [_uuid(i) for i in expected_indices]
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])

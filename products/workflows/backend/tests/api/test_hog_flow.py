@@ -4955,6 +4955,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_person_audience_count.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("starts_resolving", {"dedupe_key": "email", "max_audience_size": 500}, 200, "resolving"),
+            ("bad_dedupe_key", {"dedupe_key": "phone", "max_audience_size": 500}, 400, None),
+            ("missing_cap", {"dedupe_key": None}, 400, None),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_snapshot_validates_and_starts_the_resolution(
+        self, _name, body, expected_status, expected_snapshot_status
+    ):
+        hog_flow = HogFlow.objects.create(
+            team=self.team, name="Batch", trigger={"type": "batch", "filters": {"properties": []}}, actions=[]
+        )
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow)
+
+        with (
+            patch("products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{job.id}/audience_snapshot",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_snapshot_status:
+            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
+        else:
+            mock_task.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_page_rejects_a_cursor_that_is_not_a_uuid(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{uuid4()}/audience_page",
+            {"cursor": "person-1"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
         with patch(

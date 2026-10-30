@@ -1,8 +1,14 @@
+from django.db import DatabaseError
+
 from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.workflows.backend.services.batch_audience_snapshot import (
+    delete_audience_snapshot,
+    resolve_audience_snapshot,
+)
 from products.workflows.backend.services.batch_jobs import resume_batch_jobs_waiting_for_cohort
 
 
@@ -24,3 +30,37 @@ from products.workflows.backend.services.batch_jobs import resume_batch_jobs_wai
 @skip_team_scope_audit
 def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) -> None:
     resume_batch_jobs_waiting_for_cohort(team_id=team_id, cohort_id=cohort_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # The run parks until this finishes, so a task a dying worker held runs again instead of waiting out the deadline.
+    acks_late=True,
+    reject_on_worker_lost=True,
+    # The query's own failures are recorded on the run; only a database error around them escapes here.
+    autoretry_for=(DatabaseError,),
+    retry_backoff=True,
+    max_retries=3,
+)
+@skip_team_scope_audit
+def resolve_batch_job_audience_snapshot(
+    team_id: int, batch_job_id: str, dedupe_key: str | None, max_audience_size: int
+) -> None:
+    resolve_audience_snapshot(
+        team_id=team_id, batch_job_id=batch_job_id, dedupe_key=dedupe_key, max_audience_size=max_audience_size
+    )
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
+@skip_team_scope_audit
+def delete_batch_job_audience_snapshot(team_id: int, batch_job_id: str) -> None:
+    delete_audience_snapshot(team_id=team_id, batch_job_id=batch_job_id)

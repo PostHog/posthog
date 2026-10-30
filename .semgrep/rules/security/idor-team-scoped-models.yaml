@@ -249,6 +249,7 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowBatchJobAudienceMember
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -748,6 +749,7 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowBatchJobAudienceMember
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
