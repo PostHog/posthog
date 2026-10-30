@@ -1062,6 +1062,18 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
+    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
+        const hidden = getToolsForFeatures({ features: ['workflows'] })
+        expect(hidden).not.toContain('workflows-disable')
+        expect(hidden).toContain('workflows-enable')
+
+        const enabled = getToolsForFeatures({
+            features: ['workflows'],
+            featureFlags: { 'workflows-mcp-disable': true },
+        })
+        expect(enabled).toContain('workflows-disable')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.
@@ -1121,6 +1133,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
+            'workflows-mcp-disable',
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',

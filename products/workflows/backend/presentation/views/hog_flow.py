@@ -3570,11 +3570,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
         # (rows written before encryption shipped) as the base, then the encrypted live and draft
         # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Status-only activation revalidates live actions and must exclude draft values.
         # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
             # A server-side rewrite of the live actions sets live_secrets_only, so a staged credential
             # rotation stays in the draft until someone publishes it.
-            secret_map = live_secret_map if self.context.get("live_secrets_only") else existing_secret_map
+            status_only_activation = (
+                status == HogFlowState.ACTIVE and instance.status != HogFlowState.ACTIVE and "actions" not in data
+            )
+            use_live_secrets = self.context.get("live_secrets_only") or status_only_activation
+            secret_map = live_secret_map if use_live_secrets else existing_secret_map
             self.context["existing_encrypted_inputs"] = secret_map(
                 instance, template_cache=self.context.setdefault("_hogflow_template_cache", {})
             )
