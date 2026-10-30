@@ -100,7 +100,8 @@ describe('query', () => {
             limit: 100,
         })
         captureSpy.mockClear()
-        await performQuery(q)
+        const onRequestTiming = jest.fn()
+        await performQuery(q, { onRequestTiming })
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
         expect(queryCompletedCalls[0][1]).toMatchObject({
@@ -125,6 +126,8 @@ describe('query', () => {
             json_parse_ms: expect.any(Number),
             resource_timing_status: 'missing_request_id',
         })
+        expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        expect(onRequestTiming).toHaveBeenCalledWith(queryCompletedCalls[0][1]?.submit_request_timings?.[0])
         expect(queryCompletedCalls[0][1]).not.toHaveProperty('result_poll_timing')
     })
 
