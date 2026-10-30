@@ -176,6 +176,13 @@ def test_enriches_reviewer_sources_and_explanations():
                 "relevant_commits": [],
                 "reason": "Added as a reviewer by Morgan Lee",
             },
+            {
+                "github_login": "fallback-owner",
+                "relevant_commits": [],
+                "reason": "Nobody owns this area yet, so it went to the project's default owner.",
+                "source_skill": "signals-scout-checkout-reliability",
+                "is_default_owner": True,
+            },
         ],
         login_to_user={},
         uuid_to_user={},
@@ -190,6 +197,8 @@ def test_enriches_reviewer_sources_and_explanations():
     assert enriched[3]["source_label"] == "Added by teammate"
     assert enriched[3]["explanation"] is None
     assert enriched[4]["explanation"] is None
+    assert enriched[5]["source_label"] == "Default owner"
+    assert enriched[5]["explanation"] == "Nobody owns this area yet, so it went to the project's default owner."
 
 
 @pytest.mark.django_db

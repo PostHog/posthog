@@ -26351,6 +26351,10 @@
                     "description": "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.",
                     "type": "object"
                 },
+                "reason": {
+                    "description": "A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.",
+                    "type": ["string", "null"]
+                },
                 "severity": {
                     "$ref": "#/definitions/ExperimentExposureHealthFindingSeverity",
                     "description": "How much the problem affects the results: critical, warning, or info."
@@ -26364,7 +26368,17 @@
                     "type": "string"
                 }
             },
-            "required": ["code", "subcode", "severity", "title", "detail", "evidence", "actions", "diagnostic_ref"],
+            "required": [
+                "code",
+                "subcode",
+                "reason",
+                "severity",
+                "title",
+                "detail",
+                "evidence",
+                "actions",
+                "diagnostic_ref"
+            ],
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
