@@ -1082,7 +1082,13 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
-    remove_destinations: NativeAlertRemoveDestinations
+    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
+    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    remove_destinations: NativeAlertRemoveDestinations | None = None
+
+    @property
+    def platform_destinations(self) -> bool:
+        return self.remove_destinations is None
 
 
 @frozen
