@@ -24,6 +24,7 @@ import { blue } from "../theme";
 import { type TodayHit, type TodayState, todayLines } from "../today";
 import {
   type PendingShell,
+  queuedMessage,
   type TranscriptLine,
   transcriptFrom,
   withPending,
@@ -267,15 +268,18 @@ export function Pane({
     lines: typeof lines;
     hasOlder: boolean;
     noticeKey: string;
+    queued: boolean;
   } | null>(null);
+  const queued = queuedMessage(lines, transcript.turnOpen) !== null;
   if (
     shown.current?.chat !== chat ||
     shown.current.lines !== lines ||
     shown.current.hasOlder !== hasOlder ||
-    shown.current.noticeKey !== noticeKey
+    shown.current.noticeKey !== noticeKey ||
+    shown.current.queued !== queued
   ) {
-    chat.setTranscript(lines, { hasOlder, notice });
-    shown.current = { chat, lines, hasOlder, noticeKey };
+    chat.setTranscript(lines, { hasOlder, notice, queued });
+    shown.current = { chat, lines, hasOlder, noticeKey, queued };
   }
   // Reaching the top, or a transcript shorter than the pane, pulls in the page above.
   useEffect(() => {
