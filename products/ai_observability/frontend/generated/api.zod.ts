@@ -620,6 +620,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1015,6 +1021,12 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -1313,6 +1325,12 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .enum(['llm', 'decision'])
                         .nullish()
                         .describe('Judge method. Omit to keep the saved method; null restores automatic routing.'),
+                    reasoning_level: zod
+                        .enum(['minimal', 'low', 'medium', 'high'])
+                        .nullish()
+                        .describe(
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default."
+                        ),
                 }),
                 zod.object({
                     source: zod
