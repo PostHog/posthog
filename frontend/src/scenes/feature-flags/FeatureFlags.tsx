@@ -747,6 +747,8 @@ export function OverviewTab({
                     })
                 }
                 bulkSelection={{
+                    // Deleted rows can't be selected, so a selection carried in from another view would act on hidden live flags.
+                    clearSelectionKey: filters.deleted,
                     getKey: (flag: FeatureFlagType): number => flag.id ?? -1,
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
