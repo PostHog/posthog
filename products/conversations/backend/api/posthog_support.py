@@ -397,15 +397,15 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(methods=["POST"], detail=True, required_scopes=["posthog_support:write"])
     def reply(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        client, identity, user = self._support()
-        data = cast(dict[str, Any], request.validated_data)  # type: ignore[attr-defined]
+        caller = self._support()
+        data = cast(dict[str, Any], request.validated_data)
         try:
-            result = client.reply(identity, kwargs["pk"], message=data["message"])
+            result = caller.client.reply(caller.identity, kwargs["pk"], message=data["message"])
         except PostHogSupportRequestFailed as e:
             if e.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND):
                 raise NotFound("No PostHog support ticket with this ID belongs to you.")
             raise SupportInboxFailed()
-        report_user_action(user, "posthog support ticket replied", team=self.team)
+        report_user_action(caller.user, "posthog support ticket replied", team=self.team)
         return Response(
             PostHogSupportReplySentSerializer(
                 {
