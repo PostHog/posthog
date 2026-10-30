@@ -199,11 +199,17 @@ export class PiChats {
   }
 
   // A local chat's task row: the server names it from the first message, and the chat runs on this machine with no run.
-  createLocal(prompt: string, repository = this.repository): Promise<Task> {
+  createLocal(
+    prompt: string,
+    repository = this.repository,
+    harness: "pi" | "claude" = "pi",
+  ): Promise<Task> {
     return this.api.createTask({
       description: prompt,
       repository: repository ?? undefined,
-      runtime: "pi",
+      ...(harness === "pi"
+        ? { runtime: "pi" }
+        : { runtime: "acp", runtime_adapter: "claude" }),
     });
   }
 

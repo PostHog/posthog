@@ -123,6 +123,20 @@ describe("PiChats", () => {
     });
   });
 
+  it("starts a local Claude chat as a Claude Code task with no run", async () => {
+    const { api, chats } = setup();
+
+    await chats.createLocal("Fix the flaky test", undefined, "claude");
+
+    expect(api.createTask).toHaveBeenCalledWith({
+      description: "Fix the flaky test",
+      repository: "posthog/posthog",
+      runtime: "acp",
+      runtime_adapter: "claude",
+    });
+    expect(api.createTaskRun).not.toHaveBeenCalled();
+  });
+
   it("starts a local chat as a pi task with no run", async () => {
     const { api, chats } = setup();
 

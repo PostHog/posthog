@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import { allPanes, findPane, type LayoutState } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import {
   type AgentPrompt,
   promptId,
@@ -48,7 +48,7 @@ export function useSheets({
   prompts: Map<string, AgentPrompt[]>;
   promptCursors: Map<string, number>;
   setPromptCursor: (promptId: string, index: number) => void;
-  localSessions: Map<string, LocalSession>;
+  localSessions: Map<string, LocalAgent>;
   composerFor: (paneId: string) => Composer;
   flashNotice: FlashNotice;
 }): Sheets {

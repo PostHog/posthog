@@ -6,7 +6,7 @@ import { type ActionsLine, actionsSheet, openActions } from "../actions";
 import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import { type Picker, renderPicker } from "../picker";
 import {
   type CloudRuns,
@@ -76,7 +76,7 @@ const CHIP_COLORS = {
 function useRunView(
   runs: CloudRuns | null,
   task: Task | undefined,
-  local: LocalSession | undefined,
+  local: LocalAgent | undefined,
 ): { view: RunView; loadOlder: () => void } {
   const taskId = task?.id;
   const run = task?.latest_run;
@@ -140,7 +140,7 @@ export function Pane({
   // Null while signed out.
   runs: CloudRuns | null;
   // Set when this pane shows a chat running on this machine.
-  local: LocalSession | undefined;
+  local: LocalAgent | undefined;
   // True for a chat on this machine, also before its agent has started.
   isLocalPane: boolean;
   // Where a new chat typed here would run.
@@ -202,7 +202,7 @@ export function Pane({
       // A local chat has no server task; its log is pi events.
       task || local
         ? transcriptFrom(
-            task?.runtime ?? "pi",
+            local?.runtime ?? task?.runtime ?? "pi",
             view.entries,
             task ? task.description || task.description_preview : undefined,
           )

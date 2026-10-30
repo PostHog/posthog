@@ -1,7 +1,7 @@
 # PostHog TUI (command centre)
 
 An Ink terminal app for PostHog Tasks: a sidebar of your work, tmux-like split panes, and pi chats in the cloud or on this machine.
-pi is the harness it starts locally. In the cloud a chat runs pi, or Claude Code on the user's own Claude plan; other ACP logs (Codex) are read for display only.
+A chat runs pi, or Claude Code on the user's own Claude plan, here or in the cloud; Codex runs in the cloud on a ChatGPT plan. Other ACP logs are read for display only.
 
 ## What it does
 
@@ -14,7 +14,7 @@ pi is the harness it starts locally. In the cloud a chat runs pi, or Claude Code
 - Composer: slash commands with floating suggestions, `!` shell mode, pasted and dropped images, a message sent mid-turn steers the agent, a failed send goes back into the composer, Esc stops the agent and double Esc clears.
 - Notices: a chat's notice sits right-aligned in a row kept above its composer. The composer's top rule shows the agent's background shells, the context donut and the cost.
 - Sign-in from inside the app (OAuth, or a local dev login), with the layout saved between runs.
-- Billing (`/billing`): who pays for new chats, saved between runs. PostHog runs pi on the gateway everywhere. ChatGPT runs pi on the GPT model here, after a browser login kept in pi's `~/.pi/agent/auth.json`, and Codex in the cloud on the account connected in Desktop. Anthropic runs Claude Code in the cloud with a `claude setup-token` token, pasted once in settings (Ctrl+; or `/settings`) and kept in `~/.config/posthog-tui/claude-token`; the TUI hands it to each run's sandbox when asked, so it must be open while a chat starts. Local chats on the Claude plan are not here yet.
+- Billing (`/billing`): who pays for new chats, saved between runs. PostHog runs pi on the gateway everywhere. ChatGPT runs pi on the GPT model here, after a browser login kept in pi's `~/.pi/agent/auth.json`, and Codex in the cloud on the account connected in Desktop. Anthropic runs Claude Code in the cloud with a `claude setup-token` token, pasted once in settings (Ctrl+; or `/settings`) and kept in `~/.config/posthog-tui/claude-token`; the TUI hands it to each run's sandbox when asked, so it must be open while a chat starts. A local chat on the Claude plan runs the user's own `claude` binary (the one `claude auth login` signed in) through the desktop app's agent service, so pi's `/model`, `/effort`, `/compact`, `!` and the cost donut are off on it.
 
 ## Run and test
 
@@ -39,7 +39,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, and who pays for them |
-| `billing.ts`, `settings.ts`, `chatgpt.ts`, `claudeToken.ts` | The billing picker and what each billing starts (the cloud harness, the local model, or why a local chat cannot start); the settings screen's rows and keys; pi's ChatGPT login, logout and who is logged in; the Claude token file and the engine's store over it. `PiChats.start` takes the cloud harness, and `reply` continues pi, Claude and Codex runs |
+| `billing.ts`, `settings.ts`, `chatgpt.ts`, `claudeToken.ts`, `claudeLocal.ts` | The billing picker and what each billing starts (the cloud harness, the local model, or why a local chat cannot start); the settings screen's rows and keys; pi's ChatGPT login, logout and who is logged in; the Claude token file and the engine's store over it. `PiChats.start` takes the cloud harness, and `reply` continues pi, Claude and Codex runs. `LocalAgent` in `local.ts` is what a pane needs from any local agent: pi's `LocalSession`, or `ClaudeLocalSession`, which drives `AgentService` (built in `cloud.ts` with its Electron-only needs stubbed) and turns its ACP permission requests into `acp` prompts |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots. A split task has two rows, so a workspace row's selection key is its pane |
 | `search.ts` | The task search's result rows and query editing; `hooks/useSearch.ts` asks the server after a pause in typing |
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |

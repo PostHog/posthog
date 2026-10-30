@@ -1,7 +1,7 @@
 import type { Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
 import { focusSidebar, type LayoutState } from "../layout";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import {
   activateRow,
   cursorIndex,
@@ -46,7 +46,7 @@ export function useSidebar({
   fresh: Map<string, Task>;
   signedIn: boolean;
   localActive: Map<string, number>;
-  localSessions: Map<string, LocalSession>;
+  localSessions: Map<string, LocalAgent>;
   loadMore: () => void;
   working: Set<string>;
   waiting: Set<string>;

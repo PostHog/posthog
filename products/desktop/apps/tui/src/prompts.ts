@@ -1,3 +1,4 @@
+import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type { RpcExtensionUIResponse } from "@posthog/agent/pi/types";
 import type { PiExtensionDialogRequest } from "@posthog/core/pi-runtime/piExtensionStore";
 import type {
@@ -10,7 +11,16 @@ import type { Sheet } from "./sheet";
 // Something a local agent waits on the user for.
 export type AgentPrompt =
   | { kind: "dialog"; request: PiExtensionDialogRequest }
-  | { kind: "permission"; request: McpToolPermissionRequest };
+  | { kind: "permission"; request: McpToolPermissionRequest }
+  // Claude Code asking before a tool call, with the options it offers.
+  | { kind: "acp"; request: AcpPermissionRequest };
+
+export interface AcpPermissionRequest {
+  taskRunId: string;
+  toolCallId: string;
+  title: string;
+  options: PermissionOption[];
+}
 
 export type PromptReply =
   | { kind: "dialog"; response: RpcExtensionUIResponse }
@@ -18,7 +28,8 @@ export type PromptReply =
       kind: "permission";
       requestId: string;
       decision: McpToolPermissionDecision;
-    };
+    }
+  | { kind: "acp"; taskRunId: string; toolCallId: string; optionId: string };
 
 const PERMISSIONS: { label: string; decision: McpToolPermissionDecision }[] = [
   { label: "Allow once", decision: "allow" },
@@ -29,7 +40,11 @@ const CONFIRM = ["Yes", "No"];
 const CHOOSE = "Enter to choose · Esc to cancel";
 
 export const promptId = (prompt: AgentPrompt): string =>
-  prompt.kind === "dialog" ? prompt.request.id : prompt.request.requestId;
+  prompt.kind === "dialog"
+    ? prompt.request.id
+    : prompt.kind === "acp"
+      ? `${prompt.request.taskRunId}:${prompt.request.toolCallId}`
+      : prompt.request.requestId;
 
 // Input and editor prompts take their answer from the composer instead of a list.
 export const takesText = (prompt: AgentPrompt): boolean =>
@@ -37,6 +52,12 @@ export const takesText = (prompt: AgentPrompt): boolean =>
   (prompt.request.method === "input" || prompt.request.method === "editor");
 
 export function promptSheet(prompt: AgentPrompt): Sheet {
+  if (prompt.kind === "acp")
+    return {
+      title: prompt.request.title,
+      items: prompt.request.options.map(({ name }) => ({ label: name })),
+      footer: "Enter to choose · Esc to reject",
+    };
   if (prompt.kind === "permission") {
     const { serverName, toolName, arguments: args } = prompt.request;
     return {
@@ -73,6 +94,19 @@ export function promptReply(
   prompt: AgentPrompt,
   answer: number | string | null,
 ): PromptReply {
+  if (prompt.kind === "acp") {
+    const { taskRunId, toolCallId, options } = prompt.request;
+    const chosen =
+      typeof answer === "number"
+        ? options[answer]
+        : options.find((option) => option.kind.startsWith("reject"));
+    return {
+      kind: "acp",
+      taskRunId,
+      toolCallId,
+      optionId: (chosen ?? options[0]).optionId,
+    };
+  }
   if (prompt.kind === "permission")
     return {
       kind: "permission",

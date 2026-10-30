@@ -2,7 +2,7 @@ import type { Task } from "@posthog/shared";
 import { useState } from "react";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
-import type { LocalSession } from "../local";
+import type { LocalAgent } from "../local";
 import type { PiControl } from "../models";
 import { shellBlocked } from "../shell";
 import {
@@ -39,7 +39,7 @@ export function useShell({
 }: {
   taskOf: (taskId: string | null) => Task | undefined;
   isLocal: (taskId: string | null) => taskId is string;
-  localFor: (id: string) => Promise<LocalSession>;
+  localFor: (id: string) => Promise<LocalAgent>;
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   composerFor: (paneId: string) => Composer;
   linesOf: (paneId: string) => TranscriptLine[];
