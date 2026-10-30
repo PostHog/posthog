@@ -919,12 +919,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 dismissed_for_recurrence_at = (
                     recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )
-                # Resolved reports are terminal — never reopen them. When a signal would have grouped
-                # into an already-resolved report, the issue it fixed has recurred (or a related one
-                # has), so we start a fresh report and link it to the resolved report via a
-                # `recurrence_of` report link. The research agent is later handed that
-                # resolved report as context (see report.py).
-                if report.effective_status == SignalReport.Status.RESOLVED or dismissed_for_recurrence_at is not None:
+                if (
+                    report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
+                    or dismissed_for_recurrence_at is not None
+                ):
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(

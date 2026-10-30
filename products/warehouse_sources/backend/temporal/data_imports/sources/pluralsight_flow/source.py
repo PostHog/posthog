@@ -55,8 +55,8 @@ class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, Plurals
         return {
             "401 Client Error": "Your Flow API key is invalid or expired. Generate a new key and reconnect.",
             "403 Client Error": (
-                "Flow rejected this request. Coding metrics and Collaboration metrics need the "
-                "Metrics API permission on your API key."
+                "Flow rejected this request. The Coding, Collaboration, Ticket and DORA metrics "
+                "tables need the Metrics API permission on your API key."
             ),
         }
 
@@ -125,9 +125,9 @@ class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, Plurals
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Pluralsight Flow",
             caption=(
-                "Import commits, pull requests, tickets, and coding/collaboration metrics from "
-                "Pluralsight Flow (formerly GitPrime). Generate an API key in Flow under "
-                "Settings > API keys. Coding metrics and Collaboration metrics need the "
+                "Import commits, pull requests, tickets, and coding, collaboration, ticket and DORA "
+                "metrics from Pluralsight Flow (formerly GitPrime). Generate an API key in Flow under "
+                "Settings > API keys. The Coding, Collaboration, Ticket and DORA metrics tables need the "
                 "**Metrics API** permission on that key; the other tables only need the key itself."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/pluralsight-flow",

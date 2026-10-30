@@ -74,6 +74,7 @@ python manage.py seed_refund_test_data --team-id 1
 ```
 
 `seed_inbox_data` reports are billable too (runs are recorded via the production dual-write), but their runs are created "now", so refunds on them always take the excluded path.
+`seed_inbox_data --github-optional` seeds the reports GitHub-optional research leaves without a GitHub integration: a `data_only` repo selection with no repository, and no commits, GitHub reviewers, or implementation runs.
 Environment prerequisites (feature flag, local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
 
 ## Re-ingesting reports
@@ -263,6 +264,22 @@ uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
 ```
 
 Idempotent. A reactivated check no longer matches.
+
+## Building a personal inbox ranking
+
+`run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
+It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+
+```bash
+# Call the model, but store no PersonalInboxRanking row and capture no event
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
+
+# Store the row and capture `personal inbox ranking built`, with optional focus text
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
+```
+
+A person with no ready activity summary still gets a list, marked `personalized: False`.
+When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
 
 ## Tips
 

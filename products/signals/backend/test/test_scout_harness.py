@@ -2787,6 +2787,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         return session, result
 
     with (
+        patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=True),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
@@ -2827,6 +2828,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         if value is not None
     }
     stamped = bridge.metadata or {}
+    assert stamped["github_optional"] is True
     routed = {key: value for key, value in stamped.items() if key in _ROUTED_MODEL_KEYS}
     assert routed == expected_metadata
     # Wiring guards for the two regions written outside `_create_run_row`'s routing triple:

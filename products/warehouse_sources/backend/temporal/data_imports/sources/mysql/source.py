@@ -224,6 +224,10 @@ class MySQLSource(
         return ExternalDataSourceType.MYSQL
 
     @property
+    def credential_kind(self) -> str | None:
+        return "mysql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.MYSQL,

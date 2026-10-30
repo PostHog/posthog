@@ -1,5 +1,5 @@
 import re
-from typing import Protocol
+from typing import Literal, Protocol
 
 import requests
 
@@ -39,6 +39,7 @@ class GitHubReader(Protocol):
 class SectionRouting:
     section: str | None
     page_urls: tuple[str, ...]
+    is_every_page_in_source_repository: bool = False
 
 
 def docs_section(page_url: str) -> str | None:
@@ -62,21 +63,35 @@ def is_published_from_repository(github: GitHubReader, page_path: str, *, ref: s
     return False
 
 
-def is_writable_on_docs_site(github: GitHubReader | None, page_url: str) -> bool:
+PageLocation = Literal["docs_site", "source_repository", "unknown"]
+
+
+def page_location(github: GitHubReader | None, page_url: str) -> PageLocation:
     page = DOCS_PAGE_PATTERN.match(page_url)
     if page is None:
-        return True
+        return "docs_site"
     if github is None:
-        return False
+        return "unknown"
     try:
-        return not is_published_from_repository(github, page.group(1))
+        return "source_repository" if is_published_from_repository(github, page.group(1)) else "docs_site"
     except SOURCE_LOOKUP_ERRORS:
-        return False
+        return "unknown"
+
+
+def is_from_source_repository(request: DocsRequest) -> bool:
+    return request.source_url.lower().startswith(f"https://github.com/{SOURCE_REPOSITORY}/".lower())
 
 
 def route_request(request: DocsRequest, *, team_id: int, github: GitHubReader | None) -> SectionRouting:
+    location_by_page_url = {page_url: page_location(github, page_url) for page_url in request.suggested_page_urls}
     writable_page_urls = tuple(
-        page_url for page_url in request.suggested_page_urls if is_writable_on_docs_site(github, page_url)
+        page_url for page_url, location in location_by_page_url.items() if location == "docs_site"
     )
     sections = [section for section in map(docs_section, writable_page_urls) if section]
-    return SectionRouting(section=sections[0] if sections else None, page_urls=writable_page_urls)
+    return SectionRouting(
+        section=sections[0] if sections else None,
+        page_urls=writable_page_urls,
+        is_every_page_in_source_repository=is_from_source_repository(request)
+        and bool(location_by_page_url)
+        and all(location == "source_repository" for location in location_by_page_url.values()),
+    )

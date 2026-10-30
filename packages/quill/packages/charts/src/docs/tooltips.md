@@ -15,8 +15,8 @@ Other charts, such as scatter and pie, provide specialized tooltips; check their
 
 ## Formatting without a render prop
 
-`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`.
-Prefer this for "format each row" and "add a total" cases (SQL insights pass per-column formatters this way).
+`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `labelRenderer`, `showHeader`, `showTotal`, `totalLabel`, `totalFormatter`, `sortedByValue`, and `hideZeroRows` into `DefaultTooltip`.
+Prefer this for "format each row", "hide empty rows" and "add a total" cases (SQL insights pass per-column formatters this way).
 A render prop, if given, owns the content and these fields are ignored.
 
 ## `DefaultTooltip` props
@@ -67,7 +67,7 @@ Mouse hover and click behavior is unchanged; the split lives in `useChartInterac
 ## Testing
 
 For a chart mounted through `renderChart`, `chart.waitForTooltip()` returns a structured `TooltipSnapshot`.
-For a chart rendered anywhere else (a product scene), `await chart.hoverTooltip(i)` reads a rendered `DefaultTooltip` through its `data-attr="hog-chart-tooltip-*"` hooks: `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, `total()`.
+For a chart rendered anywhere else (a product scene), `await chart.hoverTooltip(i)` reads a rendered `DefaultTooltip` through its `data-attr="hog-chart-tooltip-*"` hooks: `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, `total()`, `clickRow(seriesLabel)`.
 For a custom tooltip, read `tooltip.element`, or wrap a portal element from `waitForChartTooltip()` with `createChartTooltipAccessor(el)`.
 Those attributes are a testing contract; keep the accessor and the component in sync.
 All helpers come from `@posthog/quill-charts/testing`.

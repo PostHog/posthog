@@ -13,7 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.permissions import TeamMemberAdminManagementPermission
 
 from products.warehouse_sources.backend.facade.source_management import (
@@ -146,9 +146,9 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
         expected_kinds = helpers.get_oauth_integration_kinds(source.get_source_config.fields)
         if not expected_kinds:
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
-        if not Integration.objects.filter(
-            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
-        ).exists():
+        if integration_id_int not in IntegrationManager.kinds(*expected_kinds).get_many(
+            self.team_id, [integration_id_int]
+        ):
             # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
             # a connection this source can't use, and neither tells the caller anything about ids it
             # isn't already allowed to see.

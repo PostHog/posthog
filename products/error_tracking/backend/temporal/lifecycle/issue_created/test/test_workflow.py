@@ -413,6 +413,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     reopened_alerts: list[IssueReopenedWorkflowInputs] = []
     reopened_events: list[IssueReopenedWorkflowInputs] = []
     reopened_signals: list[IssueReopenedWorkflowInputs] = []
+    reopened_summaries: list[IssueReopenedWorkflowInputs] = []
     reopened_target = AutoMergeReopenedTarget(
         notification_id=str(uuid.uuid4()),
         issue_id=str(uuid.uuid4()),
@@ -502,6 +503,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     async def emit_reopened_signal(inputs: IssueReopenedWorkflowInputs) -> None:
         reopened_signals.append(inputs)
 
+    @activity.defn(name="generate_issue_reopened_summary_activity")
+    async def generate_reopened_summary(inputs: IssueReopenedWorkflowInputs) -> str:
+        reopened_summaries.append(inputs)
+        return "generated"
+
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
         signal_attempts[inputs.issue_id] = signal_attempts.get(inputs.issue_id, 0) + 1
@@ -527,6 +533,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 dispatch_reopened_alert,
                 emit_reopened_event,
                 emit_reopened_signal,
+                generate_reopened_summary,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -644,6 +651,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert reopened_alerts == [expected_reopened]
     assert reopened_events == [expected_reopened]
     assert reopened_signals == [expected_reopened]
+    assert reopened_summaries == [expected_reopened]
 
 
 @pytest.mark.asyncio

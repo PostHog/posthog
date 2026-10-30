@@ -300,21 +300,48 @@ describe('EmailSuppressionService', () => {
         )
     })
 
-    describe('transactional email to a complaint address', () => {
+    describe('transactional email to a suppressed address', () => {
         it.each([
             ['a complaint alone lets it through', ['complaint'], false],
+            ['soft bounces up to the threshold let it through', ['soft', 'soft', 'soft'], false],
+            ['soft bounces after a complaint let it through', ['complaint', 'soft', 'soft', 'soft'], false],
+            ['a hard bounce blocks it', ['hard'], true],
             ['a hard bounce after the complaint blocks it', ['complaint', 'hard'], true],
             ['a hard bounce before the complaint blocks it', ['hard', 'complaint'], true],
-            ['soft bounces up to the threshold block it', ['complaint', 'soft', 'soft', 'soft'], true],
-            ['soft bounces below the threshold let it through', ['complaint', 'soft', 'soft'], false],
-            ['a delivery resets the soft bounces', ['complaint', 'soft', 'soft', 'delivery', 'soft'], false],
+            ['a hard bounce after soft bounces blocks it', ['soft', 'soft', 'soft', 'hard'], true],
+            ['a hard bounce on a manual entry blocks it', ['manual', 'hard'], true],
+            ['a complaint after a legacy hard bounce still blocks it', ['legacy-hard', 'complaint'], true],
+            ['soft bounces after a legacy hard bounce still block it', ['legacy-hard', 'soft', 'soft', 'soft'], true],
         ] as const)('%s', async (_label, steps, blocked) => {
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'complained@example.com'
+            const email = 'suppressed@example.com'
 
             for (const step of steps) {
-                if (step === 'complaint') {
+                if (step === 'manual') {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagesuppression
+                            (id, team_id, identifier, source, reason, transient_bounce_count,
+                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                         VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'test row', 0,
+                             true, NOW(), false, NOW(), NOW())`,
+                        [team.id, email],
+                        'test-insert-manual-suppression'
+                    )
+                } else if (step === 'legacy-hard') {
+                    // A row written before `hard_bounced_at` existed: the mark is only in the reason.
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagesuppression
+                            (id, team_id, identifier, source, reason, transient_bounce_count,
+                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                         VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'Auto-suppressed after a hard bounce', 0,
+                             true, NOW(), false, NOW(), NOW())`,
+                        [team.id, email],
+                        'test-insert-legacy-hard-suppression'
+                    )
+                } else if (step === 'complaint') {
                     await svc.recordComplaints(team.id, [email], 'abuse')
                 } else if (step === 'hard') {
                     await svc.recordHardBounces(team.id, [email], 'smtp; 550 5.1.1 user unknown')
@@ -372,13 +399,28 @@ describe('EmailSuppressionService', () => {
 
     describe('isSuppressed', () => {
         it.each([
-            ['a bounce blocks marketing email', 'BOUNCE', false, true],
-            ['a bounce blocks transactional email', 'BOUNCE', true, true],
-            ['a manual entry blocks transactional email', 'MANUAL', true, true],
-            ['a complaint blocks marketing email', 'COMPLAINT', false, true],
-            ['a complaint lets transactional email through', 'COMPLAINT', true, false],
-            ['an address that is not on the list is not blocked', null, false, false],
-        ] as const)('%s', async (_label, source, transactional, expected) => {
+            ['a bounce blocks marketing email', 'BOUNCE', 'test row', false, true],
+            ['a soft-bounce suppression lets transactional email through', 'BOUNCE', 'test row', true, false],
+            [
+                'a hard bounce from before hard_bounced_at blocks transactional email',
+                'BOUNCE',
+                'Auto-suppressed after a hard bounce',
+                true,
+                true,
+            ],
+            ['a manual entry blocks marketing email', 'MANUAL', 'test row', false, true],
+            ['a manual entry lets transactional email through', 'MANUAL', 'test row', true, false],
+            [
+                'an imported Customer.io invalid address blocks transactional email',
+                'BOUNCE',
+                'Imported from Customer.io (invalid address)',
+                true,
+                true,
+            ],
+            ['a complaint blocks marketing email', 'COMPLAINT', 'test row', false, true],
+            ['a complaint lets transactional email through', 'COMPLAINT', 'test row', true, false],
+            ['an address that is not on the list is not blocked', null, null, false, false],
+        ] as const)('%s', async (_label, source, reason, transactional, expected) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'listed@example.com'
             if (source) {
@@ -387,9 +429,9 @@ describe('EmailSuppressionService', () => {
                     `INSERT INTO posthog_messagesuppression
                         (id, team_id, identifier, source, reason, transient_bounce_count,
                          suppressed, suppressed_at, deleted, created_at, updated_at)
-                     VALUES (gen_random_uuid(), $1, $2, $3, 'test row', 0,
+                     VALUES (gen_random_uuid(), $1, $2, $3, $4, 0,
                          true, NOW(), false, NOW(), NOW())`,
-                    [team.id, email, source],
+                    [team.id, email, source, reason],
                     'test-insert-suppression'
                 )
             }

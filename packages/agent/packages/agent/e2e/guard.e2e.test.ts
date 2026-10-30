@@ -11,8 +11,8 @@ describe("live e2e preconditions", () => {
     expect(
       E2E.hasToken,
       "POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY is not set — every adapter arm would skip and the run " +
-        "would pass without testing anything. Mint one via e2e/run-e2e.sh or " +
-        "set POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY against a reachable POSTHOG_CODE_E2E_GATEWAY_URL.",
+        "would pass without testing anything. " +
+        "Set POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY against a reachable POSTHOG_CODE_E2E_GATEWAY_URL.",
     ).toBe(true);
   });
 
@@ -25,7 +25,7 @@ describe("live e2e preconditions", () => {
       process.env.POSTHOG_CODE_E2E_GATEWAY_URL,
       "POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY is set but " +
         "POSTHOG_CODE_E2E_GATEWAY_URL is empty — on CI the suite would fall " +
-        "back to localhost:3308 (unreachable from a runner) and every model " +
+        "back to localhost:8080 (unreachable from a runner) and every model " +
         "turn would fail with ConnectionRefused. Set the org variable to a " +
         "runner-reachable gateway.",
     ).toBeTruthy();

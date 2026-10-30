@@ -77,6 +77,7 @@ RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.del
 DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 START_KNOWLEDGE_WRITER_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 
@@ -129,6 +130,7 @@ class TestDispatchCommentCommand(BaseTest):
         self.github_id = next(_github_ids)
         Integration.objects.create(team=self.team, kind="github", integration_id=INSTALLATION_ID, config={})
         self.flag = self.enterContext(patch(FLAG, return_value=True))
+        self.enterContext(patch(KNOWLEDGE_WRITER_ENABLED, return_value=True))
         self.stamphog_reviewing = self.enterContext(
             patch(STAMPHOG_REVIEWING, side_effect=lambda repository, team_ids: list(team_ids))
         )

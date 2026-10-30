@@ -1,5 +1,6 @@
 import json
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import time_machine
@@ -8,6 +9,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -32,6 +34,18 @@ def _page(items: list[dict[str, Any]], *, has_more: bool, last_id: str | None = 
     if last_id is not None:
         body["last_id"] = last_id
     return ScriptedResponse(json=body)
+
+
+def _insights_script(*pages: ScriptedResponse) -> Callable[[RecordedRequest], ScriptedResponse]:
+    # A first sync reads the reporting history in several windows, and the windows after `pages` are empty.
+    remaining = list(pages)
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/ad_account":
+            return ScriptedResponse(json={"currency_code": "EUR"})
+        return remaining.pop(0) if remaining else _page([], has_more=False)
+
+    return respond
 
 
 class TestFanOut:
@@ -76,7 +90,53 @@ class TestFanOut:
         }
 
 
+class TestAdAccount:
+    def test_account_object_syncs_as_one_row(self) -> None:
+        account = {
+            "id": "adacct_example",
+            "name": "Example Co",
+            "status": "active",
+            "timezone": "UTC",
+            "currency_code": "USD",
+            "review": {"status": "approved"},
+        }
+        result = _driver().run("ad_account", [ScriptedResponse(json=account)])
+
+        assert result.raised is None
+        assert result.rows == [account]
+        assert result.paths == ["/v1/ad_account"]
+        assert result.queries == [{}]
+        assert result.saved_states == []
+
+
 class TestInsights:
+    @parameterized.expand(
+        [
+            ("unsegmented", "campaign_insights", None, "campaign.clicks"),
+            ("country", "campaign_country_insights", "country", "country.clicks"),
+            ("device", "campaign_device_insights", "device", "device.clicks"),
+            ("product", "campaign_product_insights", "product", "product.clicks"),
+        ]
+    )
+    def test_segment_tables_request_the_breakdown_and_its_metrics(
+        self, _name: str, endpoint: str, segment: str | None, metric_field: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            _insights_script(_page([{"id": "b1", "start_time": 1777075200, "end_time": 1777161600}], has_more=False)),
+        )
+
+        assert result.raised is None
+        insights_request = result.requests[1]
+        assert insights_request.path == "/v1/ad_account/insights"
+        assert insights_request.param("aggregation_level") == "campaign"
+        assert insights_request.query.get("segments[]") == ((segment,) if segment else None)
+        fields = insights_request.query["fields[]"]
+        assert metric_field in fields
+        # A segment row must carry the segment's share, not the campaign total repeated per segment.
+        assert ("campaign.clicks" in fields) is (segment is None)
+        assert result.rows[0]["currency_code"] == "EUR"
+
     @parameterized.expand(
         [
             ("plan_in_middle", "start=1777075200:{plan}:end=1777161600:entity_id=cmpn_1"),
@@ -90,13 +150,12 @@ class TestInsights:
         for plan in ("plan=eJzLSM3JyVcozy/KSQEAGgQEXQ", "plan=eJwrSS0uAQAEXQHB"):
             result = _driver().run(
                 "campaign_insights",
-                [
-                    ScriptedResponse(json={"currency_code": "EUR"}),
+                _insights_script(
                     _page(
                         [{"id": id_template.format(plan=plan), "start_time": 1777075200, "end_time": 1777161600}],
                         has_more=False,
-                    ),
-                ],
+                    )
+                ),
             )
             assert result.raised is None
             ids.append(result.rows[0]["id"])
@@ -106,8 +165,7 @@ class TestInsights:
     @parameterized.expand(
         [
             ("recent_watermark", datetime(2026, 7, 1, tzinfo=UTC), "2026-07-01"),
-            ("first_sync", None, "2025-07-22"),
-            ("watermark_older_than_reporting_history", datetime(2024, 3, 1, tzinfo=UTC), "2025-07-22"),
+            ("watermark_today", datetime(2026, 7, 21, tzinfo=UTC), "2026-07-20"),
         ]
     )
     @time_machine.travel("2026-07-21", tick=False)
@@ -126,23 +184,56 @@ class TestInsights:
         )
 
         assert result.raised is None
-        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-21")]
+        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-20")]
+
+    @parameterized.expand(
+        [
+            ("first_sync", None),
+            ("watermark_older_than_reporting_history", datetime(2024, 3, 1, tzinfo=UTC)),
+        ]
+    )
+    @time_machine.travel("2026-07-21", tick=False)
+    def test_long_range_is_read_in_contiguous_short_windows(self, _name: str, watermark: datetime | None) -> None:
+        result = _driver().run(
+            "campaign_insights",
+            _insights_script(),
+            db_incremental_field_last_value=watermark,
+            should_use_incremental_field=True,
+        )
+
+        assert result.raised is None
+        windows = [json.loads(request.param("time_ranges[]") or "null") for request in result.requests[1:]]
+        assert windows[0]["since"] == "2025-07-22"
+        assert windows[-1]["until"] == "2026-07-20"
+        for previous, current in zip(windows, windows[1:]):
+            assert date.fromisoformat(current["since"]) == date.fromisoformat(previous["until"]) + timedelta(days=1)
+        assert all(
+            (date.fromisoformat(window["until"]) - date.fromisoformat(window["since"])).days < 30 for window in windows
+        )
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self) -> None:
         # A cursor is only valid for the result set it was issued for — recomputing `until` as a
         # later day on resume would pair it with a different window.
-        resume = OpenAIAdsResumeConfig(cursor="b1", since="2026-06-01", until="2026-07-19")
+        resume = OpenAIAdsResumeConfig(cursor="b1", since="2026-06-01", until="2026-07-18")
         result = _driver().run(
             "campaign_insights",
-            [ScriptedResponse(json={"currency_code": "EUR"}), _page([], has_more=False)],
+            [
+                ScriptedResponse(json={"currency_code": "EUR"}),
+                _page([], has_more=False),
+                _page([], has_more=False),
+            ],
             resume_state=resume,
         )
 
         assert result.raised is None
         assert result.requests[1].param("after") == "b1"
-        window = json.loads(result.requests[1].param("time_ranges[]") or "null")
-        assert (window["since"], window["until"]) == ("2026-06-01", "2026-07-19")
+        windows = [json.loads(request.param("time_ranges[]") or "null") for request in result.requests[1:]]
+        assert [(window["since"], window["until"]) for window in windows] == [
+            ("2026-06-01", "2026-07-18"),
+            ("2026-07-19", "2026-07-20"),
+        ]
+        assert result.requests[2].param("after") is None
 
     def test_missing_account_currency_stops_sync(self) -> None:
         result = _driver().run("campaign_insights", [ScriptedResponse(json={"id": "account_example"})])

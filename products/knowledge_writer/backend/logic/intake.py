@@ -42,13 +42,13 @@ def parse_verdict(payload: object) -> AdapterVerdict:
 
 def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     verdict = parse_verdict(payload)
+    writer = writer_settings()
+    if writer is None or writer.team_id != team_id:
+        return IntakeOutcome(status="unconfigured")
     capture_verdict(verdict, team_id=team_id)
     request = verdict.request
     if request is None:
         return IntakeOutcome(status="no_docs")
-    writer = writer_settings()
-    if writer is None or writer.team_id != team_id:
-        return IntakeOutcome(status="unconfigured")
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
     if existing_task is not None and not latest_run_failed(existing_task):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
@@ -59,6 +59,8 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
         alert_cap_reached("daily_run", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
+    if routing.is_every_page_in_source_repository:
+        return IntakeOutcome(status="docs_in_source_repo")
     in_flight = in_flight_writer_runs(writer)
     if routing.section and routing.section in in_flight.busy_sections:
         return IntakeOutcome(status="section_busy")

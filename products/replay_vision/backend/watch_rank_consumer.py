@@ -1,4 +1,4 @@
-"""Ranks observations for What to watch from the embedding worker's results topic.
+"""Ranks observations for the highlight feed from the embedding worker's results topic.
 
 The scan emits each observation's text to the embedding worker over Kafka. The worker publishes every
 embedded document to the results topic, and this consumer ranks the Replay Vision ones from their
@@ -34,8 +34,9 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
-from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
+from products.replay_vision.backend.highlight_builds import rebuild_changed_feeds
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest, rank_observation
 from products.replay_vision.backend.watch_semantics import SemanticAssignment, assign_semantics
 from products.replay_vision.backend.watch_themes import name_theme
 
@@ -55,6 +56,8 @@ _ERROR_RETRY_WINDOW_S = 60.0
 # Long enough for a naming call that waits behind ranking on the shared database thread, short enough that a hung
 # model call frees its slot.
 _NAMING_TIMEOUT_S = 120.0
+# How often the consumer rebuilds the highlight feeds of teams whose ranks changed.
+_REBUILD_INTERVAL_S = 60.0
 _NAMING_DRAIN_S = 20.0
 # A due theme left unnamed while this many are in flight is named when its next member arrives.
 _MAX_NAMING_TASKS = 8
@@ -65,22 +68,27 @@ Outcome = Literal["skipped", "ranked", "already_ranked", "missing", "failed", "d
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
-    "Embedding results the What to watch rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
+    "Embedding results the highlight feed rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
     labelnames=["outcome"],
 )
 BATCH_DURATION = Histogram(
     "replay_vision_watch_rank_consumer_batch_duration_seconds",
-    "Time the What to watch rank consumer spent on one non-empty batch.",
+    "Time the highlight feed rank consumer spent on one non-empty batch.",
     buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 240, 300),
+)
+FEED_REBUILDS_TOTAL = Counter(
+    "replay_vision_watch_rank_consumer_feed_rebuilds_total",
+    "Highlight feed rebuild sweeps of the rank consumer, by outcome.",
+    labelnames=["outcome"],
 )
 THEME_NAMING_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_theme_naming_total",
-    "Theme naming outcomes of the What to watch rank consumer, including names dropped while every slot was busy.",
+    "Theme naming outcomes of the highlight feed rank consumer, including names dropped while every slot was busy.",
     labelnames=["outcome"],
 )
 NAMING_IN_FLIGHT = Gauge(
     "replay_vision_watch_rank_consumer_naming_in_flight",
-    "Theme naming calls the What to watch rank consumer has in flight.",
+    "Theme naming calls the highlight feed rank consumer has in flight.",
 )
 
 # The worker writes compact JSON, and a quote inside a string value is escaped, so this marks our results.
@@ -140,6 +148,15 @@ def _assign_with_timeouts(
         # The commit happens here, outside the assignment's own guard, so a failed one must still drop the cache.
         feed_group_cache.forget(scanner_id)
         raise
+
+
+def _rebuild_changed_feeds() -> int:
+    # The sweep's thread keeps its own connection, so a broken one is replaced before each sweep.
+    close_old_connections()
+    try:
+        return rebuild_changed_feeds(ANCHOR_VERSION)
+    finally:
+        close_old_connections()
 
 
 class BatchConsumer(Protocol):
@@ -302,6 +319,17 @@ class WatchRankConsumer:
             config.update(helper.ssl_cert_config())
         return config
 
+    async def _rebuild_feeds(self) -> None:
+        """Rebuild changed teams' highlight feeds beside the message loop, on a thread of its own."""
+        while await self._wait(_REBUILD_INTERVAL_S):
+            try:
+                built = await sync_to_async(_rebuild_changed_feeds, thread_sensitive=False)()
+            except Exception:
+                FEED_REBUILDS_TOTAL.labels(outcome="failed").inc()
+                logger.exception("replay_vision.watch_rank_consumer.feed_rebuild_failed")
+            else:
+                FEED_REBUILDS_TOTAL.labels(outcome="built" if built else "idle").inc()
+
     async def run(self) -> None:  # pragma: no cover - exercised in dogfood
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -310,6 +338,7 @@ class WatchRankConsumer:
         consumer = Consumer(self._consumer_config())
         consumer.subscribe([KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC])
         logger.info("replay_vision.watch_rank_consumer.started")
+        rebuilds = asyncio.create_task(self._rebuild_feeds())
         try:
             while not self._stop.is_set():
                 self._liveness.record_heartbeat()
@@ -319,6 +348,7 @@ class WatchRankConsumer:
                 with BATCH_DURATION.time():
                     await self.process_batch(consumer, messages)
         finally:
+            rebuilds.cancel()
             consumer.close()
             # A theme claimed for naming stays unnamed until it doubles, so in-flight names get a moment to finish.
             if self._naming:

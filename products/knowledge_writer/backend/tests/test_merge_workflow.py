@@ -13,6 +13,7 @@ COMMIT_SHA = "b" * 40
 START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 MERGE_WORKFLOW = "products.knowledge_writer.backend.temporal.merge_workflow"
 RETENTION_PAGE = "https://posthog.com/docs/session-replay/data-retention"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 
 
 @pytest.fixture
@@ -30,18 +31,22 @@ def writer_env(team, user):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "commit_sha, expected_status_code",
+    "commit_sha, is_writer_enabled, expected_status_code",
     [
-        pytest.param(COMMIT_SHA, 202, id="merge"),
-        pytest.param("not-a-sha", 400, id="invalid"),
+        pytest.param(COMMIT_SHA, True, 202, id="merge"),
+        pytest.param("not-a-sha", True, 400, id="invalid"),
+        pytest.param(COMMIT_SHA, False, 404, id="flagged_off"),
     ],
 )
 def test_merge_pushes_endpoint_starts_the_merge_check(
-    client, team, user, writer_env, commit_sha, expected_status_code
+    client, team, user, writer_env, commit_sha, is_writer_enabled, expected_status_code
 ) -> None:
     client.force_login(user)
 
-    with patch(START_MERGE_CHECK) as start_merge_check:
+    with (
+        patch(KNOWLEDGE_WRITER_ENABLED, return_value=is_writer_enabled),
+        patch(START_MERGE_CHECK) as start_merge_check,
+    ):
         response = client.post(
             f"/api/projects/{team.id}/knowledge_writer/merge_pushes/",
             {"commit_sha": commit_sha},

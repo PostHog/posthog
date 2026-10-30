@@ -37,24 +37,25 @@ def multiple_variants_share(ctx: HealthContext) -> CheckOutcome:
         title = "Many groups were exposed to multiple variants"
         detail = (
             f"{percentage:.1f}% of groups ({multiple}) were exposed to multiple variants, so the results leave them "
-            "out. The exposures table lists them as $multiple. The flag gives every member of a group the same "
-            "variant, so this usually means that the flag changed after launch, for example with a new variant split "
-            "or a change from matching users to matching groups. It also happens when a person switches to another "
-            "group and your code reads the flag before the flags reload: the event then carries the new group with "
-            "the variant of the old group. Check the flag's history, and after a group switch, read the flag only "
-            "once the flags reload."
+            "out. The exposures table lists them as $multiple.\n\n"
+            "The flag gives every member of a group the same variant, so this usually means that the flag changed "
+            "after launch, for example with a new variant split or a change from matching users to matching groups. "
+            "It also happens when a person switches to another group and your code reads the flag before the flags "
+            "reload: the event then carries the new group with the variant of the old group.\n\n"
+            "Check the flag's history, and after a group switch, read the flag only once the flags reload."
         )
     else:
         title = "Many users were exposed to multiple variants"
         detail = (
             f"{percentage:.1f}% of users ({multiple}) were exposed to multiple variants, so the results leave them "
-            "out. The exposures table lists them as $multiple. This usually means that one person has more than one "
-            "ID: an anonymous ID before login and another after, an ID for each device, a new ID after reset(), or a "
-            "different ID on your server than in the browser. It also happens when a bootstrapped flag value differs "
-            "from the value PostHog evaluates, or when the flag changes after launch, for example with a new variant "
-            "split. If a variant changes how often users log in, each variant loses a different group of users, and "
-            "the results can be biased. Identify users before your code evaluates the flag, call reset() only at "
-            "logout, and send the same ID from your server."
+            "out. The exposures table lists them as $multiple. If a variant changes how often users log in, each "
+            "variant loses a different group of users, and the results can be biased.\n\n"
+            "This usually means that one person has more than one ID: an anonymous ID before login and another after, "
+            "an ID for each device, a new ID after reset(), or a different ID on your server than in the browser. It "
+            "also happens when a bootstrapped flag value differs from the value PostHog evaluates, or when the flag "
+            "changes after launch, for example with a new variant split.\n\n"
+            "Identify users before your code evaluates the flag, call reset() only at logout, and send the same ID "
+            "from your server."
         )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.MULTIPLE_VARIANTS_SHARE,

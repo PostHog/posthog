@@ -278,6 +278,11 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
+
+
 SESSION_FILE_ARTIFACT_TYPE = "context"
 
 
@@ -942,6 +947,14 @@ async def _drain_final_log(
     cause = f" (cause: {error_message})" if error_message else ""
     message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
         raise SandboxRunFailed(message, error_type=failure_error_type)
     raise RuntimeError(message)
 

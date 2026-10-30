@@ -3,7 +3,6 @@ from typing import Any
 
 from unittest.mock import patch
 
-from django.db.models import Q
 from django.test import SimpleTestCase
 
 import numpy as np
@@ -12,10 +11,15 @@ from parameterized import parameterized
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.replay_vision.backend import watch_rank_backfill
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.highlight_feed import SESSION_SPACING
 from products.replay_vision.backend.tests.helpers import axis_anchors
-from products.replay_vision.backend.watch_feed import SESSION_SPACING
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ANCHORS, classify, rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank import (
+    ANCHOR_VERSION,
+    ANCHORS,
+    HIGHLIGHT_PICK_MIN_SCANNER_ROWS,
+    classify,
+    rank_highlight_feed_by_embedding,
+)
 from products.replay_vision.backend.watch_rank_backfill import _rank_scanner, _stored_vectors
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
@@ -33,24 +37,32 @@ def _row(
     viewed: bool = False,
     session: str | None = None,
 ) -> dict[str, Any]:
-    rank = (
-        None
-        if contrast is None
-        else {
-            "category": category,
-            "contrast": contrast,
-            "anchor_version": anchor_version,
-        }
-        | ({"group": group} if group else {})
-    )
+    current = contrast is not None and anchor_version == ANCHOR_VERSION
     return {
         "id": observation_id,
         "scanner_id": scanner,
         "session_id": session or f"session-{observation_id}",
         "created_at": _NOW - timedelta(minutes=minutes_ago),
-        "watch_rank": rank,
         "feed_viewed": viewed,
+        "contrast": contrast if current else None,
+        "watch_category": category if current else None,
+        "watch_group_root": group or observation_id,
     }
+
+
+def _with_percentiles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each row's contrast percentile within its scanner, as a stored build attaches it."""
+    by_scanner: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row["contrast"] is not None:
+            by_scanner.setdefault(row["scanner_id"], []).append(row)
+    for scanner_rows in by_scanner.values():
+        if len(scanner_rows) < HIGHLIGHT_PICK_MIN_SCANNER_ROWS:
+            continue
+        scanner_rows.sort(key=lambda row: row["contrast"])
+        for position, row in enumerate(scanner_rows):
+            row.setdefault("watch_percentile", (position + 0.5) / len(scanner_rows))
+    return rows
 
 
 class TestClassify(SimpleTestCase):
@@ -68,27 +80,17 @@ class TestClassify(SimpleTestCase):
         assert reading.rank.category == category
         assert (reading.rank.contrast > 0) is positive
         assert set(reading.similarities) == {key for texts in ANCHORS.values() for key in texts}
-        assert reading.rank.scores["routine"] == max(reading.similarities[key] for key in ANCHORS["routine"])
 
 
-class TestPickIndexes(SimpleTestCase):
-    @parameterized.expand([("rlo_ranked_count_idx",), ("rlo_ranked_contrast_idx",)])
-    def test_pick_index_matches_the_current_anchor_version(self, name: str) -> None:
-        index = next(index for index in ReplayObservation._meta.indexes if index.name == name)
-        assert index.condition == Q(
-            status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
-        )
-
-
-class TestRankWatchFeedByEmbedding(SimpleTestCase):
+class TestRankHighlightFeedByEmbedding(SimpleTestCase):
     def test_a_finding_that_reached_more_people_outranks_a_stronger_one_off(self) -> None:
         rows = [_row(f"a-{index}", 0.01 * index, minutes_ago=index + 1) for index in range(10)]
         rows += [_row("one-off", 0.9), _row("widespread", 0.5)]
-        # Window percentiles and group reach, as the whole-window pick query supplies them.
+        # Window percentiles and group reach, as a stored build supplies them.
         for row in rows:
             row["watch_percentile"] = {"one-off": 0.99, "widespread": 0.85}.get(str(row["id"]))
             row["watch_group_people"] = 6 if row["id"] == "widespread" else 1
-        ranked = rank_watch_feed_by_embedding(rows)
+        ranked = rank_highlight_feed_by_embedding(_with_percentiles(rows))
         assert [entry.observation_id for entry in ranked][:2] == ["widespread", "one-off"]
         assert ranked[0].reason["affected_people"] == 6
 
@@ -107,7 +109,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
             _row("b-top", 0.50, scanner="scanner-b", minutes_ago=1),
         ]
 
-        ranked = rank_watch_feed_by_embedding(rows)
+        ranked = rank_highlight_feed_by_embedding(_with_percentiles(rows))
 
         assert ranked[0].observation_id == "dup-copy"
         assert ranked[0].reason == {
@@ -129,7 +131,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
             *[_row(f"a-{index}", 0.01 * index, minutes_ago=index + 3) for index in range(7)],
         ]
 
-        ranked = rank_watch_feed_by_embedding(rows)
+        ranked = rank_highlight_feed_by_embedding(_with_percentiles(rows))
 
         picks = {
             str(entry.observation_id): entry.reason for entry in ranked if entry.reason["kind"] == "embedding_pick"
@@ -148,7 +150,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
             _row("c-top", 0.9, scanner="scanner-c", minutes_ago=2),
         ]
 
-        ranked = [str(entry.observation_id) for entry in rank_watch_feed_by_embedding(rows)]
+        ranked = [str(entry.observation_id) for entry in rank_highlight_feed_by_embedding(_with_percentiles(rows))]
 
         assert ranked[0] == "a-top"
         assert ranked.index("b-top") - ranked.index("a-top") >= SESSION_SPACING
@@ -157,7 +159,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
     def test_rows_without_a_rank_fall_back_to_the_filler_floor(self) -> None:
         rows = [_row(f"row-{index}", None, minutes_ago=index, viewed=index == 0) for index in range(20)]
 
-        ranked = rank_watch_feed_by_embedding(rows)
+        ranked = rank_highlight_feed_by_embedding(_with_percentiles(rows))
 
         assert [entry.observation_id for entry in ranked] == ["row-1", "row-2", "row-3"]
 
@@ -166,19 +168,17 @@ class TestBackfillRankScanner(SimpleTestCase):
     def test_ranks_only_rows_without_a_current_rank(self) -> None:
         anchors = axis_anchors()
         error = np.array([1.0, 0.0, 0.0])
-        current = {"category": "failure", "contrast": 1.0, "anchor_version": ANCHOR_VERSION}
         rows: list[dict[str, Any]] = [
-            {"id": "ranked", "watch_rank": current},
-            {"id": "no-vector", "watch_rank": None},
-            {"id": "copy", "watch_rank": None},
-            {"id": "stale", "watch_rank": {**current, "anchor_version": ANCHOR_VERSION - 1}},
-            {"id": "calm", "watch_rank": None},
+            {"id": "ranked", "ranked": True},
+            {"id": "no-vector", "ranked": False},
+            {"id": "copy", "ranked": False},
+            {"id": "calm", "ranked": False},
         ]
-        vectors = {"ranked": error, "copy": error, "stale": error, "calm": np.array([0.0, 0.0, 1.0])}
+        vectors = {"ranked": error, "copy": error, "calm": np.array([0.0, 0.0, 1.0])}
 
         written = _rank_scanner(rows, vectors, anchors)
 
-        assert set(written) == {"copy", "stale", "calm"}
+        assert set(written) == {"copy", "calm"}
         assert written["copy"].rank.category == "failure"
         assert written["calm"].rank.category == "routine"
 

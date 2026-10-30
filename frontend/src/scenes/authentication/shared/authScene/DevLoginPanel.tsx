@@ -7,20 +7,21 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { hashCodeForString } from 'lib/utils/strings'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
 import { DevUser, devLoginLogic } from '../devLoginLogic'
+import { DevOAuthConnectionSection } from './DevOAuthConnectionSection'
 
 /** Floating dev-only panel (top-right) combining dev-login shortcuts and OAuth prod-data login. */
 export function DevLoginPanel(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { devUsers, devUsersLoading, devLoginPanelOpen, createFreshAccountLoading } = useValues(devLoginLogic)
-    const { devLogin, loadDevUsers, createFreshAccount, setDevLoginPanelOpen } = useActions(devLoginLogic)
+    const { devUsers, devLoginOptionsLoading, devLoginPanelOpen, createFreshAccountLoading } = useValues(devLoginLogic)
+    const { devLogin, loadDevLoginOptions, createFreshAccount, setDevLoginPanelOpen } = useActions(devLoginLogic)
     const { loginInProgress } = useValues(oauthLogic)
     const { beginLogin } = useActions(oauthLogic)
 
@@ -29,9 +30,9 @@ export function DevLoginPanel(): JSX.Element | null {
 
     useEffect(() => {
         if (allowDevLogin && devLoginPanelOpen) {
-            loadDevUsers(null)
+            loadDevLoginOptions(null)
         }
-    }, [allowDevLogin, devLoginPanelOpen, loadDevUsers])
+    }, [allowDevLogin, devLoginPanelOpen, loadDevLoginOptions])
 
     if (!isDebug) {
         return null
@@ -64,12 +65,12 @@ export function DevLoginPanel(): JSX.Element | null {
                     {devUsers.map((user) => (
                         <DevUserButton key={user.email} user={user} onClick={devLogin} />
                     ))}
-                    {devUsersLoading && (
+                    {devLoginOptionsLoading && (
                         <div className="flex justify-center py-4">
                             <Spinner />
                         </div>
                     )}
-                    {!devUsersLoading && devUsers.length === 0 && (
+                    {!devLoginOptionsLoading && devUsers.length === 0 && (
                         <p className="text-xs text-muted text-center px-2 py-4 m-0">
                             No accounts yet. Create a fresh demo account below.
                         </p>
@@ -93,6 +94,7 @@ export function DevLoginPanel(): JSX.Element | null {
                         Create fresh demo account
                     </LemonButton>
                 )}
+                {allowDevLogin && <DevOAuthConnectionSection />}
                 <div>
                     <p className="text-xs font-medium text-muted mb-1">Log in via OAuth</p>
                     <div className="grid grid-cols-2 gap-1">

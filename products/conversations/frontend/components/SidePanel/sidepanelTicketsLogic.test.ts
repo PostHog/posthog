@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 
 import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -15,6 +15,12 @@ import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
+
+jest.mock('./ticketsAcrossTabs', () => ({
+    loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
+    clearSharedTickets: jest.fn(),
+}))
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
@@ -89,6 +95,11 @@ describe('sidepanelTicketsLogic', () => {
             'It broke badly\n\n-----\nProject ID: 997',
             {},
             true
+        )
+        // The new ticket must show up now, so it skips the shared freshness window
+        expect(loadTicketsAcrossTabs).toHaveBeenLastCalledWith(
+            expect.any(Function),
+            expect.objectContaining({ force: true })
         )
 
         // Leaving the composer clears the prefill so a later blank "New ticket" starts empty
@@ -447,6 +458,38 @@ describe('sidepanelTicketsLogic', () => {
         expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: subscriptionLevel === 'paid' })
         expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
         errorToast.mockRestore()
+    })
+
+    // The unread badge keeps this logic polling on every page, so a failed background fetch must
+    // not toast over unrelated work. It is still captured so the failure rate stays visible.
+    it.each([
+        ['toasts on the support panel', true, 1],
+        ['stays quiet outside support surfaces', false, 0],
+    ])('when fetching tickets fails, %s', async (_case, onSupportPanel, expectedToasts) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        if (onSupportPanel) {
+            sidePanelStateLogic.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        }
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('429'))
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets()
+        }).toFinishAllListeners()
+
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(errorToast).toHaveBeenCalledTimes(expectedToasts)
+        errorToast.mockRestore()
+        ;(console.error as jest.Mock).mockRestore()
     })
 
     it('reports a missing widget instead of silently dropping the composed message', async () => {

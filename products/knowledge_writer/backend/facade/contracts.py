@@ -79,7 +79,17 @@ class MergeCheckReport:
 
 CommandCheckStatus = Literal["queued", "duplicate"]
 
-IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "section_busy", "joined", "started"]
+IntakeStatus = Literal[
+    "no_docs",
+    "unconfigured",
+    "duplicate",
+    "capped",
+    "shadow",
+    "docs_in_source_repo",
+    "section_busy",
+    "joined",
+    "started",
+]
 
 
 @dataclass(frozen=True)

@@ -1477,6 +1477,10 @@ export interface ChartSettingsDisplay {
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface HeatmapGradientStop {
@@ -2005,6 +2009,11 @@ export interface BoxPlotDatum {
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
     /** Wether more breakdown values are available. */
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
@@ -2616,6 +2625,11 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
@@ -2971,6 +2985,11 @@ export type QueryStatus = {
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -3363,9 +3382,62 @@ export interface AccountsTableRow {
 
 export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
 
+export type AccountsTableCustomPropertyDisplayType =
+    | 'text'
+    | 'link'
+    | 'number'
+    | 'currency'
+    | 'percent'
+    | 'date'
+    | 'datetime'
+    | 'boolean'
+    | 'select'
+
+export interface AccountsTableCustomPropertySource {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyOption {
+    id?: string | null
+    label: string
+    color: string
+}
+
+export interface AccountsTableCustomPropertyDefinition {
+    id: string
+    name: string
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayType
+    is_big_number?: boolean
+    is_canonical: boolean
+    has_workflow_reference: boolean
+    source?: AccountsTableCustomPropertySource | null
+    options?: AccountsTableCustomPropertyOption[] | null
+}
+
+export interface AccountsTableRelationshipDefinition {
+    id: string
+    name: string
+    description?: string | null
+    is_single_holder?: boolean
+    is_controlled: boolean
+}
+
+/** @discriminator kind */
+export type AccountsTableResolvedColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
 export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     kind: NodeKind.AccountsTableQuery
     results: AccountsTableRow[]
+    columns?: AccountsTableResolvedColumn[]
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[]
+    relationshipDefinitions?: AccountsTableRelationshipDefinition[]
     hasMore: boolean
     limit: integer
     offset: integer
@@ -3381,6 +3453,9 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
+    useDefaultColumns?: boolean
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
     /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
@@ -4363,6 +4438,8 @@ export interface WebVitalsItemAction {
 export interface WebVitalsItem {
     data: number[]
     days: string[]
+    /** The index of the row's series in the query. */
+    order: integer
     action: WebVitalsItemAction
 }
 
@@ -5306,6 +5383,8 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+export type SpanHealthStatus = 'silent' | 'regressed' | 'degraded' | 'new' | 'recovered' | 'improved' | 'ok'
+
 /** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
 export interface AggregatedSpanRow {
     service_name: string
@@ -5323,6 +5402,10 @@ export interface AggregatedSpanRow {
     users?: integer
     spans_with_session_id?: integer
     spans_with_distinct_id?: integer
+    /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+    health_status?: SpanHealthStatus
+    /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+    health_reason?: string
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -5334,6 +5417,16 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     serviceNames?: string[]
     /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
     includeImpact?: boolean
+    /**
+     * Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name.
+     * Spans that are not HTTP server spans are left out.
+     */
+    groupByEndpoint?: boolean
+    /**
+     * Classify each row against the comparison window, or the previous period when `compareFilter` is off.
+     * Fills `health_status` and `health_reason`. Runs a second window query.
+     */
+    includeHealth?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
@@ -6467,6 +6560,8 @@ export interface ExperimentExposureHealthFinding {
     code: ExperimentExposureHealthFindingCode
     /** The case within the code, when a code covers several. Null when the code has one case. */
     subcode: string | null
+    /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info. */
     severity: ExperimentExposureHealthFindingSeverity
     /** One-line summary of the problem. */
@@ -6493,7 +6588,7 @@ export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_ap
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
-    /** What the check looks at, as the health panel lists it. */
+    /** The problem the check looks for, as the health panel lists it. */
     name: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus
@@ -6921,6 +7016,12 @@ export interface ResolvedDateRangeResponse {
     date_from: string
     /**  @format date-time */
     date_to: string
+    /**
+     * The earliest timestamp the query reads, when only its first interval depends on rows from before date_from.
+     * Lifecycle sets it to the start of the interval before the range.
+     * @format date-time
+     */
+    read_from?: string
 }
 
 export type MultipleBreakdownType =
@@ -8352,10 +8453,15 @@ export type CachedMarketingAnalyticsRetentionQueryResponse =
 
 export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
     statsTable: string
     keywordTable?: string
     placementTable?: string
     queryPageTable?: boolean
+    /** Google Ads search terms from Search campaigns. */
+    searchTermTable?: string
+    /** Google Ads search terms from Performance Max campaigns. */
+    performanceMaxSearchTermTable?: string
 }
 
 export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
@@ -8364,7 +8470,7 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     sources: MarketingAnalyticsSearchSource[]
     compareFilter?: CompareFilter
     search?: string
-    breakdown?: 'keyword' | 'page'
+    breakdown?: 'keyword' | 'page' | 'search_term'
     keyword?: string
     page?: string
     normalizePageUrls?: boolean

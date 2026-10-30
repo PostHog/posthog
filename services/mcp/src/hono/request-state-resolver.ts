@@ -24,11 +24,12 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
+import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -71,6 +72,12 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state when the no-data notice blocked or warned this call. */
     noDataAction?: NoDataAction | undefined
+    /** Set on the per-call state: whether the client sent a session or conversation handle. */
+    carriedContextHandle?: boolean | undefined
+    /** The organization's AI data processing consent; undefined when the org could not be read. */
+    aiConsentGiven?: boolean | undefined
+    /** Read only when a business knowledge search tool is advertised; undefined when unread. */
+    businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -153,6 +160,11 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 // run uses, so instructions learned on one path silently fail on the other.
 const DIRECT_GATEWAY_MOUNT_ORIGINS: ReadonlySet<string> = new Set(['signals_scout'])
 
+const BUSINESS_KNOWLEDGE_SEARCH_TOOLS: ReadonlySet<string> = new Set([
+    'business-knowledge-documents-search',
+    'business-knowledge-repositories-search',
+])
+
 function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
     return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)
 }
@@ -202,6 +214,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
 
@@ -279,12 +292,10 @@ export class RequestStateResolver {
             oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
+            uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
         })
 
-        // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
-        // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
-        // tool's advertisement and execution stay gated on the UI-host check.
-        const renderUiEnabled = clientProfile.isClaudeUiHost()
+        const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
@@ -332,6 +343,9 @@ export class RequestStateResolver {
                 () => context.stateManager.getUser()
             )
         ).filter(isHeld)
+        const businessKnowledgeContent = allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+            ? await this.resolveBusinessKnowledgeContent(context)
+            : undefined
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
@@ -352,6 +366,8 @@ export class RequestStateResolver {
             suppressAnalytics: props.suppressAnalytics,
             projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
+            aiConsentGiven: aiConsentGiven ?? undefined,
+            businessKnowledgeContent,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -467,6 +483,15 @@ export class RequestStateResolver {
         }
     }
 
+    private async resolveBusinessKnowledgeContent(context: Context): Promise<BusinessKnowledgeContent | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchBusinessKnowledgeContent(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
     private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
@@ -483,13 +508,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
+                            key !== MCP_INTENT_PROMPT_FLAG &&
+                            !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),
                 payloads: {},

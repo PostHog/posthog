@@ -449,6 +449,7 @@ def _resolve_sandbox_github_token(
     """
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+        TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
         if github_token:
             log_with_activity_context("Read-only GitHub token minted for evidence gathering", run_id=ctx.run_id)
         else:
@@ -1324,7 +1325,7 @@ def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubInte
         return None
     if get_pr_authorship_mode(_load_task(ctx), ctx.state) != PrAuthorshipMode.BOT:
         return None
-    return resolve_installation_github_integration(ctx.github_integration_id)
+    return resolve_installation_github_integration(ctx.team_id, ctx.github_integration_id)
 
 
 def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:

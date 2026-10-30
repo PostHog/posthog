@@ -119,6 +119,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         colorBy: undefined,
         querySnapshot: undefined,
         catalogMetric: undefined,
+        catalogMetricContext: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],

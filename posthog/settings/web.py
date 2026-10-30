@@ -182,6 +182,8 @@ _UNVERSIONED_STATIC_MIDDLEWARE = (
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
+    "posthog.after_response.AfterResponseMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -214,6 +216,9 @@ MIDDLEWARE = [
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
+    # Opens one authorization session per request, so `authorization.check()` without a subject
+    # uses the request's user. Middleware above this line runs outside the session and must pass a subject.
+    "products.authorization.backend.middleware.AuthorizationSessionMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -324,7 +329,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
-    "ee.api.authentication.social_auth_allowed",
+    "posthog.api.sso.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
@@ -653,6 +658,8 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
+            "ImportProviderKeyEnum": "products.messaging.backend.models.provider_import_run.ImportProviderKey.choices",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
@@ -740,6 +747,8 @@ SPECTACULAR_SETTINGS = {
             #
             # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
+            # ai_observability's dataset and trace exports report the same states.
+            "ExportStatusEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_STATUSES",
             "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",
@@ -916,7 +925,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
-                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|session_logs)/?$",
+                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|log_entries|session_logs)/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
@@ -1122,6 +1131,15 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
+# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
+# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
+# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
+WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
+    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
+)
+if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
+    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.

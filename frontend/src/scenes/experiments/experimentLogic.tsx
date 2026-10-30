@@ -755,7 +755,7 @@ export interface experimentLogicActions {
         forceRefresh: boolean
     }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: ExperimentHealthChecksOpenedFrom
+        openedFrom: 'meta_bar'
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
@@ -1549,7 +1549,7 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthFindingShown: ({ finding }) => {
             // The page remounts its warnings within one load, for example on a tab change or after
             // a save, and each mount reports again.
-            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.subcode ?? ''}`
             cache.shownHealthFindingKeys ??= new Set<string>()
             if (cache.shownHealthFindingKeys.has(key)) {
                 return

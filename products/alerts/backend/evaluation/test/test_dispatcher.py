@@ -37,7 +37,14 @@ class _Extractor:
     def __init__(self, outcome: Exception | ExtractionResult) -> None:
         self._outcome = outcome
 
-    def extract(self, alert: Any, insight: Any, query: Any, execution_mode: ExecutionMode) -> ExtractionResult:
+    def extract(
+        self,
+        alert: Any,
+        insight: Any,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
+    ) -> ExtractionResult:
         if isinstance(self._outcome, Exception):
             raise self._outcome
         return self._outcome
@@ -132,14 +139,16 @@ def test_per_series_judges_every_breakdown_value_where_the_alert_stops_at_the_fi
     )
     alert.insight.query = {"kind": "TrendsQuery"}
     extractor = _Extractor(ExtractionResult(series=series, is_breakdown=True))
+    query_slot = MagicMock(return_value=nullcontext())
     with (
         patch.dict(EXTRACTORS, {NodeKind.TRENDS_QUERY: extractor}),
         patch("products.alerts.backend.evaluation.dispatcher.upgrade_insight", return_value=nullcontext()),
         patch("products.alerts.backend.evaluation.dispatcher.validate_evaluation_delay"),
         patch("products.alerts.backend.evaluation.dispatcher._resolve_execution_mode", return_value=IF_STALE),
     ):
-        evaluated = check_alert_per_series(alert)
+        evaluated = check_alert_per_series(alert, query_slot=query_slot)
 
+    query_slot.assert_called_once_with()
     assert isinstance(evaluated, PerSeriesEvaluation)
     assert [(s.label, s.result.value, bool(s.result.breaches)) for s in evaluated.series] == [
         ("Chrome", 150.0, True),

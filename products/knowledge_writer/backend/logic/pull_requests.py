@@ -7,8 +7,9 @@ import structlog
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -78,7 +79,7 @@ def joined_source_comment(request: DocsRequest) -> str:
 
 
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
-    for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+    for integration in IntegrationManager.github.oauth.list(team_id):
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
             return GitHubIntegration(integration, source="knowledge_writer", priority=priority)
     return None
@@ -232,8 +233,9 @@ def publish_claimed_pull_request(
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
     )
     if isinstance(pull_request, GitHubStepFailed):
+        failure = WriterPullRequestFailed("knowledge writer docs pull request failed")
         capture_exception(
-            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            failure,
             {
                 "team_id": team_id,
                 "task_run_id": str(task_run_id),
@@ -241,8 +243,7 @@ def publish_claimed_pull_request(
                 "status_code": pull_request.status_code,
             },
         )
-        record_pull_request_failure(task_id, team_id, "github_request_failed")
-        return None
+        raise failure
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))

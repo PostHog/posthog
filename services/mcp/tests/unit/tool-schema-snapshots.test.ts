@@ -104,6 +104,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'ai-observability-offline-evaluations': true,
         'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
+        'workflows-destination-suggestion': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
         'marketing-analytics-conversion-setup-ai': true,

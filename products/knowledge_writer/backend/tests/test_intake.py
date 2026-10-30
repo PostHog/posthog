@@ -12,10 +12,20 @@ from posthog.models.integration import Integration
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest, MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
+from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
-from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
-from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
+from products.knowledge_writer.backend.logic.pull_requests import (
+    LINK_BACK_START,
+    open_or_join_pull_request,
+    section_label,
+    section_marker,
+)
+from products.knowledge_writer.backend.logic.records import (
+    PULL_REQUEST_FAILURE_STATE_KEY,
+    PULL_REQUEST_STATE_KEY,
+    REQUEST_STATE_KEY,
+)
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -30,6 +40,9 @@ SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
 REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
+CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -111,6 +124,13 @@ def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...
     return REGISTRY[DocsRequestSource.COMMAND_TAG].assess(report)
 
 
+def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
+    try:
+        open_or_join_pull_request(task_run_id, team_id=team_id)
+    except Exception:
+        return
+
+
 def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
     run = TaskRun.objects.get(task_id=task_id)
     with django_capture_on_commit_callbacks(execute=True):
@@ -127,6 +147,7 @@ def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_e
         patch(START_WORKFLOW),
     ):
         started = intake.submit(_verdict(), team_id=team.id)
+    assert started.task_id is not None
     run = TaskRun.objects.get(task_id=started.task_id)
     run.status = TaskRun.Status.COMPLETED
     run.output = "not a dict"
@@ -137,18 +158,28 @@ def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_e
 
 
 @pytest.mark.django_db
-def test_no_agent_starts_without_settings(team) -> None:
-    with patch(START_WORKFLOW) as start_workflow:
+@pytest.mark.parametrize("has_writer_settings", [False, True])
+def test_nothing_runs_or_is_captured_while_the_writer_is_unconfigured_or_flagged_off(
+    request, team, has_writer_settings: bool
+) -> None:
+    if has_writer_settings:
+        request.getfixturevalue("writer_env")
+    with (
+        patch(FLAG_CHECK, return_value=False),
+        patch(CAPTURE_VERDICT) as capture_verdict,
+        patch(START_WORKFLOW) as start_workflow,
+    ):
         outcome = intake.submit(_verdict(), team_id=team.id)
 
     assert outcome.status == "unconfigured"
+    capture_verdict.assert_not_called()
     start_workflow.assert_not_called()
 
 
 @pytest.mark.django_db
 def test_no_agent_starts_while_the_launch_flag_is_off(team, writer_env) -> None:
     with (
-        patch(FLAG_CHECK, return_value=False),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != AGENT_LAUNCH_FLAG),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW) as start_workflow,
     ):
@@ -185,12 +216,15 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
     assert len(run_states) == 2
     assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
+    assert all(state["include_live_context"] is False for state in run_states)
 
 
 @pytest.mark.django_db
 def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_waits_then_joins_it(
-    team, writer_env, django_capture_on_commit_callbacks
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
@@ -227,7 +261,9 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
-    label = section_label(docs_section(SECTION_PAGE))
+    section = docs_section(SECTION_PAGE)
+    assert section is not None
+    label = section_label(section)
     add_labels.assert_called_once_with("posthog.com", 9, [label])
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -259,6 +295,31 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 
 
 @pytest.mark.django_db
+def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_why_and_calls_no_github(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    with (
+        patch(START_PUBLISH, side_effect=TimeoutError("Temporal unreachable")),
+        patch(LIST_PULL_REQUESTS) as github_request,
+        patch(CREATE_PULL_REQUEST) as create_pull_request,
+    ):
+        _finish_run(started.task_id, django_capture_on_commit_callbacks)
+
+    github_request.assert_not_called()
+    create_pull_request.assert_not_called()
+    failure = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+    assert failure == "publish_not_started"
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "github_responses, handed_pages, withheld_pages",
     [
@@ -286,6 +347,37 @@ def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
     assert task is not None
     assert all(page in task.description for page in handed_pages)
     assert not any(page in task.description for page in withheld_pages)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "pull_request_url, expected_status",
+    [
+        ("https://github.com/PostHog/posthog/pull/123", "docs_in_source_repo"),
+        ("https://github.com/PostHog/posthog-js/pull/123", "started"),
+    ],
+)
+def test_a_request_whose_every_page_is_sourced_from_its_own_repository_starts_no_writer(
+    team, writer_env, pull_request_url, expected_status
+) -> None:
+    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, SECTION_PAGE))
+    assert verdict.request is not None
+    verdict = dataclasses.replace(verdict, request=dataclasses.replace(verdict.request, source_url=pull_request_url))
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(
+            LIST_PULL_REQUESTS,
+            side_effect=_open_on_github(published_page_paths=("logs/logql-api", "session-replay/retention")),
+        ),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        outcome = intake.submit(verdict, team_id=team.id)
+
+    assert outcome.status == expected_status
+    assert start_workflow.called is (expected_status == "started")
+    assert (tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id) is not None) is (
+        expected_status == "started"
+    )
 
 
 @pytest.mark.django_db
@@ -357,6 +449,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
     assert new_run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
+    assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
     assert "fff999" in task.description and "Only touch the API reference." in task.description
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
