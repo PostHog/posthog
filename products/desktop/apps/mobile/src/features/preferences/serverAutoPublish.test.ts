@@ -63,6 +63,23 @@ describe("pullAutoPublishCloudRuns", () => {
     });
     expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(false);
   });
+
+  it("keeps a toggle made while the pull was in flight", async () => {
+    let resolveConfig: (config: ReturnType<typeof serverConfig>) => void =
+      () => {};
+    mockGetMyTaskRunConfig.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfig = resolve;
+      }),
+    );
+
+    const pull = pullAutoPublishCloudRuns(PROJECT_ID);
+    await saveAutoPublishCloudRuns(PROJECT_ID, false);
+    resolveConfig(serverConfig(true));
+    await pull;
+
+    expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(false);
+  });
 });
 
 describe("saveAutoPublishCloudRuns", () => {
@@ -84,5 +101,40 @@ describe("saveAutoPublishCloudRuns", () => {
     );
 
     expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(true);
+  });
+
+  it("sends overlapping saves in order", async () => {
+    const sent: boolean[] = [];
+    mockSetMyTaskDefaults.mockImplementation(
+      async (
+        _projectId: number,
+        changes: { auto_publish_cloud_runs: boolean },
+      ) => {
+        await Promise.resolve();
+        sent.push(changes.auto_publish_cloud_runs);
+      },
+    );
+
+    await Promise.all([
+      saveAutoPublishCloudRuns(PROJECT_ID, false),
+      saveAutoPublishCloudRuns(PROJECT_ID, true),
+      saveAutoPublishCloudRuns(PROJECT_ID, false),
+    ]);
+
+    expect(sent).toEqual([false, true, false]);
+  });
+
+  it("does not undo a newer toggle when an older save fails", async () => {
+    usePreferencesStore.setState({ autoPublishCloudRuns: true });
+    mockSetMyTaskDefaults
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+
+    const first = saveAutoPublishCloudRuns(PROJECT_ID, false);
+    const second = saveAutoPublishCloudRuns(PROJECT_ID, false);
+    await expect(first).rejects.toThrow("offline");
+    await second;
+
+    expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(false);
   });
 });

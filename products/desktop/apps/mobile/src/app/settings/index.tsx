@@ -6,7 +6,14 @@ import {
 import { router } from "expo-router";
 import { ArrowSquareOut, CaretRight, SpeakerHigh } from "phosphor-react-native";
 import { useState } from "react";
-import { Linking, Pressable, ScrollView, Switch, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  Switch,
+  View,
+} from "react-native";
 import { useAuthStore, useProjectsQuery, useUserQuery } from "@/features/auth";
 import { useDismissedReportsStore } from "@/features/inbox/stores/dismissedReportsStore";
 import { usePushTokenStore } from "@/features/notifications/stores/pushTokenStore";
@@ -205,6 +212,10 @@ export default function SettingsScreen() {
     if (!projectId) return;
     saveAutoPublishCloudRuns(projectId, enabled).catch((error: unknown) => {
       logger.warn("Auto-publish setting save failed", error);
+      Alert.alert(
+        "Couldn't save setting",
+        "Check your connection and try again.",
+      );
     });
   };
   const rtkEnabledCloud = usePreferencesStore((s) => s.rtkEnabledCloud);
@@ -441,6 +452,7 @@ export default function SettingsScreen() {
               <Switch
                 value={autoPublishCloudRuns}
                 onValueChange={setAutoPublishCloudRuns}
+                disabled={!projectId}
               />
             }
           />
