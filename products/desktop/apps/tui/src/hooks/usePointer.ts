@@ -48,12 +48,11 @@ export interface Pointer {
   onWheel: (at: Wheel) => void;
   // The pane a file was just dropped on: Ghostty reports the pointer a few milliseconds before it pastes the path.
   paneAtDrop: () => string | undefined;
+  // A key was typed: the pointer's last report no longer says where a paste belongs.
+  typed: () => void;
   boxes: ScreenBoxes;
 }
 
-// Ghostty reports the pointer milliseconds before a drop's paste, but the hover repaint of a full split sits between them,
-// so the window is generous; a pointer moved well before a typed paste still does not count.
-const DROP_REPORT_MS = 1_500;
 // How often a drag held above or below a chat scrolls it a line.
 const EDGE_SCROLL_MS = 50;
 
@@ -90,7 +89,7 @@ export function usePointer({
   todayAt?: (paneId: string, row: number, column: number) => boolean;
 }): Pointer {
   const sidebarBox = useRef<DOMElement | null>(null);
-  const lastMove = useRef<{ at: Click; time: number } | null>(null);
+  const lastMove = useRef<Click | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
   const chatBoxes = useRef(new Map<string, DOMElement>());
   const composerBoxes = useRef(new Map<string, DOMElement>());
@@ -265,7 +264,7 @@ export function usePointer({
       flashNotice("Copied to clipboard", { paneId: current.paneId });
     },
     onMove: (move) => {
-      lastMove.current = { at: move, time: Date.now() };
+      lastMove.current = move;
       let changed = false;
       for (const [paneId, element] of chatBoxes.current) {
         const box = boxOf(element);
@@ -287,11 +286,15 @@ export function usePointer({
       if (held && selecting.current?.paneId === paneId)
         selectIn(held.from, held.to);
     },
+    // A drop pastes the file paths with no position, so it lands under the pointer's last report. The terminal
+    // reports motion only as the pointer crosses cells, so a long hover before the drop still counts; a key typed
+    // since the move does not, so a typed paste of a path stays in the focused pane.
     paneAtDrop: () => {
       const move = lastMove.current;
-      return move && Date.now() - move.time <= DROP_REPORT_MS
-        ? paneHit(move.at)
-        : undefined;
+      return move ? paneHit(move) : undefined;
+    },
+    typed: () => {
+      lastMove.current = null;
     },
     boxes: {
       sidebar: sidebarBox,

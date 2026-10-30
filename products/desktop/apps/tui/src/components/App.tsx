@@ -437,7 +437,7 @@ export function App({
     }
   };
 
-  const { boxes, paneAtDrop, ...pointer } = usePointer({
+  const { boxes, paneAtDrop, typed, ...pointer } = usePointer({
     rows: sidebar.rows,
     activate: sidebar.activate,
     navigate: sidebar.navigate,
@@ -471,6 +471,7 @@ export function App({
     scrollPane,
     control,
     paneAtDrop,
+    typed,
     cycleMode: (paneId, step) =>
       cycleMode(paneId, taskOf(findPane(layout, paneId)?.taskId ?? null), step),
     toggleSidebar: () => {
