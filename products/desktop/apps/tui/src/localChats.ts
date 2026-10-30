@@ -1,9 +1,11 @@
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +15,9 @@ const LOCAL_SESSIONS = join(homedir(), ".config", "posthog-tui", "local");
 const SESSION_SUFFIX = ".jsonl";
 // Chats started before local chats had a task row; their pi session files still carry this id.
 export const LEGACY_PREFIX = "local:";
+const HARNESS_SUFFIX = ".harness";
+
+export type LocalHarness = "pi" | "claude";
 
 export interface UnlinkedChat {
   legacyId: string;
@@ -45,6 +50,24 @@ export class LocalChats {
   sessionFile(id: string): string {
     mkdirSync(this.dir, { recursive: true });
     return join(this.dir, `${id}${SESSION_SUFFIX}`);
+  }
+
+  private markerFile(id: string): string {
+    return join(this.dir, `${id}${HARNESS_SUFFIX}`);
+  }
+
+  // Which agent the chat runs, written when it first starts so a later /billing never changes it.
+  remember(id: string, harness: LocalHarness): void {
+    mkdirSync(this.dir, { recursive: true });
+    writeFileSync(this.markerFile(id), harness);
+  }
+
+  harnessOf(id: string): LocalHarness | null {
+    try {
+      const marker = readFileSync(this.markerFile(id), "utf8").trim();
+      if (marker === "claude" || marker === "pi") return marker;
+    } catch {}
+    return existsSync(this.sessionFile(id)) ? "pi" : null;
   }
 
   // Task ids of the local chats with a session file, with when each last changed.
@@ -86,7 +109,14 @@ export class LocalChats {
 
   // Renames the session file, so the chat resumes under its task and is never linked twice.
   link(legacyId: string, taskId: string): void {
-    renameSync(this.sessionFile(legacyId), this.sessionFile(taskId));
+    for (const file of [this.sessionFile, this.markerFile]) {
+      try {
+        renameSync(file.call(this, legacyId), file.call(this, taskId));
+      } catch (error) {
+        // A Claude chat has no session file, and a pi chat may have no marker yet.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
 
   // Moves the chat's session file into cleared/, so its agent starts on an empty conversation under the same task.
@@ -105,11 +135,9 @@ export class LocalChats {
     }
   }
 
-  private names(): string[] {
+  private names(suffix: string = SESSION_SUFFIX): string[] {
     try {
-      return readdirSync(this.dir).filter((name) =>
-        name.endsWith(SESSION_SUFFIX),
-      );
+      return readdirSync(this.dir).filter((name) => name.endsWith(suffix));
     } catch {
       return [];
     }
