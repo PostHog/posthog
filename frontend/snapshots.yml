@@ -8819,9 +8819,9 @@ snapshots:
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
         hash: v1.k794b7964.bc227a614a4387183844d3f52df818b273b31d8d0a8d3b0e40fdf0a31488fb03.xFHUQD9ILXWiU9zR3XymL0E5VNOqa0jRvXiL5_FTiIs
     replay-tabs-home-filters-banner--scanner-cross-sell--dark:
-        hash: v1.k794b7964.cdda062e13754aeb37e3982382846ef836705498f6bbea45bb44a461945d43e2.8rtPhnDj48obOBCmP9Gzsmi6GQZwxWOvqT79lwYouDE
+        hash: v1.k794b7964.bc64e8d178e529d893d7bb7cf3b41acbc2f03932226becc2c3ab1122dfd2dcfd.VWUxbIzF0TqTKWX7VtcV_b1sxsM7WCMkHEaT9c0s2uQ
     replay-tabs-home-filters-banner--scanner-cross-sell--light:
-        hash: v1.k794b7964.a96216b5edb663a43474a80662c186bcdbf2c28ed8b5102d628fefa68b50ed98.vgbb2qohMFpIa0AX9WIcn8fgG6mxvygJDNu10McdBoU
+        hash: v1.k794b7964.4ed70ddb8a2d3543d370f0bb7ef593c8ea519dc2d0f76211b3036803f76535b8.PKjFroml7V0bPXDpdHO4s52Xxxb--3lQmjldubsJzr0
     replay-tabs-home-filters-banner--templates-tab--dark:
         hash: v1.k794b7964.d029de296a4c76b82cefbd0e68f9990c27a1b9692764a9b3ddc4317dd5d184d4.VGIKGjydwEuB3kz2DSDoMy-1QWQkGO6PPu44E4bBto0
     replay-tabs-home-filters-banner--templates-tab--light:
@@ -12479,9 +12479,9 @@ snapshots:
     scenes-app-inbox-scene--report-without-evidence--light:
         hash: v1.k794b7964.e6d12bd6f862ac226548a221d7e6c4655cd2455d24903d31122ddc5c691451d9.EGSzgF4ca3R8GPVWCpadnc-09_LgNoXebfytHYYZA9w
     scenes-app-inbox-scene--scouts--dark:
-        hash: v1.k794b7964.4c6c476bbe52a64bd89c81117a4a0bff8a4102920a03a8d722cff93177e5d209.DXZfqtUBd5_2Mg7tNceVoR_iiw-2yG655qhWQz2oWNc
+        hash: v1.k794b7964.342b6ade0a3245d92d924e2e7d37484d96e28dcc699b3f565f87c8dfda96be96.T5RoSmtn2CUXtooHEFwovo4fJfyjBXJDwg9KGBQs-ls
     scenes-app-inbox-scene--scouts--light:
-        hash: v1.k794b7964.751f7acf90211fb843c29021e4c5c07199a016d3758a98aebd030a2459e7e727.-dob_PqMSyNGS0sWCDRL7239l7w9pUTs5Oil7XD97cM
+        hash: v1.k794b7964.99b86171afccba43b9d785a00193c8bd77a2717c053fa13b964c75528aa64c68.Xq6z6ABYxz3U2XexihC6Cc9cbFqXD51rxysP6XxASCM
     scenes-app-inbox-scene--self-driving-onboarding--dark:
         hash: v1.k794b7964.46d59bd7778029f586a0e9eb50ebbfd731a040dcaf605844f9322cbfcef21018.9wzJ-Sog0L0eQcy-CXKD3y8b8qX5EL-xDKjL8G3Oxpc
     scenes-app-inbox-scene--self-driving-onboarding--light:
@@ -12903,9 +12903,9 @@ snapshots:
     scenes-app-inbox-scoutsuggestionsstrip--low-activity--light:
         hash: v1.k794b7964.d3e9167ac6ce1fa16ab27175c2f62dec069c739efb213391b0c652a736d1920b.po2oo5Ii0tv7MLw6_SkVWHjGlmg7Nwvbua4MVcAkQ2o
     scenes-app-inbox-scoutsuggestionsstrip--narrow--dark:
-        hash: v1.k794b7964.b9ca13a41bed32023a43f006360e43b4b321b1e6cb31998e2eb3e860eac7a0f6.lDOXRuPYgisBlZOeEdJmKfyq2H55P3xVgiH_ZoqGFL8
+        hash: v1.k794b7964.430290aad9653c513a0273ac785ea917107832eaabe6e294743f58c41261458e.LzfPwJISoPJNUhK4-Rimc4xlls8xNB-gc232GbYpAr0
     scenes-app-inbox-scoutsuggestionsstrip--narrow--light:
-        hash: v1.k794b7964.7ac141242ca1eff00382eabeb3a43499013fe0fd5348caa2fdb68358b546607f.hPLQzahnOp_1pNfmoDe6VzfxtpeAmbltAjv4ATkrFSk
+        hash: v1.k794b7964.0a14d3ca2e43a6c6e419a9dc0e22eb95f7043d9678fc34aa51155d861e8ad403.NBAHyZx1vyyyqLAtaI-9XLeRqGzxu4utG7j3DEd9lg0
     scenes-app-inbox-scoutsuggestionsstrip--never-generated--dark:
         hash: v1.k794b7964.1fa499f9b82d53b5303ac9c1aad41ae71c3181773bfebff8484f9aac6a5d7ad5.ulg5fyOIsf7mnLJJRsP0QggXrvaVc8UBP43QUI6WGmo
     scenes-app-inbox-scoutsuggestionsstrip--never-generated--light:
@@ -15034,6 +15034,10 @@ snapshots:
         hash: v1.k794b7964.c3c29df373cd8e663770b097f02a4772ffc2ba0c51e10a245fb5cf8ef7bdff68.rPAbWs7-3bfCc9X1HQcY30nfQscWET-stKmszLHV-fo
     scenes-app-replay-vision--scanner-editor-goal-overview-free-only--light:
         hash: v1.k794b7964.2abc94dc57d65cb6ecea210e7bdb23750f93dd5acdf32f1b0410b041bc0f3ed7.BSXIKK9m6yVzc_yZ5pmgl39D3y6ZaYmJpnULVOEULsM
+    scenes-app-replay-vision--scanner-editor-goal-overview-from-replay-filters--dark:
+        hash: v1.k794b7964.13e722e362e56337bc6d11e02bec026d9a923c2eca2bc995dbfd0451491d151d.xcQ8xU__yVwqmJJpFWHisDdT4fqdjvgr4Omv6mCW-yw
+    scenes-app-replay-vision--scanner-editor-goal-overview-from-replay-filters--light:
+        hash: v1.k794b7964.55081ca056585110b46a8ab9cfee6f4225d299689b7422257ba19257d8147310.7ezOd4HBRfRWJvJ3DnU-hqfeSutiMghrPXDae9BYSUg
     scenes-app-replay-vision--scanner-editor-goal-overview-loading--dark:
         hash: v1.k794b7964.1a1ff16d7bba6dfd41b09cf0a1e2032457a96412d8bef532f15c3f65039d2b20.0LkpJTMQS5qYq0AW_krA6JrCtvR-si_EnxNAh4hMdfs
     scenes-app-replay-vision--scanner-editor-goal-overview-loading--light:
@@ -15218,6 +15222,14 @@ snapshots:
         hash: v1.k794b7964.628aadee0591ed32bec6030dad4acc732423c095d82a0f75930710736851fa28.3mh2R55GMgaCMNSdXOcUqECUPP4MmFCDYu_0jqs331E
     scenes-app-replay-vision-recordingtimeline--very-long-recording--light:
         hash: v1.k794b7964.a04715d7aa78cff8fcfb049420139f30f87ac31872679219f3ee7f4be8475cf2.RW9X9AswVQmbJBWPH6SLAV52RPjoUy5MIcCOXDIGeBM
+    scenes-app-replay-vision-replayfiltersscannerpopover--all-new-recordings--dark:
+        hash: v1.k794b7964.08cc8aa558a5de23f4ed1306ad96af14729761554fce4cb505c6bf77e4360174.UfBYc1JFK9vfM6_t3rnC6RKmG8K_EXmySNpk0Ka19sg
+    scenes-app-replay-vision-replayfiltersscannerpopover--all-new-recordings--light:
+        hash: v1.k794b7964.ad2fa34bb32b8f83ddd9dff95548bb82f9ea24b58c9502b620633e7ed1fd26fa.CItre1_4DH5y_Ewg62HwBoYBlJi4u49h7JGqvs5Deuw
+    scenes-app-replay-vision-replayfiltersscannerpopover--with-filters--dark:
+        hash: v1.k794b7964.2a6736d2a3ec4972e36d3d0a4b9b693cd6c1301c4542fcb35b2108c6ebe39ed2.KDhm67EpypyqZcTOqmy5izF4WJaVokAdhf2eYmRI0wY
+    scenes-app-replay-vision-replayfiltersscannerpopover--with-filters--light:
+        hash: v1.k794b7964.498913275afda254c5b42c2969da4f4b4521ef9850ee19fd666ca52595f6fde2.1fwBcq3d4CeG70mWC6BIPkQ-Zvvrn7NGtbV-g8JFO3k
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--dark:
         hash: v1.k794b7964.cf96414912c6d8f0d73808db3f1d833c661d12b3b0449cdd49b95d4dc8059e80.3sA2mn18MksUWQQ4mq6wEPbkJhGP3O258Y6Q2fTWhgM
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--light:

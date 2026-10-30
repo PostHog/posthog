@@ -7,8 +7,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { AgentBadgeRotator } from 'lib/components/MCPHint/AgentBadgeRotator'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 // Persist dismissal so the hint doesn't nag a user who has seen it. Mirrors the MCP hint cards.
 const DISMISSED_KEY = 'warehouse-wizard-hint-dismissed'
