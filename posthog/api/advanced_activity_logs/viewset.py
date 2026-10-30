@@ -11,13 +11,12 @@ from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import Cursor
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
-from posthog.api.pagination import BoundedPageNumberPagination, StableCursorPagination
+from posthog.api.pagination import BoundedPageNumberPagination, PageCursor, StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -169,9 +168,9 @@ class TailFollowingCursorPagination(StableCursorPagination):
     condition: a follower stops when `results` is empty, not when `next` is null. Leaving that on
     by default would make the obvious `while next: ...` loop run forever.
 
-    Known gap: the cursor encodes `created_at` and filters strictly past it, so an entry written
-    later but sharing the last-seen timestamp is not returned. That is inherent to a
-    timestamp-positioned cursor and matches DRF's behavior mid-stream.
+    Known gap: the cursor stores the last-seen `created_at` and `id`, and the next poll reads the
+    rows that sort after both. An entry written later with the same `created_at` comes back only
+    when its `id` sorts after the last-seen one.
     """
 
     # A follower polls this on every request, so a count would scan the activity log each time.
@@ -187,11 +186,8 @@ class TailFollowingCursorPagination(StableCursorPagination):
             return None
         if not self.page:
             # Nothing new since the caller's position, so hand the same cursor back.
-            return self.encode_cursor(self.cursor) if self.cursor else None
-        position = self._get_position_from_instance(self.page[-1], self.ordering)
-        # DRF's stub types Cursor.position as int, but at runtime it holds the string that
-        # _get_position_from_instance returns.
-        return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
+            return self.cursor_link(self.current_cursor) if self.current_cursor else None
+        return self.cursor_link(PageCursor(reverse=False, after=self.position_of(self.page[-1])))
 
 
 class ActivityLogPageNumberPagination(BoundedPageNumberPagination):
@@ -205,9 +201,7 @@ class ActivityLogPagination(TailFollowingCursorPagination):
     page_size = 100
     page_size_query_param = "page_size"
     max_page_size = 1000
-    # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
-    # resolving ties with an offset. That offset is reproducible only when rows sharing a
-    # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
+    # `created_at` is not unique, so `id` breaks ties and the cursor stores both.
     ordering = ("-created_at", "-id")
 
     def __init__(self) -> None:

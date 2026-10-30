@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -56,6 +57,17 @@ class TestActivityLogCursorOrdering(APIBaseTest):
         assert idle["results"] == []
         assert idle["next"] is not None
 
+        last_seen = ActivityLog.objects.filter(team_id=self.team.id).order_by("-created_at").first()
+        assert last_seen is not None
+        ActivityLog.objects.create(
+            id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="same-timestamp",
+            created_at=last_seen.created_at,
+        )
         ActivityLog.objects.create(
             team_id=self.team.id,
             organization_id=self.organization.id,
@@ -65,7 +77,7 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             created_at=timezone.now() + timedelta(hours=1),
         )
 
-        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["brand-new"]
+        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["same-timestamp", "brand-new"]
 
     @parameterized.expand(
         [
