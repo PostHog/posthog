@@ -85,6 +85,16 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
         Some(Commit::new(handed_out, resume))
     }
 
+    fn on_assigned(&self, assigned: &[TopicPartition]) {
+        self.forget_partitions(assigned);
+    }
+
+    fn on_revoked(&self, revoked: &[TopicPartition]) {
+        self.forget_partitions(revoked);
+    }
+}
+
+impl<A: Accounting, D: Admission> GroupSettlement<A, D> {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.accounting.forget_partitions(topic_partitions);
         self.admission.forget_partitions(topic_partitions);
@@ -259,7 +269,7 @@ mod tests {
     fn a_revoke_reaches_both_the_accounting_and_the_admission() {
         let (settlement, accounting, admission) = settlement();
 
-        settlement.forget_partitions(&[p(0)]);
+        settlement.on_revoked(&[p(0)]);
 
         assert_eq!(accounting.forgotten(), vec![p(0)]);
         assert_eq!(admission.forgotten(), vec![p(0)]);
@@ -403,7 +413,7 @@ mod integration_tests {
 
         charge_offsets(&ledger, &p0, 0, &[11]);
         settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
-        settlement.forget_partitions(&[p0]);
+        settlement.on_revoked(&[p0]);
 
         assert!(settlement.take_all().is_none());
     }
@@ -506,13 +516,50 @@ mod integration_tests {
         assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
 
-        settlement.forget_partitions(&[p0()]);
+        settlement.on_revoked(&[p0()]);
 
         assert!(settlement.take_all().is_none());
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
         assert!(
             settlement.take_all().is_none(),
             "the stale run moves nothing"
+        );
+    }
+
+    #[test]
+    fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+            BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
+        );
+        let p0 = TopicPartition::new("events", 0);
+        let one_event = [(
+            Offset(10),
+            Charge {
+                events: 1,
+                bytes: 0,
+            },
+        )];
+        assert_eq!(
+            settlement
+                .charge(&p0, 0, &one_event)
+                .map(|charged| charged.pause),
+            Ok(Some(Pause))
+        );
+        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
+
+        settlement.on_assigned(std::slice::from_ref(&p0));
+
+        assert!(settlement.take_all().is_none());
+        assert_eq!(ledger.generation(&p0), 1);
+        assert_eq!(
+            settlement
+                .charge(&p0, 1, &one_event)
+                .map(|charged| charged.pause),
+            Ok(Some(Pause)),
+            "the regained partition starts unpaused"
         );
     }
 }

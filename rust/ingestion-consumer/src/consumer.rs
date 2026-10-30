@@ -31,16 +31,6 @@ use crate::rebalance::{
 };
 use crate::settlement::{Commit, GroupSettlement, Settlement};
 
-/// Also covers a loss with no revoke callback (an error rebalance, a fenced member).
-fn forget_earlier_assignment(
-    settlement: &GroupSettlement,
-    assignment_epoch: &AssignmentEpoch,
-    partitions: &[TopicPartition],
-) {
-    settlement.forget_partitions(partitions);
-    assignment_epoch.bump();
-}
-
 fn batcher_partitions(partitions: &[TopicPartition]) -> Vec<(String, i32)> {
     partitions
         .iter()
@@ -401,29 +391,27 @@ impl IngestionConsumer {
         let events = self.rebalance().take_events();
         for event in events {
             match event {
-                Event::Assigned(partitions) => {
-                    forget_earlier_assignment(
-                        &self.settlement,
-                        &self.assignment_epoch,
-                        &partitions,
-                    );
-                    poller.on_revoked(&partitions);
+                Event::Assigned(assigned) => {
+                    self.settlement.on_assigned(&assigned);
+                    self.assignment_epoch.bump();
+                    poller.on_assigned(&assigned);
                 }
                 Event::Revoked {
                     revoke,
-                    partitions,
+                    partitions: revoked,
                     unassign,
                 } => {
-                    self.settlement.forget_partitions(&partitions);
-                    self.batcher
-                        .revoke(revoke, &batcher_partitions(&partitions));
-                    poller.on_revoked(&partitions);
+                    self.settlement.on_revoked(&revoked);
+                    self.batcher.revoke(revoke, &batcher_partitions(&revoked));
+                    poller.on_revoked(&revoked);
                     self.unassign(unassign);
                 }
-                Event::Draining { revoke, partitions } => {
-                    self.batcher
-                        .revoke(revoke, &batcher_partitions(&partitions));
-                    poller.on_drain_started(&partitions);
+                Event::Draining {
+                    revoke,
+                    partitions: draining,
+                } => {
+                    self.batcher.revoke(revoke, &batcher_partitions(&draining));
+                    poller.on_drain_started(&draining);
                 }
             }
         }
@@ -436,7 +424,7 @@ impl IngestionConsumer {
         outcome: &'static str,
     ) -> anyhow::Result<()> {
         let Some(Drain {
-            partitions,
+            partitions: drained,
             unassign,
             started,
             timeout,
@@ -445,14 +433,14 @@ impl IngestionConsumer {
         else {
             return Ok(());
         };
-        let committed = self.commit_drained(poller, &partitions, timeout).await;
-        self.settlement.forget_partitions(&partitions);
+        let committed = self.commit_drained(poller, &drained, timeout).await;
+        self.settlement.on_revoked(&drained);
         self.unassign(unassign);
         let elapsed = started.elapsed();
         counter!("ingestion_consumer_revoke_drains_total", "outcome" => outcome).increment(1);
         histogram!("ingestion_consumer_revoke_drain_seconds").record(elapsed.as_secs_f64());
         info!(
-            topic_partitions = ?partition_names(&partitions),
+            topic_partitions = ?partition_names(&drained),
             outcome,
             elapsed_ms = elapsed.as_millis() as u64,
             "Rebalance: drained partitions unassigned"
@@ -792,11 +780,6 @@ fn emit_poll_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::num::NonZeroU64;
-
-    use common_kafka_consumer::{Charge, Offset as MessageOffset};
-
-    use crate::settlement::{GroupSettlement, Pause};
 
     #[rstest::rstest]
     #[case::below_a_second(200, 200)]
@@ -809,45 +792,6 @@ mod tests {
         assert_eq!(
             commit_tick(Duration::from_millis(commit_interval_ms)),
             Duration::from_millis(expected_ms)
-        );
-    }
-
-    #[test]
-    fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
-        let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
-            Arc::clone(&ledger),
-            Duration::from_secs(3600),
-            BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
-        ));
-        let epoch = AssignmentEpoch::new();
-        let p0 = TopicPartition::new("events", 0);
-        let one_event = [(
-            MessageOffset(10),
-            Charge {
-                events: 1,
-                bytes: 0,
-            },
-        )];
-        assert_eq!(
-            settlement
-                .charge(&p0, 0, &one_event)
-                .map(|charged| charged.pause),
-            Ok(Some(Pause))
-        );
-        settlement.settle_run(&p0, 0, &[MessageOffset(10)]).unwrap();
-
-        forget_earlier_assignment(&settlement, &epoch, std::slice::from_ref(&p0));
-
-        assert!(settlement.take_all().is_none());
-        assert_eq!(ledger.generation(&p0), 1);
-        assert_eq!(epoch.current(), 2);
-        assert_eq!(
-            settlement
-                .charge(&p0, 1, &one_event)
-                .map(|charged| charged.pause),
-            Ok(Some(Pause)),
-            "the regained partition starts unpaused"
         );
     }
 }

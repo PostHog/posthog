@@ -103,7 +103,7 @@ impl<P: PollingStrategy> Harness<P> {
     }
 
     pub(super) fn revoke(&mut self, partition: i32) {
-        self.settlement.forget_partitions(&[p(partition)]);
+        self.settlement.on_revoked(&[p(partition)]);
         self.poller.on_revoked(&[p(partition)]);
     }
 
@@ -113,7 +113,7 @@ impl<P: PollingStrategy> Harness<P> {
             .on_drain_finished(&[p(partition)])
             .map(|commit| commit.offsets)
             .unwrap_or_default();
-        self.settlement.forget_partitions(&[p(partition)]);
+        self.settlement.on_revoked(&[p(partition)]);
         committed
     }
 

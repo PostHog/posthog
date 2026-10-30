@@ -53,6 +53,8 @@ pub(crate) trait PollingStrategy {
 
     fn on_ticked(&mut self);
 
+    fn on_assigned(&mut self, topic_partitions: &[TopicPartition]);
+
     fn on_drain_started(&mut self, topic_partitions: &[TopicPartition]);
 
     /// The commit holds every partition's frontier, not only the drained ones.

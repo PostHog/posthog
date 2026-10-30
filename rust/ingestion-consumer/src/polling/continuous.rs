@@ -88,6 +88,10 @@ impl PollingStrategy for ContinuousPolling {
         self.commit_due = true;
     }
 
+    fn on_assigned(&mut self, topic_partitions: &[TopicPartition]) {
+        self.forget_partitions(topic_partitions);
+    }
+
     fn on_drain_started(&mut self, topic_partitions: &[TopicPartition]) {
         report_revoked(self.collector.remove_partitions(topic_partitions) as u64);
     }
@@ -102,10 +106,7 @@ impl PollingStrategy for ContinuousPolling {
     }
 
     fn on_revoked(&mut self, topic_partitions: &[TopicPartition]) {
-        let building = self.collector.remove_partitions(topic_partitions) as u64;
-        self.uncommitted.forget(topic_partitions);
-        self.processed.forget(topic_partitions);
-        report_revoked(building);
+        self.forget_partitions(topic_partitions);
     }
 
     fn on_shutdown(&mut self) {
@@ -142,6 +143,13 @@ impl ContinuousPolling {
         self.uncommitted.record_commit(&commit);
         self.processed.record_commit(&commit);
         commit
+    }
+
+    fn forget_partitions(&mut self, topic_partitions: &[TopicPartition]) {
+        let building = self.collector.remove_partitions(topic_partitions) as u64;
+        self.uncommitted.forget(topic_partitions);
+        self.processed.forget(topic_partitions);
+        report_revoked(building);
     }
 }
 

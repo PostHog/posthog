@@ -1033,6 +1033,19 @@ impl Harness {
             .collect()
     }
 
+    fn dispatched_assignment_epochs(&self) -> Vec<u64> {
+        self.debug_recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::BatchDispatched {
+                    assignment_epoch, ..
+                } => Some(assignment_epoch),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Abort the consumer task: no shutdown, no drain, no final commit.
     fn crash_consumer(&mut self) {
         if let Some(task) = self.task.take() {
@@ -3674,6 +3687,11 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
         },
     )
     .await;
+    let epochs = harness.dispatched_assignment_epochs();
+    assert!(
+        epochs.last() > epochs.first(),
+        "polls after the regain go out under a later assignment epoch: {epochs:?}"
+    );
 
     harness.stop().await;
 }

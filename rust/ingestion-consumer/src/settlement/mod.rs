@@ -38,7 +38,11 @@ pub(crate) trait Settlement: Send + Sync {
 
     fn take_all(&self) -> Option<Commit>;
 
-    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+    /// An assignment can end without a revoke callback (an error rebalance,
+    /// a fenced member), so a new assignment drops what an earlier one left.
+    fn on_assigned(&self, assigned: &[TopicPartition]);
+
+    fn on_revoked(&self, revoked: &[TopicPartition]);
 }
 
 pub(crate) trait Accounting: Send + Sync {
