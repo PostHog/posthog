@@ -44,6 +44,7 @@ def _fetch_and_format_trace(
     *,
     max_trace_events: int | None = None,
     max_raw_trace_size: int | None = None,
+    bypass_property_access_control: bool = False,
 ) -> FetchResult | None:
     """Fetch trace data and format text representation.
 
@@ -53,7 +54,7 @@ def _fetch_and_format_trace(
     raw_size_limit = max_raw_trace_size if max_raw_trace_size is not None else MAX_RAW_TRACE_SIZE
 
     # A multi-GB trace runs the worker out of memory during the load, before the checks below.
-    trace_size = fetch_trace_size(team, trace_id)
+    trace_size = fetch_trace_size(team, trace_id, bypass_property_access_control=bypass_property_access_control)
     if trace_size.payload_chars > raw_size_limit or (
         max_trace_events is not None and trace_size.event_count > max_trace_events
     ):
@@ -68,7 +69,9 @@ def _fetch_and_format_trace(
         )
         return FetchResult(text_repr=None, event_count=trace_size.event_count)
 
-    llm_trace = fetch_trace(team, trace_id, window_start, window_end)
+    llm_trace = fetch_trace(
+        team, trace_id, window_start, window_end, bypass_property_access_control=bypass_property_access_control
+    )
     if llm_trace is None:
         return None
 

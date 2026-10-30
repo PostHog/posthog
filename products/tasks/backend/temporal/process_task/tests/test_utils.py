@@ -1234,6 +1234,18 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             ("task_repository", {}, "acme/api", ["acme/api"]),
             ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
             ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+            (
+                "access_list_widens_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": ["acme/api", "acme/assets"]},
+                "acme/api",
+                ["acme/api", "acme/assets"],
+            ),
+            (
+                "empty_access_list_keeps_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": []},
+                "acme/api",
+                ["acme/api"],
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
