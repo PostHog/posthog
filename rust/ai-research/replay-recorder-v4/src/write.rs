@@ -943,7 +943,7 @@ mod tests {
     #[test]
     fn leaves_css_only_images_an_offline_render_can_load() {
         let compressed: String = replay_core_v4::compression::gzip(
-            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)}", "index": 0}])
+            json!([{"rule": ".a{background:url(/img/a.png)} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
                 .as_bytes(),
         )
@@ -954,7 +954,7 @@ mod tests {
         let events = json!([
             {"type": 4, "timestamp": 1, "data": {"href": "http://app.example.com/shop/item", "width": 800, "height": 600}},
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
-            {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}]}},
+            {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {
@@ -987,6 +987,13 @@ mod tests {
             lines.contains(r#""class":"bg-[url(/img/a.png)]""#),
             "{lines}"
         );
+        let class_url = reference("https://cdn.example.com/t.png");
+        for expected in [
+            format!(r#""class":"bg-[url({class_url})]""#),
+            format!(r".bg-\\[url\\({}\\)\\]", class_url.replace(':', r"\\:")),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
         for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }

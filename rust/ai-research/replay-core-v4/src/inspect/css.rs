@@ -80,6 +80,26 @@ pub fn declaration_image_urls(
     }
 }
 
+/// `text` as CSSOM writes it inside an identifier, as a selector holds the URL of a class like `bg-[url(https://…)]`.
+pub fn escape_in_identifier(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len() * 2);
+    for character in text.chars() {
+        match character {
+            '\0' => escaped.push('\u{fffd}'),
+            '\u{1}'..='\u{1f}' | '\u{7f}' => {
+                escaped.push_str(&format!("\\{:x} ", u32::from(character)));
+            }
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => escaped.push(character),
+            _ if !character.is_ascii() => escaped.push(character),
+            _ => {
+                escaped.push('\\');
+                escaped.push(character);
+            }
+        }
+    }
+    escaped
+}
+
 fn can_hold_image(property: &str) -> bool {
     property.starts_with("--") || is_image_property(property)
 }
