@@ -34,6 +34,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
+| `selection.ts`, `clipboard.ts` | Click or drag: a press and release on one cell clicks, and a drag selects chat text and copies it on release |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 
 ## Things that bit us

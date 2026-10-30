@@ -29,30 +29,47 @@ const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
 // Set on a report the pointer's motion sent rather than a button.
 const MOTION = 32;
+// The button bits of a motion report when no button is held.
+const NO_BUTTON = 3;
 // Reports presses, releases and pointer motion, in SGR form so columns past 223 still parse.
 // Plus bracketed paste, so a pasted block reaches a composer as one paste.
 const ENABLE = "\x1b[?1003h\x1b[?1006h\x1b[?2004h";
 const DISABLE = "\x1b[?1003l\x1b[?1006l\x1b[?2004l";
 
-export function extractMouse(text: string): {
+export interface MouseReports {
   keys: string;
-  clicks: Click[];
+  // Left button only: pressed, moved while held, and let go.
+  presses: Click[];
+  drags: Click[];
+  releases: Click[];
   wheels: Wheel[];
+  // The pointer moving with no button held.
   moves: Click[];
-} {
-  const clicks: Click[] = [];
-  const wheels: Wheel[] = [];
-  const moves: Click[] = [];
-  const keys = text.replace(MOUSE_REPORT, (_, button, column, row, kind) => {
+}
+
+export function extractMouse(text: string): MouseReports {
+  const reports: Omit<MouseReports, "keys"> = {
+    presses: [],
+    drags: [],
+    releases: [],
+    wheels: [],
+    moves: [],
+  };
+  const keys = text.replace(MOUSE_REPORT, (_, code, column, row, kind) => {
     const at = { column: Number(column), row: Number(row) };
-    if (kind !== "M") return "";
-    if (Number(button) & MOTION) moves.push(at);
-    else if (Number(button) === LEFT_BUTTON) clicks.push(at);
-    else if (Number(button) === WHEEL_UP) wheels.push({ ...at, delta: -1 });
-    else if (Number(button) === WHEEL_DOWN) wheels.push({ ...at, delta: 1 });
+    const button = Number(code);
+    if (kind === "m") {
+      if (button === LEFT_BUTTON) reports.releases.push(at);
+    } else if (button & MOTION) {
+      const held = button & ~MOTION;
+      if (held === NO_BUTTON) reports.moves.push(at);
+      else if (held === LEFT_BUTTON) reports.drags.push(at);
+    } else if (button === LEFT_BUTTON) reports.presses.push(at);
+    else if (button === WHEEL_UP) reports.wheels.push({ ...at, delta: -1 });
+    else if (button === WHEEL_DOWN) reports.wheels.push({ ...at, delta: 1 });
     return "";
   });
-  return { keys, clicks, wheels, moves };
+  return { keys, ...reports };
 }
 
 export function hitTest<T>(
@@ -73,7 +90,9 @@ export function hitTest<T>(
 }
 
 export type MouseEvents = EventEmitter<{
-  click: [Click];
+  press: [Click];
+  drag: [Click];
+  release: [Click];
   wheel: [Wheel];
   move: [Click];
   keys: [string];
@@ -106,10 +125,12 @@ export class MouseInput {
       return stream;
     };
     this.onData = (data) => {
-      const { keys, clicks, wheels, moves } = extractMouse(
+      const { keys, presses, drags, releases, wheels, moves } = extractMouse(
         data.toString("utf8"),
       );
-      for (const click of clicks) this.events.emit("click", click);
+      for (const at of presses) this.events.emit("press", at);
+      for (const at of drags) this.events.emit("drag", at);
+      for (const at of releases) this.events.emit("release", at);
       for (const move of moves) this.events.emit("move", move);
       for (const wheel of wheels) this.events.emit("wheel", wheel);
       if (keys) {
