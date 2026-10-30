@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Literal, ParamSpec, TypeVar
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.dataclasses import frozen
 from posthog.integrations.contracts import (
     IntegrationConflict,
     IntegrationInUse,
@@ -83,7 +84,14 @@ def outcome_of(error: Exception) -> str:
     return "error"
 
 
-def accessor_labels(reader: "IntegrationReader") -> tuple[str, str, str]:
+@frozen
+class AccessorLabels:
+    accessor: str
+    kind: str
+    auth_type: str
+
+
+def accessor_labels(reader: "IntegrationReader") -> AccessorLabels:
     """The `accessor`, `kind` and `auth_type` labels of a reader, from its scope."""
     kinds = reader._kinds
     if reader._source_rows.value == "only":
@@ -96,7 +104,7 @@ def accessor_labels(reader: "IntegrationReader") -> tuple[str, str, str]:
         accessor = "kinds"
     kind = next(iter(kinds)) if kinds is not None and len(kinds) == 1 else MULTI_KIND
     auth_type = reader._auth_type.value if isinstance(reader._auth_type, AuthType) else ANY_AUTH_TYPE
-    return accessor, kind, auth_type
+    return AccessorLabels(accessor=accessor, kind=kind, auth_type=auth_type)
 
 
 def _row_count(result: object) -> int | None:
@@ -119,7 +127,8 @@ def _record(
     result: object,
 ) -> None:
     try:
-        accessor, kind, auth_type = accessor_labels(reader)
+        labels = accessor_labels(reader)
+        accessor, kind, auth_type = labels.accessor, labels.kind, labels.auth_type
         _OPERATIONS.labels(operation, accessor, kind, auth_type, outcome).inc()
         _DURATION.labels(operation, accessor, outcome).observe(time.perf_counter() - started)
         if outcome != "ok" or rows == "none":
