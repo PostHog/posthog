@@ -185,6 +185,7 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
     @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_flag_definitions", return_value=[{}])
     @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.helpers.two_factor_session.check_esp_suppression")
     def test_flag_on_sends_code_whatever_the_suppression_result(self, reason, mock_check_suppression, *_mocks):
@@ -195,16 +196,23 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
         self.assertTrue(result.should_send)
         self.assertFalse(result.suppression_bypassed)
 
-    @parameterized.expand([("missing_definitions", {"return_value": None}), ("error", {"side_effect": RuntimeError})])
+    @parameterized.expand(
+        [
+            ("missing_definitions", None, {"return_value": True}),
+            ("error", [{}], {"side_effect": RuntimeError}),
+        ]
+    )
     @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_flag_definitions")
     @patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled")
     @patch("posthog.helpers.two_factor_session.check_esp_suppression")
     def test_unreadable_flag_keeps_the_suppression_check(
-        self, _name, flag_behavior, mock_check_suppression, mock_feature_enabled, *_mocks
+        self, _name, definitions, flag_behavior, mock_check_suppression, mock_feature_enabled, mock_definitions, *_mocks
     ):
+        mock_definitions.return_value = definitions
         mock_feature_enabled.configure_mock(**flag_behavior)
         mock_check_suppression.return_value = ESPSuppressionResult(
             is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED

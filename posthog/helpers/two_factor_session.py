@@ -326,9 +326,12 @@ class CodeBasedVerificationCheckResult:
 
 class CodeBasedVerifier:
     def _ignores_esp_suppression(self, user: User) -> bool:
-        # Reads the locally polled flag definitions, so login never waits on the network.
-        # Missing definitions or an error keep the suppression check.
+        # The SDK fetches definitions over HTTP when none are loaded, even with only_evaluate_locally,
+        # so login must not evaluate the flag until they load. Missing definitions or an error keep
+        # the suppression check.
         try:
+            if posthoganalytics.feature_flag_definitions() is None:
+                return False
             return bool(
                 posthoganalytics.feature_enabled(
                     EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG,
