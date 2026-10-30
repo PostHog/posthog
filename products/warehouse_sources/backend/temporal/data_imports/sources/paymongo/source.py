@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paymongo.p
 from products.warehouse_sources.backend.temporal.data_imports.sources.paymongo.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    PAGE_SIZE,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -116,6 +117,15 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
         return {
             "401 Client Error: Unauthorized": "PayMongo rejected your API key. Replace the invalid or expired key and reconnect.",
             "403 Client Error: Forbidden": "Your PayMongo API key cannot access this table. Check your account permissions.",
+            # PayMongo rejects the refunds filter for a specific payment with code=parameter_invalid.
+            # The request is static per payment (only the payment ID varies), so a retry replays the
+            # identical query and gets the identical rejection. Matched on the limit param, which is
+            # unique to the refunds filter among this source's endpoints, joined with the error code so
+            # a genuine param bug elsewhere in the source isn't swallowed by a broader match.
+            f"data.attributes.limit={PAGE_SIZE} | api error: code=parameter_invalid": (
+                "PayMongo rejected the refunds filter for one of your payments (parameter_invalid). "
+                "That payment's refunds can't be imported; check the payment in your PayMongo dashboard."
+            ),
         }
 
     def get_schemas(
