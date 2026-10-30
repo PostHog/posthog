@@ -297,7 +297,7 @@ describe('google template', () => {
         ['omits a malformed email', { email: 'not-an-email' }, {}],
         ['strips phone separators', { phone: '+1 (425) 555-1234' }, { hashed_phone_number: '+14255551234' }],
         ['converts a 00 prefix', { phone: '0044 20 7946 0958' }, { hashed_phone_number: '+442079460958' }],
-        ['adds a missing plus', { phone: '14255551234' }, { hashed_phone_number: '+14255551234' }],
+        ['omits a number without a country code prefix', { phone: '4155551234' }, {}],
         ['omits a domestic number', { phone: '020 7946 0958' }, {}],
     ])('normalizes user identifiers before hashing: %s', async (_, properties, expected) => {
         const response = await invokeConversion({ gclid: 'g1', email: null, phone: null, ...properties })
@@ -328,6 +328,28 @@ describe('google template', () => {
             expect(done.error).toBeUndefined()
         }
     )
+
+    it('retries with the gclid only when Google refuses the gclid and gbraid pair', async () => {
+        const response = await invokeConversion({ gclid: 'g1', gbraid: 'b1' })
+        const retry = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: {
+                partialFailureError: {
+                    message: 'VALUE_MUST_BE_UNSET',
+                    details: [{ errors: [{ errorCode: { fieldError: 'VALUE_MUST_BE_UNSET' } }] }],
+                },
+            },
+        })
+
+        expect(retry.finished).toBe(false)
+        const conversion = sentConversion(retry.invocation)
+        expect({ gclid: conversion.gclid, gbraid: conversion.gbraid }).toEqual({ gclid: 'g1', gbraid: undefined })
+        expect(conversion.user_identifiers).toEqual(sentConversion(response.invocation).user_identifiers)
+
+        const done = await tester.invokeFetchResponse(retry.invocation, { status: 200, body: { results: [{}] } })
+        expect(done.finished).toBe(true)
+        expect(done.error).toBeUndefined()
+    })
 
     it.each(['INVALID_USER_IDENTIFIER', 'CUSTOMER_NOT_ACCEPTED_CUSTOMER_DATA_TERMS'])(
         'retries once with the click ID only when Google rejects the hashed email/phone with %s',

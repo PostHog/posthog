@@ -30,7 +30,8 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             key: 'gbraid',
             type: 'string',
             label: 'Google click ID for iOS app campaigns (gbraid)',
-            description: 'The gbraid from an iOS app campaign click. Sent together with the gclid when both are set.',
+            description:
+                'The gbraid from an iOS app campaign click. Sent together with the gclid when both are set. If Google refuses the pair, only the gclid is sent.',
             default: '{person.properties.gbraid ?? person.properties.$initial_gbraid}',
             secret: false,
             required: false,
@@ -140,10 +141,9 @@ fun normalizePhone(raw) {
     for (let separator in [' ', '-', '.', '(', ')']) {
         phone := replaceAll(phone, separator, '')
     }
+    // Without a + or 00 prefix the country code is unknown, and guessing one hashes another person's number.
     if (startsWith(phone, '00')) {
         phone := f'+{substring(phone, 3)}'
-    } else if (not startsWith(phone, '+')) {
-        phone := f'+{phone}'
     }
     if (not match(phone, '^[+][1-9][0-9]{6,14}$')) {
         return null
@@ -155,7 +155,7 @@ fun uploadErrorCodes(res) {
     let codes := []
     for (let detail in res.body.partialFailureError.details ?? []) {
         for (let error in detail.errors ?? []) {
-            codes := arrayPushBack(codes, error.errorCode.conversionUploadError ?? 'OTHER')
+            codes := arrayPushBack(codes, error.errorCode.conversionUploadError ?? error.errorCode.fieldError ?? 'OTHER')
         }
     }
     return codes
@@ -247,6 +247,14 @@ if (empty(clickIds) and empty(userIdentifiers)) {
 
 let res := upload(clickIds, userIdentifiers)
 let codes := uploadErrorCodes(res)
+
+// Google recommends sending a gclid with its gbraid, but some accounts still refuse the pair.
+if (not empty(clickIds.gclid) and not empty(clickIds.gbraid) and allIn(codes, ['VALUE_MUST_BE_UNSET'])) {
+    print('Google refused the gclid and gbraid together. Retrying with the gclid only.')
+    clickIds := {'gclid': clickIds.gclid}
+    res := upload(clickIds, userIdentifiers)
+    codes := uploadErrorCodes(res)
+}
 
 if (not empty(clickIds) and not empty(userIdentifiers) and allIn(codes, CLICK_ID_REJECTED_CODES)) {
     print(f'Google rejected the click ID ({arrayStringConcat(codes, ', ')}). Retrying with hashed email/phone only.')
