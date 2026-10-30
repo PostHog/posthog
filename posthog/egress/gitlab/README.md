@@ -31,7 +31,7 @@ GitLab sends these on every response, throttled or not:
 - `RateLimit-Limit` feeds `gitlab_api_rate_limit_limit`.
 - `RateLimit-Remaining` feeds `gitlab_api_rate_limit_remaining`.
 - `RateLimit-Reset`, a Unix timestamp, feeds `gitlab_api_rate_limit_reset_timestamp_seconds`.
-- `RateLimit-Name`, the throttle that applies, is the `resource` label. A value that is not a lowercase throttle name records as `unknown`, because a self-managed instance controls the header.
+- `RateLimit-Name`, the throttle that applies, is the `resource` label. A value outside GitLab's documented throttle names records as `unknown`, because a self-managed instance controls the header.
 
 The headers show only the most restrictive Rack::Attack throttle.
 Application limits, such as issue creation, can answer `429` while the headers still show quota.

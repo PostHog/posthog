@@ -38,7 +38,9 @@ class TestGitLabTransport(SimpleTestCase):
     @parameterized.expand(
         [
             ("documented_name", "throttle_authenticated_api", "throttle_authenticated_api"),
-            # A self-managed instance controls this header, so free text must not become a label value.
+            # A self-managed instance controls this header, so a value GitLab does not document must
+            # not become a label value, whether or not it is shaped like a throttle name.
+            ("undocumented_name", "throttle_made_up_by_the_server", "unknown"),
             ("unexpected_name", "Some Proxy/1.0", "unknown"),
         ]
     )
