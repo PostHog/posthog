@@ -331,6 +331,12 @@ export class ChatView {
   private size = { width: 0, height: 0 };
   private selection: { anchor: Cell; head: Cell } | null = null;
 
+  // Drops what the messages cached, so they draw again in the theme's current colours.
+  invalidate(): void {
+    for (const { component } of this.items) component.invalidate();
+    this.transcriptChanged = true;
+  }
+
   setTranscript(
     lines: TranscriptLine[],
     {

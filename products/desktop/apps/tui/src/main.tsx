@@ -3,9 +3,11 @@ import { TuiAuth } from "./auth";
 import { Root } from "./components/Root";
 import { stopLocals } from "./local";
 import { MouseInput } from "./mouse";
-import { applyTheme, detectTheme } from "./theme";
+import { applyBackground, applyTheme, detectBackground } from "./theme";
 
-applyTheme(await detectTheme());
+const background = await detectBackground();
+if (background) applyBackground(background);
+else applyTheme("dark");
 const mouse = new MouseInput();
 const root = (Component: typeof Root) => (
   <Component initialAuth={TuiAuth.load()} mouse={mouse.events} />
