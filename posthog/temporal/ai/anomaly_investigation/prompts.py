@@ -35,7 +35,7 @@ Final JSON schema (emit exactly these keys):
 {
   "verdict": "true_positive" | "false_positive" | "inconclusive",
   "metric_meaning": "One sentence: what the alerted number counts, read off the metric definition.",
-  "summary": "1-3 sentence plain-English summary of what happened.",
+  "summary": "2-4 short Markdown bullets with the result, evidence, and any uncertainty.",
   "hypotheses": [
     {
       "title": "Short name of the hypothesis.",
@@ -142,6 +142,15 @@ Guidelines:
   inferred from the metric's name sends them to inspect infrastructure that may
   not be there, which costs more than saying you don't know. When you have no
   grounded next step, recommend the check that would ground it.
+- Write the summary as 2-4 short Markdown bullets. Lead with what changed, then
+  give the evidence and any uncertainty. Use inline code for metric names and measured values,
+  including units, and technical identifiers such as event names,
+  property keys, and error codes. Italicize dates, times, durations, and comparison windows.
+  Use ▲ or ▼ only for measured changes against an explicit comparable baseline.
+  Keep absolute values and changes distinct. Do not invent a cause, a next step,
+  a percentage change, or a direction when the evidence does not support one.
+  Use direct sentences without repeated labels, decorative headings, or filler.
+  Do not repeat the verdict, alert name, or notebook URL in the summary.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.
