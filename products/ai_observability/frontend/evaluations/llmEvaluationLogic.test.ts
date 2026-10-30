@@ -1968,6 +1968,47 @@ return result`,
             )
         })
 
+        it.each([
+            [true, 'high'],
+            [false, null],
+        ] as const)(
+            'keeps the reasoning level only when the next model supports it (supportsReasoning=%s)',
+            async (supportsReasoning, expectedLevel) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+                await expectLogic(modelPickerLogic).toFinishAllListeners()
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/reasoning-model',
+                        name: 'example/reasoning-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning: true,
+                    },
+                    {
+                        id: 'example/next-model',
+                        name: 'example/next-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning,
+                    },
+                ])
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/reasoning-model', 'key-1')
+                ).toFinishAllListeners()
+                logic.actions.setReasoningLevel('high')
+                expect(logic.values.selectedModelSupportsReasoning).toBe(true)
+
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/next-model', 'key-1')
+                ).toFinishAllListeners()
+
+                expect(logic.values.reasoningLevel).toBe(expectedLevel)
+            }
+        )
+
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()

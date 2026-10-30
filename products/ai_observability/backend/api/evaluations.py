@@ -58,7 +58,7 @@ from ..facade import (
 )
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
 from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
@@ -129,6 +129,16 @@ logger = structlog.get_logger(__name__)
                     "include_media": {
                         "type": "boolean",
                         "description": "Set to false to judge text only.",
+                    },
+                    "reasoning_level": {
+                        "type": "string",
+                        "enum": ["minimal", "low", "medium", "high"],
+                        "nullable": True,
+                        "description": (
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI "
+                            "reasoning models with the 'llm' judge method support it. Omit to keep the saved "
+                            "level; null uses the model's default."
+                        ),
                     },
                 },
                 "additionalProperties": False,
@@ -596,12 +606,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"evaluation_config": "Must be an object."})
             if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
-                # A prompt-only PATCH must not reset the saved routing choice or image opt-out.
-                saved = self.instance.evaluation_config
-                kept = {
-                    key: saved[key] for key in ("judge_method", "include_media") if key not in config and key in saved
+                # A prompt-only PATCH must not reset the saved judge settings or image opt-out.
+                saved = {
+                    key: self.instance.evaluation_config[key]
+                    for key in ("judge_method", "reasoning_level", "include_media")
+                    if key not in config and key in self.instance.evaluation_config
                 }
-                data["evaluation_config"] = {**kept, **config}
+                data["evaluation_config"] = {**saved, **config}
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -641,6 +652,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
             self.instance is None
@@ -741,6 +753,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 {
                     "model_configuration": f"'{model}' is not supported as an evaluation judge. "
                     "Choose a chat model or a supported decision model."
+                }
+            )
+
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return
+        evaluation_config = data.get("evaluation_config", getattr(self.instance, "evaluation_config", None))
+        if not isinstance(evaluation_config, dict) or not evaluation_config.get("reasoning_level"):
+            return
+        model_config = self._effective_model_configuration(data) or {}
+        if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            raise serializers.ValidationError(
+                {
+                    "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
                 }
             )
 

@@ -867,6 +867,7 @@ def call_llm_judge(
                 messages=[{"role": "user", "content": content}],
                 provider=provider,
                 response_format=response_format,
+                reasoning_level=evaluation["evaluation_config"].get("reasoning_level"),
             )
             status: int | None = None
             try:
