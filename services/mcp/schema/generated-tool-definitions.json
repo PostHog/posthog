@@ -8514,22 +8514,6 @@
             "readOnlyHint": true
         }
     },
-    "integrations-push-tokens-create": {
-        "description": "Register existing mobile devices, for example exported from another push provider, on an APNs or Firebase push channel so workflows can send them push notifications. Find the channel with integrations-list: kind apns takes hex APNs device tokens, kind firebase takes FCM registration tokens. Expo push tokens (ExponentPushToken[...]) work on neither and are always rejected. Each row pairs a device token with a distinct_id, which must be the ID the app passes to identify, so the device lands on the person workflows target. A distinct ID with no person fails as unknown_person unless create_missing_persons is true; leave it false unless the user confirms those IDs are right. Always call with dry_run=true first: it reports every failing row (unknown_person, token_mismatch) without storing anything. Fix or drop those rows, then call again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project; on HTTP 429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same row twice stores it once.",
-        "category": "Integrations",
-        "feature": "integrations",
-        "summary": "Import push device tokens",
-        "title": "Import push device tokens",
-        "required_scopes": ["integration:write"],
-        "api_operations": ["POST /api/projects/{project_id}/integrations/{id}/push_tokens/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "workflows-push-token-import-mcp"
-    },
     "integrations-users-retrieve": {
         "description": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
         "category": "Integrations",
