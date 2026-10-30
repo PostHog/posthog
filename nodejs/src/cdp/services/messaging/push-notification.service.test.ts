@@ -450,29 +450,35 @@ describe('PushNotificationService', () => {
             expect(mockTrackedFetch).not.toHaveBeenCalled()
         })
 
-        it('fails terminally (no retry) on a non-retriable 4xx', async () => {
-            const invocation = createSendPushNotificationInvocation({
-                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
-            })
-            // A 400 is a client error that won't change on retry (bad payload), unlike a 429/5xx.
-            mockTrackedFetch.mockResolvedValue({
-                fetchError: null,
-                fetchResponse: {
-                    status: 400,
-                    headers: {},
-                    text: () => Promise.resolve('{}'),
-                    dump: () => Promise.resolve(),
-                },
-                fetchDuration: 10,
-            })
+        it.each([false, true])(
+            'fails terminally (no retry) on a non-retriable 4xx, protected: %s',
+            async (sensitive) => {
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, sensitive }
+                // A 400 is a client error that won't change on retry (bad payload), unlike a 429/5xx.
+                // FCM can quote the rejected message back in the error.
+                mockTrackedFetch.mockResolvedValue({
+                    fetchError: null,
+                    fetchResponse: {
+                        status: 400,
+                        headers: {},
+                        text: () => Promise.resolve('{"error":{"message":"Invalid value: Your code is 482913"}}'),
+                        dump: () => Promise.resolve(),
+                    },
+                    fetchDuration: 10,
+                })
 
-            const result = await service.executeSendPushNotification(invocation)
+                const result = await service.executeSendPushNotification(invocation)
 
-            expect(result.error).toBeTruthy()
-            expect(result.finished).toBe(true)
-            expect(result.invocation.queueScheduledAt).toBeUndefined()
-            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
-        })
+                expect(result.error).toBeTruthy()
+                expect(result.finished).toBe(true)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+                expect(JSON.stringify(result.logs).includes('482913')).toBe(!sensitive)
+            }
+        )
 
         it('reschedules a transient failure and re-runs the send on the retry (round trip)', async () => {
             const invocation = createSendPushNotificationInvocation({
