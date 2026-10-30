@@ -807,6 +807,43 @@ describe("App flows", () => {
     );
   }
 
+  it("asks a signed-out run that was welcomed before to sign in, with the regions, and skips the rest of the welcome", async () => {
+    savePrefs({ welcomed: true });
+    const app = welcomeApp();
+    try {
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("Sign in to PostHog"),
+      );
+      expect(app.plain()).toMatch(/1\. .*US/);
+      expect(app.plain()).toMatch(/2\. .*EU/);
+      // The app's chrome stays, unlike a first run's welcome screen.
+      expect(app.plain()).toContain("All chats");
+      expect(app.plain()).not.toContain("Welcome to PostHog");
+      app.mouse.emit("keys", "\r");
+      await vi.waitFor(() => expect(app.login).toHaveBeenCalledWith("us"));
+      // Signed in: the chrome, not the billing sheet a first run goes on to.
+      await vi.waitFor(() => expect(app.plain()).toContain("All chats"));
+      expect(app.plain()).not.toContain("What new chats run on");
+    } finally {
+      app.close();
+    }
+  });
+
+  it("opens the sign-in sheet on /logout, so the next sign-in is one Enter away", async () => {
+    const app = cloudApp();
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Fix the build"));
+      app.press("/logout");
+      app.press("\r");
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toContain("Sign in to PostHog"),
+      );
+      expect(app.plain().slice(-3000)).toMatch(/1\. .*US/);
+    } finally {
+      app.close();
+    }
+  });
+
   it("welcomes a first run: sign in, pick who pays, and get the Claude token that plan needs", async () => {
     // A `claude` on PATH whose setup-token prints a token, as the real one does after the browser sign-in.
     const bin = mkdtempSync(join(tmpdir(), "welcome-claude-"));
