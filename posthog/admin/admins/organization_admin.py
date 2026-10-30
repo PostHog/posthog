@@ -310,6 +310,18 @@ class OrganizationAdmin(admin.ModelAdmin):
             return Organization.objects.all()
         return Organization.objects_including_soft_deleted.all()
 
+    def has_delete_permission(self, request, obj=None):
+        # The tombstone is the only durable record of a deleted organization.
+        if obj is not None and obj.deleted:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        # The changelist lists tombstones, and the bulk delete would erase them along with live rows.
+        actions.pop("delete_selected", None)
+        return actions
+
     def get_inlines(self, request, obj=None):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
