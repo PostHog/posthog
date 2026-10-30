@@ -39,7 +39,7 @@ describe('memberOffboardingLogic', () => {
         updates = []
         useMocks({
             get: {
-                '/api/organizations/:organization/members/:user/offboarding/': resources,
+                '/api/organizations/:organization/members/:user/offboarding_preview/': resources,
                 '/api/organizations/:organization/members/:user/scoped_api_keys/': { has_keys: false, keys: [] },
             },
             patch: {
@@ -48,8 +48,8 @@ describe('memberOffboardingLogic', () => {
                     return [204, null]
                 },
             },
-            post: {
-                '/api/organizations/:organization/members/:user/offboard/': () => {
+            delete: {
+                '/api/organizations/:organization/members/:user/': () => {
                     submitted.push('remove')
                     return [204, null]
                 },
@@ -154,7 +154,7 @@ describe('memberOffboardingLogic', () => {
             { ...resources[0], id: 'notebook:1', kind: 'notebook' },
             { ...resources[0], id: 'recording:1', kind: 'recording' },
         ]
-        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding/': mixedResources } })
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': mixedResources } })
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         expect(logic.values.getSelectionLabel([mixedResources[4].id]).replaceAll('\u00a0', ' ')).toBe('1 notebook')
         expect(
@@ -163,7 +163,7 @@ describe('memberOffboardingLogic', () => {
     })
 
     it('skips the resource review when leaving the organization yourself', async () => {
-        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding/': [] } })
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': [] } })
         await expectLogic(logic, () => logic.actions.open(MOCK_DEFAULT_ORGANIZATION_MEMBER)).toFinishAllListeners()
         expect(logic.values.resources).toEqual([])
         expect(logic.values.keep).toEqual([])
@@ -174,7 +174,7 @@ describe('memberOffboardingLogic', () => {
     it('blocks removal when the resource review fails and permits retry', async () => {
         useMocks({
             get: {
-                '/api/organizations/:organization/members/:user/offboarding/': () => [
+                '/api/organizations/:organization/members/:user/offboarding_preview/': () => [
                     500,
                     { detail: 'Review unavailable' },
                 ],
@@ -186,7 +186,7 @@ describe('memberOffboardingLogic', () => {
         await expectLogic(logic, () => logic.actions.remove()).toFinishAllListeners()
         expect(submitted).toEqual([])
         expect(logic.values.loadError).toBeTruthy()
-        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding/': resources } })
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': resources } })
         await expectLogic(logic, () => logic.actions.loadResources()).toDispatchActions(['loadResourcesSuccess'])
         expect(logic.values.loadError).toBeNull()
     })

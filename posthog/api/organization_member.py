@@ -27,7 +27,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
-from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
@@ -335,13 +334,6 @@ class OrganizationMemberViewSet(
 
         is_self_removal = requesting_user.id == removed_user.id
 
-        if is_self_removal or self.action == "offboard":
-            instance.user.leave(organization=instance.organization)
-        else:
-            OrganizationOffboarding(instance).remove(
-                set(), actor=requesting_user, was_impersonated=is_impersonated(self.request)
-            )
-
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
             event="organization member removed",
@@ -357,11 +349,13 @@ class OrganizationMemberViewSet(
             groups=groups(instance.organization),
         )
 
+        instance.user.leave(organization=instance.organization)
+
     @extend_schema(
-        operation_id="members_offboarding_retrieve", responses=MemberOffboardingResourceSerializer(many=True)
+        operation_id="members_offboarding_preview_retrieve", responses=MemberOffboardingResourceSerializer(many=True)
     )
     @action(detail=True, methods=["get"], required_scopes=["organization_member:write"], pagination_class=None)
-    def offboarding(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def offboarding_preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = cast(OrganizationMembership, self.get_object())
         requesting_membership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
@@ -372,12 +366,6 @@ class OrganizationMemberViewSet(
             return Response([])
         resources = OrganizationOffboarding(instance).resources()
         return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
-
-    @extend_schema(request=None, responses={204: None})
-    @action(detail=True, methods=["post"], required_scopes=["organization_member:write"])
-    def offboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self.perform_destroy(self.get_object())
-        return Response(status=204)
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])

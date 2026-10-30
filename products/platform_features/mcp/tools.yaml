@@ -324,14 +324,8 @@ tools:
                 description: |
                     The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me"
                     for the current user.
-    org-member-offboard:
-        operation: members_offboard_create
-        enabled: false
-        disabled_reason:
-            Offboarding is an organization settings workflow. Its organization-wide resource review and member
-            removal are kept together in that UI; this change does not expose an MCP offboarding workflow.
     org-member-offboarding-review:
-        operation: members_offboarding_retrieve
+        operation: members_offboarding_preview_retrieve
         enabled: false
         disabled_reason:
             Offboarding is an organization settings workflow. Its organization-wide resource review and member
