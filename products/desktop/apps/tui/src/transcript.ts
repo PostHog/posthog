@@ -120,13 +120,21 @@ export function transcriptFrom(
       ? withImages(built.items.flatMap(toLine), entries)
       : built.items.flatMap(toLine);
   const info = built.lastTurnInfo;
-  // A turn the builder opened itself (a log window starting mid-turn) ends with its negated start still in place, so it is still running.
-  const lost = info?.isComplete === true && info.durationMs < 0;
+  // A turn the builder opened itself ends with its negated start still in place. One with agent activity in it is a log window
+  // that started mid-turn, so it is still running; an empty one is the chatter of a reopen.
+  const lastActivity = built.items.at(-1);
+  const lost =
+    info?.isComplete === true &&
+    info.durationMs < 0 &&
+    lastActivity !== undefined &&
+    "timestamp" in lastActivity &&
+    typeof lastActivity.timestamp === "number" &&
+    lastActivity.timestamp >= -info.durationMs;
   const turnOpen = info?.isComplete === false || lost;
   // An open turn holds its negated start time until it completes.
   const turnStartedAt = turnOpen && info ? -info.durationMs : null;
   const lastTurn =
-    info?.isComplete && !lost && built.lastActivityAt !== null
+    info?.isComplete && info.durationMs >= 0 && built.lastActivityAt !== null
       ? {
           durationMs: info.durationMs,
           endedAt: built.lastActivityAt,
