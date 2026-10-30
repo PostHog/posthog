@@ -17,7 +17,7 @@ from ..facade.contracts import Parent, Resource
 from ..facade.enums import ResourceType
 
 MEMBERSHIP_RESOURCES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT, ResourceType.ROLE})
-# All of the rules for these types come from the object's own team, so `team` does not apply.
+# These types always read the object's own team, so a view team's admin can't reach another environment's object.
 OWN_TEAM_RESOURCES = frozenset({ResourceType.DASHBOARD})
 
 
