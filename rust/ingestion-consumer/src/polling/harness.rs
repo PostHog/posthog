@@ -24,7 +24,7 @@ pub(super) struct Harness<P> {
 impl<P: PollingStrategy> Harness<P> {
     pub(super) fn new(make: impl FnOnce(Parts) -> P) -> Self {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
+        let settlement = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::ZERO,
             BudgetLimits::unset(),
@@ -49,7 +49,7 @@ impl<P: PollingStrategy> Harness<P> {
     pub(super) fn receive(&mut self, partition: i32, offsets: &[i64]) {
         for &offset in offsets {
             self.poller
-                .received(&message(partition, offset, 10), self.now);
+                .on_received(&message(partition, offset, 10), self.now);
         }
     }
 
@@ -84,7 +84,7 @@ impl<P: PollingStrategy> Harness<P> {
                 )
             })
             .collect();
-        self.poller.submitted(InFlightPoll {
+        self.poller.on_submitted(InFlightPoll {
             partitions,
             uncommitted,
         });
@@ -98,13 +98,24 @@ impl<P: PollingStrategy> Harness<P> {
 
     pub(super) fn complete_under(&mut self, generation: u64, partition: i32, offsets: &[i64]) {
         self.poller
-            .completed(&completion(generation, partition, offsets))
+            .on_completed(&completion(generation, partition, offsets))
             .expect("the completion applies");
     }
 
     pub(super) fn revoke(&mut self, partition: i32) {
         self.settlement.forget_partitions(&[p(partition)]);
-        self.poller.revoked(&[p(partition)]);
+        self.poller.on_revoked(&[p(partition)]);
+    }
+
+    pub(super) fn finish_drain(&mut self, partition: i32) -> HashMap<TopicPartition, Offset> {
+        let committed = self
+            .poller
+            .on_drain_finished(&[p(partition)])
+            .expect("the drained slices settle")
+            .map(|commit| commit.offsets)
+            .unwrap_or_default();
+        self.settlement.forget_partitions(&[p(partition)]);
+        committed
     }
 
     pub(super) fn commit(&mut self) -> HashMap<TopicPartition, Offset> {

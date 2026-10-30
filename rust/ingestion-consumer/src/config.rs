@@ -221,6 +221,15 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
     pub consumer_commit_interval_ms: u64,
 
+    /// How long a revoke waits for the revoked partitions' in-flight messages
+    /// before it commits them and hands the partitions to their new owner
+    /// (milliseconds). The commit gets the same time again. librdkafka fetches
+    /// no partition while it waits. `0` (default) hands them over at once,
+    /// and the new owner processes their in-flight messages again. At least
+    /// twice `INGESTION_REQUEST_SOFT_BUDGET_MS` when that is set.
+    #[envconfig(from = "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", default = "0")]
+    pub consumer_revoke_drain_timeout_ms: u64,
+
     /// Uncommitted events at which a partition's fetch pauses. Required.
     #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
     pub consumer_partition_budget_events: u64,
@@ -640,6 +649,28 @@ impl Config {
         }))
     }
 
+    /// A budgeted request comes back within one soft budget. A drain shorter
+    /// than two soft budgets can time out on requests that are about to finish.
+    const MIN_REVOKE_DRAIN_SOFT_BUDGETS: u64 = 2;
+
+    pub fn revoke_drain_timeout(&self) -> Result<Option<Duration>, String> {
+        let timeout_ms = self.consumer_revoke_drain_timeout_ms;
+        if timeout_ms == 0 {
+            return Ok(None);
+        }
+        let floor_ms = self
+            .request_soft_budget_ms
+            .saturating_mul(Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS);
+        if timeout_ms < floor_ms {
+            return Err(format!(
+                "CONSUMER_REVOKE_DRAIN_TIMEOUT_MS must be 0 or at least {} times \
+                 INGESTION_REQUEST_SOFT_BUDGET_MS ({floor_ms})",
+                Self::MIN_REVOKE_DRAIN_SOFT_BUDGETS
+            ));
+        }
+        Ok(Some(Duration::from_millis(timeout_ms)))
+    }
+
     pub fn worker_urls(&self) -> Vec<String> {
         self.worker_addresses
             .split(',')
@@ -777,6 +808,25 @@ mod tests {
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
+    }
+
+    struct DrainTimeoutCase {
+        vars: &'static [(&'static str, &'static str)],
+        expected: Result<Option<Duration>, ()>,
+    }
+
+    #[rstest]
+    #[case::off(DrainTimeoutCase { vars: &[("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(None) })]
+    #[case::no_soft_budget(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "100")], expected: Ok(Some(Duration::from_millis(100))) })]
+    #[case::at_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "6000"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Ok(Some(Duration::from_millis(6000))) })]
+    #[case::below_two_soft_budgets(DrainTimeoutCase { vars: &[("CONSUMER_REVOKE_DRAIN_TIMEOUT_MS", "5999"), ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000")], expected: Err(()) })]
+    fn the_revoke_drain_timeout_is_off_or_at_least_two_soft_budgets(
+        #[case] case: DrainTimeoutCase,
+    ) {
+        assert_eq!(
+            config(case.vars).revoke_drain_timeout().map_err(drop),
+            case.expected
+        );
     }
 
     struct LimitsCase {

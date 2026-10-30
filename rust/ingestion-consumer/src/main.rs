@@ -56,6 +56,9 @@ fn main() -> Result<()> {
     config
         .in_flight_limit()
         .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+    config
+        .revoke_drain_timeout()
+        .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

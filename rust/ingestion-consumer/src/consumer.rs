@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::{
-    AssignmentEpoch, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
+    AssignmentEpoch, Offset, Partition, TopicOffsetLedger, TopicPartition,
 };
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
@@ -11,11 +11,10 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::TopicPartitionList;
-use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tracing::{error, info, warn};
 
-use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
+use crate::batcher::{make_batch_id, Batcher, BatcherCompletion, BatcherObserver, BatcherOutputs};
 use crate::charge_limit::ChargeLimit;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
@@ -27,62 +26,26 @@ use crate::polling::{
     debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, ContinuousPolling,
     InFlightPoll, PartitionDeliveries, Parts, PollLimits, PollingStrategy, Step,
 };
-use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
+use crate::rebalance::{
+    partition_error, partition_names, Drain, Event, RebalanceContext, Unassign,
+};
 use crate::settlement::{Commit, GroupSettlement, Settlement};
 
-fn revoke_hook(
-    revoker: Revoker,
-    settlement: Arc<GroupSettlement>,
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
-) -> PartitionHook {
-    Box::new(move |partitions| {
-        settlement.forget_partitions(partitions);
-        let pairs: Vec<(String, i32)> = partitions
-            .iter()
-            .map(|tp| (tp.topic.clone(), tp.partition))
-            .collect();
-        revoker.purge_revoked(&pairs);
-        revoked_partitions
-            .lock()
-            .unwrap()
-            .extend_from_slice(partitions);
-    })
+/// Also covers a loss with no revoke callback (an error rebalance, a fenced member).
+fn forget_earlier_assignment(
+    settlement: &GroupSettlement,
+    assignment_epoch: &AssignmentEpoch,
+    partitions: &[TopicPartition],
+) {
+    settlement.forget_partitions(partitions);
+    assignment_epoch.bump();
 }
 
-fn assign_hook(
-    settlement: Arc<GroupSettlement>,
-    assignment_epoch: AssignmentEpoch,
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
-) -> PartitionHook {
-    Box::new(move |partitions| {
-        // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
-        settlement.forget_partitions(partitions);
-        assignment_epoch.bump();
-        revoked_partitions
-            .lock()
-            .unwrap()
-            .extend_from_slice(partitions);
-    })
-}
-
-fn wire_rebalance_hooks(
-    context: &RebalanceContext,
-    revoker: Revoker,
-    settlement: &Arc<GroupSettlement>,
-    assignment_epoch: AssignmentEpoch,
-) -> Arc<Mutex<Vec<TopicPartition>>> {
-    let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
-    context.set_on_revoke(revoke_hook(
-        revoker,
-        Arc::clone(settlement),
-        Arc::clone(&revoked_partitions),
-    ));
-    context.set_on_assign(assign_hook(
-        Arc::clone(settlement),
-        assignment_epoch,
-        Arc::clone(&revoked_partitions),
-    ));
-    revoked_partitions
+fn batcher_partitions(partitions: &[TopicPartition]) -> Vec<(String, i32)> {
+    partitions
+        .iter()
+        .map(|tp| (tp.topic.clone(), tp.partition))
+        .collect()
 }
 
 fn commit_tick(commit_interval: Duration) -> Duration {
@@ -107,6 +70,7 @@ pub struct IngestionConsumerOptions {
     pub group_id: String,
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub commit_interval: Duration,
+    pub revoke_drain_timeout: Option<Duration>,
     pub ledger: Arc<TopicOffsetLedger>,
     pub partition_budget: BudgetLimits,
 }
@@ -130,9 +94,8 @@ pub struct IngestionConsumer {
     group_id: String,
     debug_recorder: Option<Arc<DebugRecorder>>,
     topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback.
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+    assignment_epoch: AssignmentEpoch,
+    revoke_drain_timeout: Option<Duration>,
     settlement: Arc<GroupSettlement>,
 }
 
@@ -154,17 +117,12 @@ impl IngestionConsumer {
             options.commit_interval,
             options.partition_budget,
         ));
-        let revoked_partitions = wire_rebalance_hooks(
-            consumer.context(),
-            batcher.revoker(),
-            &settlement,
-            transport.assignment_epoch(),
-        );
         let consumer = Arc::new(consumer);
         Self {
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
-            revoked_partitions,
+            assignment_epoch: transport.assignment_epoch(),
+            revoke_drain_timeout: options.revoke_drain_timeout,
             settlement,
             consumer,
             batcher,
@@ -217,21 +175,17 @@ impl IngestionConsumer {
         let in_flight_limit = config
             .in_flight_limit()
             .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+        let revoke_drain_timeout = config
+            .revoke_drain_timeout()
+            .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
         let commit_interval = Duration::from_millis(config.consumer_commit_interval_ms);
         let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&topic_offset_ledger),
             commit_interval,
             partition_budget,
         ));
-        let context = RebalanceContext::new();
-        let revoked_partitions = wire_rebalance_hooks(
-            &context,
-            batcher.revoker(),
-            &settlement,
-            transport.assignment_epoch(),
-        );
         let consumer: StreamConsumer<RebalanceContext> =
-            client_config.create_with_context(context)?;
+            client_config.create_with_context(RebalanceContext::new())?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
         let consumer = Arc::new(consumer);
 
@@ -249,7 +203,8 @@ impl IngestionConsumer {
             consumer,
             debug_recorder,
             topic_offset_ledger,
-            revoked_partitions,
+            assignment_epoch: transport.assignment_epoch(),
+            revoke_drain_timeout,
             settlement,
             batcher,
             outputs: Some(outputs),
@@ -273,10 +228,7 @@ impl IngestionConsumer {
     /// First waits until the statically configured workers are ready.
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
-        let BatcherOutputs {
-            completions,
-            errors,
-        } = self.outputs.take().expect("process is called once");
+        let outputs = self.outputs.take().expect("process is called once");
 
         info!("Waiting for workers to be ready");
         if let Err(err) = self
@@ -306,29 +258,44 @@ impl IngestionConsumer {
             group_id: self.group_id.clone(),
         };
         let poller = ContinuousPolling::new(parts, self.in_flight_limit);
-        self.run(poller, completions, errors).await;
+        self.run(poller, outputs).await;
         if let Err(err) = self.commit_all() {
             warn!(error = %err, "Could not submit pending frontiers on exit");
         }
         info!("Consumer loop stopped");
     }
 
-    async fn run<P: PollingStrategy>(
-        &self,
-        mut poller: P,
-        mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
-        mut errors: mpsc::UnboundedReceiver<String>,
-    ) {
+    fn rebalance(&self) -> &RebalanceContext {
+        self.consumer.context()
+    }
+
+    async fn run<P: PollingStrategy>(&self, mut poller: P, outputs: BatcherOutputs) {
+        self.rebalance().on_started(self.revoke_drain_timeout);
+        self.run_until_stopped(&mut poller, outputs).await;
+        let drain = self.rebalance().on_stopped();
+        self.apply_rebalance_events(&mut poller);
+        if let Err(err) = self.finish_drain(&mut poller, drain, "stopped").await {
+            warn!(error = %err, "Could not commit the revoked partitions on exit");
+        }
+    }
+
+    async fn run_until_stopped<P: PollingStrategy>(&self, poller: &mut P, outputs: BatcherOutputs) {
+        let BatcherOutputs {
+            mut completions,
+            mut errors,
+        } = outputs;
         let mut tick = tokio::time::interval(self.commit_tick);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let poll_deadline = tokio::time::sleep(Duration::ZERO);
         tokio::pin!(poll_deadline);
+        let drain_deadline = tokio::time::sleep(Duration::ZERO);
+        tokio::pin!(drain_deadline);
         let mut accepting_new_batches = true;
         loop {
             let mut submitted = false;
             while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
                 submitted |= matches!(step, Step::Submit(_));
-                if let Err(failure) = self.carry_out(step, &mut poller) {
+                if let Err(failure) = self.carry_out(step, poller) {
                     match failure {
                         Stopped::Drained => {}
                         Stopped::Commit(err) => self.fail_commit(err),
@@ -350,6 +317,12 @@ impl IngestionConsumer {
                     poll_deadline.as_mut().reset(deadline);
                 }
             }
+            let drain_until = self.rebalance().drain_deadline();
+            if let Some(until) = drain_until {
+                if drain_deadline.deadline() != until {
+                    drain_deadline.as_mut().reset(until);
+                }
+            }
             let reading = poller.reading();
             let woke = tokio::select! {
                 _ = self.handle.shutdown_recv(), if accepting_new_batches => Woke::Shutdown,
@@ -357,22 +330,30 @@ impl IngestionConsumer {
                 failure = errors.recv() => Woke::Error(failure),
                 _ = tick.tick() => Woke::Tick,
                 _ = &mut poll_deadline, if deadline.is_some() => Woke::Deadline,
+                _ = &mut drain_deadline, if drain_until.is_some() => Woke::DrainTimedOut,
+                _ = self.rebalance().wait_for_rebalance() => Woke::Rebalanced,
                 received = self.consumer.recv(), if reading => Woke::Received(received),
             };
-            // The rebalance callbacks run inside `recv`, also inside one the
-            // select dropped, so the poller sees each revoke before it acts
-            // on anything that woke the loop.
-            self.hand_over_revokes(&mut poller);
+            // The rebalance callbacks run inside `recv`, also in a `recv` that
+            // the select dropped. Their events apply before anything that woke
+            // the loop.
+            self.apply_rebalance_events(poller);
 
             let failure = match woke {
                 Woke::Shutdown => {
                     info!("Shutdown signal received, draining in-flight batches");
                     accepting_new_batches = false;
                     self.batcher.begin_shutdown();
-                    poller.shutdown();
+                    poller.on_shutdown();
                     None
                 }
-                Woke::Completion(Some(completion)) => poller.completed(&completion).err(),
+                Woke::Completion(Some(BatcherCompletion::Group(completion))) => {
+                    poller.on_completed(&completion).err()
+                }
+                Woke::Completion(Some(BatcherCompletion::Drained(revoke))) => {
+                    let drain = self.rebalance().on_drained(revoke);
+                    self.finish_drain(poller, drain, "drained").await.err()
+                }
                 Woke::Completion(None) => {
                     Some(anyhow::anyhow!("batcher completion channel closed"))
                 }
@@ -380,12 +361,18 @@ impl IngestionConsumer {
                 Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
                 Woke::Tick => {
                     self.handle.report_healthy();
-                    poller.ticked();
+                    poller.on_ticked();
                     None
                 }
-                Woke::Deadline => None,
+                Woke::Deadline | Woke::Rebalanced => None,
+                Woke::DrainTimedOut => {
+                    let drain = self
+                        .rebalance()
+                        .on_drain_timed_out(tokio::time::Instant::now());
+                    self.finish_drain(poller, drain, "timed_out").await.err()
+                }
                 Woke::Received(Ok(message)) => {
-                    poller.received(&message, tokio::time::Instant::now());
+                    poller.on_received(&message, tokio::time::Instant::now());
                     None
                 }
                 Woke::Received(Err(err)) => self.recv_failed(err).err(),
@@ -401,7 +388,7 @@ impl IngestionConsumer {
         match step {
             Step::Submit(collected) => {
                 let poll = self.submit_poll(collected).map_err(Stopped::Batch)?;
-                poller.submitted(poll);
+                poller.on_submitted(poll);
                 self.handle.report_healthy();
                 Ok(())
             }
@@ -410,11 +397,92 @@ impl IngestionConsumer {
         }
     }
 
-    fn hand_over_revokes<P: PollingStrategy>(&self, poller: &mut P) {
-        let revoked = std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
-        if !revoked.is_empty() {
-            poller.revoked(&revoked);
+    fn apply_rebalance_events<P: PollingStrategy>(&self, poller: &mut P) {
+        let events = self.rebalance().take_events();
+        for event in events {
+            match event {
+                Event::Assigned(partitions) => {
+                    forget_earlier_assignment(
+                        &self.settlement,
+                        &self.assignment_epoch,
+                        &partitions,
+                    );
+                    poller.on_revoked(&partitions);
+                }
+                Event::Revoked {
+                    revoke,
+                    partitions,
+                    unassign,
+                } => {
+                    self.settlement.forget_partitions(&partitions);
+                    self.batcher
+                        .revoke(revoke, &batcher_partitions(&partitions));
+                    poller.on_revoked(&partitions);
+                    self.unassign(unassign);
+                }
+                Event::Draining { revoke, partitions } => {
+                    self.batcher
+                        .revoke(revoke, &batcher_partitions(&partitions));
+                    poller.on_drain_started(&partitions);
+                }
+            }
         }
+    }
+
+    async fn finish_drain<P: PollingStrategy>(
+        &self,
+        poller: &mut P,
+        drain: Option<Drain>,
+        outcome: &'static str,
+    ) -> anyhow::Result<()> {
+        let Some(Drain {
+            partitions,
+            unassign,
+            started,
+            timeout,
+            ..
+        }) = drain
+        else {
+            return Ok(());
+        };
+        let committed = self.commit_drained(poller, &partitions, timeout).await;
+        self.settlement.forget_partitions(&partitions);
+        self.unassign(unassign);
+        let elapsed = started.elapsed();
+        counter!("ingestion_consumer_revoke_drains_total", "outcome" => outcome).increment(1);
+        histogram!("ingestion_consumer_revoke_drain_seconds").record(elapsed.as_secs_f64());
+        info!(
+            topic_partitions = ?partition_names(&partitions),
+            outcome,
+            elapsed_ms = elapsed.as_millis() as u64,
+            "Rebalance: drained partitions unassigned"
+        );
+        committed
+    }
+
+    fn unassign(&self, unassign: Unassign) {
+        if let Err(err) = unassign.apply(&*self.consumer) {
+            error!(error = %err, "Could not unassign the revoked partitions");
+        }
+    }
+
+    async fn commit_drained<P: PollingStrategy>(
+        &self,
+        poller: &mut P,
+        partitions: &[TopicPartition],
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let Some(commit) = poller.on_drain_finished(partitions)? else {
+            return Ok(());
+        };
+        for topic_partition in &commit.resume {
+            self.resume_partition(topic_partition);
+        }
+        if let Err(err) = self.commit_offsets_sync(&commit.offsets, timeout).await {
+            counter!("ingestion_consumer_revoke_commit_errors_total").increment(1);
+            warn!(error = %err, "Could not commit the revoked partitions before their release");
+        }
+        Ok(())
     }
 
     fn recv_failed(&self, err: KafkaError) -> anyhow::Result<()> {
@@ -433,6 +501,34 @@ impl IngestionConsumer {
 
     /// Submit each partition's next-to-read offset to Kafka, asynchronously.
     fn commit_offsets(&self, offsets: &HashMap<TopicPartition, Offset>) -> anyhow::Result<()> {
+        let tpl = self.commit_list(offsets)?;
+        self.consumer.commit(&tpl, CommitMode::Async)?;
+        self.record_commit(offsets);
+        Ok(())
+    }
+
+    /// A commit that takes longer than `timeout` can still land after the
+    /// unassign.
+    async fn commit_offsets_sync(
+        &self,
+        offsets: &HashMap<TopicPartition, Offset>,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let tpl = self.commit_list(offsets)?;
+        let consumer = Arc::clone(&self.consumer);
+        let commit = tokio::task::spawn_blocking(move || consumer.commit(&tpl, CommitMode::Sync));
+        match tokio::time::timeout(timeout, commit).await {
+            Ok(joined) => joined??,
+            Err(_) => anyhow::bail!("no answer within {timeout:?}"),
+        }
+        self.record_commit(offsets);
+        Ok(())
+    }
+
+    fn commit_list(
+        &self,
+        offsets: &HashMap<TopicPartition, Offset>,
+    ) -> anyhow::Result<TopicPartitionList> {
         let mut tpl = TopicPartitionList::new();
         for (topic_partition, next_to_read) in offsets {
             tpl.add_partition_offset(
@@ -449,7 +545,10 @@ impl IngestionConsumer {
             )
             .set(next_to_read.0 as f64);
         }
-        self.consumer.commit(&tpl, CommitMode::Async)?;
+        Ok(tpl)
+    }
+
+    fn record_commit(&self, offsets: &HashMap<TopicPartition, Offset>) {
         counter!("ingestion_consumer_offset_commits_total").increment(1);
         record_if(&self.debug_recorder, || DebugEventKind::CommitSubmitted {
             offsets: offsets
@@ -461,7 +560,6 @@ impl IngestionConsumer {
                 })
                 .collect(),
         });
-        Ok(())
     }
 
     fn submit_poll(&self, collected: CollectedBatch) -> anyhow::Result<InFlightPoll> {
@@ -601,12 +699,26 @@ impl IngestionConsumer {
     }
 }
 
+/// A dropped task never reaches the end of `run`. The rdkafka close that
+/// follows revokes every partition and waits for each unassign, also for a
+/// drain's partitions.
+impl Drop for IngestionConsumer {
+    fn drop(&mut self) {
+        let drain = self.rebalance().on_stopped();
+        if let Some(drain) = drain {
+            self.unassign(drain.unassign);
+        }
+    }
+}
+
 enum Woke<'a> {
     Shutdown,
-    Completion(Option<GroupCompletion>),
+    Completion(Option<BatcherCompletion>),
     Error(Option<String>),
     Tick,
     Deadline,
+    DrainTimedOut,
+    Rebalanced,
     Received(Result<BorrowedMessage<'a>, KafkaError>),
 }
 
@@ -709,12 +821,6 @@ mod tests {
             BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
         ));
         let epoch = AssignmentEpoch::new();
-        let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
-        let on_assign = assign_hook(
-            Arc::clone(&settlement),
-            epoch.clone(),
-            Arc::clone(&revoked_partitions),
-        );
         let p0 = TopicPartition::new("events", 0);
         let one_event = [(
             MessageOffset(10),
@@ -731,16 +837,11 @@ mod tests {
         );
         settlement.settle_run(&p0, 0, &[MessageOffset(10)]).unwrap();
 
-        on_assign(std::slice::from_ref(&p0));
+        forget_earlier_assignment(&settlement, &epoch, std::slice::from_ref(&p0));
 
         assert!(settlement.take_all().is_none());
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(epoch.current(), 2);
-        assert_eq!(
-            *revoked_partitions.lock().unwrap(),
-            vec![p0.clone()],
-            "the poller drops what it buffered from the lost assignment"
-        );
         assert_eq!(
             settlement
                 .charge(&p0, 1, &one_event)

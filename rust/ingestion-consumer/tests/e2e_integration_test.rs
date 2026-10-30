@@ -2,7 +2,7 @@
 
 mod common;
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -590,6 +590,7 @@ struct Harness {
     budget: Option<RequestBudget>,
     partition_budget: BudgetLimits,
     in_flight_limit: ChargeLimit,
+    revoke_drain_timeout: Option<Duration>,
 }
 
 // Short session and heartbeat so group handovers finish quickly.
@@ -678,12 +679,21 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
         )
         .await
     }
 
     /// One worker; every request carries a 500 ms soft budget.
     async fn start_budgeted(topic: &str, partitions: i32) -> Self {
+        Self::start_budgeted_draining_revokes(topic, partitions, None).await
+    }
+
+    async fn start_budgeted_draining_revokes(
+        topic: &str,
+        partitions: i32,
+        revoke_drain_timeout: Option<Duration>,
+    ) -> Self {
         Self::start_inner(
             topic,
             partitions,
@@ -706,6 +716,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            revoke_drain_timeout,
         )
         .await
     }
@@ -731,6 +742,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
         )
         .await
     }
@@ -757,6 +769,31 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
+        )
+        .await
+    }
+
+    async fn start_draining_revokes(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        revoke_drain_timeout: Duration,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            common::PRODUCTION_PACK_TARGETS,
+            None,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            ChargeLimit::unset(),
+            Some(revoke_drain_timeout),
         )
         .await
     }
@@ -775,6 +812,7 @@ impl Harness {
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
         )
         .await
     }
@@ -799,6 +837,7 @@ impl Harness {
             commit_interval,
             BudgetLimits::unset(),
             ChargeLimit::unset(),
+            None,
         )
         .await
     }
@@ -842,6 +881,7 @@ impl Harness {
             COMMIT_INTERVAL,
             partition_budget,
             in_flight_limit,
+            None,
         )
         .await
     }
@@ -867,6 +907,7 @@ impl Harness {
             commit_interval,
             partition_budget,
             ChargeLimit::unset(),
+            None,
         )
         .await
     }
@@ -885,6 +926,7 @@ impl Harness {
         commit_interval: Duration,
         partition_budget: BudgetLimits,
         in_flight_limit: ChargeLimit,
+        revoke_drain_timeout: Option<Duration>,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -941,6 +983,7 @@ impl Harness {
                 ledger: Arc::clone(&ledger),
                 partition_budget,
                 in_flight_limit,
+                revoke_drain_timeout,
             },
             handle,
         );
@@ -974,6 +1017,7 @@ impl Harness {
             budget,
             partition_budget,
             in_flight_limit,
+            revoke_drain_timeout,
         }
     }
 
@@ -1042,6 +1086,7 @@ impl Harness {
                 ledger: Arc::clone(&self.ledger),
                 partition_budget: self.partition_budget,
                 in_flight_limit: self.in_flight_limit,
+                revoke_drain_timeout: self.revoke_drain_timeout,
             },
             handle,
         );
@@ -1128,6 +1173,7 @@ impl Harness {
                 ledger: Arc::new(TopicOffsetLedger::new()),
                 partition_budget: self.partition_budget,
                 in_flight_limit: self.in_flight_limit,
+                revoke_drain_timeout: self.revoke_drain_timeout,
             },
             handle,
         );
@@ -1453,6 +1499,100 @@ async fn a_partial_ack_after_a_revoke_resends_nothing() {
         *harness.workers[0].replayed.lock().unwrap(),
         Vec::<(String, usize)>::new(),
         "the old owner resends nothing for a revoked partition"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partial_ack_during_a_drain_commits_only_what_was_processed() {
+    let topic = format!("e2e-partial-drain-{}", Uuid::new_v4());
+    let harness =
+        Harness::start_budgeted_draining_revokes(&topic, 1, Some(Duration::from_secs(20))).await;
+    // The partition holds a, b, a, b, and the b messages come back unfinished.
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-b".to_string(), 1));
+    let records = alternating_visitors(0, "tok:203.0.113.7", 0);
+
+    // A trickle keeps the consumer polling, so it takes part in the rebalance.
+    let producer = make_producer();
+    producer
+        .client()
+        .fetch_metadata(Some(&topic), Duration::from_secs(5))
+        .expect("trickle producer metadata");
+
+    let gate = harness.workers[0].block().await;
+    produce_keyed_in_one_transaction(&topic, "tok", &records).await;
+    let trickling = Arc::new(AtomicBool::new(true));
+    let trickle = tokio::spawn({
+        let trickling = Arc::clone(&trickling);
+        let topic = topic.clone();
+        async move {
+            let mut seq = 1000usize;
+            while trickling.load(Ordering::SeqCst) {
+                produce(&producer, &topic, 0, "tok", "trickle", seq).await;
+                seq += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    });
+    wait_until(
+        Duration::from_secs(15),
+        "a request to reach the worker",
+        || harness.workers[0].arrived_count() > 0,
+    )
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    // The drain waits on the gated request.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    trickling.store(false, Ordering::SeqCst);
+    trickle.await.expect("trickle task");
+    drop(gate);
+
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            records
+                .iter()
+                .all(|(_, _, visitor, seq)| delivered.contains(&(visitor.to_string(), *seq)))
+        },
+    )
+    .await;
+    // Time for a replay by the new owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert!(
+        harness.workers[0]
+            .leave_unfinished
+            .lock()
+            .unwrap()
+            .is_none(),
+        "the gated request was acked as partial"
+    );
+    assert_eq!(
+        *harness.workers[0].replayed.lock().unwrap(),
+        Vec::<(String, usize)>::new(),
+        "the old owner resends nothing of a draining partition"
+    );
+    let log = harness.delivery_log.lock().unwrap().clone();
+    let mut seen = HashSet::new();
+    let processed_twice: BTreeSet<(String, usize)> = log
+        .iter()
+        .filter(|entry| entry.0 != "trickle" && !seen.insert(*entry))
+        .cloned()
+        .collect();
+    assert_eq!(
+        processed_twice,
+        BTreeSet::from([("visitor-a".to_string(), 2)])
     );
 
     second.stop().await;
@@ -3371,6 +3511,69 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
 }
 
 #[tokio::test]
+async fn a_drain_commits_the_in_flight_messages_before_the_new_owner_reads() {
+    let topic = format!("e2e-revoke-drain-{}", Uuid::new_v4());
+    let harness = Harness::start_draining_revokes(&topic, 2, 2, Duration::from_secs(20)).await;
+    let producer = make_producer();
+
+    let mut guards = Vec::new();
+    for w in &harness.workers {
+        guards.push(w.block().await);
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "work to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+
+    let second = harness.join_second_consumer().await;
+    // The drain waits on the gated requests.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    guards.clear();
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+
+    let expected: HashSet<(String, usize)> = ["user-1", "user-2"]
+        .iter()
+        .flat_map(|user| (0..10usize).map(|seq| (user.to_string(), seq)))
+        .collect();
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            expected.is_subset(&delivered)
+        },
+    )
+    .await;
+    // Time for a replay by the new owner to arrive.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let log = harness.delivery_log.lock().unwrap().clone();
+    let mut seen = HashSet::new();
+    let duplicates: Vec<&(String, usize)> =
+        log.iter().filter(|entry| !seen.insert(*entry)).collect();
+    assert!(
+        duplicates.is_empty(),
+        "the new owner processed again what the old owner finished: {duplicates:?}"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[tokio::test]
 async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
     let harness = Harness::start(
@@ -3516,6 +3719,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             ledger: Arc::new(TopicOffsetLedger::new()),
             partition_budget: BudgetLimits::unset(),
             in_flight_limit: ChargeLimit::unset(),
+            revoke_drain_timeout: None,
         },
         handle,
     );
