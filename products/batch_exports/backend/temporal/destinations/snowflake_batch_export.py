@@ -364,7 +364,7 @@ class SnowflakeDestinationField(typing.NamedTuple):
 
         elif type_name == "NUMBER":
             precision, scale = (int(value) for value in parameters.split(")", 1)[0].split(","))
-            # Preserve the connector's FIXED representation so scale-zero columns remain integers.
+            # Use FIXED to distinguish described NUMBER columns from explicit Arrow decimals.
             type_name = "FIXED"
 
         if type_name not in typing.get_args(SnowflakeTypeName):
@@ -478,13 +478,11 @@ class SnowflakeField(Field):
             # TODO: Maybe support more arrays?
             snowflake_type = SnowflakeType(name="STRING", repeated=True)
         elif field.type == "NUMBER" or (field.type == "FIXED" and field.scale):
-            # Snowflake reports every 'NUMBER' column as 'FIXED'. A non-zero scale means
-            # the column holds decimals, and reading it as 'INTEGER' would truncate them.
-            # 'NUMBER' itself only comes from `to_destination_field`.
+            # Preserve explicit NUMBER fields as decimals even at scale zero.
+            # Nonzero-scale FIXED fields also need decimals to avoid truncating fractional values.
             snowflake_type = SnowflakeType(name="NUMBER", repeated=False, precision=field.precision, scale=field.scale)
         elif field.type == "FIXED":
-            # This isn't documented as a type. I know it is 'INTEGER', not sure why the
-            # snowflake library invented 'FIXED'.
+            # Treat zero-scale NUMBER columns discovered by DESCRIBE as integers.
             snowflake_type = SnowflakeType(name="INTEGER", repeated=False)
         else:
             snowflake_type = SnowflakeType(name=field.type, repeated=False)
