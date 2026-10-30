@@ -199,7 +199,9 @@ function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; sk
                         <span className="whitespace-nowrap text-[11px] text-warning">· timed out</span>
                     )}
                     <span className="min-w-0 flex-1 text-secondary">{scoutRunFailureLine(run, now)}</span>
-                    <RecordedSpend amount={run.total_spend} />
+                    <span className="text-[11px] text-muted">
+                        <RecordedSpend amount={run.total_spend} />
+                    </span>
                     <RunOutputTag run={run} />
                     {run.task_url && (
                         <Link
@@ -267,6 +269,9 @@ const ScoutRunRow = memo(function ScoutRunRow({
                 <RunGlyph run={run} />
                 <ScoutTimestamp time={run.started_at} />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
+                <span className="text-[11px] text-muted">
+                    <RecordedSpend amount={run.total_spend} />
+                </span>
                 {/* One colour per failure kind, matching the glyph — a red glyph next to amber text
                     read as two different states of the same run. */}
                 {failureKind && (
@@ -279,7 +284,6 @@ const ScoutRunRow = memo(function ScoutRunRow({
                     </span>
                 )}
                 <span className="flex-1" />
-                <RecordedSpend amount={run.total_spend} />
                 <RunOutputTag run={run} />
             </button>
 

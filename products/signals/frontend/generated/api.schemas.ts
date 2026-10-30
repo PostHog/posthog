@@ -10507,6 +10507,11 @@ export interface ScoutSpendApi {
     skill_name: string
     /** Accumulated usage for this scout's runs in the period. */
     spend: SpendAmountApi
+    /**
+     * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+     * @nullable
+     */
+    average_spend: number | null
 }
 
 export interface SpendOverviewApi {

@@ -831,6 +831,10 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
         assert response.status_code == 200, response.content
+        with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
+            cached = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        query.assert_not_called()
+        assert cached.json() == response.json()
         assert response.json() == [
             {
                 "source_product": "github",

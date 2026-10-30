@@ -195,7 +195,7 @@ export function formatRunDuration(seconds: number | null): string {
  * decimals it would read as "$0.00", which says the run was free.
  */
 export function formatRunCost(costUsd: number): string {
-    return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
+    return humanFriendlyCurrency(costUsd, 2)
 }
 
 /**

@@ -110,7 +110,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             </>
                         }
                     >
-                        <ScoutSpendLabel skillName={config.skill_name} />
+                        <ScoutSpendLabel skillName={config.skill_name} average />
                     </FlaggedFeature>
                 </div>
             </Link>

@@ -68,7 +68,11 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
-    it.each([true, false])('gates source usage and its request when enabled=%s', async (enabled) => {
+    it.each([
+        { enabled: true, armed: true },
+        { enabled: true, armed: false },
+        { enabled: false, armed: true },
+    ])('gates source usage when enabled=$enabled and armed=$armed', async ({ enabled, armed }) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.SELF_DRIVING_USAGE]: enabled,
@@ -76,6 +80,15 @@ describe('AgentsRoster', () => {
         const usageRequests = jest.fn()
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/source_configs/': {
+                    results: ['issue_created', 'issue_reopened', 'issue_spiking'].map((source_type) => ({
+                        id: source_type,
+                        source_product: 'error_tracking',
+                        source_type,
+                        enabled: armed,
+                        config: {},
+                    })),
+                },
                 '/api/projects/:team_id/signals/source_spend/': () => {
                     usageRequests()
                     return [
@@ -107,10 +120,10 @@ describe('AgentsRoster', () => {
         render(<AgentsRoster />)
         const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
         expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
-        if (enabled) {
+        if (enabled && armed) {
             expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
             const support = document.querySelector('[data-source="conversations"]') as HTMLElement
-            expect(within(support).getByText('Not tracked')).toBeInTheDocument()
+            expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
             expect(usageRequests).toHaveBeenCalledTimes(1)
         } else {
             expect(document.querySelector('[data-attr="source-spend"]')).toBeNull()

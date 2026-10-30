@@ -89,6 +89,7 @@ from products.signals.backend.scout_harness.tools.profile import compute_project
 from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
+from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -748,7 +749,7 @@ class TestScoutHarnessScoutCostsAPI(APIBaseTest):
             label="child-scoped",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=["signal_scout:read"],
+            scopes=["signal_usage:read" if endpoint == "signals/spend" else "signal_scout:read"],
             scoped_teams=[child.id],
         )
         self.client.logout()
@@ -6101,10 +6102,39 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 
 
 class TestScoutSpendOverview(APIBaseTest):
+    @parameterized.expand(
+        [
+            (endpoint, scope)
+            for endpoint in ("scouts", "sources", "report")
+            for scope in ("signal_usage", "signal_scout", "task")
+        ]
+    )
+    def test_usage_requires_its_own_scope(self, endpoint: str, scope: str) -> None:
+        report = SignalReport.objects.create(team=self.team, title="Synthetic report")
+        path = {
+            "scouts": "signals/spend/",
+            "sources": "signals/source_spend/",
+            "report": f"signals/reports/{report.id}/spend/",
+        }[endpoint]
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="usage-read",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=[f"{scope}:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
+            query.return_value.results = []
+            response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert response.status_code == (200 if scope == "signal_usage" else 403), response.content
+
     @parameterized.expand([False, True])
     def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
         run = _make_run(self.team)
         _make_run(self.team)
+        second_tracked = _make_run(self.team)
         another_scout = _make_run(self.team, skill_name="signals-scout-errors")
         private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
         old = _make_run(self.team)
@@ -6113,7 +6143,14 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         other_team = Team.objects.create(organization=self.organization)
         other = _make_run(other_team)
-        for row, amount in [(run, 125.25), (another_scout, 0.375), (private, 999), (old, 999), (other, 999)]:
+        for row, amount in [
+            (run, 125.25),
+            (second_tracked, 74.75),
+            (another_scout, 0.375),
+            (private, 999),
+            (old, 999),
+            (other, 999),
+        ]:
             SignalSpend.objects.for_team(row.team_id).create(
                 team_id=row.team_id,
                 scout_run=row,
@@ -6129,11 +6166,22 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{url_team.id}/signals/spend/")
         assert response.status_code == 200, response.content
-        assert response.json()["scout_spend"] == {"total_spend": 125.625, "incomplete": True}
+        assert response.json()["scout_spend"] == {"total_spend": 200.375, "incomplete": True}
         assert response.json()["scouts"] == [
-            {"skill_name": "signals-scout-errors", "spend": {"total_spend": 0.375, "incomplete": False}},
-            {"skill_name": "signals-scout-general", "spend": {"total_spend": 125.25, "incomplete": True}},
+            {
+                "skill_name": "signals-scout-errors",
+                "spend": {"total_spend": 0.375, "incomplete": False},
+                "average_spend": 0.375,
+            },
+            {
+                "skill_name": "signals-scout-general",
+                "spend": {"total_spend": 200, "incomplete": True},
+                "average_spend": 100,
+            },
         ]
+        with self.assertNumQueries(0):
+            cached = SpendReporting(self.team).scouts()
+        assert cached.scout_spend.total_spend == 200.375
 
     @parameterized.expand([("empty", False, 0), ("untracked", True, None)])
     def test_total_without_receipts(self, _name: str, has_run: bool, expected: float | None) -> None:

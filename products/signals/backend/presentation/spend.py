@@ -25,6 +25,10 @@ class SpendAmountSerializer(serializers.Serializer):
 class ScoutSpendSerializer(serializers.Serializer):
     skill_name = serializers.CharField(help_text="Name of the scout skill.")
     spend = SpendAmountSerializer(help_text="Accumulated usage for this scout's runs in the period.")
+    average_spend = serializers.FloatField(
+        allow_null=True,
+        help_text="Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.",
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -58,7 +62,7 @@ class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SpendOverviewSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
-    scope_object = "signal_scout"
+    scope_object = "signal_usage"
     pagination_class = None
 
     @extend_schema(responses=SpendOverviewSerializer, operation_id="signals_spend_overview")
@@ -70,7 +74,7 @@ class SignalSourceSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SourceSpendSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "signal_usage"
     pagination_class = None
 
     @extend_schema(responses=SourceSpendSerializer(many=True), operation_id="signals_source_spend")

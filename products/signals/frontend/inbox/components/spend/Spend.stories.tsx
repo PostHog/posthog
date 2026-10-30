@@ -25,7 +25,11 @@ const meta: Meta = {
                     period_end: '2026-06-11T00:00:00Z',
                     scout_spend: { total_spend: 131.625, incomplete: true },
                     scouts: [
-                        { skill_name: 'signals-scout-general', spend: { total_spend: 131.625, incomplete: true } },
+                        {
+                            skill_name: 'signals-scout-general',
+                            spend: { total_spend: 131.625, incomplete: true },
+                            average_spend: 32.90625,
+                        },
                     ],
                 },
                 '/api/projects/:id/signals/source_spend/': [
@@ -66,6 +70,7 @@ export const Overview: Story = {
         <div className="flex max-w-2xl flex-col gap-6 p-4">
             <ReportSpendSection reportId="example-report" />
             <ScoutSpendLabel />
+            <ScoutSpendLabel skillName="signals-scout-general" average />
             <div className="flex items-center justify-between gap-2">
                 <span>Error tracking</span>
                 <SourceSpendLabel sourceProduct="error_tracking" />

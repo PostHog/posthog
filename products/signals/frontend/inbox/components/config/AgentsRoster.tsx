@@ -544,9 +544,11 @@ const AgentRow = memo(function AgentRow({
                         {enabledCount} of {entities.length} {agent.entityNoun} on
                     </span>
                 )}
-                <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
-                    <SourceSpendLabel sourceProduct={agent.sourceProduct} />
-                </FlaggedFeature>
+                {armed && !productOff && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
+                        <SourceSpendLabel sourceProduct={agent.sourceProduct} />
+                    </FlaggedFeature>
+                )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
                     <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
                         {loading ? (

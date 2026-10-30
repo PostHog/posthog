@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
+from typing import cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db.models import Count, Q, QuerySet, Sum
 from django.utils import timezone
 
@@ -27,6 +29,7 @@ class SpendAmount:
 class ScoutSpend:
     skill_name: str
     spend: SpendAmount
+    average_spend: float | None
 
 
 @frozen
@@ -67,8 +70,7 @@ class SpendReporting:
             incomplete=bool(totals["incomplete"]),
         )
 
-    def scouts(self) -> SpendOverview:
-        team = self.team.parent_team or self.team
+    def _scouts(self, team: Team) -> SpendOverview:
         end = timezone.now()
         start = end - timedelta(days=30)
         runs = (
@@ -94,8 +96,13 @@ class SpendReporting:
             )
             for row in totals
         }
+        average_by_skill = {row["scout_run__skill_name"]: float(row["total"] / row["tracked"]) for row in totals}
         scouts = [
-            ScoutSpend(skill_name=name, spend=by_skill.get(name, SpendAmount(total_spend=None, incomplete=False)))
+            ScoutSpend(
+                skill_name=name,
+                spend=by_skill.get(name, SpendAmount(total_spend=None, incomplete=False)),
+                average_spend=average_by_skill.get(name),
+            )
             for name in sorted(run_counts)
         ]
         total_spend = float(sum(row["total"] for row in totals)) if totals else None
@@ -109,7 +116,14 @@ class SpendReporting:
             ),
         )
 
-    def sources(self) -> list[SourceSpend]:
+    def scouts(self) -> SpendOverview:
+        team = self.team.parent_team or self.team
+        return cast(
+            SpendOverview,
+            cache.get_or_set(f"signals:usage:scouts:v1:{team.id}", lambda: self._scouts(team), timeout=60),
+        )
+
+    def _sources(self) -> list[SourceSpend]:
         tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
         # Signal timestamps do not change when spend metadata is republished, so this bounds all
         # versions of a signal without losing its latest receipt or counting it more than once.
@@ -151,7 +165,13 @@ class SpendReporting:
             for product, source_type, count, tracked, total, failed in response.results or []
         ]
 
+    def sources(self) -> list[SourceSpend]:
+        return cast(
+            list[SourceSpend], cache.get_or_set(f"signals:usage:sources:v1:{self.team_id}", self._sources, timeout=60)
+        )
+
     def report(self, report: SignalReport) -> ReportSpend:
+        # Task polling stops after completion, so caching here could leave the final amount stale.
         tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
         query = f"""
             SELECT groupArray(document_id)

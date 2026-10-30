@@ -7,10 +7,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { selfDrivingSpendLogic } from '../../logics/selfDrivingSpendLogic'
 import { RecordedSpend } from './RecordedSpend'
 
-export function ScoutSpendLabel({ skillName }: { skillName?: string }): JSX.Element {
+export function ScoutSpendLabel({
+    skillName,
+    average = false,
+}: {
+    skillName?: string
+    average?: boolean
+}): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const logic = selfDrivingSpendLogic({ teamId: currentTeamId ?? 0 })
-    const { overview, spendByScout, failed } = useValues(logic)
+    const { overview, spendByScout, averageSpendByScout, failed } = useValues(logic)
 
     if (!overview && !failed) {
         return <LemonSkeleton className="h-3 w-32" />
@@ -22,11 +28,13 @@ export function ScoutSpendLabel({ skillName }: { skillName?: string }): JSX.Elem
             </Tooltip>
         )
     }
-    const amount = skillName ? spendByScout.get(skillName) : overview?.scout_spend.total_spend
+    const amount = skillName
+        ? (average ? averageSpendByScout : spendByScout).get(skillName)
+        : overview?.scout_spend.total_spend
     return (
         <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-secondary" data-attr="scout-spend">
-            <RecordedSpend amount={amount === undefined ? 0 : amount} />
-            <span>usage · last 30 days</span>
+            <RecordedSpend amount={amount === undefined ? (average ? null : 0) : amount} />
+            <span>{average ? 'avg per run · last 30 days' : 'usage · last 30 days'}</span>
         </span>
     )
 }

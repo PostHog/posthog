@@ -2806,7 +2806,7 @@ class SignalReportViewSet(
         }
 
     @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
-    @action(detail=True, methods=["get"], required_scopes=["task:read"])
+    @action(detail=True, methods=["get"], required_scopes=["signal_usage:read"])
     def spend(self, request: Request, **kwargs: object) -> Response:
         report = self.get_object()
         return Response(ReportSpendSerializer(SpendReporting(self.team).report(report)).data)

@@ -71,10 +71,9 @@ describe('scoutCosts', () => {
                 '$1.86/day · $2.17/run · no reports',
             ],
             [
-                // A sub-cent rate at two decimals would read as "$0.00", which says the scout is free.
-                'four decimals on a sub-cent rate',
+                'two decimals on a sub-cent rate',
                 { spend_usd: 0.014, run_count: 2, priced_run_count: 2, reports_touched: 2 },
-                '$0.0020/day · $0.0070/run · $0.0070/report',
+                '$0.00/day · $0.01/run · $0.01/report',
             ],
         ])('renders %s', (_name, scout, expected) => {
             const rollup = computeScoutCostRollups(costs([{ skill_name: 'a', ...scout }])).get('a')!

@@ -48,11 +48,15 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                             {isScout ? 'Scout' : 'Signal'}
                         </LemonTag>
                         <RunStatusIndicator variant={resolveRunVariant(run.status)} />
-                        {isScout && <RecordedSpend amount={run.total_spend} />}
                         <span aria-hidden>·</span>
                         <span>
                             Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />
                         </span>
+                        {isScout && (
+                            <span className="text-[11px] text-muted">
+                                <RecordedSpend amount={run.total_spend} />
+                            </span>
+                        )}
                     </div>
                 </div>
             </Link>
