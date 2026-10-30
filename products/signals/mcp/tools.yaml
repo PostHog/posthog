@@ -478,7 +478,9 @@ tools:
             statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each
             report's full work log, including signal findings, judgments, and log entries, is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
+            '-is_suggested_reviewer,status,-updated_at' by default. For a personal ranked shortlist, such as "what's in
+            my inbox for me?" or "my top 10", the prioritizing-my-inbox skill combines these rows with the user's
+            activity summary and the ranking predictions. To find the next fixable work across the project, pass
             `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
             actionable reports that have no implementation PR yet, at or above the requesting user's personal
             PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
