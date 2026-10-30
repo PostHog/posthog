@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -14,7 +15,7 @@ import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
 import { STATIC_TOOLS, maxGlobalLogic } from './maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { maxLogic } from './maxLogic'
 import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 
 describe('maxGlobalLogic tool definitions', () => {
