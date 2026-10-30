@@ -11293,9 +11293,14 @@ export namespace Schemas {
     export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | BIVisualizationNode | HogQuery;
 
     export interface DashboardTileBasic {
+      /** ID of the dashboard tile. */
       readonly id: number;
+      /** ID of the dashboard the tile sits on. */
       readonly dashboard_id: number;
-      /** @nullable */
+      /**
+         * Whether the tile was removed from the dashboard.
+         * @nullable
+         */
       deleted?: boolean | null;
     }
 
@@ -12046,6 +12051,11 @@ export namespace Schemas {
     export interface AddDashboardWidgetsBatchResponse {
       /** Created dashboard widget tiles in request order. */
       tiles: DashboardTile[];
+    }
+
+    export interface AddInsightToDashboardRequest {
+      /** ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile. */
+      insight_id: number;
     }
 
     export interface AddOptOutRequest {
@@ -132764,6 +132774,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsAddInsightCreateParams = {
+    format?: DashboardsAddInsightCreateFormat;
+    };
+
+    export type DashboardsAddInsightCreateFormat = typeof DashboardsAddInsightCreateFormat[keyof typeof DashboardsAddInsightCreateFormat];
+
+
+    export const DashboardsAddInsightCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

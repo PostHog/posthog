@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
+    AddInsightToDashboardRequestApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CopyDashboardGroupRequestApi,
@@ -24,6 +25,8 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
+    DashboardTileBasicApi,
+    DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyGroupCreateParams,
     DashboardsCopyTileCreateParams,
@@ -409,6 +412,44 @@ export const dashboardsDestroy = async (
     return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardsAddInsightCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsAddInsightCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/add_insight/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/add_insight/`
+}
+
+/**
+ * Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard and view access to the insight. Returns the tile. Adding an insight the dashboard already shows returns its tile unchanged, and adding one that was removed from the dashboard restores its tile with its old layout. To take an insight off a dashboard, use delete_tile.
+ */
+export const dashboardsAddInsightCreate = async (
+    projectId: string,
+    id: number,
+    addInsightToDashboardRequestApi: AddInsightToDashboardRequestApi,
+    params?: DashboardsAddInsightCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileBasicApi> => {
+    return apiMutator<DashboardTileBasicApi>(getDashboardsAddInsightCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addInsightToDashboardRequestApi),
     })
 }
 
