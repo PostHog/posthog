@@ -146,6 +146,35 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.savingResourcesLoading).toBe(false)
     })
 
+    it('uses each resource’s project and API identifier for sharing updates', async () => {
+        const notebook = {
+            ...resources[0],
+            id: 'public_link:notebook:2:uuid',
+            kind: 'notebook',
+            team_id: 2,
+            resource_id: 'short-id',
+        }
+        const recording = {
+            ...resources[0],
+            id: 'public_link:recording:3:uuid',
+            kind: 'recording',
+            team_id: 3,
+            resource_id: 'session-id',
+        }
+        useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': [notebook, recording] } })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.disableResources([notebook.id, recording.id])
+        ).toFinishAllListeners()
+        expect(updates).toEqual(
+            expect.arrayContaining([
+                { path: '/api/projects/2/notebooks/short-id/sharing/', body: { enabled: false } },
+                { path: '/api/projects/3/session_recordings/session-id/sharing/', body: { enabled: false } },
+            ])
+        )
+        expect(logic.values.keep).toEqual([])
+    })
+
     it('summarizes the selected resource types, including selections beyond one page', async () => {
         const mixedResources = [
             ...resources,
@@ -160,6 +189,43 @@ describe('memberOffboardingLogic', () => {
         expect(
             logic.values.getSelectionLabel(mixedResources.map((resource) => resource.id)).replaceAll('\u00a0', ' ')
         ).toBe('3 dashboards, 1 insight, 1 notebook, 1 recording')
+    })
+
+    it('reviews public links, subscriptions and alerts together and keeps them enabled by default', async () => {
+        const subscription = {
+            ...resources[0],
+            id: 'subscription:1',
+            resource_id: '1',
+            kind: 'subscription',
+            name: 'Weekly report',
+        }
+        const alert = { ...resources[0], id: 'alert:1', resource_id: '1', kind: 'alert', name: 'Usage alert' }
+        useMocks({
+            get: { '/api/organizations/:organization/members/:user/offboarding_preview/': [...resources, subscription, alert] },
+        })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        expect(logic.values.publicResources).toEqual(resources)
+        expect(logic.values.subscriptions).toEqual([subscription, alert])
+        expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), subscription.id, alert.id])
+        useMocks({
+            patch: {
+                '/api/projects/:project/:kind/:id/': async ({ request }) => {
+                    updates.push({ path: new URL(request.url).pathname, body: await request.json() })
+                    return [200, {}]
+                },
+            },
+        })
+        await expectLogic(logic, () =>
+            logic.actions.disableResources([subscription.id, alert.id])
+        ).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
+        expect(updates).toEqual(
+            expect.arrayContaining([
+                { path: '/api/projects/1/subscriptions/1/', body: { enabled: false } },
+                { path: '/api/projects/1/alerts/1/', body: { enabled: false } },
+            ])
+        )
+        expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
     })
 
     it('skips the resource review when leaving the organization yourself', async () => {

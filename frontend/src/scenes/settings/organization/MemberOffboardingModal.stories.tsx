@@ -59,6 +59,30 @@ const resources = [
         team_id: 2,
         project_name: 'App',
     },
+    {
+        id: 'subscription:1',
+        resource_id: '1',
+        destination_type: 'email',
+        destination: 'reports@example.com,team@example.com',
+        kind: 'subscription',
+        name: 'Weekly product overview',
+        url: '/project/1/subscriptions/1',
+        password_protected: false,
+        team_id: 1,
+        project_name: 'Website',
+        created_at: '2026-10-20T10:00:00Z',
+    },
+    {
+        id: 'alert:1',
+        resource_id: '1',
+        kind: 'alert',
+        name: 'Weekly usage drop',
+        url: '/project/1/alerts?alert_type=insights&alert_id=1',
+        password_protected: false,
+        team_id: 1,
+        project_name: 'Website',
+        created_at: '2026-10-20T10:00:00Z',
+    },
 ]
 
 const meta: Meta<typeof MemberOffboardingModal> = {
@@ -67,6 +91,8 @@ const meta: Meta<typeof MemberOffboardingModal> = {
     decorators: [
         mswDecorator({
             patch: {
+                '/api/projects/:project/subscriptions/:id/': () => [200, {}],
+                '/api/projects/:project/alerts/:id/': () => [200, {}],
                 '/api/projects/:project/:kind/:resource/sharing/': () => [204, null],
             },
             get: {

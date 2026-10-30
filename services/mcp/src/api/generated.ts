@@ -72414,6 +72414,8 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `notebook` - Notebook
      * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert
      */
     export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
 
@@ -72423,6 +72425,8 @@ export namespace Schemas {
       Insight: 'insight',
       Notebook: 'notebook',
       Recording: 'recording',
+      Subscription: 'subscription',
+      Alert: 'alert',
     } as const;
 
     export interface MemberOffboardingResource {
@@ -72435,7 +72439,9 @@ export namespace Schemas {
        * * `dashboard` - Dashboard
        * * `insight` - Insight
        * * `notebook` - Notebook
-       * * `recording` - Session recording */
+       * * `recording` - Session recording
+       * * `subscription` - Subscription
+       * * `alert` - Alert */
       kind: MemberOffboardingResourceKindEnum;
       /** The resource's display name. */
       name: string;
@@ -72443,6 +72449,21 @@ export namespace Schemas {
       team_id: number;
       /** Name of the project containing the resource. */
       project_name: string;
+      /**
+         * When the subscription was created, if applicable.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Subscription delivery channel: email, slack, or teams.
+         * @nullable
+         */
+      destination_type?: string | null;
+      /**
+         * Subscription recipients, Slack channels, or safe webhook host.
+         * @nullable
+         */
+      destination?: string | null;
       /** Whether all active public links require a password. */
       password_protected: boolean;
       /**

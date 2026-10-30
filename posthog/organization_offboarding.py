@@ -9,6 +9,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
 
+from products.alerts.backend.facade import organization_offboarding as alerts
+from products.subscriptions.backend.facade import api as subscriptions
+
 if TYPE_CHECKING:
     from products.notebooks.backend.models import Notebook
     from products.product_analytics.backend.models.insight import Insight
@@ -105,4 +108,6 @@ class OrganizationOffboarding:
 
     def resources(self) -> list[OffboardingResource]:
         resources = [resource for kind in PUBLIC_RESOURCE_KINDS for resource in self._public_resources(kind)]
+        resources.extend(alerts.list_member_offboarding_resources(self.organization_id, self.user_id))
+        resources.extend(subscriptions.list_member_offboarding_resources(self.organization_id, self.user_id))
         return sorted(resources, key=lambda resource: (resource.name, resource.id))

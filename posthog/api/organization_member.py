@@ -158,6 +158,8 @@ class MemberOffboardingResourceKind(TextChoices):
     INSIGHT = "insight", "Insight"
     NOTEBOOK = "notebook", "Notebook"
     RECORDING = "recording", "Session recording"
+    SUBSCRIPTION = "subscription", "Subscription"
+    ALERT = "alert", "Alert"
 
 
 class MemberOffboardingResourceSerializer(serializers.Serializer):
@@ -170,6 +172,15 @@ class MemberOffboardingResourceSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="The resource's display name.")
     team_id = serializers.IntegerField(help_text="Project containing the resource.")
     project_name = serializers.CharField(help_text="Name of the project containing the resource.")
+    created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the subscription was created, if applicable."
+    )
+    destination_type = serializers.CharField(
+        required=False, allow_null=True, help_text="Subscription delivery channel: email, slack, or teams."
+    )
+    destination = serializers.CharField(
+        required=False, allow_null=True, help_text="Subscription recipients, Slack channels, or safe webhook host."
+    )
     password_protected = serializers.BooleanField(help_text="Whether all active public links require a password.")
     url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
 
