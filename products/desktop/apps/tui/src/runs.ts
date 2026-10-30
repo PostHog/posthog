@@ -150,7 +150,7 @@ export function runNotice(
     if (call?.detail) parts.unshift(call.detail.split("\n")[0]);
     if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
     return {
-      text: call ? activityOf(call.title) : idleWord(Date.now()),
+      text: call ? activityOf(call.title) : `${idleWord(Date.now())}…`,
       detail: parts.join(" · "),
       tone: "working",
     };
