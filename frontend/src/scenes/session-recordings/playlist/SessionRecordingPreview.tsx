@@ -257,6 +257,10 @@ const SessionRecordingPreviewBase = memo(
         // The row renders matches_filters, and the same recording flips in and out of matching
         // as filters change around an open player, so comparing only the id would keep it stale.
         prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
+        // Mark watched and a session ending reload the same ids with viewed and ongoing flipped.
+        prevProps.recording.viewed === nextProps.recording.viewed &&
+        prevProps.recording.ongoing === nextProps.recording.ongoing &&
+        prevProps.recording.viewers?.length === nextProps.recording.viewers?.length &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order
@@ -280,6 +284,10 @@ export const SessionRecordingPreview = memo(
         // The row renders matches_filters, and the same recording flips in and out of matching
         // as filters change around an open player, so comparing only the id would keep it stale.
         prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
+        // Mark watched and a session ending reload the same ids with viewed and ongoing flipped.
+        prevProps.recording.viewed === nextProps.recording.viewed &&
+        prevProps.recording.ongoing === nextProps.recording.ongoing &&
+        prevProps.recording.viewers?.length === nextProps.recording.viewers?.length &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order
