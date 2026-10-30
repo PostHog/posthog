@@ -408,15 +408,25 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default).
 
-A job's own length is not what it costs the run; its wait for a runner is.
-Measured over 12 PR runs: GitHub-hosted jobs that started after the first minute waited a median 70-125s for a runner, while `depot-*` jobs in the same runs waited 0-2s.
-Gate and fan-in jobs are seconds of work, so that queue is nearly all of what a run waits on at its end, and gates chain: a gate's queue delays the telemetry job behind it, whose queue then starts.
+A light job's cost to the run is its wait for a runner, not its own length.
+Measured over 12 PR runs: GitHub-hosted jobs waited a median 70-125s for a runner, while `depot-*` jobs in the same runs waited 0-2s.
+Gates chain, so a gate's queue also delays the telemetry job behind it.
 
-So "light job" is not the same as "fine on GitHub-hosted".
-A light job at the **end** of a fan-out, or one every later job depends on, belongs on `depot-ubuntu-24.04`; one that starts at `+0s` (a `changes` filter) does not care.
-`ci-storybook.yml` (`select-stories`, `vr-setup`, `vr-complete`, and both gates), `ci-frontend.yml` (the gate and the telemetry jobs behind it), `ci-e2e-playwright.yml` (the gate and its telemetry job) and `ci-security.yaml` (the gate) all work this way.
+So a light job belongs on `depot-ubuntu-24.04` when later jobs wait on it: a required gate, a telemetry job behind a gate, a test selector, or a `changes` job that every other job needs.
+Keep a light job GitHub-hosted when nothing waits on it.
+`ci-storybook.yml`, `ci-frontend.yml`, `ci-e2e-playwright.yml` and `ci-security.yaml` follow this rule for their gates, selectors and telemetry jobs.
+
+Three exceptions keep a light job GitHub-hosted, or need a fork fallback:
+
+- **A job that restores a cached executable and then runs it with a secret** stays GitHub-hosted (`vr-setup`, `vr-complete`).
+  Depot Cache has no branch isolation, so fork-PR code on Depot can plant the entry. GitHub's cache only lets a master run restore what master saved.
+- **A job that checks out the fork head** takes the fork fallback that `select-stories` and `frontend-typescript-checks` use, because Depot runners inject shared cache credentials.
+- **A wait that measures a time window** (a debounce `sleep`) must measure from the run's `created_at`, not from job start. A faster runner otherwise shrinks the window.
+
+Depot minutes are billed and GitHub-hosted minutes on this public repo are not, so do not move a job that nothing waits on.
+
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.

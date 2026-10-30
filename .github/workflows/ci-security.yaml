@@ -660,8 +660,7 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        # Depot: the required gate runs last, after ten scan jobs finish together, and a
-        # GitHub-hosted runner queues ~85s for it. Its own work is one bash step.
+        # Depot: the required gate ends the run. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}

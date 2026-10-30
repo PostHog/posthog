@@ -1111,8 +1111,7 @@ jobs:
                 frontend_tests,
                 changes,
             ]
-        # Depot: chained behind the gate above, so a GitHub-hosted queue here adds another
-        # ~65s to the end of the run.
+        # Depot: chained behind the gate. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -1143,7 +1142,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Frontend Tests Pass'
-                  runner: 'github'
+                  runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
@@ -1155,7 +1154,7 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Frontend Tests Pass'
-                  runner: 'github'
+                  runner: 'depot'
 
     # Jest-selection telemetry -> DevEx project (347861), alongside the equivalent
     # events for the backend (posthog-ci-test-selection) and Playwright
@@ -1170,8 +1169,7 @@ jobs:
     capture-jest-selection:
         name: Capture jest selection
         needs: [select-jest-tests, jest]
-        # Depot: runs alongside the gate at the end of the run, where GitHub-hosted runners
-        # queue for ~110s. Telemetry only, one API call.
+        # Depot: runs at the end of the run, beside the gate. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Either the selector reached a decision, or jest ran without it (the full-run
@@ -1215,8 +1213,7 @@ jobs:
     frontend_tests:
         needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
-        # Depot: the required gate is the last thing the run waits on, and a GitHub-hosted
-        # runner queues ~125s for it behind the jest fan-out. Its own work is one bash step.
+        # Depot: the required gate ends the run. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}

@@ -101,10 +101,9 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        # Depot: everything else in this workflow waits on this job, and a GitHub-hosted
-        # runner queued up to 125s for it while the depot jobs in the same run waited ~1s.
+        # Depot: every later job waits on this one. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
-        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # 7 not 5: the debounce step below sleeps up to 120s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
         timeout-minutes: 7
@@ -269,9 +268,10 @@ jobs:
             - name: Debounce rapid PR pushes
               # A burst of pushes to one branch each dispatches a run; cancel-in-progress
               # kills the superseded ones, but only after they've begun booting the 8-core
-              # stack. Hold here on the cheap 1x runner through the likely-supersession
-              # window — if a newer push cancels this run mid-wait, the expensive job never
-              # launches. After the wait, if the PR head has already moved past this run's
+              # stack. Hold here on the small runner until 120s after the run was created.
+              # The window starts at run creation, not job start, so a fast runner pickup
+              # does not shrink it. If a newer push cancels this run mid-wait, the expensive
+              # job never launches. After the wait, if the PR head has already moved past this run's
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
               id: debounce
@@ -282,7 +282,10 @@ jobs:
                   PR: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  sleep 60
+                  created=$(gh api "repos/${REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.created_at' 2>/dev/null || echo "")
+                  elapsed=$(( $(date +%s) - $(date -d "${created:-now}" +%s) ))
+                  remaining=$(( 120 - elapsed ))
+                  if [ "$remaining" -gt 0 ]; then sleep "$remaining"; fi
                   tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
                   if [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]; then
                       echo "::notice::PR head moved ($HEAD_SHA -> $tip); skipping — the newer run is the gate"
@@ -404,8 +407,7 @@ jobs:
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
-        # Depot: the Playwright job waits on this selector, and a GitHub-hosted runner
-        # queues ~90-120s for it before the selector's own minute of work starts.
+        # Depot: the Playwright job waits on this selector. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -1252,8 +1254,7 @@ jobs:
     # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
-        # Depot: chained behind the gate above, so a GitHub-hosted queue here adds another
-        # 20-60s to the end of the run.
+        # Depot: chained behind the gate. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
@@ -1421,9 +1422,7 @@ jobs:
     playwright_tests:
         needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
-        # Depot: the required gate is the last thing the run waits on, and a GitHub-hosted
-        # runner queues 36-170s for it after the Playwright job finishes. Its own work is
-        # one bash step.
+        # Depot: the required gate ends the run. See "Runners" in /authoring-ci-workflows.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
