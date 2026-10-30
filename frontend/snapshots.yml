@@ -1176,6 +1176,50 @@ snapshots:
         hash: v1.k794b7964.442798f2e600069a7d91562610b8b7c7d3a4056ac586377a06dac861281fe95f.bESiPj85ewuYoqwKk98dJdyqFQEiE0ObW8p3BH9V6yw
     components-hogcharts-funnelchart--with-step-footer--light:
         hash: v1.k794b7964.0bf7642c300b844208cbb1fb7a17fbf96eb0222026882205f6d7cecebc88008a.6iZXA9vx-lh-6uP8V86vyU4_pyGgidZCpHGKj3IMQaI
+    components-hogcharts-gauge--basic--dark:
+        hash: v1.k794b7964.5977428a234205ef5ddd57ab8db0c38602d7887ae2f3e0f2180cab21cf65a501.9c64y4X8zXeYgHcJCMc_bK-b_ifbNFEbxSuqXoq2xp0
+    components-hogcharts-gauge--basic--light:
+        hash: v1.k794b7964.056cec58ea4363f088bb547b1f0bb504a4feb0da8520de55801141f08998a31e.s4qGktkWhSnuPsitdcYXYphwkEtWaOMGIyvNKNh7u3E
+    components-hogcharts-gauge--durations--dark:
+        hash: v1.k794b7964.157d68b5af945ba7d23084d244afe1747388c3986735179202589d2a2e3de6fd.Nnwg0IzgnnBN9uMjVW1YGmr1cmtblqGU2tJL6ih62ZU
+    components-hogcharts-gauge--durations--light:
+        hash: v1.k794b7964.d1423a503ffeb9b53fe2d1a3bf21d738f2a9bf50b64b210aed0c8e7e02d3edfa.blaJc52cgyz8TDEM77zL3fJwt3MuToMxvRr_s2gMepo
+    components-hogcharts-gauge--edge-cases--dark:
+        hash: v1.k794b7964.fcc787fa200dc41797225f109c2f5d03ed074015349c9c001993c0f3c5a04ab9.TNIU3OU0UyiL2xd6PjszTI3uUcpaeo2f-YsKy9O34As
+    components-hogcharts-gauge--edge-cases--light:
+        hash: v1.k794b7964.65f2523baabcad45a6bb04dd640a414d155d299e128621dd7141383eb16b7d75.NS5n7gKV4_vcHy7DsV5zxKFANDqChotmz7uvumFKUBU
+    components-hogcharts-gauge--grid-of-twelve--dark:
+        hash: v1.k794b7964.6e092ae513aa34ee7c153b55fe9f214a2039f3e47e6a38672703e21730ed16af.pb9txmRrKvASDf3AjD0T_tp5H5t9fyY_IrKDfnqasEk
+    components-hogcharts-gauge--grid-of-twelve--light:
+        hash: v1.k794b7964.ca8e75eb4bd5dd06e2ea5f5fa2b9437fca00b0f05703919d54169c9245732ca3.uX9Iu-y2krnDA1hy7kxXc_4dE0GPlGSi01yBEwIv4h0
+    components-hogcharts-gauge--large--dark:
+        hash: v1.k794b7964.cfa12d9bcd5d9686301b8333cb9c590b5cf8c664be771ecf578e732467734ee9.jOjp8mv2kBkvLgmxF01giOqkWtez-TSSGqH8YKukW_E
+    components-hogcharts-gauge--large--light:
+        hash: v1.k794b7964.29f037960574c9d02d8fc959239d67bb38d6a656bd9048b77b36a16ac7788625.zxTNWketLpsB3HCC36J_v0tcDK80GxKmYh3KiDSWwys
+    components-hogcharts-gauge--null-value--dark:
+        hash: v1.k794b7964.294395f6e9b84059366fc1223c3058affad500434bc1abbf8ad5f042e2e69a1e.p89DruXiXK99ni1VGhoTMgnNwWCXDN5Q6iUlNRxoqPY
+    components-hogcharts-gauge--null-value--light:
+        hash: v1.k794b7964.62efe95049c14e656548d6bddb255b74759b26fcd8c2505f63421d53a402653f.lMKhZCvN9Pdq_y0p6VmbuuMfdPezWN_qHWJABlrlhQs
+    components-hogcharts-gauge--shapes--dark:
+        hash: v1.k794b7964.ce7b34f73cfcc246acba08b43e658689a35d154552713dacde585572745d7531.XFpxNSVrTqWaGa0ezR86Q7aGPQYywlIr6zGUpTTdtmo
+    components-hogcharts-gauge--shapes--light:
+        hash: v1.k794b7964.dc16cfd81fbb67f6ef680dd2490a453358e55ac5cbf414d9e070390e1e4598ec.jvxWjeoIVL0xf6xrPf2DmcQ-mCDI5fwFQ-_x8CpHknE
+    components-hogcharts-gauge--target-marker--dark:
+        hash: v1.k794b7964.c0841d3829a48aaeafb5099339c0fb8a088140fb40d67421046aad0589f0a7a0.dlZR1-rxVHFl8l5VTVcw0Qushi0JlKg-fdCfGDW7IJI
+    components-hogcharts-gauge--target-marker--light:
+        hash: v1.k794b7964.6fcbc46f159116b45aa88307e19c0d5986ea0efda5bb44c6b8675ce7e6440360.162gsHDCPb7lyp56-CmR-IJFvaJvbgg6B81cnNU4dyI
+    components-hogcharts-gauge--thresholds--dark:
+        hash: v1.k794b7964.d4a603a1d428d0811682877d09ed6a5a1d6b576e930acad6f1b9542ff7dcbad3.9uQuF1Ygns-Xr_5htyTu5lCxWMWm3W5K_gH8BzvQrWA
+    components-hogcharts-gauge--thresholds--light:
+        hash: v1.k794b7964.630b94158a87e2a863dd8e56d73bfaf86a8429ff0160d1d334053914dd3e2fee.iMkWOShKEEygZ8NKEO-gxGsTNXGrsWP0_T-MxtEUZfQ
+    components-hogcharts-gauge--thresholds-hovered--dark:
+        hash: v1.k794b7964.5e3eed8dda023b5d4d0befba62d1ccbc1a7b7f0ca51ebeb6ecaf860f9f78a6b1.VMTP6Cahkngs5F3yaaDlahQOgsNnj1h8Yj_94mKeGcw
+    components-hogcharts-gauge--thresholds-hovered--light:
+        hash: v1.k794b7964.6ae45f937e62cd3e6c5e461955f7afbb281a391b252c2074d54c0e6fb3b247f8.VSjarUuYZrtYgnlQJ4Jsn8XwbiivKwM52a-J9amOvzk
+    components-hogcharts-gauge--tiny--dark:
+        hash: v1.k794b7964.2ae2b84721826c246bacd48ec3984c5151b44a1d46d71527ac3c615af836eb13.J4Jfh-RLMeXYndv9q9_ZSpszdxjNl4IvoGcNEOgpFlI
+    components-hogcharts-gauge--tiny--light:
+        hash: v1.k794b7964.d701f322fc227cdb6786a224a397ce37ce36a78be1a56a473b6c35f0b1afe51d.RUdH-TVQ5z9FPRaJHJD_zt-CbDtMdVIcb2EIKyVv9AM
     components-hogcharts-highlightedrange--mirroring-drag-selection--dark:
         hash: v1.k794b7964.6cabdb75668a4e0d83c77a0efc5d955045cf29752863b13587974b387194f2f1.10_3SllxBWGEb3SJCvNqQjJgB4Smu1SGPftAkKoft34
     components-hogcharts-highlightedrange--mirroring-drag-selection--light:
