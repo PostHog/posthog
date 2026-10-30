@@ -31,7 +31,11 @@ def unescape_macro_tokens(body: str) -> str:
 
 
 class TicketMacroSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True, help_text="The user who created this macro.")
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The user who created this macro. Null when that user was deleted.",
+    )
     name = serializers.CharField(max_length=200, help_text="Name shown in the macro list and the composer menu.")
     shortcut = serializers.CharField(
         max_length=50,
@@ -129,6 +133,13 @@ class TicketMacroSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
 
+    def update(self, instance: TicketMacro, validated_data: dict[str, Any]) -> TicketMacro:
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        # A full save would write back the usage counters read before a concurrent `used` bump.
+        instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        return instance
+
 
 @extend_schema_view(
     list=extend_schema(operation_id="conversations_macros_list"),
@@ -154,6 +165,12 @@ class TicketMacroViewSet(
     serializer_class = TicketMacroSerializer
     # PATCH only: a full PUT would reset omitted fields.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    @property
+    def requires_resource_level_access(self) -> bool:
+        # Macros are not ticket objects, so an editor grant on one ticket would otherwise unlock
+        # every macro in the project. Reading and inserting stay open to per-ticket grants.
+        return self.action in ("create", "partial_update", "destroy")
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         return (
@@ -182,7 +199,7 @@ class TicketMacroViewSet(
         super().perform_destroy(instance)
 
     @extend_schema(request=None, responses=TicketMacroSerializer, operation_id="conversations_macros_used_create")
-    @action(detail=True, methods=["post"], url_path="used")
+    @action(detail=True, methods=["post"], url_path="used", required_scopes=["ticket:write"])
     def used(self, request: Request, **kwargs: Any) -> Response:
         macro = self.get_object()
         TicketMacro.objects.for_team(self.team_id).filter(pk=macro.pk).update(

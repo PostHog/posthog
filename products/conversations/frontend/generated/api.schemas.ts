@@ -130,8 +130,8 @@ export interface TicketMacroApi {
      * @nullable
      */
     readonly updated_at: string | null
-    /** The user who created this macro. */
-    readonly created_by: UserBasicApi
+    /** The user who created this macro. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
 }
 
 export interface PaginatedTicketMacroListApi {
@@ -176,8 +176,8 @@ export interface PatchedTicketMacroApi {
      * @nullable
      */
     readonly updated_at?: string | null
-    /** The user who created this macro. */
-    readonly created_by?: UserBasicApi
+    /** The user who created this macro. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
 }
 
 export interface SigningSecretApi {

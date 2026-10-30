@@ -27,10 +27,12 @@ export function MacroFormModal(): JSX.Element | null {
     const draftKey = macroDraft ? (macroDraft.id ?? 'new') : ''
     const bodyEmptyDefault = !(macroDraft?.body ?? '').trim()
     const [bodyEmpty, setBodyEmpty] = useState(bodyEmptyDefault)
+    const [isUploading, setIsUploading] = useState(false)
     const lastDraftKey = useRef(draftKey)
     if (lastDraftKey.current !== draftKey) {
         lastDraftKey.current = draftKey
         setBodyEmpty(bodyEmptyDefault)
+        setIsUploading(false)
     }
 
     if (!macroDraft) {
@@ -39,6 +41,9 @@ export function MacroFormModal(): JSX.Element | null {
 
     const save = (): void => {
         const editor = editorRef.current
+        if (isUploading) {
+            return
+        }
         const serialized = editor ? serializeToMarkdown(editor.getJSON()) : macroDraft.body
         const body = unescapeMacroTokens(serialized).trim()
         if (!macroDraft.name.trim() || !body) {
@@ -72,7 +77,9 @@ export function MacroFormModal(): JSX.Element | null {
                         disabledReason={
                             !macroDraft.name.trim()
                                 ? 'Add a name'
-                                : shortcutError(macroDraft.shortcut) || (bodyEmpty ? 'Write the reply' : undefined)
+                                : shortcutError(macroDraft.shortcut) ||
+                                  (bodyEmpty ? 'Write the reply' : undefined) ||
+                                  (isUploading ? 'Wait for the image to finish uploading' : undefined)
                         }
                         data-attr="support-macro-save"
                     >
@@ -106,6 +113,7 @@ export function MacroFormModal(): JSX.Element | null {
                     minRows={6}
                     placeholder="Hi {{customer.first_name}}"
                     onUpdate={setBodyEmpty}
+                    onUploadingChange={setIsUploading}
                     onCreate={(editor) => {
                         editorRef.current = editor
                         if (macroDraft.body) {

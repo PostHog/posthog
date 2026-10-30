@@ -10,7 +10,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 
 import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
-import { isStartOfMacroSlash, macroPreview } from './renderMacro'
+import { isStartOfMacroSlash, macroPreview, matchMacros } from './renderMacro'
 import { supportMacrosLogic } from './supportMacrosLogic'
 
 type MacroSuggestionProps = {
@@ -21,19 +21,9 @@ type MacroSuggestionProps = {
     onClose: () => void
 }
 
-function matchingMacros(macros: TicketMacroApi[], query: string): TicketMacroApi[] {
-    const needle = query.trim().toLowerCase()
-    const matches = needle
-        ? macros.filter(
-              (macro) => macro.name.toLowerCase().includes(needle) || (macro.shortcut ?? '').startsWith(needle)
-          )
-        : macros
-    return matches.slice(0, 8)
-}
-
 function MacroSuggestionPanel({ range, query, editor, onInsert, onClose }: MacroSuggestionProps): JSX.Element {
     const { macrosSorted } = useValues(supportMacrosLogic)
-    const matches = matchingMacros(macrosSorted, query)
+    const matches = matchMacros(macrosSorted, query)
 
     const choose = (macro: TicketMacroApi): void => {
         editor.chain().focus().deleteRange(range).run()
@@ -139,6 +129,7 @@ export const MacroSuggestionExtension = Extension.create<{
 
                     return {
                         onStart: (props) => {
+                            supportMacrosLogic.findMounted()?.actions.ensureMacrosLoaded()
                             renderer = new ReactRenderer(MacroSuggestionPopover, {
                                 editor: props.editor,
                                 props: suggestionProps(props),
@@ -154,7 +145,7 @@ export const MacroSuggestionExtension = Extension.create<{
                             }
                             if (props.event.key === 'Enter' && current?.query) {
                                 const { macrosSorted } = supportMacrosLogic.values
-                                const match = matchingMacros(macrosSorted, current.query)[0]
+                                const match = matchMacros(macrosSorted, current.query)[0]
                                 const onInsert = getOnInsert()
                                 if (match && onInsert) {
                                     current.editor.chain().focus().deleteRange(current.range).run()

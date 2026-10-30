@@ -5,9 +5,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.conversations.backend.models import TicketMacro
+from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.models import Ticket, TicketMacro
+from products.conversations.backend.models.constants import Channel
 
 
 class TestTicketMacroAPI(APIBaseTest):
@@ -116,9 +120,20 @@ class TestTicketMacroAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{other.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_used_increments_without_an_audit_row(self):
+    @parameterized.expand(["session", "personal_api_key"])
+    def test_used_increments_without_an_audit_row(self, auth):
         created = self._create()
         before = ActivityLog.objects.filter(scope="TicketMacro", item_id=created["id"]).count()
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
 
         response = self.client.post(f"{self.base_url}{created['id']}/used/")
         assert response.status_code == status.HTTP_200_OK
@@ -135,3 +150,27 @@ class TestTicketMacroAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not TicketMacro.objects.for_team(self.team.id).filter(pk=created["id"]).exists()
         assert ActivityLog.objects.filter(scope="TicketMacro", item_id=created["id"], activity="deleted").exists()
+
+    def test_editor_grant_on_one_ticket_cannot_edit_macros(self):
+        created = self._create()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team, channel_source=Channel.WIDGET, widget_session_id="s", distinct_id="d"
+        )
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="ticket", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=str(ticket.id),
+            organization_member=membership,
+            access_level="editor",
+        )
+        url = f"{self.base_url}{created['id']}/"
+
+        assert self.client.get(self.base_url).status_code == status.HTTP_200_OK
+        assert self.client.post(f"{url}used/").status_code == status.HTTP_200_OK
+        assert self.client.patch(url, {"body": "Hijacked"}, format="json").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.delete(url).status_code == status.HTTP_403_FORBIDDEN
+        assert TicketMacro.objects.for_team(self.team.id).get(pk=created["id"]).body == created["body"]

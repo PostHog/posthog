@@ -438,12 +438,13 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
         })
     })
 
-    it('fills the customer and agent names into the composer', async () => {
+    it('fills the customer and agent names into the composer and keeps a private draft private', async () => {
         logic.actions.setTicket({
             ...makeTicket(),
             anonymous_traits: { email: 'jane@example.com' },
             person: { properties: { name: 'Jane Doe' } },
         } as unknown as Ticket)
+        logic.actions.setDraftIsPrivate(true)
 
         await expectLogic(logic, () => {
             logic.actions.insertMacro(
@@ -455,7 +456,7 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
         expect(logic.values.composerInsertAt).toBe(1)
         expect(logic.values.pendingComposerInsert).toContain('Jane')
         expect(logic.values.pendingComposerInsert).toContain('John')
-        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.draftIsPrivate).toBe(true)
     })
 })
 

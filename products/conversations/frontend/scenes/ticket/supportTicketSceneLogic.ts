@@ -1731,9 +1731,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.editingMessageId) {
                 actions.cancelEditingMessage()
             }
-            actions.setDraftIsPrivate(false)
+            // Keep the draft's visibility: switching a private note to public would publish the text already in it.
             actions.setPendingComposerInsert(
-                markdownToHtml(renderMacro(macro.body, macroContextFromTicket(values.ticket, values.user)))
+                renderMacro(macro.body, macroContextFromTicket(values.ticket, values.user))
             )
             actions.bumpComposerInsert()
             posthog.capture('support macro inserted', { macro_id: macro.id, source })
