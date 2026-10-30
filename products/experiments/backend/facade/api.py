@@ -384,7 +384,11 @@ def list_precomputation_enabled_team_ids(team_ids: Collection[int] | None = None
 
 
 def _team_experiments_config(team_id: int) -> TeamExperimentsConfig:
-    return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
+    try:
+        # Join the team because the activity log on every save and the repository check read `config.team`.
+        return TeamExperimentsConfig.objects.select_related("team").get(team_id=team_id)
+    except TeamExperimentsConfig.DoesNotExist:
+        return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
 
 
 def set_precomputation_enabled(*, team_id: int, enabled: bool) -> None:

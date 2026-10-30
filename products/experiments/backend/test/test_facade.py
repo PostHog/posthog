@@ -635,7 +635,10 @@ class TestTeamExperimentsSettings(BaseTest):
             flag_cleanup_repository="posthog/posthog",
         )
 
-        assert api.get_team_experiments_settings(self.team.id) == TeamExperimentsSettings(
+        with self.assertNumQueries(1):
+            settings = api.get_team_experiments_settings(self.team.id)
+
+        assert settings == TeamExperimentsSettings(
             experiment_recalculation_times=("02:00:00", "14:00:00"),
             default_experiment_confidence_level=Decimal("0.90"),
             default_experiment_stats_method="frequentist",
