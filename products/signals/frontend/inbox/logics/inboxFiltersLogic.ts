@@ -298,13 +298,11 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
-// pg_trgm takes no trigram from a shorter term, so the server would recheck every report in the project.
-const MIN_APPLIED_SEARCH_LENGTH = 3
+const MIN_TRIGRAM_SEARCH_LENGTH = 3
 
-/** The search term the list request sends. Shorter input leaves the list unfiltered. */
 export function appliedInboxSearch(searchQuery: string): string | undefined {
     const search = searchQuery.trim()
-    return search.length >= MIN_APPLIED_SEARCH_LENGTH ? search : undefined
+    return search.length >= MIN_TRIGRAM_SEARCH_LENGTH ? search : undefined
 }
 
 /**
