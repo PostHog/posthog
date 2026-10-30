@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -29,14 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsigh
     DEFAULT_METRICS_LOOKBACK_DAYS,
     INCREMENTAL_FIELDS,
     MAX_PAGE_SIZE,
+    METRIC_DATE_RANGE_STYLES,
     METRIC_ENDPOINT_PATHS,
     METRIC_ENDPOINTS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
     TABLE_NAMES,
+    MetricDateRangeStyle,
 )
 
-# Shared host for the Metrics API (Coding metrics, Collaboration/PR metrics) — unlike the Customer
+# Shared host for the Metrics API (Coding, Collaboration, Ticket and DORA metrics) — unlike the Customer
 # API, it is not workspace-specific. Flow moved this off `flow-api.pluralsight.com` to
 # `api.appfireflow.com` on 2025-07-23; the old host is no longer guaranteed to work.
 METRICS_BASE_URL = "https://api.appfireflow.com"
@@ -119,10 +122,16 @@ def _core_resource(name: str, should_use_incremental_field: bool) -> EndpointRes
     }
 
 
-def _default_metrics_date_range(today: Optional[date] = None) -> str:
+def _default_metrics_date_range(style: MetricDateRangeStyle = "bracket", today: Optional[date] = None) -> str:
     end = today or datetime.now(UTC).date()
     start = end - timedelta(days=DEFAULT_METRICS_LOOKBACK_DAYS)
-    return f"[{start.isoformat()}:{end.isoformat()}]"
+    if style == "bracket":
+        return f"[{start.isoformat()}:{end.isoformat()}]"
+    start_at = f"{start.isoformat()}T00:00:00+00:00"
+    end_at = f"{end.isoformat()}T00:00:00+00:00"
+    if style == "json_list":
+        return json.dumps([start_at, end_at], separators=(",", ":"))
+    return f"{start_at},{end_at}"
 
 
 def _stamp_date_range(date_range: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -162,7 +171,7 @@ def pluralsight_flow_source(
         metrics_config: RESTAPIConfig = {
             "client": {"base_url": METRICS_BASE_URL, "auth": {"type": "bearer", "token": api_key}},
             "resource_defaults": {},
-            "resources": [_metrics_resource(endpoint, _default_metrics_date_range())],
+            "resources": [_metrics_resource(endpoint, _default_metrics_date_range(METRIC_DATE_RANGE_STYLES[endpoint]))],
         }
         resource = rest_api_resource(metrics_config, team_id, job_id, None)
         return SourceResponse(

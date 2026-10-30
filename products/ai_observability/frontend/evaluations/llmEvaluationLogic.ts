@@ -36,6 +36,7 @@ import { evaluationErrorMessage } from './apiErrors'
 import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
+    EVALUATION_SENTIMENT_GRADED_HOGQL,
     numericEvaluationPassedHogQL,
     evaluationPassedHogQL,
     evaluationPassRateHogQL,
@@ -1650,12 +1651,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 originalEvaluation: EvaluationConfig | null
             ): boolean => evaluationSupportsReports(isNewEvaluation ? evaluation : originalEvaluation),
         ],
-        // The evaluation's headline result as a trends query: the pass rate, or the mean score without a passing rule.
+        // The evaluation's headline result as a trends query: the pass rate, the mean score without a passing rule, or
+        // the negative sentiment rate.
         trendsQuery: [
             (s) => [s.originalEvaluation],
             (evaluation: EvaluationConfig | null): TrendsQuery | null =>
                 evaluation &&
-                (evaluationSupportsRunOutcomes(evaluation) || evaluation.output_type === 'numeric') &&
+                (evaluationSupportsRunOutcomes(evaluation) ||
+                    evaluation.output_type === 'numeric' ||
+                    evaluation.output_type === 'sentiment') &&
                 evaluation.id
                     ? ({
                           kind: NodeKind.TrendsQuery,
@@ -1663,22 +1667,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                               {
                                   kind: NodeKind.EventsNode,
                                   event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
+                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'sentiment' ? 'Negative rate' : evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
                                   math: HogQLMathType.HogQL,
                                   math_hogql:
-                                      evaluation.output_type === 'categorical'
+                                      evaluation.output_type === 'sentiment'
                                           ? evaluationPassRateHogQL(
-                                                categoricalEvaluationPassedHogQL(evaluation),
-                                                EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                                `lower(properties.$ai_sentiment_label) = 'negative'`,
+                                                EVALUATION_SENTIMENT_GRADED_HOGQL
                                             )
-                                          : evaluation.output_type === 'numeric'
-                                            ? evaluation.output_config.passing_rule
-                                                ? evaluationPassRateHogQL(
-                                                      numericEvaluationPassedHogQL(evaluation),
-                                                      EVALUATION_NUMERIC_GRADED_HOGQL
-                                                  )
-                                                : EVALUATION_NUMERIC_MEAN_HOGQL
-                                            : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                          : evaluation.output_type === 'categorical'
+                                            ? evaluationPassRateHogQL(
+                                                  categoricalEvaluationPassedHogQL(evaluation),
+                                                  EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                              )
+                                            : evaluation.output_type === 'numeric'
+                                              ? evaluation.output_config.passing_rule
+                                                  ? evaluationPassRateHogQL(
+                                                        numericEvaluationPassedHogQL(evaluation),
+                                                        EVALUATION_NUMERIC_GRADED_HOGQL
+                                                    )
+                                                  : EVALUATION_NUMERIC_MEAN_HOGQL
+                                              : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
