@@ -8,13 +8,13 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.temporal.health_checks.rollups.fill import fill_day
+from posthog.temporal.health_checks.rollups.fill import DayOverRowCap, fill_day
 from posthog.temporal.health_checks.rollups.framework import DailyRollup
 from posthog.temporal.health_checks.rollups.freshness import invalidate_published_days
 from posthog.temporal.health_checks.rollups.store import (
     day_stats,
     delete_days_before,
-    delete_rollup_rows_for_teams,
+    delete_rows_of_deleted_teams,
     publish_day,
 )
 from posthog.temporal.health_checks.rollups.validation import day_moved, refusal_reason
@@ -86,8 +86,11 @@ def run_rollup_day(rollup: type[DailyRollup], step: RollupDay, *, force: bool = 
 
     Every slow part, the ClickHouse reads, runs before the Postgres transaction opens.
     """
-    live_team_ids = _live_team_ids()
-    fill = fill_day(rollup, step.day, live_team_ids)
+    try:
+        fill = fill_day(rollup, step.day, _live_team_ids())
+    except DayOverRowCap as error:
+        logger.warning("daily rollup day refused", table=rollup.table(), day=step.day.isoformat(), reason=str(error))
+        raise RollupDayRefused(f"Refused to publish {rollup.table()} for {step.day.isoformat()}: {error}") from error
     try:
         if step.mode == "refresh" and not day_moved(day_stats(rollup, [step.day]).get(step.day), fill):
             logger.info(
@@ -104,17 +107,16 @@ def run_rollup_day(rollup: type[DailyRollup], step: RollupDay, *, force: bool = 
             raise RollupDayRefused(f"Refused to publish {rollup.table()} for {step.day.isoformat()}: {reason}")
 
         publish_day(rollup, fill)
-        deleted_during_fill = live_team_ids - _live_team_ids()
-        if deleted_during_fill:
-            delete_rollup_rows_for_teams(rollup.model, sorted(deleted_during_fill))
         invalidate_published_days(rollup.model)
         return RollupDayResult(day=step.day, outcome="published", rows=fill.row_count, events=fill.event_count)
     finally:
         fill.close()
 
 
-def apply_retention(rollup: type[DailyRollup], *, today: dt.date) -> int:
+def clean_up(rollup: type[DailyRollup], *, today: dt.date) -> int:
+    """Delete the days retention no longer keeps and the rows of deleted environments."""
     deleted = delete_days_before(rollup, today - dt.timedelta(days=rollup.retention_days))
+    deleted += delete_rows_of_deleted_teams(rollup)
     if deleted:
         invalidate_published_days(rollup.model)
     return deleted

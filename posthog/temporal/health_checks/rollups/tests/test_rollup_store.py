@@ -78,6 +78,19 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
 
         assert list(SdkVersionsDaily.objects.for_team(self.team.id).values_list("event_count", flat=True)) == [9]
 
+    def test_day_over_the_row_cap_is_refused_even_when_forced(self) -> None:
+        with materialized("events", "$lib"), materialized("events", "$lib_version"):
+            self._capture_sdk_events(self.team, [("web", "1.0.0"), ("web", "1.1.0"), ("web", "1.2.0")], NOON_YESTERDAY)
+            flush_persons_and_events()
+
+            with (
+                patch.object(SdkVersionsDailyRollup, "max_rows_per_day", 1),
+                pytest.raises(RollupDayRefused, match="more than 1 rows"),
+            ):
+                run_rollup_day(SdkVersionsDailyRollup, RollupDay(day=YESTERDAY, mode="publish"), force=True)
+
+        assert not SdkVersionsDaily.objects.for_team(self.team.id).exists()
+
     def test_sdk_fill_keeps_known_sdks_with_storable_versions(self) -> None:
         events = [
             ("web", "1.200.0"),
@@ -111,9 +124,12 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
         assert delete_rollup_rows_for_teams(SdkVersionsDaily, [self.team.id]) == 10
         assert SdkVersionsDaily.objects.unscoped().count() == 1
 
-    def test_scheduled_job_publishes_the_good_days_and_applies_retention_before_failing_on_a_refused_day(self) -> None:
+    def test_scheduled_job_publishes_the_good_days_and_cleans_up_before_failing_on_a_refused_day(self) -> None:
         expired_day = YESTERDAY - dt.timedelta(days=20)
-        SdkVersionsDaily.objects.unscoped().bulk_create([_sdk_row(self.team.id, expired_day)])
+        deleted_team_id = self.team.id + 1000
+        SdkVersionsDaily.objects.unscoped().bulk_create(
+            [_sdk_row(self.team.id, expired_day), _sdk_row(deleted_team_id, YESTERDAY - dt.timedelta(days=4))]
+        )
         with materialized("events", "$lib"), materialized("events", "$lib_version"):
             self._capture_sdk_events(self.team, [("web", "1.0.0")], NOON_YESTERDAY)
             self._capture_sdk_events(self.team, [("web", "1.0.0")] * 2, NOON_YESTERDAY - dt.timedelta(days=3))
@@ -123,10 +139,10 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
 
         assert not result.success
         failure = result.failure_data_for_node(f"fill_{SdkVersionsDailyRollup.table()}")
-        assert failure is not None and "The next run fills them again" in str(failure.error)
+        assert failure is not None and "Launch the job with `days`" in str(failure.error)
 
-        published = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("day", "event_count"))
-        assert published == {(YESTERDAY, 1), (YESTERDAY - dt.timedelta(days=3), 2)}
+        published = set(SdkVersionsDaily.objects.unscoped().values_list("team_id", "day", "event_count"))
+        assert published == {(self.team.id, YESTERDAY, 1), (self.team.id, YESTERDAY - dt.timedelta(days=3), 2)}
 
     def test_requested_day_with_force_publishes_under_the_median(self) -> None:
         SdkVersionsDaily.objects.unscoped().bulk_create(
