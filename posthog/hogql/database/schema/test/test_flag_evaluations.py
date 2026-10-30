@@ -1346,6 +1346,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
         ]
     )
+    # Mode 1 keeps a project on the native-JSON events table reading events, so no swap would load a definition.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_call_views_load_each_property_definition_once_per_query(self, _name: str, mode: FlagEvaluationsMode):
         for name in ("calls_a", "calls_b"):
             self._create_view(
