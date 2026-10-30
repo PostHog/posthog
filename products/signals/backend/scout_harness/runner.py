@@ -38,6 +38,7 @@ from products.signals.backend.first_report_completion import complete_first_repo
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -1013,6 +1014,7 @@ async def _spawn_and_run(
     # The config's `network_access` picks the sandbox env — and with it the egress policy the
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
     # env name so its unrestricted policy can't be reasserted onto the shared one.
+    github_optional = await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team.id)
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
         network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
@@ -1158,6 +1160,7 @@ async def _spawn_and_run(
             runtime=runtime,
             experiment=experiment,
             github_guidance=github_guidance,
+            github_optional=github_optional,
             business_knowledge_maintained=business_knowledge_maintained,
             background_backoff=background_backoff,
             repositories=repositories,
@@ -1466,6 +1469,7 @@ def _create_run_row(
     runtime: str = "acp",
     experiment: FirstReportExperiment | None = None,
     github_guidance: bool = False,
+    github_optional: bool = False,
     business_knowledge_maintained: bool = False,
     background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
@@ -1515,6 +1519,7 @@ def _create_run_row(
     # minted. Both can change between runs, so this is a fourth composition fork rather than a
     # property of the build.
     metadata["github_guidance"] = github_guidance
+    metadata["github_optional"] = github_optional
     # Whether the business-knowledge section rendered — a fifth composition fork, resolved per run
     # from the team's flag + a maintained knowledge base (`_business_knowledge_maintained_for_team`).
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than

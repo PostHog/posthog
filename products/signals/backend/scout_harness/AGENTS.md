@@ -126,6 +126,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`, `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`, `SignalScoutViewSet`.
   Routed under `project_signals_scout_*` basenames in `products/signals/backend/routes.py` and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  Authored Monitoring scouts submit through `scout-monitoring-result-submit`, gated by a server-minted capability and the token-bound run. Assignment identifiers and the evidence window come from the persisted run brief. Validation errors permit correction within the same run; the ordinary close-out is prose and does not submit a verdict.
   `SignalScoutRunViewSet` carries two staff-only cost actions. The `token-costs` action uses `run_costs.py`. The `costs` action uses `scout_costs.py`. Both actions sit in `tools.yaml` as `enabled: false`. Code generation registers each operation, but fleet spend stays outside the public MCP catalog.
   `SignalScoutViewSet` backs `scout-create`: it creates a custom `signals-scout-*` skill and its runnable config atomically, grants the report-channel tools server-side, and treats an identical definition as a retry while rejecting conflicting definitions.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:

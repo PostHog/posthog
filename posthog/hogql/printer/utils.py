@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from posthog.schema_enums import InCohortVia, PropertyGroupsMode
@@ -32,6 +33,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -39,6 +41,7 @@ from posthog.hogql.transforms.json_property_pushdown import (
 )
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
+from posthog.hogql.transforms.materialized_ctes import materialize_repeated_ctes
 from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time_bucket_bounds
 from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -259,13 +262,17 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
-        node = resolve_types(
-            node,
-            context,
+        resolve = partial(
+            resolve_types,
+            context=context,
             dialect=dialect,
-            scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+        if dialect == "clickhouse":
+            node = resolve_flag_calls_from_flag_evaluations(node, context, resolve)
+        else:
+            node = resolve(node)
 
     # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
@@ -326,6 +333,17 @@ def prepare_ast_for_printing(
         # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
+
+    if dialect == "clickhouse" and context.modifiers.materializeRepeatedCTEs:
+        from django.conf import (
+            settings as django_settings,  # noqa: PLC0415 -- deployment capability is read only on opt-in compilation
+        )
+
+        if django_settings.HOGQL_MATERIALIZED_CTE_SUPPORTED and (
+            settings is None or settings.enable_analyzer is not False
+        ):
+            with context.timings.measure("materialize_repeated_ctes"):
+                materialize_repeated_ctes(node, context)
 
     if dialect == "trino":
         with context.timings.measure("trino_structural_lowering"):

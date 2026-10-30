@@ -10,9 +10,11 @@ import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } f
 import type {
     ExplainChartData,
     StoryChapter,
+    StoryEvidenceChartData,
     StorySeriesResult,
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -24,7 +26,7 @@ type Params = z.infer<typeof schema>
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
 const RENDERED_NOTE =
-    'The person sees the walkthrough rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Your whole reply is at most three short sentences: which chapter to start with, one caveat the walkthrough cannot show if there is one, and one next step you offer. If the person says the walkthrough did not load, give the findings in text.'
+    'The person sees the chart explanation rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Keep your reply short: which chapter to start with, only what the chart explanation cannot hold (a caveat about the data, a linked fix, a decision that is still open), and one next step you offer. If the person says the explanation did not load, give the findings in text.'
 
 // The markers sit on one value over time. These displays draw that as they are.
 const TIME_SERIES_DISPLAYS = new Set([
@@ -36,7 +38,7 @@ const TIME_SERIES_DISPLAYS = new Set([
     'ActionsStackedBar',
 ])
 
-// These show a total over the range, so the walkthrough draws the line behind it. Any other display is refused.
+// These show a total over the range, so the explanation draws the line behind it. Any other display is refused.
 const TOTAL_DISPLAYS = new Set([
     'Auto',
     'BoldNumber',
@@ -55,9 +57,85 @@ const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, writ
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 
-// The walkthrough redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
-// it would refuse keeps its link and no chart.
-const redrawSchema = GENERATED_TOOLS['query-trends']!().schema
+// The explanation redraws insight evidence through the query tool for its kind. A tool's schema is narrower than the
+// query's, so evidence the tool would refuse keeps its link and no chart.
+const REDRAW_TOOLS = new Map(
+    (
+        [
+            ['TrendsQuery', 'query-trends'],
+            ['FunnelsQuery', 'query-funnel'],
+            ['RetentionQuery', 'query-retention'],
+            ['StickinessQuery', 'query-stickiness'],
+            ['PathsQuery', 'query-paths'],
+            ['LifecycleQuery', 'query-lifecycle'],
+        ] as const
+    ).map(([kind, tool]) => [kind as string, { tool, schema: GENERATED_TOOLS[tool]!().schema }])
+)
+
+function redrawToolFor(query: Record<string, unknown> | undefined): string | null {
+    // A trends query may leave out `kind`, which the trends tool fills in.
+    const kind = query?.kind ?? 'TrendsQuery'
+    const redraw = query && typeof kind === 'string' ? REDRAW_TOOLS.get(kind) : undefined
+    return redraw && redraw.schema.safeParse(query).success ? redraw.tool : null
+}
+
+type SqlEvidence = { chart: StoryEvidenceChartData | null } | { error: string }
+
+const SQL_EVIDENCE_TIME_LIMIT_MS = 60_000
+
+function isSqlQuery(query: Record<string, unknown> | undefined): query is Record<string, unknown> {
+    return query?.kind === 'HogQLQuery' && typeof query.query === 'string'
+}
+
+async function runSqlEvidence(
+    context: Context,
+    projectId: string,
+    chapters: Params['chapters']
+): Promise<Map<string, SqlEvidence>> {
+    const queries = new Map<string, Record<string, unknown>>()
+    for (const item of chapters.flatMap((chapter) => chapter.evidence ?? [])) {
+        if (isSqlQuery(item.query)) {
+            queries.set(JSON.stringify(item.query), item.query)
+        }
+    }
+    // One at a time, so the evidence does not use up the team's concurrent query limit, within one shared time limit.
+    const signal = AbortSignal.timeout(SQL_EVIDENCE_TIME_LIMIT_MS)
+    const results = new Map<string, SqlEvidence>()
+    for (const [key, query] of queries) {
+        if (signal.aborted) {
+            results.set(key, { error: 'it did not finish in time' })
+            continue
+        }
+        try {
+            const response = await context.api.query({ projectId }).runQuery({ query, signal })
+            const columns = (response.columns ?? []).map(String)
+            const rows = Array.isArray(response.results) ? (response.results as unknown[][]) : []
+            results.set(key, { chart: sqlEvidenceChart(columns, rows) })
+        } catch (error) {
+            results.set(key, { error: error instanceof Error ? error.message : String(error) })
+        }
+    }
+    return results
+}
+
+function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlEvidence>): string[] {
+    return chapters.flatMap((chapter) =>
+        (chapter.evidence ?? []).flatMap((item) => {
+            const result = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+            if (!result) {
+                return []
+            }
+            if ('error' in result) {
+                return [`The SQL behind "${item.text}" failed, so it shows as a link only: ${result.error}`]
+            }
+            return result.chart
+                ? []
+                : [
+                      `The SQL behind "${item.text}" returned nothing to draw, so it shows as a link only. Select the x-axis column first, then either the numbers to draw, or one text column to break down by followed by one number.`,
+                  ]
+        })
+    )
+}
 
 interface StoryChart {
     query: StoryTrendsQuery
@@ -121,10 +199,11 @@ function describeResult(
     series: StorySeriesResult,
     chapters: Params['chapters'],
     missed: string[],
-    warnings: unknown[]
+    warnings: unknown[],
+    evidenceProblems: string[]
 ): string {
     const name = chart.insightName ?? series.label ?? 'the chart'
-    const lines = [`The walkthrough of "${name}" has ${chapters.length} chapters.`]
+    const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -135,6 +214,7 @@ function describeResult(
             } without a highlight. Use dates from the chart's \`days\` and call this tool again.`
         )
     }
+    lines.push(...evidenceProblems)
     return lines.join(' ')
 }
 
@@ -156,6 +236,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         )
     }
 
+    const sqlEvidence = await runSqlEvidence(context, projectId, params.chapters)
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const interval = chart.query.interval ?? 'day'
     const { timezone, warnings = [] } = response as { timezone?: string; warnings?: unknown[] | null }
@@ -172,11 +253,17 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             cause: chapter.cause ?? null,
             confidence: chapter.confidence ?? null,
             confidenceReason: chapter.confidence_reason ?? null,
-            evidence: (chapter.evidence ?? []).map((item) => ({
-                text: item.text,
-                url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                query: item.query && redrawSchema.safeParse(item.query).success ? item.query : null,
-            })),
+            evidence: (chapter.evidence ?? []).map((item) => {
+                const queryTool = redrawToolFor(item.query)
+                const sql = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
+                return {
+                    text: item.text,
+                    url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
+                    query: queryTool ? item.query : null,
+                    queryTool,
+                    chart: sql && 'chart' in sql ? sql.chart : null,
+                }
+            }),
         }
     })
 
@@ -195,7 +282,8 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
             series,
             params.chapters,
             missed,
-            warnings ?? []
+            warnings ?? [],
+            sqlProblems(params.chapters, sqlEvidence)
         ),
     }
 }

@@ -7,6 +7,7 @@ import {
     Controls,
     FitViewOptions,
     MiniMap,
+    type Node,
     Panel,
     ReactFlow,
     ReactFlowProvider,
@@ -16,30 +17,41 @@ import {
 } from '@xyflow/react'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+    type KeyboardEvent,
+    type MouseEvent,
+    ReactNode,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 
-import { IconArchive, IconRefresh } from '@posthog/icons'
+import { IconArchive, IconExpand45, IconRefresh } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { ElkDirection } from './autolayout'
+import { LINEAGE_MIN_ZOOM, lineageFitTarget } from './lineageFit'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
+import { LineageEdge, LineageGraphNode } from './lineageHiddenNodes'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 import { lineageCone } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
 
-const EMPTY_NODES: DataModelingNode[] = []
-const EMPTY_EDGES: DataModelingEdge[] = []
+const EMPTY_NODES: LineageGraphNode[] = []
+const EMPTY_EDGES: LineageEdge[] = []
 const FOCUSED_NODES_MAX_ZOOM = 2
 const CURRENT_NODE_MAX_ZOOM = 1
 
 export interface LineageGraphProps {
-    nodes: DataModelingNode[]
-    edges: DataModelingEdge[]
+    nodes: LineageGraphNode[]
+    edges: LineageEdge[]
     /** Highlighted "you are here" node, rendered with a target marker + accent border */
     currentNodeId?: string
     variant?: LineageVariant
@@ -74,7 +86,9 @@ export interface LineageGraphProps {
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
-    const { fitView, setNodes, viewportInitialized } = useReactFlow()
+    const { fitView, getNodesBounds, setNodes, viewportInitialized } = useReactFlow()
+    const viewportWidth = useStore((state) => state.width)
+    const viewportHeight = useStore((state) => state.height)
     const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -96,6 +110,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const fittedSearchRequest = useRef<{ requestId: number; layout: typeof layout } | null>(null)
     const lastNodeDrag = useRef<{ nodeId: string; stoppedAt: number } | null>(null)
     const resetRequested = useRef(false)
+
+    const fitNodes = useCallback(
+        (nodes: Node[], options: FitViewOptions = {}): void => {
+            const padding = typeof options.padding === 'number' ? options.padding : 0.2
+            const viewport = { width: viewportWidth, height: viewportHeight }
+            const target = lineageFitTarget(nodes, getNodesBounds(nodes), viewport, padding)
+            void fitView({ ...options, padding, nodes: target.nodes, maxZoom: target.maxZoom ?? options.maxZoom })
+        },
+        [fitView, getNodesBounds, viewportWidth, viewportHeight]
+    )
     const selectedLineage = useMemo(
         () => (props.selectable && selectedNodeId ? lineageCone(props.edges, selectedNodeId) : null),
         [props.edges, props.selectable, selectedNodeId]
@@ -215,8 +239,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             return
         }
         resetRequested.current = false
-        void fitView({ nodes: decoratedNodes, padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
-    }, [decoratedNodes, fitView, props.fitViewOptions?.padding, props.nodePositions, resetPositionsApplied])
+        fitNodes(decoratedNodes, { padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
+    }, [decoratedNodes, fitNodes, props.fitViewOptions?.padding, props.nodePositions, resetPositionsApplied])
 
     useEffect(() => {
         if (!viewportInitialized || !nodesMeasured || !layout || props.loading || fittedLayout.current === layout) {
@@ -226,14 +250,13 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         if (focusNodeIds || searchFocusRequest) {
             return
         }
-        void fitView({
+        fitNodes(decoratedNodes, {
             ...props.fitViewOptions,
-            nodes: decoratedNodes,
             padding: props.fitViewOptions?.padding ?? 0.2,
             duration: 400,
         })
     }, [
-        fitView,
+        fitNodes,
         focusNodeIds,
         decoratedNodes,
         layout,
@@ -262,8 +285,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         if (nodes.length > 0) {
             fittedFocus.current = { focusNodeIds, layout }
             const focusedNodesMaxZoom = props.focusNodeIds ? FOCUSED_NODES_MAX_ZOOM : CURRENT_NODE_MAX_ZOOM
-            void fitView({
-                nodes,
+            fitNodes(nodes, {
                 padding: 0.2,
                 duration: 400,
                 maxZoom: focusNodeIds.size > 0 ? focusedNodesMaxZoom : undefined,
@@ -271,7 +293,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         }
     }, [
         decoratedNodes,
-        fitView,
+        fitNodes,
         viewportInitialized,
         nodesMeasured,
         focusNodeIds,
@@ -331,7 +353,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             // The card inside each node is the focus target and carries the key handler. A focusable
             // wrapper would add a second tab stop per node that only selects and never navigates.
             nodesFocusable={false}
-            minZoom={0.1}
+            minZoom={LINEAGE_MIN_ZOOM}
             maxZoom={2}
             zoomOnScroll={props.interactive ?? false}
             panOnScroll={props.interactive ?? false}
@@ -341,8 +363,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && (
-                // The button runs its own fitView, so it needs the caller's options to respect the same zoom cap
-                <Controls showInteractive={false} position="bottom-left" fitViewOptions={props.fitViewOptions}>
+                <Controls showInteractive={false} showFitView={false} position="bottom-left">
+                    <ControlButton
+                        aria-label="Fit view"
+                        title="Fit view"
+                        onClick={() => fitNodes(decoratedNodes, props.fitViewOptions)}
+                    >
+                        <IconExpand45 aria-hidden="true" />
+                    </ControlButton>
                     {props.nodesDraggable && props.onResetNodePositions && (
                         <ControlButton
                             aria-label="Reset layout"

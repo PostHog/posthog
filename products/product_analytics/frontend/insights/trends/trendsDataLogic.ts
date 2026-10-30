@@ -27,7 +27,7 @@ import {
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
-import { getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -167,6 +167,7 @@ export interface trendsDataLogicValues {
     trendsFilter: TrendsFilter | null | undefined // insightVizDataLogic
     vizSpecificOptions: VizSpecificOptions | null | undefined // insightVizDataLogic
     yAxisScaleType: string | null | undefined // insightVizDataLogic
+    actionNames: ActionNames
     alertSeries: EventsNode[]
     areAllSeriesVisible: boolean
     breakdownValuesLoading: boolean
@@ -291,6 +292,7 @@ export interface trendsDataLogicMeta {
                 | null
         ) => EventsNode[]
         results: (insightData: Record<string, any>) => TrendResult[]
+        actionNames: (insightData: Record<string, any>) => ActionNames
         hasBreakdownMore: (insightData: Record<string, any>, isTrends: boolean) => boolean
         hasPersonsModal: (
             formula: string | null | undefined,
@@ -570,6 +572,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
                 return []
             },
+        ],
+
+        actionNames: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): ActionNames => insightData.action_names ?? {},
         ],
 
         hasBreakdownMore: [

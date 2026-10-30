@@ -14,6 +14,7 @@ import { openDismissReportDialog } from 'products/signals/frontend/inbox/compone
 import { openResolveReportDialog } from 'products/signals/frontend/inbox/components/shell/ResolveReportDialog'
 import { captureTodayReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { withInboxWriteTimeout } from 'products/signals/frontend/inbox/utils/writeTimeout'
 
 import type { TodayReportState } from './todayReportState'
 
@@ -201,10 +202,14 @@ export const todayVerdictLogic = kea<todayVerdictLogicType>([
         setReportVerdict: async ({ target, verdict, surface, feedback, onComplete }) => {
             const copy = VERDICTS[verdict]
             try {
-                await signalsReportsStateCreate(String(values.currentProjectId), target.reportId, {
-                    ...feedback,
-                    state: copy.apiState,
-                })
+                await withInboxWriteTimeout('state', (options) =>
+                    signalsReportsStateCreate(
+                        String(values.currentProjectId),
+                        target.reportId,
+                        { ...feedback, state: copy.apiState },
+                        options
+                    )
+                )
             } catch (error) {
                 actions.setReportVerdictFailure(target.reportId)
                 lemonToast.error((error instanceof ApiError && error.detail) || copy.failure)

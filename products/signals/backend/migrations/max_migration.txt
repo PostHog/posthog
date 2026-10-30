@@ -1,1 +1,1 @@
-0208_reset_signal_spend
+0220_signalteamconfig_default_slack_notification_integration

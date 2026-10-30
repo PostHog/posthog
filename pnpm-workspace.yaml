@@ -21,6 +21,9 @@ packages:
     # products/desktop is a nested standalone workspace (own lockfile, catalog,
     # overrides, Node version); the root install must not absorb it.
     - '!products/desktop'
+    # products/mobile is the standalone Expo app: its own lockfile and React 19,
+    # so the root install must not absorb it either.
+    - '!products/mobile'
     - docs/onboarding
     - services/agent-proxy
     - services/credentials-service
@@ -180,7 +183,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.39.0
-    '@posthog/brand': 0.12.3
+    '@posthog/brand': 0.16.0
     '@posthog/react': ^1.11.3
     posthog-js: ^1.439.0
     # Build tools

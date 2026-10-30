@@ -5,6 +5,7 @@ from urllib.parse import parse_qs
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.personio.p
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
+    COMPENSATIONS_LOOKBACK_MONTHS,
     ENDPOINTS,
     PERSONIO_ENDPOINTS,
 )
@@ -38,6 +40,19 @@ def _token_response(status_code: int = 200, expires_in: int = 86400) -> Scripted
         else {"error": "invalid_client"}
     )
     return ScriptedResponse(status=status_code, json=body)
+
+
+def _answer_empty(request: RecordedRequest) -> ScriptedResponse:
+    return _token_response() if request.path == "/v2/auth/token" else _page([])
+
+
+def _this_month() -> date:
+    return datetime.now(UTC).date().replace(day=1)
+
+
+def _months_before(month: date, months: int) -> date:
+    index = month.year * 12 + month.month - 1 - months
+    return date(index // 12, index % 12 + 1, 1)
 
 
 def _driver() -> SourceDriver:
@@ -216,6 +231,100 @@ class TestGetRows:
         assert result.paths == ["/v2/auth/token", "/v2/persons"]
         assert result.saved_states == []
 
+    @pytest.mark.parametrize("incremental", [False, True])
+    def test_employments_fan_out_per_person(self, incremental: bool) -> None:
+        result = _driver().run(
+            "employments",
+            [
+                _token_response(),
+                _page([{"id": "p1"}, {"id": "p2"}]),
+                _page([{"id": "e1"}]),
+                _page([{"id": "e2"}]),
+            ],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC) if incremental else None,
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v2/auth/token",
+            "/v2/persons",
+            "/v2/persons/p1/employments",
+            "/v2/persons/p2/employments",
+        ]
+        assert [(row["person_id"], row["id"]) for row in result.rows] == [("p1", "e1"), ("p2", "e2")]
+        # The cursor filters employments only: an employment update does not touch its person.
+        assert result.requests[1].param("updated_at.gt") is None
+        expected_filter = "2024-01-02T00:00:00Z" if incremental else None
+        assert [request.param("updated_at.gt") for request in result.requests[2:]] == [expected_filter] * 2
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    def test_org_units_lists_each_type_and_stages_cursor_before_each_page(self) -> None:
+        next_url = "https://api.personio.de/v2/org-units?type=department&cursor=p2"
+        result = _driver().run(
+            "org_units",
+            [
+                _token_response(),
+                _page([{"id": "1", "type": "department"}], next_url=next_url),
+                _page([{"id": "2", "type": "department"}]),
+                _page([{"id": "1", "type": "team"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.param("type") for request in result.requests[1:]] == ["department", "department", "team"]
+        assert result.requests[1].param("include_parent_chain") == "true"
+        assert [(row["type"], row["id"]) for row in result.rows] == [
+            ("department", "1"),
+            ("department", "2"),
+            ("team", "1"),
+        ]
+        # Each page reaches the pipeline with the cursor past it, so a hand-off after a write never
+        # re-reads that page. The last department page already points at the team listing.
+        assert result.committed_states == [
+            PersonioResumeConfig(segment="department", next_url=next_url),
+            PersonioResumeConfig(segment="team"),
+        ]
+
+    def test_compensations_walks_month_windows(self) -> None:
+        result = _driver().run(
+            "compensations",
+            lambda request: (
+                _token_response()
+                if request.path == "/v2/auth/token"
+                else _page([{"id": "c1"}] if request.param("start_date") == _this_month().isoformat() else [])
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2099, 1, 1),
+        )
+
+        assert result.raised is None
+        windows = [(request.param("start_date"), request.param("end_date")) for request in result.requests[1:]]
+        # Always the full lookback: a compensation can land in a past month after it was synced.
+        assert len(windows) == COMPENSATIONS_LOOKBACK_MONTHS + 1
+        assert windows[0][0] == _months_before(_this_month(), COMPENSATIONS_LOOKBACK_MONTHS).isoformat()
+        assert windows[-1][0] == _this_month().isoformat()
+        for start, end in windows:
+            assert start is not None and end is not None
+            # Personio rejects a window longer than one month.
+            assert start[:7] == end[:7] and start.endswith("-01")
+        assert [(row["period_start"], row["id"]) for row in result.rows] == [(_this_month(), "c1")]
+
+    def test_compensations_resume_skips_finished_windows(self) -> None:
+        last_month = _months_before(_this_month(), 1)
+        resume_url = "https://api.personio.de/v2/compensations?cursor=cur_resume"
+        result = _driver().run(
+            "compensations",
+            [_token_response(), _page([{"id": "c9"}]), _page([])],
+            resume_state=PersonioResumeConfig(segment=last_month.isoformat(), next_url=resume_url),
+        )
+
+        assert result.raised is None
+        assert result.requests[1].url == resume_url
+        assert result.requests[2].param("start_date") == _this_month().isoformat()
+        assert [row["period_start"] for row in result.rows] == [last_month]
+
     def test_rejects_off_host_next_url(self) -> None:
         # SSRF guard: a _meta.links.next.href pointing off api.personio.de is rejected before the
         # request (and its bearer token) leaves the process.
@@ -243,14 +352,13 @@ class TestPersonioSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = PERSONIO_ENDPOINTS[endpoint]
-        result = _driver().run(endpoint, [_token_response(), _page([])])
+        result = _driver().run(endpoint, _answer_empty)
         response = result.response
 
         assert result.raised is None
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
+        assert response.primary_keys == list(config.primary_keys)
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]

@@ -43,7 +43,7 @@ interface HomeTabStatTileProps {
 
 export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabStatTileProps): JSX.Element {
     const { currentTeamId, currentTeam } = useValues(teamLogic)
-    const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
         () => (shouldShowSampleData ? getHomeTabSampleStatData(stat.key, stat.query) : undefined),
         [shouldShowSampleData, stat.key, stat.query]
@@ -56,22 +56,23 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
         [shouldShowSampleData, stat.key, stat.trendKey, stat.trendQuery, stat.query]
     )
     const theme = useChartTheme()
+    const keySuffix = shouldShowSampleData ? '.sample' : sampleDataPending ? '.pending' : ''
     const key = homeTabStatKey(currentTeamId, stat.key)
     const logic = dataNodeLogic({
         query: stat.query,
         loadPriority: 0,
-        key: shouldShowSampleData ? `${key}.sample` : key,
+        key: `${key}${keySuffix}`,
         cachedResults: sampleData,
-        doNotLoad: shouldShowSampleData,
+        doNotLoad: shouldShowSampleData || sampleDataPending,
         dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
     })
     useAttachedLogic(logic, homeTabDefaultLogic)
     const trendLogic = dataNodeLogic({
         query: stat.trendQuery ?? stat.query,
         loadPriority: stat.trendQuery && !stat.trendKey ? 1 : 0,
-        key: `${homeTabStatTrendKey(currentTeamId, stat)}${shouldShowSampleData ? '.sample' : ''}`,
+        key: `${homeTabStatTrendKey(currentTeamId, stat)}${keySuffix}`,
         cachedResults: sampleTrendData,
-        doNotLoad: shouldShowSampleData,
+        doNotLoad: shouldShowSampleData || sampleDataPending,
         dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
     })
     useAttachedLogic(trendLogic, homeTabDefaultLogic)
@@ -173,7 +174,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             value={value ?? undefined}
             showChange={compare}
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
-            changeInline
+            changeBesideSubtitle
             hoverChangeFromPreviousPoint
             data={trend?.data}
             labels={trend?.days}

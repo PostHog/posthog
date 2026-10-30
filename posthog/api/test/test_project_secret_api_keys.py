@@ -81,13 +81,20 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
-    def test_create_feature_flag_read_scope(self):
+    @parameterized.expand(
+        [
+            ("feature_flag_local_evaluation", "feature_flag:read"),
+            # A service that polls a transactional email's status must not need a key that can also send.
+            ("transactional_email_status", "hog_flow:read"),
+        ]
+    )
+    def test_create_read_only_scope(self, _name, scope):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+            {"label": "read only key", "scopes": [scope]},
         )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
+        assert response.status_code == 201, response.json()
+        assert response.json()["scopes"] == [scope]
 
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
