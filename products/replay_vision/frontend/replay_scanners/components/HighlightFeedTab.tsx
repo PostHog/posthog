@@ -70,13 +70,14 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
     }
     if (feedHasMore) {
         return (
-            <>
+            // Its own full-width row, so a part-filled last row of cards never pulls placeholders into it.
+            <div ref={ref} className={clsx('col-span-full', FEED_GRID)} aria-busy>
                 {ROW_SKELETON_CLASSES.map((className, index) => (
-                    <div key={index} ref={index === 0 ? ref : undefined} className={className} aria-busy>
+                    <div key={index} className={className}>
                         <CardSkeleton />
                     </div>
                 ))}
-            </>
+            </div>
         )
     }
     return itemCount > 3 ? (
