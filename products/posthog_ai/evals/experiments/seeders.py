@@ -56,7 +56,12 @@ ENDED_EXPERIMENT_NAME = "checkout cta v2"
 SHIP_VARIANT_FLIP_SIGNATURE = "Added automatically when the experiment was ended to keep only one variant."
 
 
-def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def seed_running_experiment(
+    context: CustomPromptSandboxContext,
+    *,
+    start_date: datetime | None = None,
+    description: str = "Seeded by eval — running experiment with 50/50 split.",
+) -> dict[str, Any]:
     """Seed one running experiment with a 50/50 multivariate flag.
 
     Designed for prompts that ask the agent to change variant split on a
@@ -69,16 +74,6 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
     parameterising this one — the eval framework passes only ``context`` to seeders, so
     case-specific config has to live in the seeder definition.
     """
-    return _seed_split_test_experiment(
-        context,
-        start_date=datetime.now(tz=UTC) - timedelta(days=7),
-        description="Seeded by eval — running experiment with 50/50 split.",
-    )
-
-
-def _seed_split_test_experiment(
-    context: CustomPromptSandboxContext, *, start_date: datetime, description: str
-) -> dict[str, Any]:
     from products.experiments.backend.facade.testing import create_experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -108,7 +103,7 @@ def _seed_split_test_experiment(
         name=ROLLOUT_EXPERIMENT_NAME,
         description=description,
         feature_flag_id=flag.id,
-        start_date=start_date,
+        start_date=start_date or datetime.now(tz=UTC) - timedelta(days=7),
     )
 
     payload: dict[str, Any] = {
@@ -131,7 +126,7 @@ def _seed_split_test_experiment_started_at(
     context: CustomPromptSandboxContext, *, start_date: datetime, description: str
 ) -> dict[str, Any]:
     """Seed the shared 50/50 experiment with the start date that a case's prompt describes."""
-    payload = _seed_split_test_experiment(context, start_date=start_date, description=description)
+    payload = seed_running_experiment(context, start_date=start_date, description=description)
     return {**payload, "start_date": start_date.isoformat()}
 
 
