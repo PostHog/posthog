@@ -55,6 +55,47 @@ class ExperimentSummaryData:
 
 
 @frozen
+class ExperimentResultsWidgetMetric:
+    """One metric of the dashboard experiment results widget."""
+
+    uuid: str | None
+    name: str
+    # The metric that the query ran, as JSON. None when the metric has no result.
+    metric: dict[str, Any] | None
+    # The query response as JSON, without the SQL and the per-variant session payloads.
+    result: dict[str, Any] | None
+    # A message that is safe to show to the viewer. None when the metric has a result.
+    error: str | None
+
+
+@frozen
+class ExperimentResultsWidgetMetrics:
+    """The metrics of a launched experiment, per section, in display order."""
+
+    primary: tuple[ExperimentResultsWidgetMetric, ...]
+    secondary: tuple[ExperimentResultsWidgetMetric, ...]
+    # The metric count of each section. Only the first metrics of a section run, so a total can be larger than the
+    # metrics above.
+    primary_total: int
+    secondary_total: int
+
+
+@frozen
+class ExperimentResultsWidget:
+    """One experiment, as the dashboard experiment results widget shows it."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    # None for a draft, which has no exposures to compute results from.
+    metrics: ExperimentResultsWidgetMetrics | None
+
+
+@frozen
 class TargetableExperiment:
     """A launched experiment whose exposed sessions a replay surface can narrow to."""
 
@@ -450,6 +491,29 @@ class ExperimentActionReference:
     name: str
     created_at: datetime
     created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetRow:
+    """One experiment in the dashboard experiments list widget."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    conclusion: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    feature_flag_key: str
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetPage:
+    rows: tuple[ExperimentListWidgetRow, ...]
+    # True when more experiments match than the page holds.
+    has_more: bool
 
 
 @dataclass(frozen=True)
