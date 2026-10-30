@@ -1,0 +1,8 @@
+from posthog.dags.common import JobOwners
+from posthog.dags.daily_rollups import build_daily_rollup_definitions
+
+from products.web_analytics.backend.rollups.events_health import EventsHealthDailyRollup
+from products.web_analytics.backend.rollups.host_proxy import HostProxyDailyRollup
+
+events_health_daily_rollup = build_daily_rollup_definitions(EventsHealthDailyRollup, owner=JobOwners.TEAM_WEB_ANALYTICS)
+host_proxy_daily_rollup = build_daily_rollup_definitions(HostProxyDailyRollup, owner=JobOwners.TEAM_WEB_ANALYTICS)

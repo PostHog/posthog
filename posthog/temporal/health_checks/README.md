@@ -230,9 +230,11 @@ Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 Checks that would scan days of raw `events` read a daily rollup on Postgres instead.
 A Dagster job per rollup reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
 
-| Table                       | Product | Kept    | Dagster job                     | Read by                             |
-| --------------------------- | ------- | ------- | ------------------------------- | ----------------------------------- |
-| `growth_sdk_versions_daily` | growth  | 10 days | `growth_sdk_versions_daily_job` | `sdk_outdated`, the SDK Health page |
+| Table                               | Product       | Kept    | Dagster job                             | Read by                             |
+| ----------------------------------- | ------------- | ------- | --------------------------------------- | ----------------------------------- |
+| `growth_sdk_versions_daily`         | growth        | 10 days | `growth_sdk_versions_daily_job`         | `sdk_outdated`, the SDK Health page |
+| `web_analytics_events_health_daily` | web analytics | 35 days | `web_analytics_events_health_daily_job` | six web checks, in shadow mode      |
+| `web_analytics_host_proxy_daily`    | web analytics | 35 days | `web_analytics_host_proxy_daily_job`    | `partial_proxy`, in shadow mode     |
 
 ### How a day is published
 
@@ -258,6 +260,11 @@ The window ends at the latest published day (L).
 When L is missing or more than two days old, or any day of the window is missing, the base class raises `HealthCheckBatchSkipped`.
 The batch then keeps its issues, and the run fails once skipped teams pass `not_processed_threshold`.
 Events after L are not in the rollup, so a check that must see them adds a small live ClickHouse query from `window.live_since`.
+
+A check moving onto a rollup starts in shadow mode with `reads_rollup = False`, and keeps its raw-event query as `detect_from_events`.
+Its issues still come from raw events, and each batch also runs `detect_from_rollup` on a sample of teams and logs `health check rollup comparison` with the agreement rate and the disagreeing team ids.
+Expect some disagreement for teams whose state changed today, because the raw query sees today and the rollup does not.
+Set `reads_rollup = True`, drop the ClickHouse policy, and delete `detect_from_events` when the comparison looks right.
 
 Read rows through `window_rows(model, team_ids, window)` (`rollups/freshness.py`).
 Name the rollup model in `READ_REPLICA_OPT_IN` to read it from the read replica.

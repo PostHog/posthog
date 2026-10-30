@@ -20,6 +20,7 @@ from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflow
 from products.batch_exports.backend.facade.temporal import ACTIVITIES, WORKFLOWS
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.growth.backend.models import SdkVersionsDaily
+from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, HostProxyDaily, SessionIdState
 
 
 class TestTeamDeletionSideEffects(NonAtomicBaseTest):
@@ -181,13 +182,26 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 event_count=1,
                 max_timestamp=dt.datetime(2026, 10, 22, tzinfo=dt.UTC),
             )
+            EventsHealthDaily.objects.unscoped().create(
+                team_id=team_id,
+                day=dt.date(2026, 10, 22),
+                event="$pageview",
+                has_custom_api_host=False,
+                has_scroll_depth=False,
+                session_id_state=SessionIdState.VALID,
+                event_count=1,
+            )
+            HostProxyDaily.objects.unscoped().create(
+                team_id=team_id, day=dt.date(2026, 10, 22), host="example.com", has_custom_api_host=False, event_count=1
+            )
 
         with execute_deletion_workflows_inline():
             response = self.client.delete(f"/api/environments/{team.id}")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Team.objects.filter(id=team.id).exists())
-        self.assertFalse(SdkVersionsDaily.objects.for_team(team.id).exists())
-        self.assertTrue(SdkVersionsDaily.objects.for_team(self.team.id).exists())
+        for model in (SdkVersionsDaily, EventsHealthDaily, HostProxyDaily):
+            self.assertFalse(model.objects.for_team(team.id).exists())
+            self.assertTrue(model.objects.for_team(self.team.id).exists())
 
         # Verify personhog RPCs were called for persons-DB cleanup
         fake = get_active_fake()
