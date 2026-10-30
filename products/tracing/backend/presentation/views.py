@@ -13,7 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 from django.db import models
 
@@ -1450,7 +1450,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         else:
             descending = order_direction == "DESC"
             sort_key = "trace_duration" if by_duration else "trace_start"
-            trace_keys: dict[str, object] = {span["trace_id"]: span[sort_key] for span in all_results}
+            trace_keys: dict[str, Any] = {span["trace_id"]: span[sort_key] for span in all_results}
 
             ordered_traces = sorted(
                 trace_keys.items(),
