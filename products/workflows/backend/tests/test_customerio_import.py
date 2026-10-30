@@ -1,3 +1,4 @@
+import io
 import json
 import base64
 from datetime import UTC, datetime
@@ -8,11 +9,17 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 
 from posthog.event_usage import EventSource
+from posthog.models import User
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.utils import generate_random_token_personal
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -30,6 +37,7 @@ from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as N
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
+from products.workflows.backend.services.customerio_import.images import _file_name
 from products.workflows.backend.services.customerio_import.translator import translate_campaign
 
 
@@ -657,6 +665,154 @@ class TestWorkflowImportAPI(APIBaseTest):
         result = response.json()["results"][0]
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
+
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
+        png = io.BytesIO()
+        Image.new("RGB", (3, 2)).save(png, "PNG")
+        hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
+        gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
+        # A longer URL that starts with `hero`, and one whose query the HTML escapes.
+        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
+        logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
+        # Neither may be requested: one only has an address at send time, one unescapes to another host.
+        templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
+        smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
+        lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
+        guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
+        stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
+        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
+
+        def respond(url: str, **kwargs: Any) -> MagicMock:
+            response = MagicMock(status_code=200 if url in served or url == stalled else 404)
+            response.__enter__.return_value = response
+            response.raw = io.BytesIO(png.getvalue())
+            if url == stalled:
+                response.raw = MagicMock(spec=["read"], read=MagicMock(side_effect=TimeoutError("read timed out")))
+            return response
+
+        mock_get.side_effect = respond
+        source = _onboarding_campaign()
+        templates = {
+            **source.templates,
+            "11": {
+                **source.templates["11"],
+                "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+                f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
+                f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
+            },
+        }
+        campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
+
+        preview = self._import(campaigns=campaigns, dry_run=True)
+        assert any("6 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert not mock_get.called
+
+        planted = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=User.objects.create_and_join(self.organization, "other@example.com", None),
+            purpose="email",
+            file_name=_file_name(hero),
+            media_location="planted/hero.png",
+        )
+        first = self._import(campaigns=campaigns)
+        html = next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
+            "inputs"
+        ]["email"]["value"]["html"]
+        assert planted.get_absolute_url() not in html
+        copies = list(
+            UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).order_by("created_at")
+        )
+        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
+        urls = [media.get_absolute_url() for media in copies]
+        assert html == (
+            '<div style="font-family: Arial, Helvetica, sans-serif;">'
+            f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+            f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
+            f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
+        )
+        requested = [call.args[0] for call in mock_get.call_args_list]
+        assert "evil.example.com" not in " ".join(requested)
+        assert guide not in requested
+        assert requested.count(f"{hero}?w=1&h=2") == 1
+        assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
+        design = json.dumps(
+            next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
+                "inputs"
+            ]["email"]["value"]["design"]
+        )
+        assert hero_webp not in design and urls[1] in design
+
+        self._import(campaigns=campaigns)
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 4
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
+
+        UploadedMedia.objects.filter(pk=copies[0].pk).update(archived_at=timezone.now())
+        self._import(campaigns=campaigns)
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 2
+        assert (
+            UploadedMedia.objects.filter(
+                team=self.team, purpose="email", created_by=self.user, archived_at__isnull=True
+            ).count()
+            == 4
+        )
+        assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
+
+    @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        result = self._import(
+            campaigns=[{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
+        )
+
+        assert result["status"] == "created"
+        assert any(image in note["message"] for note in result["notes"])
+        assert not mock_get.called
+
+    @parameterized.expand(
+        [
+            ("an API key without the media scope", ["hog_flow:write"], True),
+            ("a user without media access", ["*"], False),
+        ]
+    )
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_no_images_are_copied_without_media_access(
+        self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
+    ) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        body = {
+            "source": "customerio",
+            "campaigns": [
+                {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
+            ],
+        }
+        with patch(
+            "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, *_args, **_kwargs: media_access or resource != "uploaded_media",
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/workflow_imports/",
+                body,
+                format="json",
+                headers={"authorization": f"Bearer {key}"},
+            )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()["results"][0]
+        assert result["status"] == "created"
+        assert any("media library" in note["message"] for note in result["notes"])
+        assert not mock_get.called
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
 
     def test_notes_are_readable_by_workflow(self) -> None:
         result = self._import()

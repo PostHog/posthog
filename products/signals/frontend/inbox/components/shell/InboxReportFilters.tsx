@@ -15,6 +15,7 @@ import {
 } from '../../filterOptions'
 import { InboxCreatedWindow, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReportPriority } from '../../types'
+import { InboxSourceFilter } from './InboxSourceFilter'
 import { InboxStateFilter } from './InboxStateFilter'
 
 const ALL_PRIORITIES = null
@@ -55,7 +56,7 @@ const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: 
 ]
 
 /**
- * What narrows the report list: priority, then report state, then sort order, then the created-in window. Filter state is
+ * What narrows the report list: priority, then source, then report state, then sort order, then the created-in window. Filter state is
  * persisted via `inboxFiltersLogic`, and the list reloads on change.
  *
  * Reviewer scope is deliberately not here. It sits with triage mode on the other side of the row,
@@ -69,6 +70,7 @@ export function InboxReportFilters(): JSX.Element {
         modelSortAvailable,
         timeWindowAvailable,
         createdWindow,
+        sourceFilterAvailable,
     } = useValues(inboxFiltersLogic)
     const { setSort, setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
     const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
@@ -85,6 +87,7 @@ export function InboxReportFilters(): JSX.Element {
                 renderButtonContent={() => inboxPriorityFilterLabel(priorityFilter)}
                 data-attr="inbox-filter-priority"
             />
+            {sourceFilterAvailable && <InboxSourceFilter />}
             <InboxStateFilter />
             <LemonSelect
                 size="small"

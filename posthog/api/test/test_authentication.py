@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, get_user, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
@@ -938,6 +938,32 @@ class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
         User.objects.filter(pk=self.user.pk).update(is_active=False)
 
         assert backend.get_user(self.user.pk) is None
+
+
+class TestLegacySessionBackends(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_restores_an_existing_session(self, _name: str, legacy_path: str) -> None:
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.session[SESSION_KEY] = str(self.user.pk)
+        request.session[BACKEND_SESSION_KEY] = legacy_path
+        request.session[HASH_SESSION_KEY] = self.user.get_session_auth_hash()
+
+        assert get_user(request) == self.user
+
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_refuses_new_authentication(self, _name: str, legacy_path: str) -> None:
+        assert load_backend(legacy_path).authenticate(RequestFactory().get("/")) is None
 
 
 class TestLogoutRedirect(APIBaseTest):
