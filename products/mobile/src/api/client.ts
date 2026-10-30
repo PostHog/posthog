@@ -1,6 +1,7 @@
 import { fetch as streamingFetch } from 'expo/fetch'
 
 import { withAppReloadBlocked } from '@/lib/appReload'
+import { instrumentApiRequest } from '@/lib/mobileTelemetry'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
@@ -155,7 +156,16 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
-    let response = await fetcher(url, buildInit(init, sent, accept))
+    const method = init.method ?? 'GET'
+    const performFetch = (token: string): Promise<Response> =>
+        instrumentApiRequest(path, method, (traceparent) => {
+            const options = buildInit(init, token, accept)
+            if (traceparent) {
+                options.headers = { ...(options.headers as Record<string, string>), traceparent }
+            }
+            return fetcher(url, options)
+        })
+    let response = await performFetch(sent)
     noteServerDate(response)
     if (response.status === 401 && provider) {
         // The retry goes to `url`, which belongs to the session that sent the request. If the user signed out or
@@ -175,7 +185,7 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         if (!token || !isSameSession(auth, provider.getAuth())) {
             throw new NotSignedInError()
         }
-        response = await fetcher(url, buildInit(init, token, accept))
+        response = await performFetch(token)
         noteServerDate(response)
     }
     return response

@@ -7,6 +7,7 @@ import { useDemoMode } from '@/demo/demoMode'
 import { type AnalyticsProperties, setAnalyticsClient } from './analytics'
 import { appVariant, hostKind, updateChannel } from './environment'
 import { setFeatureFlags } from './featureFlags'
+import { initMobileTelemetry } from './mobileTelemetry'
 
 const DEFAULT_HOST = 'https://us.i.posthog.com'
 
@@ -59,6 +60,9 @@ export function initAnalytics(): void {
             delete properties.url
             return { ...event, properties }
         },
+    })
+    initMobileTelemetry(apiKey, process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST, (level, body, attributes) => {
+        posthog.logger[level](body, attributes)
     })
     const registerSuperProperties = (): void => {
         void posthog.register(superProperties())

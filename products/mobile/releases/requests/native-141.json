@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-141",
+    "kind": "native",
+    "runtimeVersion": "1.4.1",
+    "previousRelease": null,
+    "notes": "Add mobile API request latency, traces, and failure diagnostics."
+}

@@ -12,6 +12,14 @@ types should come from the generated schemas; update the Django serializer and r
 `hogli build:openapi` when those contracts change. Mobile CI includes the Signals schema
 file for typechecking, and its type-only import adds nothing to the native bundle.
 
+### Network observability
+
+When `mobile-network-observability` is enabled, the shared client exports OpenTelemetry client
+spans and an `http.client.request.duration` histogram to the configured PostHog host. It also
+logs slow requests and failures through the React Native SDK. Telemetry includes the method,
+sanitized route, status, duration and error type. It excludes request hosts, query strings,
+headers, bodies and error messages. This measures API latency; it does not measure Wi-Fi throughput.
+
 | Domain                           | Module                                                                   | Endpoints                                                                                                                                                                                                                                                                                                                                                                         | Notes                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | [AUTH.md](AUTH.md)                                                                |
