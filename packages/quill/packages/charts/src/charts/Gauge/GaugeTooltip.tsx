@@ -5,8 +5,6 @@ import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { GaugeThreshold } from './gauge-layout'
 
 export interface GaugeTooltipThreshold {
-    /** Index into the thresholds sorted by value. */
-    index: number
     /** The threshold step with its color resolved to a concrete value. */
     threshold: GaugeThreshold
     /** The band's unclipped range: `from` is undefined for the lowest band, `to` for the highest. */
@@ -48,10 +46,17 @@ export function formatGaugeBand(threshold: GaugeTooltipThreshold, formatValue: (
 
 function Row({ name, children }: { name: string; children: React.ReactNode }): React.ReactElement {
     return (
-        <>
-            <span className="opacity-70">{name}</span>
-            <span className="flex items-center gap-1.5 justify-self-end font-medium tabular-nums">{children}</span>
-        </>
+        <div data-attr="hog-chart-tooltip-row" className="contents">
+            <span data-attr="hog-chart-tooltip-series" className="opacity-70">
+                {name}
+            </span>
+            <span
+                data-attr="hog-chart-tooltip-value"
+                className="flex items-center gap-1.5 justify-self-end font-medium tabular-nums"
+            >
+                {children}
+            </span>
+        </div>
     )
 }
 
@@ -73,9 +78,8 @@ export function GaugeTooltip({ ctx }: GaugeTooltipProps): React.ReactElement {
                     <Row name="Threshold">
                         <TooltipSwatch color={threshold.threshold.color} />
                         <span>
-                            {threshold.threshold.label
-                                ? `${threshold.threshold.label} · ${formatGaugeBand(threshold, formatValue)}`
-                                : formatGaugeBand(threshold, formatValue)}
+                            {threshold.threshold.label ? `${threshold.threshold.label} · ` : ''}
+                            {formatGaugeBand(threshold, formatValue)}
                         </span>
                     </Row>
                 ) : null}

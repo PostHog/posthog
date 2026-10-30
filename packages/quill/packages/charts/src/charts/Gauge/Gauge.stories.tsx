@@ -187,12 +187,22 @@ export const Large: Story = {
     },
 }
 
-const PODS = ['7f9c', 'a1b2', 'c3d4', 'e5f6', '0a9b', '77ee', '4c21', 'b830', '19fd', 'd6e2', '5a07', '8be4'].map(
-    (suffix, i) => ({
-        name: `pod=checkout-${suffix}`,
-        value: [12, 38, 55, 71, 93, 64, 27, 88, 49, 97, 6, 76][i],
-    })
-)
+const PODS = (
+    [
+        ['7f9c', 12],
+        ['a1b2', 38],
+        ['c3d4', 55],
+        ['e5f6', 71],
+        ['0a9b', 93],
+        ['77ee', 64],
+        ['4c21', 27],
+        ['b830', 88],
+        ['19fd', 49],
+        ['d6e2', 97],
+        ['5a07', 6],
+        ['8be4', 76],
+    ] as const
+).map(([suffix, value]) => ({ name: `pod=checkout-${suffix}`, value }))
 
 export const GridOfTwelve: Story = {
     render: () => {
@@ -228,7 +238,7 @@ export const EdgeCases: Story = {
             { label: 'No range given', value: 0.42 },
             { label: 'Unsorted thresholds', value: 55, thresholds: [...HEALTH].reverse() },
             { label: 'A very long label that will not fit', value: 3_141_592.653, min: 0, max: 5_000_000 },
-            { label: 'Tiny value', value: 0.4, min: 0, max: 100, thresholds: HEALTH },
+            { label: 'Tiny value', value: 0.4, min: 0, max: 100 },
         ]
         return (
             <div className="grid w-[720px] grid-cols-4 gap-2">

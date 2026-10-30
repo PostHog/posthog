@@ -8,7 +8,7 @@ import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
 import { useResolvedChartTheme } from '../../core/theme'
-import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
+import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
 import { humanFriendlyNumber } from '../../utils/format'
@@ -369,7 +369,6 @@ function GaugeInner({
             return null
         }
         return {
-            index: valueIndex,
             threshold: resolvedThresholds[valueIndex],
             from: valueIndex === 0 ? undefined : resolvedThresholds[valueIndex].value,
             to: valueIndex + 1 < resolvedThresholds.length ? resolvedThresholds[valueIndex + 1].value : undefined,
@@ -429,10 +428,7 @@ function GaugeInner({
     }, [hoverRect, layout, label, value, bounds, tooltipThreshold, resolvedThresholds, target, valueColor, formatValue])
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext): React.ReactNode => {
-            const gaugeCtx = ctx as GaugeTooltipContext
-            return tooltip ? tooltip(gaugeCtx) : <GaugeTooltip ctx={gaugeCtx} />
-        },
+        (ctx: GaugeTooltipContext): React.ReactNode => (tooltip ? tooltip(ctx) : <GaugeTooltip ctx={ctx} />),
         [tooltip]
     )
 
