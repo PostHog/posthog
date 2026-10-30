@@ -501,6 +501,25 @@ class TestTraceRows:
             ("s-1", traces[1]["time"]),
         ]
 
+    @pytest.mark.parametrize("status_code", [404, 422])
+    @mock.patch(f"{MODULE}.TRACES_INITIAL_LOOKBACK_SECONDS", 3600)
+    def test_an_action_without_trace_data_is_skipped(self, status_code: int) -> None:
+        # Same documented terminal statuses as `/deploys/stats`: an action whose trace data aged
+        # out of retention between the actions listing and this query has nothing to report, and
+        # AppSignal answers 422 for a query it cannot run rather than an empty list.
+        result = _driver().run(
+            "performance_traces",
+            _v2_script(
+                post={
+                    "/tracing/actions": [{"namespace": "web", "action": "UsersController#show"}],
+                    "/tracing/traces/performance": status_code,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+
     @mock.patch(f"{MODULE}.MAX_SPAN_TRACES_PER_SYNC", 1)
     @mock.patch(f"{MODULE}.TRACES_INITIAL_LOOKBACK_SECONDS", 3600)
     def test_span_cap_stops_the_sweep_and_checkpoints_the_last_trace(self) -> None:
