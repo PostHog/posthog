@@ -30,6 +30,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
 from products.tasks.backend.logic.services.gateway_model_pin import (
     DESKTOP_AGENT_MODELS,
@@ -117,6 +118,27 @@ class TestResolveSandboxAiProduct:
     def test_stage_does_not_split_non_signals_products(self):
         assert resolve_sandbox_ai_product("loop", "implementation") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", "implementation", internal=True) == "review_hog"
+
+    @pytest.mark.parametrize(
+        "origin_product,ai_stage,billing_product,profile_billing_product,expected",
+        [
+            ("user_created", None, None, "background_agents", "background_agents"),
+            ("signals_chat", "research", None, "signals", "signals_research"),
+            ("signal_report", None, "posthog_ai", "signals", "posthog_ai"),
+        ],
+    )
+    def test_profile_billing_product_replaces_the_origin_product(
+        self, origin_product, ai_stage, billing_product, profile_billing_product, expected
+    ):
+        assert (
+            resolve_sandbox_ai_product(
+                origin_product,
+                ai_stage,
+                billing_product=billing_product,
+                profile_billing_product=profile_billing_product,
+            )
+            == expected
+        )
 
 
 class TestSharedRoutingContract:
@@ -642,9 +664,10 @@ class TestProvisioningBoundaries:
         ctx.task_runtime = "acp"
         return ctx
 
-    def _task(self):
+    def _task(self, profile=None):
         task = MagicMock()
         task.internal = True
+        task.stored_profile = profile
         return task
 
     @pytest.mark.django_db
@@ -684,14 +707,18 @@ class TestProvisioningBoundaries:
             None if incomplete else 0
         )
 
-    def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings):
+    @pytest.mark.parametrize(
+        "profile,profile_billing_product",
+        [(None, None), (get_task_profile("business_knowledge"), "background_agents")],
+    )
+    def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings, profile, profile_billing_product):
         from products.tasks.backend.temporal.process_task import utils
 
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
             patch.object(utils, "record_gateway_routing"),
         ):
-            out = utils.run_gateway_env_vars(self._ctx(), self._task())
+            out = utils.run_gateway_env_vars(self._ctx(), self._task(profile))
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
             team_id=7,
@@ -703,6 +730,7 @@ class TestProvisioningBoundaries:
             model="claude-sonnet-5",
             runtime="acp",
             prior_slack_run=False,
+            profile_billing_product=profile_billing_product,
         )
 
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
@@ -1851,7 +1879,7 @@ class TestPosthogCodeSandboxMint:
         ctx = MagicMock(
             claude_model_access="gateway", codex_model_access="gateway", state={}, team_id=2, run_id="run-1"
         )
-        task = MagicMock(is_scout_experiment=False, internal=False)
+        task = MagicMock(is_scout_experiment=False, internal=False, stored_profile=None)
         with (
             patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("boom")),
             patch.object(utils, "record_gateway_routing"),
