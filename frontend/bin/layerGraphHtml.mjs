@@ -222,7 +222,7 @@ function drawGraph() {
   for (const g of shown) {
     const p = positions[g.key]
     const dim = state.selected && !related.has(g.key)
-    svg += '<g class="node' + (dim ? ' dim' : '') + '" data-key="' + g.key + '"><rect x="' + p.x + '" y="' + p.y + '" width="' + columnWidth + '" height="' + p.h + '" fill="var(--layer-' + g.layer + ')" fill-opacity="0.22"/>' +
+    svg += '<g class="node' + (dim ? ' dim' : '') + '" data-key="' + esc(g.key) + '"><rect x="' + p.x + '" y="' + p.y + '" width="' + columnWidth + '" height="' + p.h + '" fill="var(--layer-' + g.layer + ')" fill-opacity="0.22"/>' +
       '<rect x="' + p.x + '" y="' + p.y + '" width="4" height="' + p.h + '" fill="var(--layer-' + g.layer + ')"/>' +
       '<text x="' + (p.x + 10) + '" y="' + (p.y + 13) + '">' + esc(truncate(g.name, 26)) + '</text>' +
       '<text class="size" x="' + (p.x + columnWidth - 6) + '" y="' + (p.y + 13) + '" text-anchor="end">' + kib(sizeOf(g)) + '</text></g>'
