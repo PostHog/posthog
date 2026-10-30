@@ -828,6 +828,7 @@ export class SesWebhookHandler {
                 const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
+                    $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
                 }
 
