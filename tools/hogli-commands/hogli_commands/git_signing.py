@@ -150,7 +150,7 @@ class SecureEnclaveSigningSetup:
         if None in self.targets:
             click.echo(
                 "Devbox commits sign through your forwarded SSH agent, which can't hold this key. "
-                "With the global config they stop signing. Use --repo to keep devbox signing on your agent key."
+                "With the global config they stop signing. To sign on a devbox, use Secretive instead."
             )
         click.confirm("Continue?", abort=True)
 
@@ -354,8 +354,8 @@ def signing_key(use_global: bool, repos: tuple[Path, ...]) -> None:
     git uses it instead of your current signing key, for example one in 1Password or Secretive.
     Choose where git signs with it: this repository and its worktrees, a list of repositories,
     or every repository. SSH logins and pushes stay as they are. Devbox commits sign through
-    your forwarded SSH agent, so with --global they stop signing. Run it again to reuse the key,
-    for example to add another repository. Each Mac needs its own key.
+    your forwarded SSH agent, so with --global they stop signing. Use Secretive for a devbox.
+    Run it again to reuse the key, for example to add another repository. Each Mac needs its own key.
 
     \b
         hogli git:signing-key
