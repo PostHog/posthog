@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import type { LogicWrapper } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -22,6 +22,7 @@ import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
 import type { InsightLogicProps } from '~/types'
 
+import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
@@ -94,6 +95,9 @@ export interface explainChartLogicActions {
         value: true
     }
     hideStory: () => {
+        value: true
+    }
+    investigationEnded: () => {
         value: true
     }
     receiveStory: (story: ExplainChartData) => {
@@ -174,6 +178,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         approveConsent: true,
         dismissConsent: true,
         startInvestigation: true,
+        investigationEnded: true,
         explainChartToolCompleted: (input: Record<string, unknown> | null, output: Record<string, unknown> | null) => ({
             input,
             output,
@@ -198,6 +203,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             false,
             {
                 startInvestigation: () => true,
+                investigationEnded: () => false,
                 receiveStory: () => false,
                 forgetStory: () => false,
             },
@@ -253,8 +259,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         investigationPrompt: [
             (s) => [s.insight],
             (insight: insightLogicValues['insight']): string => {
-                const name = insight.name || insight.derived_name || 'this chart'
-                return `Explain why the "${name}" insight (${insight.short_id}) looks the way it does. I'm on the insight page, which opens your explain-chart result beside the chart as soon as the tool returns, so skip render-ui. In the chat, just tell me which moment to read first, by its number and title.`
+                return `Explain why the insight ${insight.short_id} looks the way it does. I'm on the insight page, which opens your explain-chart result beside the chart as soon as the tool returns, so skip render-ui. In the chat, just tell me which moment to read first, by its number and title.`
             },
         ],
         formatValue: [
@@ -264,7 +269,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         explainClicked: () => {
             if (values.storyShown) {
                 actions.hideStory()
@@ -283,6 +288,19 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             // pinned: analytics event name, renaming breaks dashboards
             posthog.capture('explain chart investigation started')
             actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(values.investigationPrompt))
+            cache.disposables.add(() => {
+                const listenerId = `explain-chart-turn-end-${values.insight.short_id}`
+                toolStreamEventsLogic.actions.registerToolListener(listenerId, {
+                    tools: ['explain-chart'],
+                    onEvent: () => {},
+                    onTurnComplete: () => actions.investigationEnded(),
+                    onRunTerminal: () => actions.investigationEnded(),
+                })
+                return () => toolStreamEventsLogic.actions.deregisterToolListener(listenerId)
+            }, 'turnEnd')
+        },
+        investigationEnded: () => {
+            cache.disposables.dispose('turnEnd')
         },
         explainChartToolCompleted: ({ input, output }) => {
             const story = explainChartStoryFor(values.insight, input, output)
@@ -311,10 +329,15 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     })),
 ])
 
+// The displays explain-chart accepts, less the cumulative line: its running totals hide changes in activity.
+const EXPLAINABLE_DISPLAYS: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsStackedBar,
+]
+
 function isOverTime(display: ChartDisplayType | null | undefined): boolean {
-    // A cumulative line shows running totals, so a step on it is not a change in activity.
-    return (
-        !display ||
-        (!NON_TIME_SERIES_DISPLAY_TYPES.includes(display) && display !== ChartDisplayType.ActionsLineGraphCumulative)
-    )
+    return !display || EXPLAINABLE_DISPLAYS.includes(display)
 }

@@ -23,7 +23,7 @@ export function ExplainChartEvidenceChart({ item }: { item: StoryEvidence }): JS
     }
     const query: InsightVizNode = {
         kind: NodeKind.InsightVizNode,
-        source: item.query as unknown as InsightVizNode['source'],
+        source: { kind: NodeKind.TrendsQuery, ...item.query } as unknown as InsightVizNode['source'],
         full: false,
         showHeader: false,
         showTable: false,
