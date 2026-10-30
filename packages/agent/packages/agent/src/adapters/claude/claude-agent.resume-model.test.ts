@@ -475,7 +475,7 @@ describe("ClaudeAcpAgent session creation", () => {
   it.each([
     {
       start: undefined,
-      startEnv: "0",
+      startEnv: undefined,
       next: "200k",
       nextEnv: "1",
       cli: 200_000,

@@ -69,7 +69,7 @@ export function getContextWindowOptions(
 }
 
 export function contextWindowEnv(
-  choice: ContextWindowChoice | undefined,
+  choice: ContextWindowChoice,
 ): Record<string, string> {
   return { [DISABLE_1M_CONTEXT_ENV]: choice === "200k" ? "1" : "0" };
 }

@@ -3668,8 +3668,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (!creationOpts.skipBackgroundFetches) {
       this.deferBackgroundFetches(q);
-      void this.syncContextWindow(session);
     }
+    void this.syncContextWindow(session);
 
     return { sessionId, modes, configOptions };
   }
@@ -3892,6 +3892,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   private async syncContextWindow(session: Session): Promise<void> {
     const { query, modelId } = session;
+    const choice = contextWindowChoice(session.queryOptions.env);
     try {
       const usage = await withTimeout(
         query.getContextUsage({ detail: "summary" }),
@@ -3901,7 +3902,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         usage.result === "success" &&
         usage.value.rawMaxTokens > 0 &&
         session.query === query &&
-        session.modelId === modelId
+        session.modelId === modelId &&
+        contextWindowChoice(session.queryOptions.env) === choice
       ) {
         session.lastContextWindowSize = usage.value.rawMaxTokens;
       }

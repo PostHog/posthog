@@ -228,7 +228,7 @@ function buildEnvironment(
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
     CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
-    ...contextWindowEnv(contextWindow),
+    ...(contextWindow && contextWindowEnv(contextWindow)),
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
