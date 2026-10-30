@@ -91,6 +91,7 @@ class _Value:
     at: datetime
     is_date: bool
     utc_day: bool = False
+    timezone: Optional[tzinfo] = None
 
 
 class _UnsupportedBound(Exception):
@@ -318,21 +319,30 @@ class _Evaluator:
             except (KeyError, ValueError):
                 return None
             value = _parse_string(literal, timezone)
-            return dataclasses.replace(value, is_date=False) if value else None
+            return (
+                dataclasses.replace(value, is_date=False, timezone=timezone if timezone_arg else None)
+                if value
+                else None
+            )
         if timezone_arg is not None:
             return None
         inner = self.evaluate(call.args[0])
         return dataclasses.replace(inner, is_date=False) if inner else None
 
-    def align(self, value: datetime, function: str) -> datetime:
+    def align(self, value: datetime, function: str, timezone: Optional[tzinfo] = None) -> datetime:
         week_start_day = _MONDAY if function == "toMonday" else self.week_start_day
-        return INTERVAL_SPECS[_TRUNCATE_FUNCTIONS[function]].align(value.astimezone(self.timezone), week_start_day)
+        return INTERVAL_SPECS[_TRUNCATE_FUNCTIONS[function]].align(
+            value.astimezone(timezone or self.timezone), week_start_day
+        )
 
     def _truncate(self, call: ast.Call) -> Optional[_Value]:
         inner = self.evaluate(call.args[0]) if len(call.args) == 1 else None
         if inner is None or inner.utc_day:
             return None
-        return _Value(at=self.align(inner.at, call.name), is_date=call.name == "toDate")
+        aligned = self.align(inner.at, call.name, inner.timezone)
+        if call.name == "toDate":
+            return _Value(at=datetime(aligned.year, aligned.month, aligned.day, tzinfo=self.timezone), is_date=True)
+        return _Value(at=aligned, is_date=False, timezone=inner.timezone)
 
     def _shift(self, call: ast.Call) -> Optional[_Value]:
         sign, unit = _SHIFT_FUNCTIONS[call.name]

@@ -111,6 +111,20 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         SqlWindowClass.UP_TO_NOW_SHORT,
     ),
     (
+        "truncation_keeps_the_value_timezone",
+        "select count() from events where timestamp >= '2026-10-01' "
+        "and timestamp < toStartOfDay(toDateTime('2026-10-29 12:00:00', 'America/Los_Angeles'))",
+        SqlWindowClass.UP_TO_NOW_LONG,
+        {"now": datetime(2026, 10, 29, 6, 0, tzinfo=UTC)},
+    ),
+    (
+        "date_of_a_zoned_value_is_its_local_date",
+        "select count() from events where timestamp >= '2026-10-01' "
+        "and timestamp < toDate(toDateTime('2026-10-29 03:00:00', 'Asia/Tokyo'))",
+        SqlWindowClass.UP_TO_NOW_LONG,
+        {"now": datetime(2026, 10, 28, 23, 30, tzinfo=UTC)},
+    ),
+    (
         "absolute_past_range",
         "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
         SqlWindowClass.FIXED_PAST,
