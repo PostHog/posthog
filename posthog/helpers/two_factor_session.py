@@ -313,6 +313,9 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
+EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG = "email-code-ignore-esp-suppression"
+
+
 @dataclass
 class CodeBasedVerificationCheckResult:
     should_send: bool
@@ -322,6 +325,22 @@ class CodeBasedVerificationCheckResult:
 
 
 class CodeBasedVerifier:
+    def _ignores_esp_suppression(self, user: User) -> bool:
+        # Reads the locally polled flag definitions, so login never waits on the network.
+        # Missing definitions or an error keep the suppression check.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG,
+                    str(user.distinct_id),
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            mfa_logger.warning("email_code_esp_suppression_flag_unreadable", user_id=user.pk, exc_info=True)
+            return False
+
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
@@ -363,6 +382,10 @@ class CodeBasedVerifier:
         if is_email_code_exempt(user.email):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
+
+        # Skips the lookup and does not only ignore its result, because a failed lookup also counts as suppressed.
+        if self._ignores_esp_suppression(user):
+            return CodeBasedVerificationCheckResult(should_send=True)
 
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:
