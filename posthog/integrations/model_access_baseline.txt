@@ -88,7 +88,7 @@ products/signals/backend/scout_harness/profile/builders.py 2
 products/signals/backend/scout_harness/serializers.py 2
 products/signals/backend/scout_harness/slack_delivery.py 2
 products/signals/backend/serializers.py 2
-products/signals/backend/slack_inbox_notifications.py 4
+products/signals/backend/slack_inbox_notifications.py 2
 products/signals/backend/slack_notification_targets.py 2
 products/signals/backend/temporal/agentic/select_repository.py 2
 products/signals/backend/tracker_issues.py 4
