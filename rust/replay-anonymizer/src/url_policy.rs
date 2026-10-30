@@ -331,7 +331,8 @@ impl Decline {
         matches!(self, Decline::TrackingBeacon)
     }
 
-    /// The metric label. Stable, because a dashboard and an alert both key on it.
+    /// The metric label, and the reason in a v4 URL decline marker. Stable, because a dashboard, an
+    /// alert and a reader of v4 blocks all key on it.
     pub fn label(self) -> &'static str {
         match self {
             Decline::TooLong => "too_long",

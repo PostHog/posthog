@@ -319,8 +319,7 @@ impl Decline {
         matches!(self, Decline::TrackingBeacon)
     }
 
-    /// The metric label, which also ends the URL's declined marker. Stable, because a dashboard and an alert both key
-    /// on it.
+    /// The metric label. Stable, because a dashboard and an alert both key on it.
     pub fn label(self) -> &'static str {
         posthog_replay_anonymizer::Decline::from(self).label()
     }

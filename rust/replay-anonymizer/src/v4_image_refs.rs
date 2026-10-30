@@ -1,9 +1,6 @@
-//! The strings that stand in for an image in a v4 replay block: references and decline markers.
-//!
-//! The v4 recorder writes them with this module. A reader that scrubs the text of a block keeps
-//! each one intact for the image scrub, and finds them with [`parse`]. A captured page can hold
-//! text that looks like a reference, so [`parse`] accepts only the exact strings the recorder
-//! writes.
+//! The references and decline markers that stand in for an image in a v4 replay block. A captured
+//! page can hold text that looks like a reference, so [`parse`] accepts only the exact strings the
+//! v4 recorder writes.
 
 use std::fmt;
 
@@ -65,14 +62,12 @@ pub struct Ref<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Declined {
     Image(ImageDecline),
-    /// A remote URL that the URL policy refused.
     Url(Decline),
     UrlUnchecked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Parsed<'a> {
-    /// A reference, which names image bytes in the dataset.
     Ref(Ref<'a>),
     Declined(Declined),
 }
