@@ -211,6 +211,7 @@ class ActivityLogPagination(TailFollowingCursorPagination):
     ordering = ("-created_at", "-id")
 
     def __init__(self) -> None:
+        super().__init__()
         self.page_number_pagination = ActivityLogPageNumberPagination()
         self.request: Optional[Request] = None
 
