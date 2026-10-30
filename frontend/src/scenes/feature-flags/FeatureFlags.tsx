@@ -247,7 +247,11 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 overlay={
                     <>
                         {featureFlag.id && (
-                            <LemonButton to={urls.featureFlag(featureFlag.id)} data-attr="feature-flag-view" fullWidth>
+                            <LemonButton
+                                to={featureFlagUrlFromList(featureFlag.id, filters)}
+                                data-attr="feature-flag-view"
+                                fullWidth
+                            >
                                 View
                             </LemonButton>
                         )}
