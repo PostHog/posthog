@@ -443,12 +443,20 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
-        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, required_signal_id=required_signal_id
+        )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             fetch_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=timedelta(minutes=10) if required_signal_id else None,
+            retry_policy=(
+                RetryPolicy(initial_interval=timedelta(seconds=10), maximum_interval=timedelta(seconds=30))
+                if required_signal_id
+                else RetryPolicy(maximum_attempts=3)
+            ),
         )
         # patched(): histories recorded before the retry loop have no timers to replay.
         if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
@@ -514,13 +522,18 @@ class SignalReportSummaryWorkflow:
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
+        signal_count = 0
+        source_products: list[str] = []
         try:
             if claim_before_fetch:
                 # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
                 await workflow.execute_activity(
                     mark_report_in_progress_activity,
                     MarkReportInProgressInput(
-                        team_id=inputs.team_id, report_id=inputs.report_id, signal_id=inputs.signal_id
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        preserve_pending_refresh=workflow.patched("signals-required-refresh-snapshot"),
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1014,6 +1027,7 @@ class MarkReportInProgressInput:
     signal_count: int | None = None
     source_products: list[str] = field(default_factory=list)
     signal_id: str | None = None
+    preserve_pending_refresh: bool = False
 
 
 @temporalio.activity.defn
@@ -1039,7 +1053,8 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.pending_triggering_signal_id = None
+            if not input.preserve_pending_refresh:
+                report.pending_triggering_signal_id = None
             if input.signal_count is None:
                 input.signal_count = report.signal_count
             report.researching_signal_count = input.signal_count

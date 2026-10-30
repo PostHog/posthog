@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from django.db import OperationalError
 
@@ -33,11 +33,7 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
-from products.signals.backend.temporal.signal_queries import (
-    FetchSignalsForReportInput,
-    FetchSignalsForReportOutput,
-    fetch_signals_for_report_activity,
-)
+from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
@@ -192,6 +188,7 @@ class _Recorder:
         gate_answers: dict[str, bool] | None = None,
         # Signals returned by successive fetches; the last entry repeats once exhausted.
         fetch_results: list[list[SignalData]] | None = None,
+        fetch_failures: int = 0,
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
@@ -218,6 +215,9 @@ class _Recorder:
         self.github_optional = github_optional
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.fetch_failures = fetch_failures
+        self.fetch_required_ids: list[str | None] = []
+        self.preserved_pending: list[bool] = []
         self.claimed_before_fetch: list[bool] = []
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
@@ -246,26 +246,6 @@ def _signal_data() -> SignalData:
         weight=1.0,
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
     )
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize("marker_fetched", [False, True])
-async def test_fetch_identifies_only_pending_markers_in_its_snapshot(ateam: Team, marker_fetched: bool) -> None:
-    signal = _signal_data()
-    pending_id = uuid.UUID(signal.signal_id) if marker_fetched else uuid.uuid4()
-    report = await SignalReport.objects.acreate(team=ateam, pending_triggering_signal_id=pending_id)
-    with (
-        patch(
-            "products.signals.backend.temporal.signal_queries.execute_hogql_query_with_retry",
-            return_value=Mock(results=[[]]),
-        ),
-        patch("products.signals.backend.temporal.signal_queries._parse_signal_row", return_value=signal),
-    ):
-        result = await fetch_signals_for_report_activity(
-            FetchSignalsForReportInput(team_id=ateam.id, report_id=str(report.id))
-        )
-    assert result.processed_pending_signal_id == (str(pending_id) if marker_fetched else None)
 
 
 def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
@@ -302,7 +282,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
         signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
+        recorder.fetch_required_ids.append(input.required_signal_id)
         recorder.claimed_before_fetch.append(recorder.marks_in_progress > 0)
+        if recorder.fetches <= recorder.fetch_failures:
+            raise ApplicationError("Required signal is not visible yet", type="RequiredReportSignalNotVisible")
         return FetchSignalsForReportOutput(
             signals=signals, processed_pending_signal_id=recorder.processed_pending_signal_id
         )
@@ -321,6 +304,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         recorder.marks_in_progress += 1
+        recorder.preserved_pending.append(input.preserve_pending_refresh)
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -617,10 +601,26 @@ async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
 
 
 @pytest.mark.asyncio
-async def test_empty_first_fetch_is_retried_and_run_proceeds():
-    recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
+@pytest.mark.parametrize("fetch_failures", [0, 4, 1000])
+async def test_incomplete_first_snapshot_is_retried_before_research(fetch_failures: int) -> None:
+    recorder = _Recorder(
+        fetch_results=[[_signal_data()]] if fetch_failures else [[], [], [_signal_data()]],
+        fetch_failures=fetch_failures,
+    )
+    if fetch_failures == 1000:
+        with pytest.raises(WorkflowFailureError):
+            await _run_summary_workflow(recorder)
+        assert recorder.failures == 1
+        assert recorder.researches == 0
+        assert recorder.safety_checks == 0
+        assert recorder.assigned_signal_checks == 0
+        return
     await _run_summary_workflow(recorder)
-    assert recorder.fetches == 3
+    assert recorder.fetches == (5 if fetch_failures else 3)
+    if fetch_failures:
+        assert all(recorder.fetch_required_ids)
+        assert len(set(recorder.fetch_required_ids)) == 1
+        assert all(recorder.preserved_pending)
     assert all(recorder.claimed_before_fetch)
     assert recorder.researches == 1
     assert recorder.spend_publications == 1
