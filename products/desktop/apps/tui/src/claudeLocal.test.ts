@@ -128,6 +128,33 @@ describe("ClaudeLocalSession", () => {
     );
   });
 
+  it("reconnects the session the agent service killed for idling before the next message", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog({ sessionId: "claude-abc", entries: [] }),
+    );
+    await session.start();
+    agent.emit("session-idle-killed", { taskRunId: "local-1", taskId: "t1" });
+    agent.reconnectSession.mockResolvedValueOnce({
+      sessionId: "s2",
+      channel: "c1",
+    } as never);
+
+    await session.prompt("Still there?");
+
+    expect(agent.reconnectSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "claude-abc" }),
+    );
+    expect(agent.prompt).toHaveBeenCalledWith(
+      "s2",
+      [{ type: "text", text: "Still there?" }],
+      { steer: false },
+    );
+  });
+
   it("holds a permission request until answered and sends the chosen option back", async () => {
     const agent = fakeAgent();
     const session = new ClaudeLocalSession(

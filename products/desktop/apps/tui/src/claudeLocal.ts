@@ -4,7 +4,10 @@ import { join } from "node:path";
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
-import { AgentServiceEvent } from "@posthog/workspace-server/services/agent/schemas";
+import {
+  AgentServiceEvent,
+  type StartSessionInput,
+} from "@posthog/workspace-server/services/agent/schemas";
 import type { LocalAgent } from "./local";
 import type { AcpLog } from "./localChats";
 import type { PiControl } from "./models";
@@ -56,6 +59,7 @@ export class ClaudeLocalSession implements LocalAgent {
   readonly plan = true;
   readonly control: PiControl;
   private sessionId: string | null = null;
+  private params: Omit<StartSessionInput, "runMode"> | null = null;
   private configOptions: ConfigOptions;
   private turn: Promise<unknown> | null = null;
   private readonly listeners = new Set<(view: RunView) => void>();
@@ -153,16 +157,22 @@ export class ClaudeLocalSession implements LocalAgent {
         },
       ]);
     };
+    // The agent service drops a session idle for 15 minutes; the next message reconnects it.
+    const onIdleKilled = ({ taskRunId }: { taskRunId: string }): void => {
+      if (taskRunId === this.input.taskRunId) this.sessionId = null;
+    };
     const saved = this.log?.load();
     if (saved?.entries.length)
       this.publish({ ...this.view, entries: saved.entries });
     this.agent.on(AgentServiceEvent.SessionEvent, onEvent);
     this.agent.on(AgentServiceEvent.PermissionRequest, onPermission);
+    this.agent.on(AgentServiceEvent.SessionIdleKilled, onIdleKilled);
     this.unsubscribe.push(
       () => this.agent.off(AgentServiceEvent.SessionEvent, onEvent),
       () => this.agent.off(AgentServiceEvent.PermissionRequest, onPermission),
+      () => this.agent.off(AgentServiceEvent.SessionIdleKilled, onIdleKilled),
     );
-    const params = {
+    this.params = {
       taskId: this.input.taskId,
       taskRunId: this.input.taskRunId,
       repoPath: this.input.cwd,
@@ -181,10 +191,23 @@ export class ClaudeLocalSession implements LocalAgent {
           | "max",
       }),
     };
-    // A remembered session resumes where it left off; one Claude no longer has starts over, keeping the log shown.
-    const resumed = saved?.sessionId
+    await this.connect();
+    this.publish({
+      ...this.view,
+      loaded: true,
+      local: true,
+      status: "in_progress",
+    });
+  }
+
+  // A remembered session resumes where it left off; one Claude no longer has starts over, keeping the log shown.
+  private async connect(): Promise<string> {
+    if (!this.params) throw new Error("The agent has not started");
+    const params = this.params;
+    const remembered = this.log?.load().sessionId;
+    const resumed = remembered
       ? await this.agent
-          .reconnectSession({ ...params, sessionId: saved.sessionId })
+          .reconnectSession({ ...params, sessionId: remembered })
           .catch(() => null)
       : null;
     const { sessionId, configOptions } =
@@ -192,12 +215,7 @@ export class ClaudeLocalSession implements LocalAgent {
       (await this.agent.startSession({ ...params, runMode: "local" }));
     this.sessionId = sessionId;
     this.configOptions = configOptions;
-    this.publish({
-      ...this.view,
-      loaded: true,
-      local: true,
-      status: "in_progress",
-    });
+    return sessionId;
   }
 
   watch(onView: (view: RunView) => void): () => void {
@@ -208,10 +226,10 @@ export class ClaudeLocalSession implements LocalAgent {
 
   // A message sent mid-turn steers it; the first message of a turn waits for the turn to end.
   async prompt(message: string): Promise<void> {
-    if (!this.sessionId) throw new Error("The agent has not started");
+    const sessionId = this.sessionId ?? (await this.connect());
     const steer = this.turn !== null;
     const sent = this.agent.prompt(
-      this.sessionId,
+      sessionId,
       [{ type: "text", text: message }],
       { steer },
     );
