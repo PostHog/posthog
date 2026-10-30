@@ -12,13 +12,15 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import create_access_control, create_role
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import CheckRequest, Context, Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.logic import session
 from products.authorization.backend.middleware import AuthorizationSessionMiddleware
 from products.authorization.backend.presentation.resources import resource_for_object
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -251,6 +253,135 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert (own_team, other, other_with_view_team) == (True, False, False)
 
+    @parameterized.expand(
+        [
+            ("no_rules", OrganizationMembership.Level.MEMBER, None, None),
+            ("project_closed", OrganizationMembership.Level.MEMBER, "none", None),
+            ("project_closed_member_rule", OrganizationMembership.Level.MEMBER, "none", "member"),
+            ("project_closed_admin_rule", OrganizationMembership.Level.MEMBER, "none", "admin"),
+            ("member_rule_none", OrganizationMembership.Level.MEMBER, None, "none"),
+            ("org_admin_on_closed_project", OrganizationMembership.Level.ADMIN, "none", None),
+        ]
+    )
+    def test_project_check_matches_v1(
+        self, _name: str, org_level: OrganizationMembership.Level, project_rule: str | None, member_rule: str | None
+    ) -> None:
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+        if project_rule:
+            self._rule("project", project_rule, str(self.team.id))
+        if member_rule:
+            self._rule("project", member_rule, str(self.team.id), member=True)
+        subject = Subject(user_id=self.user.id)
+        resource = resource_for_object(self.team)
+        level = UserPermissions(self.user).team(self.team).effective_membership_level
+
+        results = [
+            authorization.check(resource=resource, action=action, subject=subject)
+            for action in (Action.VIEW, Action.EDIT, Action.MANAGE_ACCESS)
+        ]
+
+        assert results == [
+            level is not None,
+            level is not None and level >= OrganizationMembership.Level.ADMIN,
+            UserAccessControl(self.user, self.team).check_can_modify_access_levels_for_object(self.team),
+        ]
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, {Action.VIEW}),
+            (
+                "admin",
+                OrganizationMembership.Level.ADMIN,
+                {Action.VIEW, Action.EDIT, Action.CREATE, Action.SHARE, Action.MANAGE_ACCESS},
+            ),
+            (
+                "owner",
+                OrganizationMembership.Level.OWNER,
+                {
+                    Action.VIEW,
+                    Action.EDIT,
+                    Action.CREATE,
+                    Action.SHARE,
+                    Action.MANAGE_ACCESS,
+                    Action.DELETE,
+                    Action.MANAGE_OWNERS,
+                },
+            ),
+        ]
+    )
+    def test_organization_permissions_follow_the_membership_level(
+        self, _name: str, org_level: OrganizationMembership.Level, expected: set[Action]
+    ) -> None:
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+
+        allowed = authorization.permissions(
+            resource=resource_for_object(self.organization), subject=Subject(user_id=self.user.id)
+        )
+
+        assert allowed == expected
+
+    def test_user_outside_the_organization_has_no_permissions(self) -> None:
+        outsider = User.objects.create(email="outsider@posthog.com")
+        subject = Subject(user_id=outsider.id)
+
+        assert (
+            authorization.permissions(resource=resource_for_object(self.organization), subject=subject) == frozenset()
+        )
+        assert authorization.permissions(resource=resource_for_object(self.team), subject=subject) == frozenset()
+
+    def test_role_check_needs_the_role_in_that_organization(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_organization = Organization.objects.create(name="Other")
+        subject = Subject(user_id=self.user.id)
+        role_id = create_role(organization_id=self.organization.id, name="Engineers")
+        foreign_role_id = create_role(organization_id=other_organization.id, name="Engineers")
+
+        own, foreign = (
+            authorization.check(
+                resource=Resource(type=ResourceType.ROLE, id=str(id), organization_id=self.organization.id),
+                action=Action.DELETE,
+                subject=subject,
+            )
+            for id in (role_id, foreign_role_id)
+        )
+
+        assert (own, foreign) == (True, False)
+
+    def test_permissions_on_an_object_match_each_check(self) -> None:
+        self._rule("dashboard", "viewer", str(self.dashboard.id))
+        resource = resource_for_object(self.dashboard)
+        subject = Subject(user_id=self.user.id)
+
+        allowed = authorization.permissions(resource=resource, subject=subject)
+
+        assert allowed == {Action.VIEW, Action.QUERY}
+
+    def test_rule_write_clears_the_project_level_a_session_loaded(self) -> None:
+        resource = resource_for_object(self.team)
+        subject = Subject(user_id=self.user.id)
+
+        with authorization.authorization_session():
+            before = authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+            self._rule("project", "none", str(self.team.id))
+            after = authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+
+        assert (before, after) == (True, False)
+
+    def test_principal_that_is_not_a_user_has_no_membership(self) -> None:
+        class ServicePrincipal:
+            is_authenticated = True
+
+        with session.scope(ServicePrincipal):
+            allowed = [
+                authorization.check(resource=resource_for_object(obj), action=Action.VIEW)
+                for obj in (self.organization, self.team)
+            ]
+
+        assert allowed == [False, False]
+
     def test_resource_for_object_with_a_team_reads_that_team_rules(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         source = ExternalDataSource.objects.create(
@@ -277,9 +408,26 @@ class TestCheckMatchesCurrentRules(BaseTest):
     @parameterized.expand(
         [
             (
-                "organization",
-                {"resource": Resource(type=ResourceType.ORGANIZATION, id=str(UUID(int=1)))},
-                NotImplementedError,
+                "join_on_an_organization",
+                {"resource": Resource(type=ResourceType.ORGANIZATION, id=str(UUID(int=1))), "action": Action.JOIN},
+                ValueError,
+            ),
+            (
+                "staff_action_on_a_project",
+                {"resource": Resource(type=ResourceType.PROJECT, id="1"), "action": Action.SUPPORT},
+                ValueError,
+            ),
+            ("organization_without_an_id", {"resource": Resource(type=ResourceType.ORGANIZATION)}, ValueError),
+            ("project_without_an_id", {"resource": Resource(type=ResourceType.PROJECT)}, ValueError),
+            (
+                "project_ids_that_differ",
+                {"resource": Resource(type=ResourceType.PROJECT, id="1", project_id=2)},
+                ValueError,
+            ),
+            (
+                "role_without_an_organization",
+                {"resource": Resource(type=ResourceType.ROLE, id=str(UUID(int=1)))},
+                ValueError,
             ),
             ("action_without_a_level", {"action": Action.JOIN}, ValueError),
             ("no_project", {"resource": Resource(type=ResourceType.DASHBOARD, id="1")}, ValueError),

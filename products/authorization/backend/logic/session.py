@@ -14,6 +14,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models import User
+    from posthog.user_permissions import UserPermissions
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -31,11 +32,13 @@ class Session:
     principal: Callable[[], Any] | None = None
     users: dict[int, User | None] = field(default_factory=dict)
     access: dict[PrincipalKey, UserAccessControl] = field(default_factory=dict)
+    permissions: dict[int, UserPermissions] = field(default_factory=dict)
     uncommitted: bool = False
 
     def clear(self) -> None:
         self.users.clear()
         self.access.clear()
+        self.permissions.clear()
 
     def committed(self) -> None:
         self.clear()

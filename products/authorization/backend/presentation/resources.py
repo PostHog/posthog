@@ -16,7 +16,7 @@ from products.access_control.backend.facade.user_access_control import (
 from ..facade.contracts import Parent, Resource
 from ..facade.enums import ResourceType
 
-MEMBERSHIP_RESOURCES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT, ResourceType.ROLE})
+MEMBERSHIP_RESOURCES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT})
 # These types always read the object's own team, so a view team's admin can't reach another environment's object.
 OWN_TEAM_RESOURCES = frozenset({ResourceType.DASHBOARD})
 
@@ -26,14 +26,14 @@ def resource_for_object(obj: Model, *, team: Team | None = None) -> Resource:
 
     `project_id` is the object's team id, because access rules are scoped to a team. Pass `team`
     only where today's check reads another team's rules for this object, such as the view's team.
-    `OWN_TEAM_RESOURCES` ignore `team`.
+    `OWN_TEAM_RESOURCES` and `MEMBERSHIP_RESOURCES` ignore `team`.
     """
     scope = model_to_resource(obj)
     if scope is None:
         raise ValueError(f"{type(obj).__name__} has no access control resource.")
     resource_type = ResourceType(scope)
     if resource_type in MEMBERSHIP_RESOURCES:
-        raise NotImplementedError(f"Building a {resource_type} resource from a model is not supported yet.")
+        return Resource(type=resource_type, id=str(obj.pk), organization_id=getattr(obj, "organization_id", None))
     rules_team = None if resource_type in OWN_TEAM_RESOURCES else team
     team_id = rules_team.id if rules_team is not None else getattr(obj, "team_id", None)
     if team_id is None:
