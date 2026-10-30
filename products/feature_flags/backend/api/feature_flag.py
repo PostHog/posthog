@@ -95,10 +95,10 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.approvals.backend.decorators import approval_gate
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -147,7 +147,10 @@ from products.feature_flags.backend.facade.config import (
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
-from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_analytics import (
+    increment_local_evaluation_request_counts,
+    increment_request_count,
+)
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -4489,7 +4492,7 @@ class FeatureFlagViewSet(
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            increment_local_evaluation_request_counts(self.team.pk)
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])

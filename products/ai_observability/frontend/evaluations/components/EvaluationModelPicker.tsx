@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { modelPickerLogic } from '../../modelPickerLogic'
 import { booleanOutputConfigError, decisionModelHint } from '../constants'
@@ -13,8 +15,9 @@ import { EvaluationJudgeModelPicker } from './EvaluationJudgeModelPicker'
 
 export function EvaluationModelPicker(): JSX.Element {
     const { byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
-    const { evaluation, usesDecisionModel, judgeMethod } = useValues(llmEvaluationLogic)
-    const { setJudgeMethod } = useActions(llmEvaluationLogic)
+    const { evaluation, usesDecisionModel, judgeMethod, includeMedia } = useValues(llmEvaluationLogic)
+    const { setJudgeMethod, setIncludeMedia } = useActions(llmEvaluationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -61,6 +64,22 @@ export function EvaluationModelPicker(): JSX.Element {
                         )}
                     </div>
                 </LemonField.Pure>
+                {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] &&
+                    evaluation?.evaluation_type === 'llm_judge' &&
+                    !usesDecisionModel && (
+                        <LemonField.Pure label="Attachments">
+                            <LemonSwitch
+                                checked={includeMedia}
+                                onChange={setIncludeMedia}
+                                bordered
+                                label="Send to the judge"
+                                data-attr="llma-evaluation-include-attachments"
+                            />
+                            <p className="text-muted text-sm">
+                                The judge sees the images in what it evaluates. Other file types are not supported yet.
+                            </p>
+                        </LemonField.Pure>
+                    )}
                 {evaluation?.evaluation_type === 'llm_judge' &&
                     evaluation.output_type === 'boolean' &&
                     usesDecisionModel && (

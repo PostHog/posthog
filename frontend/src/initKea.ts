@@ -143,6 +143,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -171,6 +172,14 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadOfflineExperiment', // Offline evaluation views render a stale or deleted link as an inline error
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
 ])
 
 /*

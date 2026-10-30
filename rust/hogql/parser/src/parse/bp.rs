@@ -175,10 +175,13 @@ pub(super) fn build_infix<E: Emitter>(
 /// for the CONCAT alt: `a || b || c` becomes `concat(a, b, c)` rather
 /// than `concat(concat(a, b), c)`. Either side that's already a
 /// `Call(name="concat", ...)` contributes its existing args.
-pub(super) fn merge_concat<E: Emitter>(emit: &E, lhs: E::Value, rhs: E::Value) -> E::Value {
+pub(super) fn merge_concat<E: Emitter>(emit: &E, mut lhs: E::Value, mut rhs: E::Value) -> E::Value {
     let mut args: Vec<E::Value> = Vec::new();
     if is_concat_call(emit, &lhs) {
-        if let Some(left_args) = emit.get_field(&lhs, "args").and_then(|v| emit.as_list(&v)) {
+        if let Some(left_args) = emit
+            .take_field(&mut lhs, "args")
+            .and_then(|v| emit.into_list(v))
+        {
             args.extend(left_args);
         } else {
             args.push(lhs);
@@ -187,7 +190,10 @@ pub(super) fn merge_concat<E: Emitter>(emit: &E, lhs: E::Value, rhs: E::Value) -
         args.push(lhs);
     }
     if is_concat_call(emit, &rhs) {
-        if let Some(right_args) = emit.get_field(&rhs, "args").and_then(|v| emit.as_list(&v)) {
+        if let Some(right_args) = emit
+            .take_field(&mut rhs, "args")
+            .and_then(|v| emit.into_list(v))
+        {
             args.extend(right_args);
         } else {
             args.push(rhs);
@@ -229,11 +235,14 @@ pub(super) fn merge_and_or<E: Emitter>(
 fn extend_with_node_children<E: Emitter>(
     emit: &E,
     out: &mut Vec<E::Value>,
-    v: E::Value,
+    mut v: E::Value,
     node: &str,
 ) {
     if emit.node_kind(&v).as_deref() == Some(node) {
-        if let Some(children) = emit.get_field(&v, "exprs").and_then(|f| emit.as_list(&f)) {
+        if let Some(children) = emit
+            .take_field(&mut v, "exprs")
+            .and_then(|f| emit.into_list(f))
+        {
             out.extend(children);
             return;
         }

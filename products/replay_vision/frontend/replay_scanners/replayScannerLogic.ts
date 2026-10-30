@@ -87,14 +87,15 @@ import { newScanner } from './newScanner'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
-    SCANNER_EDITOR_STEPS,
     ScannerEditorStep,
+    advancesWithoutSubmit,
     firstErroredScannerStep,
+    nextScannerEditorStep,
     scannerEditorSceneLogic,
+    scannerEditorSteps,
     scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
-    UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
 import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
@@ -1170,11 +1171,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             submit: async (scanner: ScannerFormValues) => {
                 // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
                 // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
-                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                // The overview step sits outside the manual wizard's step list (indexOf -1), so its
-                // submit must persist rather than resolve to the list's first step and navigate there.
-                const currentStepIndex = SCANNER_EDITOR_STEPS.indexOf(currentStep)
-                const nextStep = currentStepIndex === -1 ? undefined : SCANNER_EDITOR_STEPS[currentStepIndex + 1]
+                const editor = scannerEditorSceneLogic.findMounted()
+                const currentStep = editor?.values.step ?? 'configure'
+                // The overview step sits outside the manual wizard's step list, so its submit must
+                // persist rather than resolve to the list's first step and navigate there.
+                const nextStep = nextScannerEditorStep(currentStep, editor?.values.steps ?? scannerEditorSteps(false))
                 if (nextStep) {
                     router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
@@ -1986,20 +1987,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (error?.message !== 'Validation Failed') {
                     return
                 }
-                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
-                // Enter submits the whole form, so leaving a step that validates nothing must behave like
+                const editor = scannerEditorSceneLogic.findMounted()
+                const currentStep = editor?.values.step
+                const recordingsFirst = editor?.values.recordingsFirst ?? false
+                const steps = scannerEditorSteps(recordingsFirst)
+                const errors = { ...values.scannerValidationErrors, duration: values.durationValidationError }
+                // Enter submits the whole form, so leaving a step whose own fields are clean must behave like
                 // its Next button: move on, rather than red-flag fields the user has not reached yet.
-                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
-                    const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                if (currentStep && advancesWithoutSubmit(currentStep, recordingsFirst, errors)) {
+                    const next = nextScannerEditorStep(currentStep, steps)
                     if (next) {
                         router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
                     }
                     return
                 }
-                const erroredStep = firstErroredScannerStep({
-                    ...values.scannerValidationErrors,
-                    duration: values.durationValidationError,
-                })
+                const erroredStep = firstErroredScannerStep(errors, steps)
                 if (erroredStep && erroredStep !== currentStep) {
                     router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                 }
@@ -2945,7 +2947,7 @@ export function leaveScannerEditor(scannerId: string, destination: string): void
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
-        ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
+        ...scannerEditorSteps(false).map((step) => scannerStepUrl(step, scannerId)),
         // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
         scannerStepUrl('overview', scannerId),
     ]
