@@ -7,14 +7,16 @@ A note targets one scout by `skill_name`, a pipeline stage by a reserved
 `pipeline:*` audience, or the whole fleet when `skill_name` is blank; `list_notes`
 is what a run calls to pick up the notes addressed to it.
 
-Most notes are left by hand through that surface. Four `origin`s are derived from
-inbox activity instead: `report_dismissal`, forwarded from the feedback someone
+Most notes are left by hand through that surface. Five `origin`s come from inbox
+activity instead: `report_dismissal`, forwarded from the feedback someone
 typed when they dismissed, snoozed, or restored an inbox report (see
 `dismissal_notes.py`); `report_discussion`, forwarded from the question someone
 asked when they opened a discussion on a report (see `discussion_notes.py`);
 `report_feedback`, forwarded from the note someone left when rating a report useful
-or not (see `feedback_notes.py`); and `report_reviewer_correction`, forwarded when
-someone added or removed a suggested reviewer (see `reviewer_correction_notes.py`).
+or not (see `feedback_notes.py`); `report_reviewer_correction`, forwarded when
+someone added or removed a suggested reviewer (see `reviewer_correction_notes.py`);
+and `report_note`, written straight for the scouts from a report (see
+`report_scout_notes.py`).
 """
 
 from __future__ import annotations
@@ -127,8 +129,9 @@ def leave_note(
 ) -> ScoutNote:
     """Create a note. Not an upsert — every call mints a new row; delete retires one.
 
-    `origin` is server-owned and never caller-supplied over the API: the notes endpoint always
-    writes `HUMAN`. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
+    `origin` is server-owned and never caller-supplied over the API: the notes endpoint writes
+    `HUMAN`, or `REPORT_NOTE` through `report_scout_notes.leave_report_note` when the request names
+    a report. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
     `REPORT_DISCUSSION` to `discussion_notes.forward_discussion_note`, `REPORT_FEEDBACK` to
     `feedback_notes.forward_feedback_note`, and `REPORT_REVIEWER_CORRECTION` to
     `reviewer_correction_notes.forward_reviewer_correction_note`.

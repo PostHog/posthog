@@ -84,7 +84,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
-from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.report_access import may_read_reports, may_write_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult, submit_monitoring_scout_result
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
@@ -398,6 +398,23 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     if not isinstance(user, User):
         return False
     return may_read_reports(user=user, team=canonical_team)
+
+
+def _may_write_reports(request: Request, canonical_team: Team) -> bool:
+    """Whether this caller could append to an inbox report's activity log canonically.
+
+    A note left from a report appends a `scout_note_left` artefact, and the reports artefact API
+    gates every write on the `task` scope object plus the `task` editor bar. The notes surface
+    rides `signal_scout`, so both legs are re-checked here, as `_may_read_reports` does on the read
+    side, or steering access alone would write to a report the caller may not edit.
+    """
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and not ("*" in scopes or "task:write" in scopes):
+        return False
+    user = request.user
+    if not isinstance(user, User):
+        return False
+    return may_write_reports(user=user, team=canonical_team)
 
 
 class Conflict(exceptions.APIException):
@@ -2301,9 +2318,9 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if report_id is None:
             return None
         # The note names the report and its activity log gains an entry, so the caller must be able
-        # to read reports, not only steer scouts.
-        if not _may_read_reports(request, self.team.parent_team or self.team):
-            raise exceptions.PermissionDenied("Leaving a note on a report requires access to inbox reports.")
+        # to edit reports, not only steer scouts.
+        if not _may_write_reports(request, self.team.parent_team or self.team):
+            raise exceptions.PermissionDenied("Leaving a note on a report requires edit access to inbox reports.")
         report = (
             SignalReport.objects.filter(team_id=team_id, id=report_id)
             .exclude(status=SignalReport.Status.DELETED)

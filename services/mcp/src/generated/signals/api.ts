@@ -2857,7 +2857,7 @@ export const SignalsScoutNotesCreateBody = () => zod
             .string()
             .nullish()
             .describe(
-                "Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires read access to inbox reports, and the report must belong to this project."
+                "Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set."
             ),
         expires_at: zod
             .string()
