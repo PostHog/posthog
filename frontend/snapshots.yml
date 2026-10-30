@@ -13630,6 +13630,10 @@ snapshots:
         hash: v1.k794b7964.b73cdfebd90f08032a9bae75b882177b0820ef6b6b5fca62e4a9544c8bb71a44.mFeqRlSaFAONCXvFYM3lsPacPRQ5Wkypera3O6w4hbs
     scenes-app-marketing-analytics-dismissible-setup-prompts--without-setup--light:
         hash: v1.k794b7964.057e79150a4b1c174a9c18d862c57f376c602ea6514dc6b61a1ed2878e480ab5.gqZ8hB3FeD2bKbPduK0mfzBhgZzX8-o1TD17iWdG_rA
+    scenes-app-marketing-analytics-freshness--computed--dark:
+        hash: v1.k794b7964.90967ba2970502957dfc2ac148e5e7b5983cdead8f9ed65f6c88b633aa40b47f.fv8wRnqQIa9AJ-YrUciGVNniE6TNH90dQXtFGe4zYuA
+    scenes-app-marketing-analytics-freshness--computed--light:
+        hash: v1.k794b7964.9b48285ee94821b59c9f04f5dc8ce000d26f8347494271afc19210f456c0b266.0rTIN2xVUydlLJ_9ZgeDX30gzApEJN_sOm4OIRnsaX0
     scenes-app-marketing-analytics-metric-cells--clickable-and-static--dark:
         hash: v1.k794b7964.f9b440217e994a034cd41b83c7ce116d3f80c8ffe0a713e478f571d6d3a17523.nVNlflYTiAcXYQ-MYXqFWg3XELCQxOiOIbqp-I6G8pE
     scenes-app-marketing-analytics-metric-cells--clickable-and-static--light:
@@ -14967,7 +14971,7 @@ snapshots:
     scenes-app-replay-vision--observation-detail-failed--light:
         hash: v1.k794b7964.d785723c2d89ed620d75d0ef2055f898a01b7325101229d4e54cf37e2dc17af7.fv0LS2k7i2Mak73ZKguMZkf_kkciOPKble3HlvFiBPQ
     scenes-app-replay-vision--observation-detail-inline-scan--dark:
-        hash: v1.k794b7964.ae52ae6b7550bd29bb072461a76f6adb7225017bef54712ae0983da16d73d38c.TMsKlJUqYj_m_dfJE700BerOPX_sIpZYfuZHqrEhGIE
+        hash: v1.k794b7964.d2ac40d93084cefc9e4414292ec6472755d2142350ad1311136d9618f11e30b3.FukH9MgLAv5Qr1gDL0fALJGC9RvVs0Rd64LCnrGl_kk
     scenes-app-replay-vision--observation-detail-inline-scan--light:
         hash: v1.k794b7964.58c261c32ebe4877009c5f758aea489ac52f9afea88b3fb7e528f06beb12baee.yLN7cpDKxLxc4oOyubpLEzKTHWFBFtsZbMZxdUKgS1A
     scenes-app-replay-vision--observation-detail-monitor--dark:
