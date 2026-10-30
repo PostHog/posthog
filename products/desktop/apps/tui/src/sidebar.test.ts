@@ -74,7 +74,6 @@ describe("sidebarRows", () => {
     ).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "v Workspace 1",
       "  Task a",
@@ -91,14 +90,14 @@ describe("sidebarRows", () => {
       collapsed: new Set(),
       working: new Set(),
     });
-    expect(rows.slice(4, 7)).toMatchObject([
+    expect(rows.slice(3, 6)).toMatchObject([
       { kind: "workspace", size: 2 },
       { kind: "task", nested: true, last: false },
       { kind: "task", nested: true, last: true },
     ]);
   });
 
-  it("lists Today and New chat above the work, each opening the main view its own way", () => {
+  it("lists the main view's new chat at the top of All tasks, and Today once opened", () => {
     const empty = initialLayout();
     const rows = sidebarRows({
       layout: empty,
@@ -109,14 +108,14 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "## All tasks",
+      "New chat",
       "Task a",
     ]);
     const mainPane = activeWorkspace(empty).focusedPaneId;
     expect(rows[1]).toEqual({ kind: "today", paneId: null });
-    expect(rows[2]).toMatchObject({
+    expect(rows[4]).toMatchObject({
       kind: "task",
       taskId: null,
       paneId: mainPane,
@@ -127,23 +126,20 @@ describe("sidebarRows", () => {
       taskId: null,
       today: true,
     });
-    const [todayRow, newChatRow] = sidebarRows({
+    const shown = sidebarRows({
       layout: today as LayoutState,
       work: page({ tasks: [task("a")] }),
       collapsed: new Set(),
       working: new Set(),
-    }).slice(1, 3);
-    expect(todayRow).toEqual({ kind: "today", paneId: mainPane });
-    expect(newChatRow).toMatchObject({
-      kind: "task",
-      taskId: null,
-      paneId: null,
     });
-    const fresh = activateRow(today as LayoutState, newChatRow);
-    expect(fresh !== "viewMore" && activeWorkspace(fresh).root).toMatchObject({
-      taskId: null,
-      today: undefined,
-    });
+    expect(labels(shown)).toEqual([
+      "# Work",
+      "Today",
+      "",
+      "## All tasks",
+      "Task a",
+    ]);
+    expect(shown[1]).toEqual({ kind: "today", paneId: mainPane });
   });
 
   it("puts each workspace above All tasks with a gap after it", () => {
@@ -161,7 +157,6 @@ describe("sidebarRows", () => {
     ).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "v Workspace 1",
       "  Task a",
@@ -192,7 +187,6 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "## All tasks",
       "Task old",
@@ -217,7 +211,6 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "v Workspace 1",
       "  Fix the flaky test",
@@ -240,9 +233,9 @@ describe("sidebarRows", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "## All tasks",
+      "New chat",
       "[signedOut]",
     ]);
   });
@@ -253,16 +246,7 @@ describe("sidebarRows", () => {
       "b",
     );
     expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
-      [
-        "# Work",
-        "Today",
-        "New chat",
-        "",
-        "> Workspace 1",
-        "",
-        "## All tasks",
-        "[empty]",
-      ],
+      ["# Work", "Today", "", "> Workspace 1", "", "## All tasks", "[empty]"],
     );
   });
 
@@ -334,36 +318,36 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Today, New chat, gap, Workspace 1, a, b, gap, All tasks, a, z, View more
+  // Work, Today, gap, Workspace 1, a, b, gap, All tasks, a, z, View more
 
   it.each([
-    ["down", 5, 1, 6],
-    ["up past the workspace heading to New chat", 5, -1, 2],
-    ["down past the gap and All tasks", 6, 1, 9],
-    ["down at the end", 11, 1, 11],
-    ["up past All tasks and the gap", 9, -1, 6],
+    ["down", 4, 1, 5],
+    ["up past the workspace heading to Today", 4, -1, 1],
+    ["down past the gap and All tasks", 5, 1, 8],
+    ["down at the end", 10, 1, 10],
+    ["up past All tasks and the gap", 8, -1, 5],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
 
   it("jumps to an open pane, opens a Work task, and asks for more", () => {
-    const paneOfA = rows[5].kind === "task" && rows[5].paneId;
-    for (const row of [rows[5], rows[9]]) {
+    const paneOfA = rows[4].kind === "task" && rows[4].paneId;
+    for (const row of [rows[4], rows[8]]) {
       const toPane = activateRow(layout, row);
       expect(
         toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId,
       ).toBe(paneOfA);
     }
 
-    const opened = activateRow(layout, rows[10]);
+    const opened = activateRow(layout, rows[9]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
 
-    expect(activateRow(layout, rows[11])).toBe("viewMore");
+    expect(activateRow(layout, rows[10])).toBe("viewMore");
   });
 
   it("tells a split task's two rows apart, so the cursor stays on the one picked", () => {
-    expect(cursorIndex(rows, selectionKey(rows[5]))).toBe(5);
-    expect(cursorIndex(rows, selectionKey(rows[9]))).toBe(9);
+    expect(cursorIndex(rows, selectionKey(rows[4]))).toBe(4);
+    expect(cursorIndex(rows, selectionKey(rows[8]))).toBe(8);
   });
 
   it("keeps the cursor on the same task when opening it moves rows around", () => {
@@ -419,17 +403,16 @@ describe("sidebar selection", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "## All tasks",
       "Task a",
       "Task mine",
       "Task b",
     ]);
-    expect(rows[6]).toMatchObject({ local: true, indicator: "alive" });
+    expect(rows[5]).toMatchObject({ local: true, indicator: "alive" });
 
     // Down to b, then up past the local chat to a, each opening in the main view.
-    let cursor = selectionKey(rows[6]);
+    let cursor = selectionKey(rows[5]);
     for (const step of [1, -1, -1] as const) {
       const index = moveSelection(rows, cursorIndex(rows, cursor), step);
       cursor = selectionKey(rows[index]);
@@ -439,7 +422,6 @@ describe("sidebar selection", () => {
       expect(labels(rows)).toEqual([
         "# Work",
         "Today",
-        "New chat",
         "",
         "## All tasks",
         "Task a",
@@ -474,9 +456,9 @@ describe("sidebar selection", () => {
     expect(labels(rows)).toEqual([
       "# Work",
       "Today",
-      "New chat",
       "",
       "## All tasks",
+      "New chat",
       "Task a",
       "Task new",
       "Task b",
@@ -487,7 +469,7 @@ describe("sidebar selection", () => {
 
   it("starts the cursor on the first row it can select, not the heading", () => {
     expect(cursorIndex(rows, null)).toBe(1);
-    expect(cursorIndex(rows, selectionKey(rows[9]))).toBe(9);
+    expect(cursorIndex(rows, selectionKey(rows[8]))).toBe(8);
     expect(cursorIndex(rows, "task:gone")).toBe(1);
   });
 });
