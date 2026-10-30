@@ -97,15 +97,8 @@ def no_such_list_entry_response() -> Response:
     return Response({"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND)
 
 
-def path_uuid(value: str) -> UUID:
-    """The UUID of a detail URL. Any other value names no object, so the answer is 404."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise NotFound()
-
-
 def uuid_path_parameter(object_name: str) -> OpenApiParameter:
+    # path_parameters types the id, but only this declaration gives it a description in the API docs.
     return OpenApiParameter(
         "id",
         OpenApiTypes.UUID,
@@ -413,11 +406,11 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositorySerializer
+    path_parameters = {"pk": UUID, "person_id": UUID}
     pagination_class = None
 
     def _repository_or_404(self) -> ReviewRepositorySettings:
-        repository_id = path_uuid(self.kwargs["pk"])
-        repository = get_review_repository(self.effective_team_id, self.acting_user_id, repository_id)
+        repository = get_review_repository(self.effective_team_id, self.acting_user_id, self.kwargs["pk"])
         if repository is None:
             raise NotFound()
         return repository
@@ -431,8 +424,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return Response(ReviewRepositorySerializer(repositories, many=True).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        repository_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_repository(self.effective_team_id, self.acting_user_id, repository_id):
+        if not delete_review_repository(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -510,7 +502,9 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     @extend_schema(
         parameters=[
             uuid_path_parameter("review repository"),
-            OpenApiParameter("person_id", str, OpenApiParameter.PATH, description="Id of the list entry."),
+            OpenApiParameter(
+                "person_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the list entry."
+            ),
         ],
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
@@ -525,11 +519,9 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         url_path=rf"people/(?P<person_id>{UUID_PATH_PATTERN})",
         required_scopes=["review_hog:write"],
     )
-    def remove_person(self, request: Request, person_id: str, **kwargs: Any) -> Response:
+    def remove_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
-        if not remove_review_repository_person(
-            self.effective_team_id, self.acting_user_id, repository.id, UUID(person_id)
-        ):
+        if not remove_review_repository_person(self.effective_team_id, self.acting_user_id, repository.id, person_id):
             return no_such_list_entry_response()
         return self._repository_response(repository.id)
 
@@ -546,10 +538,11 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewInstallationClaimSerializer
+    path_parameters = {"pk": UUID}
     pagination_class = None
 
     def _claim_id_or_404(self) -> UUID:
-        claim_id = path_uuid(self.kwargs["pk"])
+        claim_id = self.kwargs["pk"]
         if get_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id) is None:
             raise NotFound()
         return claim_id
@@ -628,8 +621,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         "repositories and exceptions there are removed too. Personal choices stay.",
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        claim_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id):
+        if not delete_review_installation_claim(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -652,6 +644,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
+    path_parameters = {"pk": UUID}
     pagination_class = None
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -659,8 +652,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
         return Response(ReviewRepositoryChoiceSerializer(choices, many=True).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        choice_id = path_uuid(self.kwargs["pk"])
-        if not delete_review_repository_choice(self.effective_team_id, self.acting_user_id, choice_id):
+        if not delete_review_repository_choice(self.effective_team_id, self.acting_user_id, self.kwargs["pk"]):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

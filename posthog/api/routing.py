@@ -1,9 +1,11 @@
+import re
 import sys
 from collections.abc import Sequence
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models.query import QuerySet
 
 from opentelemetry import trace
@@ -57,6 +59,26 @@ else:
 
 # Adapted from drf-extensions 0.8.0 (MIT, Copyright (c) 2013 Gennady Chibisov, github.com/chibisov/drf-extensions).
 PARENT_LOOKUP_KWARG_PREFIX = "parent_lookup_"
+
+PathParameterType = type[UUID] | type[int] | type[str]
+PATH_PARAMETER_TYPES: tuple[PathParameterType, ...] = (UUID, int, str)
+# parents_query_dict resolves these with token overrides and `@current`, so path_parameters must not parse them.
+_PARENT_PATH_PARAMETERS = frozenset({"team_id", "project_id", "organization_id"})
+_ASCII_DIGITS = re.compile(r"[0-9]+")
+# Postgres bigint maximum. A larger id makes the database lookup fail with a 500.
+_MAX_BIGINT = 2**63 - 1
+
+
+def _parse_path_parameter(raw_value: str, parameter_type: PathParameterType) -> UUID | int | str:
+    if parameter_type is not int:
+        return parameter_type(raw_value)
+    # int() also accepts "1_000", " 7" and non-ASCII digits, which are not ids.
+    if not _ASCII_DIGITS.fullmatch(raw_value):
+        raise ValueError(f"{raw_value!r} is not a decimal id")
+    value = int(raw_value)
+    if value > _MAX_BIGINT:
+        raise ValueError(f"{raw_value!r} is out of the bigint range")
+    return value
 
 
 class NestedRegistryItem:
@@ -199,6 +221,24 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
 
+    # Types of the URL kwargs, for views without a queryset model, e.g. {"pk": UUID}.
+    # initial() parses each kwarg and answers 404 for a malformed value, so a handler gets `pk: UUID`.
+    # PostHogAutoSchema reads the same mapping to type the OpenAPI path parameters.
+    path_parameters: dict[str, PathParameterType] = {}
+
+    @classmethod
+    def _check_path_parameters(cls) -> None:
+        for name, parameter_type in cls.path_parameters.items():
+            if name.startswith(PARENT_LOOKUP_KWARG_PREFIX) or name in _PARENT_PATH_PARAMETERS:
+                raise ImproperlyConfigured(
+                    f"{cls.__name__}.path_parameters declares the parent lookup {name!r}. "
+                    "Parent lookups are resolved by parents_query_dict, so declare only the view's own URL kwargs."
+                )
+            if parameter_type not in PATH_PARAMETER_TYPES:
+                raise ImproperlyConfigured(
+                    f"{cls.__name__}.path_parameters declares {name!r} as {parameter_type!r}. Use UUID, int or str."
+                )
+
     def __init_subclass__(cls, **kwargs):
         """
         This class plays a crucial role in ensuring common permissions, authentication and filtering.
@@ -215,6 +255,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+        cls._check_path_parameters()
+
+    def _parse_path_parameters(self) -> None:
+        # Change self.kwargs in place, because APIView.dispatch passes this same dict to the handler.
+        for name, parameter_type in self.path_parameters.items():
+            raw_value = self.kwargs.get(name)
+            if raw_value is None or isinstance(raw_value, parameter_type):
+                continue
+            try:
+                self.kwargs[name] = _parse_path_parameter(raw_value, parameter_type)
+            except ValueError:
+                # A malformed id names no object, so the answer is 404, the same as from a queryset view.
+                raise NotFound()
 
     def dispatch(self, request, *args, **kwargs):
         """
@@ -261,8 +315,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         simply never set — scoped queries raise TeamScopeError, which is the
         correct fail-closed behavior. dispatch() above guarantees cleanup
         regardless.
+
+        Path parameters are parsed after super().initial(), so an
+        authentication or permission error wins over a 404 for a malformed id.
         """
         super().initial(request, *args, **kwargs)
+        self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
             try:

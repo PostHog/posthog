@@ -463,6 +463,15 @@ A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) n
 
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
+### Path ids
+
+A view that reads through the facade has no `queryset`, so nothing can read the type of a URL kwarg from a model.
+Declare the types on the view: `path_parameters = {"pk": UUID}`.
+`TeamAndOrgViewSetMixin` parses each declared kwarg before the handler runs, and answers 404 for a malformed value, the same as a queryset view.
+The handler gets `pk: UUID`, and the OpenAPI schema shows `format: uuid`.
+A named capture in an action's `url_path` goes in the same mapping. Parent lookups do not, because `parents_query_dict` resolves them.
+Do not parse path ids by hand. See `products/visual_review/backend/presentation/views.py`.
+
 ### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
