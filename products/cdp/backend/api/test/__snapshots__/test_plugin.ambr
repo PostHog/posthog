@@ -254,11 +254,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.14
@@ -332,11 +332,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
@@ -688,11 +688,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.22
@@ -766,11 +766,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
@@ -1076,11 +1076,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.3
@@ -1209,11 +1209,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   ORDER BY "posthog_plugin"."id" ASC
   LIMIT 100
   '''
@@ -1326,11 +1326,11 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id" AS "plugin_id"
-            FROM "posthog_pluginconfig" U0
-            INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
-            WHERE (NOT U0."deleted"
-                   AND U1."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
+           (SELECT "U0"."plugin_id" AS "plugin_id"
+            FROM "posthog_pluginconfig" "U0"
+            INNER JOIN "posthog_team" "U1" ON ("U0"."team_id" = "U1"."id")
+            WHERE (NOT "U0"."deleted"
+                   AND "U1"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
   '''
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.7

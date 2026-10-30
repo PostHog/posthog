@@ -9,11 +9,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
+from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 from products.signals.backend.views import SignalTeamConfigViewSet
@@ -61,6 +63,8 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         for field in STEERING_FIELDS.values():
             response = self.client.post(self._url(), {field: "New rules."}, format="json")
             assert response.status_code == 403, response.content
+        response = self.client.post(self._url(), {"implementation_repositories": ["acme/assets"]}, format="json")
+        assert response.status_code == 403, response.content
         assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
@@ -124,24 +128,32 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("set", None, "C123|#posthog-signals", "C123|#posthog-signals"),
-            ("clear", "C123|#posthog-signals", None, None),
+            ("set", None, "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("set_with_workspace", None, "C123|#posthog-signals", True, "C123|#posthog-signals", True),
+            ("change_without_workspace", "C999|#old", "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("clear", "C123|#posthog-signals", None, False, None, False),
         ]
     )
-    def test_update_default_slack_notification_channel(self, _name, initial, sent, expected):
+    def test_update_default_slack_notification_channel(
+        self, _name, initial, sent, send_workspace, expected, expect_bound
+    ):
+        workspace = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         if initial is not None:
             self.config.default_slack_notification_channel = initial
-            self.config.save(update_fields=["default_slack_notification_channel"])
-        response = self.client.post(
-            self._url(),
-            data={"default_slack_notification_channel": sent},
-            format="json",
-        )
+            self.config.default_slack_notification_integration_id = workspace.id
+            self.config.save(
+                update_fields=["default_slack_notification_channel", "default_slack_notification_integration_id"]
+            )
+        payload: dict = {"default_slack_notification_channel": sent}
+        if send_workspace:
+            payload["default_slack_notification_integration"] = workspace.id
+        response = self.client.post(self._url(), data=payload, format="json")
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] == expected
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
+        assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
@@ -363,7 +375,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         # materialized, so the row is created with the channel already set. That first choice
         # must still be audited even though it arrives as a create rather than an update.
         self.config.delete()
-        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals")
+        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals", integration_id=None)
 
         entries = self._activity()
         assert len(entries) == 1
@@ -386,8 +398,53 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(self._activity()) == 1
 
+    @parameterized.expand(
+        [
+            (
+                "reachable_entries_are_normalized",
+                [],
+                ["Acme/Assets", "acme/assets", "acme/docs"],
+                status.HTTP_200_OK,
+                ["acme/assets", "acme/docs"],
+            ),
+            ("unreachable_entry_is_rejected", [], ["acme/assets", "other/secret"], status.HTTP_400_BAD_REQUEST, []),
+            # A stored entry that lost access can still be removed, and kept, without a fresh check.
+            ("stored_entry_skips_the_check", ["acme/gone"], ["acme/gone"], status.HTTP_200_OK, ["acme/gone"]),
+        ]
+    )
+    def test_update_implementation_repositories_checks_new_entries_against_the_installation(
+        self, _name: str, stored: list[str], sent: list[str], expected_status: int, expected: list[str]
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.config.implementation_repositories = stored
+        self.config.save(update_fields=["implementation_repositories"])
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "acme"}})
+
+        with patch.object(
+            GitHubIntegration,
+            "list_all_cached_repositories",
+            return_value=[{"full_name": "acme/assets"}, {"full_name": "acme/docs"}],
+        ):
+            response = self.client.post(self._url(), {"implementation_repositories": sent}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        self.config.refresh_from_db()
+        assert self.config.implementation_repositories == (expected or stored)
+
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_owner_slash_repo", ["assets"]),
+            ("too_many_entries", [f"acme/repo{i}" for i in range(MAX_IMPLEMENTATION_REPOSITORIES + 1)]),
+        ]
+    )
+    def test_implementation_repositories_rejects_malformed_input(self, _name: str, value: list[str]) -> None:
+        serializer = SignalTeamConfigSerializer(data={"implementation_repositories": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "implementation_repositories" in serializer.errors
+
     @parameterized.expand(list(STEERING_FIELDS.values()))
     def test_steering_rejects_oversized_instructions(self, field: str) -> None:
         serializer = SignalTeamConfigSerializer(data={field: "x" * AGENT_STEERING_MAX_LENGTH}, partial=True)

@@ -4,7 +4,7 @@ import type { ChartTheme, Series } from '../../core/types'
 import { createDefaultTooltipAccessor, renderChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { funnelFromCounts } from './funnel-data'
-import { FunnelChart, type FunnelStepClickData } from './FunnelChart'
+import { FunnelChart, type FunnelChartConfig, type FunnelStepClickData } from './FunnelChart'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e'],
@@ -124,6 +124,21 @@ describe('FunnelChart', () => {
             expect(cells).toHaveLength(STEPS.length)
         })
         expect(chart.xTicks()).toHaveLength(0)
+    })
+
+    it.each([
+        { name: 'margins', config: (): FunnelChartConfig => ({ margins: { top: 4 } }) },
+        { name: 'tooltip', config: (): FunnelChartConfig => ({ tooltip: { pinnable: true } }) },
+    ])('does not repaint the static canvas when a re-render passes an equal inline $name', ({ config }) => {
+        const { chart, rerender } = renderChart(
+            <FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={config()} />
+        )
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+        rerender(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={config()} />)
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
     })
 
     it('never asks for a step footer past the current step count when a shorter funnel replaces a longer one', async () => {

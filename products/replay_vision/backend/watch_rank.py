@@ -17,7 +17,7 @@ from typing import Any, Literal, cast
 
 from django.core.cache import cache
 from django.core.exceptions import EmptyResultSet
-from django.db import connections
+from django.db import connections, transaction
 from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Window
 from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.replay_observation import (
     watch_rank_contrast,
 )
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.scanner_access import accessible_observations
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
@@ -251,12 +252,17 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     if current_rank({"watch_rank": row["watch_rank"]}) is not None:
         return "already_ranked"
     reading = classify(request.vector, await anchor_vectors(request.team_id))
-    # The similarities land first, so a rank on the row means its similarities are there too.
-    await sync_to_async(save_anchor_similarities)(request.team_id, {request.observation_id: reading.similarities})
-    await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
-        watch_rank=reading.rank.to_json()
-    )
+    await sync_to_async(_save_rank)(request.team_id, request.observation_id, reading)
     return "ranked"
+
+
+def _save_rank(team_id: int, observation_id: str, reading: AnchorReading) -> None:
+    # One transaction, so a rank on the row always comes with its similarities.
+    rank = reading.rank
+    with transaction.atomic():
+        save_anchor_similarities(team_id, {observation_id: reading.similarities})
+        ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(watch_rank=rank.to_json())
+        record_ranks(team_id, ANCHOR_VERSION, {observation_id: NewRank(contrast=rank.contrast, category=rank.category)})
 
 
 def people_boost(people: int) -> float:

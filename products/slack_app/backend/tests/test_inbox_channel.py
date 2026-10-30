@@ -54,7 +54,7 @@ class TestInboxChannel:
     @patch("posthog.models.integration.slack.WebClient")
     def test_reuses_configured_channel(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C777|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C777|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C777"}}
 
         result = inbox_channel.ensure_inbox_channel(self.integration)
@@ -123,7 +123,7 @@ class TestInboxChannel:
     @patch("posthog.models.integration.slack.WebClient")
     def test_is_inbox_channel_by_configured_id(self, mock_webclient_class):
         self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C222|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C222|#posthog-inbox", integration_id=self.integration.id)
 
         assert inbox_channel.is_inbox_channel(self.integration, "C222") is True
 
@@ -185,7 +185,7 @@ class TestInboxChannel:
     @patch("posthog.models.integration.slack.WebClient")
     def test_configured_channel_preserved_on_transient_error(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C_CUSTOM|#alerts")
+        set_default_slack_notification_channel(self.team.id, "C_CUSTOM|#alerts", integration_id=self.integration.id)
         client.conversations_info.side_effect = SlackApiError("ratelimited", {"error": "ratelimited"})
 
         result = inbox_channel.ensure_inbox_channel(self.integration)
@@ -198,7 +198,7 @@ class TestInboxChannel:
     @patch("posthog.models.integration.slack.WebClient")
     def test_configured_channel_replaced_when_definitely_gone(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C_OLD|#alerts")
+        set_default_slack_notification_channel(self.team.id, "C_OLD|#alerts", integration_id=self.integration.id)
         client.conversations_info.side_effect = SlackApiError("channel_not_found", {"error": "channel_not_found"})
         client.conversations_list.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
         client.conversations_create.return_value = {"channel": {"id": "C_NEW"}}
@@ -207,6 +207,26 @@ class TestInboxChannel:
 
         assert result == ("C_NEW", "#posthog-inbox")
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
+
+    @pytest.mark.parametrize("bound", [True, False])
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_second_workspace_leaves_the_team_channel_alone(self, mock_webclient_class, bound):
+        client = self._client(mock_webclient_class)
+        other = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_OTHER",
+            config={},
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        set_default_slack_notification_channel(
+            self.team.id, "C_OTHER|#posthog-inbox", integration_id=self.integration.id if bound else None
+        )
+        client.conversations_info.side_effect = SlackApiError("channel_not_found", {"error": "channel_not_found"})
+
+        assert inbox_channel.ensure_inbox_channel(other) is None
+        client.conversations_create.assert_not_called()
+        assert get_default_slack_notification_channel(self.team.id) == "C_OTHER|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_ensure_returns_none_when_create_claimed_by_other(self, mock_webclient_class):
