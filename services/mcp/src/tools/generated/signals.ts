@@ -1242,6 +1242,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         autostart_enabled: true,
         default_autostart_priority: true,
         default_slack_notification_channel: true,
+        default_slack_notification_integration: true,
         autostart_base_branches: true,
         issue_tracking_integration: true,
         issue_tracking_config: true,
