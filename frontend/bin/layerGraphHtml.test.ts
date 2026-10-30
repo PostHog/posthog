@@ -8,6 +8,7 @@ describe('layerGraphHtml.mjs', () => {
             'frontend/src/lib/components/Bad" onpointerover="alert(1)/index.tsx',
         ],
         ['an entity that the attribute decodes', 'frontend/src/lib/components/Bad&quot;/index.tsx'],
+        ['a pattern that String.replace expands', "frontend/src/lib/components/A$'$`alert(1);$'/index.tsx"],
     ])('keeps a folder name with %s inside its graph node key', (_, file) => {
         const html = renderLayerGraphHtml({
             files: { [file]: { bytes: 100, staticImports: [] } },

@@ -60,7 +60,8 @@ export function renderLayerGraphHtml({ files, shellRoot, shellReach, upward, lay
         opportunities,
         generated: new Date().toISOString(),
     }
-    return PAGE.replace('__DATA__', JSON.stringify(data).replace(/</g, '\\u003c'))
+    // A callback, because a replacement string expands $' and $` found in repository paths.
+    return PAGE.replace('__DATA__', () => JSON.stringify(data).replace(/</g, '\\u003c'))
 }
 
 const PAGE = `<!doctype html>
