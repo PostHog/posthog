@@ -219,7 +219,6 @@ class TestMonitoringSignals(BaseTest):
         assert reason not in serialized
         assert str(self.attempt.id) == evidence["requested_attempt"]["id"]
         assert "inbox-report-artefacts-list" in evidence["history"]
-        assert len(payload.explanation) <= 1000
         assert "affected population" in evidence["artefacts"][0]["content_excerpt"]
         assert "affected population" not in self.emitted()[0].signal.description
         self.attempt.refresh_from_db()

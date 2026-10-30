@@ -29,6 +29,10 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 logger = structlog.get_logger(__name__)
 
 
+class IncompleteReportLinks(Exception):
+    pass
+
+
 @frozen
 class ReportEdge:
     """One stored link, read the same way from either end: "`source_id` `kind` `target_id`"."""
@@ -69,19 +73,25 @@ def _edges_from_rows(
 
 
 def outgoing_links(
-    *, team_id: int, report_id: str | uuid.UUID, kinds: Collection[ReportLinkKind] | None = None
+    *,
+    team_id: int,
+    report_id: str | uuid.UUID,
+    kinds: Collection[ReportLinkKind] | None = None,
+    require_complete: bool = False,
 ) -> list[ReportEdge]:
     """The links written on this report, oldest first: what this report says about others."""
     source_id = _canonical_report_id(report_id)
     if source_id is None:
         return []
-    rows = (
+    rows = list(
         SignalReportArtefact.objects.using("default")
         .filter(team_id=team_id, report_id=source_id, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
         .order_by("created_at", "id")
-        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
+        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS + int(require_complete)]
     )
-    return _edges_from_rows(list(rows), kinds=kinds)
+    if require_complete and len(rows) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS:
+        raise IncompleteReportLinks
+    return _edges_from_rows(rows, kinds=kinds)
 
 
 def outgoing_links_by_report(
@@ -109,6 +119,7 @@ def incoming_links(
     report_id: str | uuid.UUID,
     kinds: Collection[ReportLinkKind] | None = None,
     include_deleted_sources: bool = False,
+    require_complete: bool = False,
 ) -> list[ReportEdge]:
     """The links other reports wrote about this one, oldest first.
 
@@ -128,9 +139,11 @@ def incoming_links(
         candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
     rows = list(
         candidates.order_by("created_at", "id").values_list("report_id", "content")[
-            : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
+            : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS + int(require_complete)
         ]
     )
+    if require_complete and len(rows) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS:
+        raise IncompleteReportLinks
     # `link_target_id` is a copy of the target in `content`, so the parsed target decides if they differ.
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
 

@@ -31,6 +31,7 @@ from products.signals.backend.spend import finalized_signal_ids, signal_id_for
 logger = structlog.get_logger(__name__)
 MONITORING_SIGNAL_RETRY_DELAY = timedelta(minutes=5)
 MONITORING_EVIDENCE_MAX_CHARS = 12_000
+MONITORING_EVIDENCE_MIN_CHARS = 512
 MONITORING_EVIDENCE_MAX_ROWS = 10
 # Prompts become team-readable task descriptions, so query-protected snapshots stay behind the API.
 MONITORING_EVIDENCE_ARTEFACT_TYPES = (
@@ -113,7 +114,6 @@ def emit_monitoring_research(*, team_id: int, report_id: str | UUID, attempt_id:
         payload = MonitoringUnresolvedSignalExtra(
             report_id=str(report_id),
             attempt_id=str(attempt.id),
-            explanation="Monitoring ended without establishing resolution.",
         )
         report = attempt.report
     team = report.team
@@ -130,8 +130,9 @@ def emit_monitoring_research(*, team_id: int, report_id: str | UUID, attempt_id:
                 description=(
                     f"Monitoring did not establish resolution: {(report.title or 'Untitled report')[:200]}\n"
                     f"Original report: {report.id}. Attempt: {attempt.id}.\n"
-                    f"{payload.explanation[:1000]}\n"
+                    "Monitoring ended without establishing resolution.\n"
                     "Investigate the original findings, implementation and verification evidence. "
+                    "Read its history with inbox-report-artefacts-list. "
                     "Uncertainty does not establish an implementation defect."
                 ),
                 weight=1.0,
@@ -184,7 +185,7 @@ def emit_due_monitoring_research(*, deadline: float, limit: int) -> None:
 def monitoring_research_evidence(
     *, team_id: int, payload: MonitoringUnresolvedSignalExtra, max_chars: int = MONITORING_EVIDENCE_MAX_CHARS
 ) -> str:
-    max_chars = max(512, max_chars)
+    max_chars = max(MONITORING_EVIDENCE_MIN_CHARS, max_chars)
     field_chars = min(1000, max_chars // 10)
     attempt = (
         SignalReportMonitoringAttempt.objects.for_team(team_id)

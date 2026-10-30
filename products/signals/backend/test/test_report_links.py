@@ -9,6 +9,7 @@ from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.typed_report_links import (
+    IncompleteReportLinks,
     duplicate_chain,
     duplicate_root,
     has_open_or_merged_pull_request,
@@ -66,6 +67,22 @@ class TestReportLinkReaders(BaseTest):
         self._link(source, target, ReportLinkKind.PART_OF)
 
         assert len(incoming_links(team_id=self.team.id, report_id=str(target.id).upper())) == 1
+
+    @parameterized.expand([("outgoing",), ("incoming",)])
+    def test_complete_reads_reject_truncation_before_filtering_kinds(self, direction: str) -> None:
+        source, target, other = self._report("source"), self._report("target"), self._report("other")
+        if direction == "outgoing":
+            self._link(source, other, ReportLinkKind.FOLLOW_UP_OF)
+            self._link(source, target, ReportLinkKind.PART_OF)
+            reader, report_id, kind = outgoing_links, source.id, ReportLinkKind.PART_OF
+        else:
+            self._link(other, target, ReportLinkKind.FOLLOW_UP_OF)
+            self._link(source, target, ReportLinkKind.DUPLICATE_OF)
+            reader, report_id, kind = incoming_links, target.id, ReportLinkKind.DUPLICATE_OF
+        with patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_ROWS", 1):
+            assert reader(team_id=self.team.id, report_id=report_id, kinds=(kind,)) == []
+            with self.assertRaises(IncompleteReportLinks):
+                reader(team_id=self.team.id, report_id=report_id, kinds=(kind,), require_complete=True)
 
     @parameterized.expand([("outgoing",), ("incoming",)])
     def test_a_row_that_no_longer_parses_names_no_edge(self, direction: str):
