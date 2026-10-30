@@ -38,6 +38,7 @@ export function useSidebar({
   working,
   waiting,
   titles,
+  showToday,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -51,6 +52,7 @@ export function useSidebar({
   working: Set<string>;
   waiting: Set<string>;
   titles: Map<string, string>;
+  showToday: boolean;
 }): SidebarState {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The cursor follows a row's identity, since previewing a chat can move rows.
@@ -68,6 +70,7 @@ export function useSidebar({
         titles,
         signedIn,
         local: { active: localActive, running: new Set(localSessions.keys()) },
+        showToday,
       }),
     [
       layout,
@@ -81,6 +84,7 @@ export function useSidebar({
       working,
       waiting,
       titles,
+      showToday,
     ],
   );
   const selectedIndex = cursorIndex(rows, selected);

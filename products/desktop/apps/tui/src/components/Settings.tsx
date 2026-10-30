@@ -13,6 +13,7 @@ const LABELS = {
   token: "Claude token",
   removeToken: "Remove token",
   context: "Show context in composer",
+  today: "Show Today briefing",
 } as const;
 
 export function Settings({
@@ -34,6 +35,7 @@ export function Settings({
     token: view.hasToken ? "Saved" : "Not set",
     removeToken: "",
     context: view.showContext ? "On" : "Off",
+    today: view.showToday ? "On" : "Off",
   };
   const asking = view.draft !== null;
   const pastingToken = asking && view.prompt === null;

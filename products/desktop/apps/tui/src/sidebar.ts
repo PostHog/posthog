@@ -150,6 +150,7 @@ export function sidebarRows({
   titles = new Map(),
   signedIn = true,
   local = NO_LOCAL_CHATS,
+  showToday = true,
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -162,6 +163,8 @@ export function sidebarRows({
   titles?: Map<string, string>;
   signedIn?: boolean;
   local?: LocalChatState;
+  // Off from settings: no Today row, and the main view that showed the briefing counts as a new chat.
+  showToday?: boolean;
 }): SidebarRow[] {
   const byId = new Map([
     ...known,
@@ -211,8 +214,7 @@ export function sidebarRows({
   let newChatPaneId: string | null = null;
   const rows: SidebarRow[] = [
     { kind: "heading", label: "Work" },
-    today,
-    { kind: "gap" },
+    ...(showToday ? [today, { kind: "gap" } as const] : []),
   ];
   const singlePaneOf = new Map<string, string>();
   const unlisted: SidebarRow[] = [];
@@ -221,7 +223,7 @@ export function sidebarRows({
     if (workspacePanes.length === 1) {
       const [pane] = workspacePanes;
       if (pane.taskId === null) {
-        if (pane.today) today.paneId = pane.id;
+        if (pane.today && showToday) today.paneId = pane.id;
         else newChatPaneId = pane.id;
       } else if (listed.has(pane.taskId))
         singlePaneOf.set(pane.taskId, pane.id);

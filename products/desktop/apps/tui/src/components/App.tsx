@@ -240,7 +240,9 @@ export function App({
     local: { active: localActive, running: new Set(localSessions.keys()) },
   });
 
-  const settings = useSettings(session?.codexCloud, runSetup);
+  // Today's briefing can be hidden from settings; the sidebar and the main view follow the switch at once.
+  const [showToday, setShowToday] = useState(() => loadPrefs().showToday);
+  const settings = useSettings(session?.codexCloud, runSetup, setShowToday);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // A cloud run's own prompts, from the engine; a local chat's come from its agent.
@@ -353,6 +355,7 @@ export function App({
     working: turns.working,
     waiting: turns.waiting,
     titles,
+    showToday,
   });
   const caughtUp = [...titles].filter(
     ([taskId, title]) => taskOf(taskId)?.title === title,
@@ -380,6 +383,7 @@ export function App({
   const mainPane = mainView ? panes(mainView.root)[0] : undefined;
   // Without a briefing to read, such as when signed out, the main view stays a plain new chat.
   const todayPaneId =
+    showToday &&
     session?.today &&
     mainPane?.today &&
     mainPane.taskId === null &&
