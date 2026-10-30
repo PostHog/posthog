@@ -12,8 +12,16 @@ use tracing::{error, info, warn};
 
 use super::repository::EventRestrictionsRepository;
 use super::types::{
-    AppliedRestrictions, EventContext, Pipeline, Restriction, RestrictionSet, RestrictionType,
+    AppliedRestrictions, EventContext, Pipeline, Restriction, RestrictionScope, RestrictionSet,
+    RestrictionType,
 };
+
+fn override_max_event_bytes(args: Option<&serde_json::Value>) -> Option<u64> {
+    args?
+        .get("max_event_bytes")?
+        .as_u64()
+        .filter(|bytes| *bytes > 0)
+}
 
 /// Manages restrictions by pipeline and token.
 ///
@@ -62,11 +70,23 @@ impl RestrictionManager {
                             }
                         }
                     }
+                    RestrictionType::OverrideAiMaxEventBytes => {}
                     other => result.insert(other),
                 }
             }
         }
         result
+    }
+
+    /// Unclamped. Takes no event context because `from_repository` drops
+    /// override entries that carry filters.
+    pub fn ai_max_event_bytes_override(&self, token: &str) -> Option<u64> {
+        self.restrictions
+            .get(&Pipeline::Ai)?
+            .get(token)?
+            .iter()
+            .filter(|r| r.restriction_type == RestrictionType::OverrideAiMaxEventBytes)
+            .find_map(|r| override_max_event_bytes(r.args.as_ref()))
     }
 
     /// Test/setup helper: insert restrictions for a single (pipeline, token) pair.
@@ -164,6 +184,24 @@ impl RestrictionManager {
 
                 let token = entry.token.clone();
                 let restriction = entry.into_restriction(restriction_type);
+
+                // Filters are refused so the cap lookup stays one read per
+                // request instead of one per event.
+                if restriction_type == RestrictionType::OverrideAiMaxEventBytes {
+                    let has_valid_cap =
+                        override_max_event_bytes(restriction.args.as_ref()).is_some();
+                    let is_per_token = matches!(restriction.scope, RestrictionScope::AllEvents);
+                    if !has_valid_cap || !is_per_token {
+                        error!(
+                            token = %token,
+                            has_valid_cap,
+                            is_per_token,
+                            "override_ai_max_event_bytes entry needs a positive integer args.max_event_bytes and no filters, skipping"
+                        );
+                        continue;
+                    }
+                }
+
                 for pipeline in entry_pipelines {
                     manager
                         .restrictions
@@ -210,6 +248,9 @@ pub struct EventRestrictionService {
     last_successful_refresh: Arc<AtomicI64>,
     fail_open_after: Duration,
     pipelines: Vec<Pipeline>,
+    /// `0` until [`Self::with_ai_max_event_bytes_ceiling`] sets it, and `0`
+    /// clamps every override to nothing, so an unset ceiling honours none.
+    ai_max_event_bytes_ceiling: u64,
 }
 
 impl EventRestrictionService {
@@ -220,6 +261,28 @@ impl EventRestrictionService {
             last_successful_refresh: Arc::new(AtomicI64::new(0)),
             fail_open_after,
             pipelines,
+            ai_max_event_bytes_ceiling: 0,
+        }
+    }
+
+    /// Set from the producer's message cap, never from admin input.
+    pub fn with_ai_max_event_bytes_ceiling(mut self, ceiling: u64) -> Self {
+        self.ai_max_event_bytes_ceiling = ceiling;
+        self
+    }
+
+    /// An override only raises the cap: a value below `default` does nothing,
+    /// so a mistyped one cannot start refusing a token's normal traffic, and a
+    /// disabled default (`0`) stays disabled. A stale cache also yields
+    /// `default`, because stale data would keep a revoked override in force.
+    pub async fn ai_max_event_bytes(&self, token: &str, now_ts: i64, default: u64) -> u64 {
+        if default == 0 || self.is_stale_at(now_ts) {
+            return default;
+        }
+        let guard = self.manager.read().await;
+        match guard.ai_max_event_bytes_override(token) {
+            Some(requested) => requested.min(self.ai_max_event_bytes_ceiling).max(default),
+            None => default,
         }
     }
 
@@ -400,6 +463,7 @@ mod tests {
     use crate::event_restrictions::types::RestrictionScope;
     use crate::v0_request::DataType;
     use common_redis::CustomRedisError;
+    use serde_json::json;
     use strum::IntoEnumIterator;
     use tokio_util::sync::CancellationToken;
 
@@ -980,6 +1044,142 @@ mod tests {
         assert!(
             applied.force_overflow(),
             "restrictions should be active after recovery"
+        );
+    }
+
+    // ========================================================================
+    // override_ai_max_event_bytes
+    // ========================================================================
+
+    /// Pins the entry Django writes, so a renamed key on either side fails
+    /// here instead of as a grant that is silently never applied.
+    #[tokio::test]
+    async fn ai_size_override_loads_from_the_entry_django_writes() {
+        let json = r#"[{
+            "version": 2,
+            "index": 0,
+            "token": "phc_big_sender",
+            "pipelines": ["ai"],
+            "distinct_ids": [],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": {"max_event_bytes": 25165824}
+        }]"#;
+        let entries: Vec<RestrictionEntry> = serde_json::from_str(json).unwrap();
+        let repo = MockRestrictionsRepository::new();
+        repo.set_entries(RestrictionType::OverrideAiMaxEventBytes, Some(entries))
+            .await;
+
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Ai])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            manager.ai_max_event_bytes_override("phc_big_sender"),
+            Some(25_165_824)
+        );
+        assert_eq!(manager.ai_max_event_bytes_override("phc_other"), None);
+        // A grant is not an action on the event, so it must not surface as one.
+        assert!(manager
+            .get_restrictions("phc_big_sender", &EventContext::default(), Pipeline::Ai)
+            .is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case::no_args(None, vec![], vec!["ai"])]
+    #[case::zero(Some(json!({"max_event_bytes": 0})), vec![], vec!["ai"])]
+    #[case::negative(Some(json!({"max_event_bytes": -1})), vec![], vec!["ai"])]
+    #[case::string(Some(json!({"max_event_bytes": "25165824"})), vec![], vec!["ai"])]
+    #[case::fraction(Some(json!({"max_event_bytes": 1.5})), vec![], vec!["ai"])]
+    #[case::filtered(Some(json!({"max_event_bytes": 25165824})), vec!["user-1"], vec!["ai"])]
+    #[case::off_the_ai_pipeline(Some(json!({"max_event_bytes": 25165824})), vec![], vec!["analytics"])]
+    #[tokio::test]
+    async fn unusable_ai_size_overrides_are_skipped(
+        #[case] args: Option<serde_json::Value>,
+        #[case] distinct_ids: Vec<&str>,
+        #[case] pipelines: Vec<&str>,
+    ) {
+        let mut entry = make_entry("token", pipelines);
+        entry.args = args;
+        entry.distinct_ids = distinct_ids.into_iter().map(String::from).collect();
+        let repo = MockRestrictionsRepository::new();
+        repo.set_entries(RestrictionType::OverrideAiMaxEventBytes, Some(vec![entry]))
+            .await;
+
+        let manager =
+            RestrictionManager::from_repository(&repo, &[Pipeline::Analytics, Pipeline::Ai])
+                .await
+                .unwrap();
+
+        assert_eq!(manager.ai_max_event_bytes_override("token"), None);
+    }
+
+    async fn service_with_ai_size_override(
+        token: &str,
+        requested: u64,
+        ceiling: u64,
+    ) -> EventRestrictionService {
+        let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300))
+            .with_ai_max_event_bytes_ceiling(ceiling);
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            token,
+            vec![Restriction {
+                restriction_type: RestrictionType::OverrideAiMaxEventBytes,
+                scope: RestrictionScope::AllEvents,
+                args: Some(json!({"max_event_bytes": requested})),
+            }],
+        );
+        service.update(manager).await;
+        service
+    }
+
+    #[rstest::rstest]
+    #[case::raises_the_cap(24_000, 50_000, 8_000, 24_000)]
+    #[case::clamped_to_the_ceiling(60_000, 50_000, 8_000, 50_000)]
+    #[case::never_lowers_the_default(4_000, 50_000, 8_000, 8_000)]
+    #[case::no_ceiling_honours_no_override(24_000, 0, 8_000, 8_000)]
+    #[case::disabled_default_stays_disabled(24_000, 50_000, 0, 0)]
+    #[tokio::test]
+    async fn ai_max_event_bytes_is_bounded_on_both_sides(
+        #[case] requested: u64,
+        #[case] ceiling: u64,
+        #[case] default: u64,
+        #[case] expected: u64,
+    ) {
+        let service = service_with_ai_size_override("token", requested, ceiling).await;
+        let now_ts = chrono::Utc::now().timestamp();
+
+        assert_eq!(
+            service.ai_max_event_bytes("token", now_ts, default).await,
+            expected
+        );
+        assert_eq!(
+            service.ai_max_event_bytes("other", now_ts, default).await,
+            default
+        );
+    }
+
+    /// Restrictions fail open on a stale cache; a grant must not, or a revoked
+    /// override would stay in force for as long as Redis is unreachable.
+    #[tokio::test]
+    async fn a_stale_cache_falls_back_to_the_default_cap() {
+        let service = service_with_ai_size_override("token", 24_000, 50_000).await;
+        let now_ts = chrono::Utc::now().timestamp();
+        assert_eq!(
+            service.ai_max_event_bytes("token", now_ts, 8_000).await,
+            24_000
+        );
+
+        service
+            .last_successful_refresh
+            .store(now_ts - 400, Ordering::SeqCst);
+
+        assert_eq!(
+            service.ai_max_event_bytes("token", now_ts, 8_000).await,
+            8_000
         );
     }
 }

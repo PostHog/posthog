@@ -4,16 +4,20 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib import admin
 from django.contrib.admin import AdminSite
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.test import RequestFactory, SimpleTestCase
 
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
-from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
+from posthog.admin.admins.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfigAdmin,
+    EventIngestionRestrictionConfigForm,
+)
 from posthog.admin.admins.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfigAdmin
 from posthog.admin.admins.personal_api_key_admin import PersonalAPIKeyAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.models import PersonalAPIKey, User
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -186,6 +190,30 @@ class TestEventIngestionRestrictionConfigAdminConfig:
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
         assert "display_team_id" in admin_instance.list_display
         assert "display_team_id" in admin_instance.readonly_fields
+
+
+class TestEventIngestionRestrictionConfigForm(BaseTest):
+    def _form(self, **data):
+        return EventIngestionRestrictionConfigForm(
+            data={
+                "token": "phc_big_sender",
+                "restriction_type": RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES,
+                "pipelines": ["ai"],
+                **data,
+            }
+        )
+
+    def test_override_ai_max_event_bytes_builds_args_from_the_friendly_field(self):
+        form = self._form(max_event_bytes="25165824")
+
+        assert form.is_valid(), form.errors
+        assert form.instance.args == {"max_event_bytes": 25165824}
+
+    def test_override_ai_max_event_bytes_without_a_value_is_a_form_error_not_a_crash(self):
+        form = self._form()
+
+        assert not form.is_valid()
+        assert NON_FIELD_ERRORS in form.errors
 
 
 class TestGlobalRateLimitThresholdConfigAdmin:

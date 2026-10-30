@@ -17,6 +17,7 @@ use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
+use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
@@ -280,6 +281,7 @@ pub async fn build_components(
             &config,
             handle,
             Pipeline::for_capture_mode(config.capture_mode),
+            ai_max_event_bytes_ceiling(ingestion_message_max_bytes),
         )
     } else {
         None
@@ -424,6 +426,16 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     let ceiling = config.ai_max_event_bytes;
     // `0` disables the ceiling, so there is no ordering to be wrong about.
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
+}
+
+/// The producer refuses a message whose key and value exceed its
+/// `message.max.bytes`, and the value carries the `CapturedEvent` envelope
+/// around the event, so an override is capped below that by the same flat
+/// envelope allowance the AI byte limiter charges. JSON-escaping of `data`
+/// adds a content-dependent amount the deployment default already leaves
+/// headroom for by configuration.
+fn ai_max_event_bytes_ceiling(producer_message_max_bytes: u32) -> u64 {
+    (producer_message_max_bytes as u64).saturating_sub(ENVELOPE_WEIGHT_BYTES as u64)
 }
 
 fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: u32) {
@@ -718,6 +730,7 @@ fn create_event_restriction_service(
     config: &Config,
     handle: lifecycle::Handle,
     pipelines: Vec<Pipeline>,
+    ai_max_event_bytes_ceiling: u64,
 ) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
         return None;
@@ -732,7 +745,8 @@ fn create_event_restriction_service(
     let service = EventRestrictionService::new(
         pipelines,
         Duration::from_secs(config.event_restrictions_fail_open_after_secs),
-    );
+    )
+    .with_ai_max_event_bytes_ceiling(ai_max_event_bytes_ceiling);
 
     let service_clone = service.clone();
     let refresh_interval = Duration::from_secs(config.event_restrictions_refresh_interval_secs);
@@ -1202,6 +1216,16 @@ mod tests {
             ai_ceiling_exceeds_producer_cap(&config, producer_cap),
             expected
         );
+    }
+
+    #[rstest]
+    #[case::leaves_room_for_the_envelope(1_000_000, 999_488)]
+    #[case::cap_below_the_envelope_grants_nothing(100, 0)]
+    fn ai_max_event_bytes_ceiling_sits_under_the_producer_cap(
+        #[case] producer_cap: u32,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(ai_max_event_bytes_ceiling(producer_cap), expected);
     }
 
     /// Import deployments never build the AI byte limiter, however the knob is

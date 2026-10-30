@@ -270,6 +270,13 @@ def team_api_test_factory():
                 restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
                 distinct_ids=["other-user"],
             )
+            # A grant, not a restriction, so it stays out of the list the app presents as restrictions.
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES,
+                args={"max_event_bytes": 25165824},
+                pipelines=["ai"],
+            )
 
             response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

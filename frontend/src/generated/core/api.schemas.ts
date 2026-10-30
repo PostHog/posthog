@@ -4655,6 +4655,7 @@ export interface ProjectApi {
  * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
  * * `redirect_to_dlq` - Redirect To Dlq
  * * `redirect_to_topic` - Redirect To Topic
+ * * `override_ai_max_event_bytes` - Override AI max event bytes
  */
 export type RestrictionTypeEnumApi = (typeof RestrictionTypeEnumApi)[keyof typeof RestrictionTypeEnumApi]
 
@@ -4664,6 +4665,7 @@ export const RestrictionTypeEnumApi = {
     ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
     RedirectToDlq: 'redirect_to_dlq',
     RedirectToTopic: 'redirect_to_topic',
+    OverrideAiMaxEventBytes: 'override_ai_max_event_bytes',
 } as const
 
 /**
@@ -4692,7 +4694,8 @@ export interface EventIngestionRestrictionApi {
      * * `drop_event_from_ingestion` - Drop Event From Ingestion
      * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
      * * `redirect_to_dlq` - Redirect To Dlq
-     * * `redirect_to_topic` - Redirect To Topic */
+     * * `redirect_to_topic` - Redirect To Topic
+     * * `override_ai_max_event_bytes` - Override AI max event bytes */
     restriction_type: RestrictionTypeEnumApi
     /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
     distinct_ids: string[]

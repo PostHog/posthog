@@ -126,6 +126,21 @@ async fn setup_ai_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
+    setup_ai_router_with_restrictions(
+        vec![Restriction {
+            restriction_type,
+            scope: RestrictionScope::AllEvents,
+            args: None,
+        }],
+        token,
+    )
+    .await
+}
+
+async fn setup_ai_router_with_restrictions(
+    restrictions: Vec<Restriction>,
+    token: &str,
+) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
@@ -143,18 +158,11 @@ async fn setup_ai_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300));
+    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300))
+        .with_ai_max_event_bytes_ceiling(8 * 1024 * 1024);
 
     let mut manager = RestrictionManager::new();
-    manager.insert_restrictions(
-        Pipeline::Ai,
-        token,
-        vec![Restriction {
-            restriction_type,
-            scope: RestrictionScope::AllEvents,
-            args: None,
-        }],
-    );
+    manager.insert_restrictions(Pipeline::Ai, token, restrictions);
     service.update(manager).await;
 
     let router = router(
@@ -724,4 +732,33 @@ async fn test_ai_redirect_to_topic_restriction() {
             })),
         },
     );
+}
+
+/// A token granted a larger cap keeps the event the deployment default would
+/// answer with 413.
+#[tokio::test]
+async fn an_ai_size_override_admits_an_event_over_the_default() {
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+    let (router, sink) = setup_ai_router_with_restrictions(
+        vec![Restriction {
+            restriction_type: RestrictionType::OverrideAiMaxEventBytes,
+            scope: RestrictionScope::AllEvents,
+            args: Some(json!({"max_event_bytes": 2 * 1024 * 1024})),
+        }],
+        token,
+    )
+    .await;
+    let test_client = TestClient::new(router);
+
+    // Over the 960KB default the router is built with, under the 2MB override.
+    let properties = json!({
+        "$ai_model": "gpt-4",
+        "$ai_input": "x".repeat(1024 * 1024)
+    });
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(token)).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sink.get_events().await.len(), 1);
 }

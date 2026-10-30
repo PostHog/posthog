@@ -948,6 +948,45 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
     );
 }
 
+/// A token granted a larger cap keeps the span the deployment default would
+/// shed, and no size warning is raised for it.
+#[tokio::test]
+async fn an_ai_size_override_keeps_spans_the_default_would_shed() {
+    let sink = CapturingSink::new();
+    let emitter = Arc::new(CollectingEmitter::default());
+    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300))
+        .with_ai_max_event_bytes_ceiling(8 * 1024 * 1024);
+    let mut manager = RestrictionManager::new();
+    manager.insert_restrictions(
+        Pipeline::Ai,
+        TOKEN,
+        vec![Restriction {
+            restriction_type: RestrictionType::OverrideAiMaxEventBytes,
+            scope: RestrictionScope::AllEvents,
+            args: Some(json!({"max_event_bytes": 1024 * 1024})),
+        }],
+    );
+    service.update(manager).await;
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            event_restriction_service: Some(service),
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ai_max_event_bytes: Some(64),
+            ..Default::default()
+        },
+    );
+
+    let status = send_request_with_client(&client, &make_single_span_request()).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        sink.get_events().await.len(),
+        1,
+        "the span is under the token's override and must publish"
+    );
+    assert!(emitter.emitted().is_empty());
+}
+
 // The warning is the only feedback channel for this outcome: the OTLP contract
 // has no way to say "accepted, ingested nothing", so the exporter sees a 200.
 // Also proves the emit site is wired and that SDK attribution survives the trip

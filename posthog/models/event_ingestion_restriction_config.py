@@ -1,6 +1,7 @@
 import json
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
@@ -10,6 +11,11 @@ from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
+
+# A typo guard for staff input. Capture clamps an override lower still, to what its Kafka producer accepts.
+MAX_AI_EVENT_BYTES_OVERRIDE = 64 * 1024 * 1024
+
+RESTRICTION_FILTER_FIELDS = ("distinct_ids", "session_ids", "event_names", "event_uuids")
 
 # Pipeline configuration - first item is the default
 INGESTION_PIPELINES = [
@@ -32,6 +38,9 @@ class RestrictionType(models.TextChoices):
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
     REDIRECT_TO_DLQ = "redirect_to_dlq"
     REDIRECT_TO_TOPIC = "redirect_to_topic"
+    # A grant, not a restriction: raises the token's AI event size cap in capture. Shares this model
+    # for its admin page, Redis sync and refresh loop, so it stays out of the project-facing API.
+    OVERRIDE_AI_MAX_EVENT_BYTES = "override_ai_max_event_bytes", "Override AI max event bytes"
 
 
 class IngestionPipeline(models.TextChoices):
@@ -74,8 +83,6 @@ class EventIngestionRestrictionConfig(UUIDTModel):
         unique_together = ("token", "restriction_type")
 
     def clean(self):
-        from django.core.exceptions import ValidationError
-
         # Validate that at least one pipeline is selected
         if not self.pipelines:
             raise ValidationError({"pipelines": "At least one pipeline must be selected"})
@@ -97,6 +104,27 @@ class EventIngestionRestrictionConfig(UUIDTModel):
             topic = self.args.get("topic")
             if not isinstance(topic, str) or not topic.strip():
                 raise ValidationError({"args": 'args must contain a non-empty "topic" string for redirect_to_topic'})
+
+        if self.restriction_type == RestrictionType.OVERRIDE_AI_MAX_EVENT_BYTES:
+            self._clean_ai_max_event_bytes_override()
+
+    def _clean_ai_max_event_bytes_override(self):
+        errors: dict[str, str] = {}
+        if self.pipelines != [IngestionPipeline.AI.value]:
+            errors["pipelines"] = "An AI event size override applies to the AI pipeline only. Select just 'ai'."
+        for field in RESTRICTION_FILTER_FIELDS:
+            if getattr(self, field):
+                errors[field] = "An AI event size override applies to every event of the token. Leave this empty."
+        max_event_bytes = self.args.get("max_event_bytes") if isinstance(self.args, dict) else None
+        # Keyed on NON_FIELD_ERRORS because the admin form has no `args` field, and a model error on a
+        # field the form lacks is a ValueError there, not a message.
+        if type(max_event_bytes) is not int or not 1 <= max_event_bytes <= MAX_AI_EVENT_BYTES_OVERRIDE:
+            errors[NON_FIELD_ERRORS] = (
+                f"Max event bytes must be an integer between 1 and {MAX_AI_EVENT_BYTES_OVERRIDE} "
+                f'(args: {{"max_event_bytes": <int>}}).'
+            )
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         self.clean()

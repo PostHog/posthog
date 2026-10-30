@@ -385,6 +385,9 @@ pub struct Config {
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
     /// warning says so when the two are out of order.
+    ///
+    /// An `override_ai_max_event_bytes` event restriction raises this for one
+    /// token, bounded by `setup::ai_max_event_bytes_ceiling`.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 

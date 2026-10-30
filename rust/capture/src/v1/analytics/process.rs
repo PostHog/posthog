@@ -21,7 +21,7 @@ use super::types::{Batch, Event, EventResult, OptionKeys, Options, ValidatedEven
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
-use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
+use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event, resolve_ai_max_event_bytes};
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -206,7 +206,14 @@ async fn run_pipeline(
         .await;
     }
 
-    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
+    apply_ai_event_size_limit(
+        state.ai_max_event_bytes,
+        state.event_restriction_service.as_ref(),
+        &context.api_token,
+        context.server_received_at.timestamp(),
+        &mut events,
+    )
+    .await;
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -1022,18 +1029,35 @@ fn on_ai_lane(event: &WrappedEvent) -> bool {
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; the serialized envelope is not built until the prepare step.
-fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
-    if max_event_bytes == 0 {
+async fn apply_ai_event_size_limit(
+    default_max_event_bytes: u64,
+    service: Option<&EventRestrictionService>,
+    token: &str,
+    now_ts: i64,
+    events: &mut [WrappedEvent],
+) {
+    if default_max_event_bytes == 0 {
         return;
     }
+
+    let over = |event: &WrappedEvent, max_event_bytes: u64| {
+        event.result == EventResult::Ok
+            && on_ai_lane(event)
+            && exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes)
+    };
+    if !events
+        .iter()
+        .any(|event| over(event, default_max_event_bytes))
+    {
+        return;
+    }
+    let max_event_bytes =
+        resolve_ai_max_event_bytes(service, token, now_ts, default_max_event_bytes).await;
 
     let mut dropped: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || !on_ai_lane(event) {
-            continue;
-        }
-        if exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes) {
+        if over(event, max_event_bytes) {
             event.result = EventResult::Drop;
             event.details = Some(DETAIL_AI_EVENT_TOO_BIG);
             dropped += 1;
@@ -2208,7 +2232,7 @@ mod tests {
 
         let mut events = vec![oversized, small];
 
-        apply_ai_event_size_limit(700, &mut events);
+        apply_ai_event_size_limit(700, None, "phc_test_token", 0, &mut events).await;
 
         let big = find_by_did(&events, "user-big");
         assert_eq!(big.result, EventResult::Drop);
@@ -2230,7 +2254,7 @@ mod tests {
             test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
 
         let mut events = vec![oversized];
-        apply_ai_event_size_limit(0, &mut events);
+        apply_ai_event_size_limit(0, None, "phc_test_token", 0, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, Destination::AiMain);
@@ -2247,7 +2271,7 @@ mod tests {
         oversized.destination = Destination::AiOverflow;
 
         let mut events = vec![oversized];
-        apply_ai_event_size_limit(700, &mut events);
+        apply_ai_event_size_limit(700, None, "phc_test_token", 0, &mut events).await;
 
         assert_eq!(events[0].result, EventResult::Drop);
     }
@@ -4655,6 +4679,46 @@ mod tests {
         assert_eq!(
             emitted[0].extra_details.get("eventUuid"),
             Some(&serde_json::json!(oversized_uuid))
+        );
+    }
+
+    /// A token granted a larger cap keeps the AI event the default would drop,
+    /// and the rest of the batch is untouched either way.
+    #[tokio::test]
+    async fn an_ai_size_override_lifts_the_ceiling_for_its_token() {
+        let service = EventRestrictionService::new(vec![Pipeline::Ai], StdDuration::from_secs(300))
+            .with_ai_max_event_bytes_ceiling(10_000);
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            "phc_test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::OverrideAiMaxEventBytes,
+                scope: RestrictionScope::AllEvents,
+                args: Some(serde_json::json!({"max_event_bytes": 2_000})),
+            }],
+        );
+        service.update(manager).await;
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ai_max_event_bytes(700)
+            .with_restriction_service(service)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        let batch = valid_batch(vec![oversized, named_event("$ai_generation")]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        assert!(
+            resp.entries()
+                .iter()
+                .all(|(_, e)| e.result == EventResult::Ok),
+            "an event under the token's override must publish: {:?}",
+            resp.entries()
         );
     }
 
