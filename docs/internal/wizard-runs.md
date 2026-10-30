@@ -90,6 +90,8 @@ Status updates to an older run do not make it a new installation.
 Users can continue onboarding while the setup agent runs.
 Failed runs show the reported error, and local success asks users to review their local changes.
 Failed and canceled runs keep the install command and manual setup available.
+Once a run starts, onboarding keeps its original installation content on the left and shows progress and results on the right.
+The columns stack when the installation container is narrow.
 Dedicated program steps, such as AI observability, do not use the base integration run to replace their instructions or enable Continue.
 Cloud success lists the artifacts and links to the first pull request for review.
 Onboarding does not link to the runs scene; pull-request links open in a new tab so onboarding stays open.
