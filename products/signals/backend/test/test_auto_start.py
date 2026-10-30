@@ -2,6 +2,8 @@ import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Literal
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -42,6 +44,7 @@ from products.signals.backend.auto_start import (
     _has_unimplemented_work,
     _latest_reviewers_content,
     _live_skill_owner_identities,
+    _monitoring_implementation_requires_request,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -50,11 +53,12 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.issue_dependencies import IssueRef
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportPullRequest,
@@ -75,12 +79,16 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.report_merge import merge_reports
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import DjangoAssertNumQueries
 
 SCOUT_SKILL = "signals-scout-error-tracking"
 
@@ -1709,19 +1717,80 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         assert outcome.status == "blocked"
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("restricted", "budget", "expected", "queries"),
+    [(False, None, False, 4), (True, None, True, 3), (False, "levels", True, 2), (False, "nodes", True, 2)],
+)
+def test_monitoring_provenance_batches_merged_frontiers(
+    team: Team,
+    django_assert_num_queries: "DjangoAssertNumQueries",
+    restricted: bool,
+    budget: str | None,
+    expected: bool,
+    queries: int,
+) -> None:
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY)
+    sources = SignalReport.objects.bulk_create(
+        [SignalReport(team=team, status=SignalReport.Status.DELETED) for _ in range(20)]
+    )
+    SignalReportArtefact.objects.bulk_create(
+        [
+            SignalReportArtefact(
+                team_id=team.id,
+                report=source,
+                type=SignalReportArtefact.ArtefactType.REPORT_LINK,
+                content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(report.id)).model_dump_json(),
+                link_target_id=report.id,
+            )
+            for source in sources
+        ]
+    )
+    if restricted:
+        SignalEmissionRecord.objects.create(
+            team=team,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            source_id=str(uuid4()),
+            signal_id=str(uuid4()),
+            report_id=str(sources[-1].id),
+            emitted_at=timezone.now(),
+        )
+    with (
+        patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_LEVELS", 1 if budget == "levels" else 50),
+        patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_NODES", 10 if budget == "nodes" else 500),
+        django_assert_num_queries(queries),
+    ):
+        assert _monitoring_implementation_requires_request(team.id, str(report.id)) is expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    ("repository_autostart_eligible", "user_triggered", "has_reviewer", "monitoring", "expect_task"),
     [
-        (True, False, True),
-        (False, False, False),
-        (False, True, True),
+        (True, False, False, False, True),
+        (False, False, False, False, False),
+        (False, True, False, False, True),
+        (False, False, True, False, True),
+        (False, False, True, True, False),
+        (True, False, False, True, False),
+        (True, True, True, True, False),
+        (True, False, True, "late", False),
+        (True, False, True, "layer", False),
+        (True, False, True, "merged", False),
+        (True, False, True, "merged_layer", False),
+        (True, False, True, "layer_overflow", False),
+        (True, False, True, "merged_overflow", False),
     ],
 )
-async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task
-):
+async def test_inferred_repository_and_monitoring_autostart_gates(
+    repository_autostart_eligible: bool,
+    user_triggered: bool,
+    has_reviewer: bool,
+    monitoring: bool | Literal["late", "layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"],
+    expect_task: bool,
+) -> None:
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
     # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
@@ -1734,6 +1803,11 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         team = Team.objects.create(organization=organization, name="inferred-team")
         enabler = User.objects.create(email="inferred-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
+        if has_reviewer:
+            UserSocialAuth.objects.create(
+                user=enabler, provider="github", uid="example-reviewer", extra_data={"login": "example-reviewer"}
+            )
+            SignalUserAutonomyConfig.objects.create(user=enabler, autostart_priority=Priority.P4)
         SignalSourceConfig.objects.create(
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
@@ -1743,6 +1817,52 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         return team, report, enabler
 
     team, report, enabler = await sync_to_async(_setup)()
+
+    def record_monitoring() -> None:
+        origin = report
+        if monitoring in {"layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"}:
+            origin = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+            if monitoring in {"layer_overflow", "merged_overflow"}:
+                other = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="other")
+                if monitoring == "layer_overflow":
+                    _link(team.id, report, other, ReportLinkKind.FOLLOW_UP_OF)
+                else:
+                    _link(team.id, other, report, ReportLinkKind.FOLLOW_UP_OF)
+            if monitoring in {"layer", "layer_overflow"}:
+                _link(team.id, report, origin, ReportLinkKind.PART_OF)
+            else:
+                source = origin
+                if monitoring == "merged_layer":
+                    source = SignalReport.objects.create(
+                        team=team, status=SignalReport.Status.READY, title="layer", summary="s"
+                    )
+                    _link(team.id, source, origin, ReportLinkKind.PART_OF)
+                with (
+                    patch("products.signals.backend.report_merge._schedule_signal_move"),
+                    patch("products.signals.backend.report_merge.schedule_implementation_pr_cache_refresh"),
+                ):
+                    merge_reports(
+                        team=team,
+                        survivor=report,
+                        source_ids=[str(source.id)],
+                        attribution=ArtefactAttribution.system(),
+                    )
+        SignalEmissionRecord.objects.create(
+            team=team,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            source_id=str(uuid4()),
+            signal_id=str(uuid4()),
+            report_id=str(origin.id),
+            emitted_at=timezone.now(),
+        )
+
+    if monitoring is True or monitoring in {"layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"}:
+        await sync_to_async(record_monitoring)()
+
+    def resolve_after_monitoring(*args: object, **kwargs: object) -> User:
+        record_monitoring()
+        return enabler
 
     def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
@@ -1757,6 +1877,18 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch.object(
+            SignalReportArtefact,
+            "MAX_REPORT_LINK_GRAPH_ROWS",
+            1
+            if monitoring in {"layer_overflow", "merged_overflow"}
+            else SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS,
+        ),
+        patch(
+            "products.signals.backend.auto_start._resolve_autostart_assignee",
+            side_effect=resolve_after_monitoring if monitoring == "late" else None,
+            wraps=_resolve_autostart_assignee,
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1769,7 +1901,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
                 actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                 already_addressed=False,
             ),
-            reviewers_content=[],
+            reviewers_content=[_reviewer("example-reviewer", user_uuid=str(enabler.uuid))] if has_reviewer else [],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
             triggering_user_id=enabler.id if user_triggered else None,
             repository_autostart_eligible=repository_autostart_eligible,

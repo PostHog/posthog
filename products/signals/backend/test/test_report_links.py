@@ -9,6 +9,8 @@ from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.typed_report_links import (
+    IncompleteReportLinks,
+    complete_links_touching_reports,
     duplicate_chain,
     duplicate_root,
     has_open_or_merged_pull_request,
@@ -68,6 +70,22 @@ class TestReportLinkReaders(BaseTest):
         assert len(incoming_links(team_id=self.team.id, report_id=str(target.id).upper())) == 1
 
     @parameterized.expand([("outgoing",), ("incoming",)])
+    def test_complete_reads_reject_truncation_before_filtering_kinds(self, direction: str) -> None:
+        source, target, other = self._report("source"), self._report("target"), self._report("other")
+        if direction == "outgoing":
+            self._link(source, other, ReportLinkKind.FOLLOW_UP_OF)
+            self._link(source, target, ReportLinkKind.PART_OF)
+            reader, report_id, kind = outgoing_links, source.id, ReportLinkKind.PART_OF
+        else:
+            self._link(other, target, ReportLinkKind.FOLLOW_UP_OF)
+            self._link(source, target, ReportLinkKind.DUPLICATE_OF)
+            reader, report_id, kind = incoming_links, target.id, ReportLinkKind.DUPLICATE_OF
+        with patch.object(SignalReportArtefact, "MAX_REPORT_LINK_GRAPH_ROWS", 1):
+            assert reader(team_id=self.team.id, report_id=report_id, kinds=(kind,)) == []
+            with self.assertRaises(IncompleteReportLinks):
+                complete_links_touching_reports(team_id=self.team.id, report_ids=[str(report_id)])
+
+    @parameterized.expand([("outgoing",), ("incoming",)])
     def test_a_row_that_no_longer_parses_names_no_edge(self, direction: str):
         source, target = self._report("source"), self._report("target")
         good = self._link(source, target, ReportLinkKind.FOLLOW_UP_OF)
@@ -94,6 +112,7 @@ class TestReportLinkReaders(BaseTest):
         link.update_content({"kind": "part_of", "report_id": str(target.id)})
 
         assert incoming_links(team_id=self.team.id, report_id=earlier_target.id) == []
+        assert complete_links_touching_reports(team_id=self.team.id, report_ids=[str(earlier_target.id)]) == []
         assert [edge.source_id for edge in incoming_links(team_id=self.team.id, report_id=target.id)] == [
             str(source.id)
         ]
@@ -121,6 +140,7 @@ class TestReportLinkReaders(BaseTest):
 
         assert incoming_links(team_id=other_team.id, report_id=target.id) == []
         assert outgoing_links(team_id=other_team.id, report_id=source.id) == []
+        assert complete_links_touching_reports(team_id=other_team.id, report_ids=[str(source.id), str(target.id)]) == []
 
     def test_a_duplicate_chain_resolves_to_its_root(self):
         root, middle, leaf = self._report("root"), self._report("middle"), self._report("leaf")

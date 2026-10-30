@@ -404,6 +404,17 @@ class CheckFailedSignalInput(SignalInputBase):
     extra: CheckFailedSignalExtra
 
 
+class MonitoringUnresolvedSignalExtra(SignalExtraBase):
+    report_id: str = Field(description="Original Closed report whose implementation remains unverified.")
+    attempt_id: str = Field(description="Monitoring attempt that durably requested this investigation.")
+
+
+class MonitoringUnresolvedSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.MONITORING_UNRESOLVED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: MonitoringUnresolvedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -1931,6 +1942,7 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | CheckFailedSignalInput
+    | MonitoringUnresolvedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
     | HealthCheckSignalInput
@@ -2148,6 +2160,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     CheckFailedSignalInput,
+    MonitoringUnresolvedSignalInput,
 )
 
 

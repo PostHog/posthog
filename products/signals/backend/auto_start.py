@@ -38,13 +38,14 @@ from products.signals.backend.billing import (
     system_billing_exempt_reason,
 )
 from products.signals.backend.default_owner import resolve_signals_enabler
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.implementation_repositories import implementation_access_repositories
 from products.signals.backend.issue_dependencies import resolve_issue_dependencies, unresolved_dependency_skip
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalTeamConfig,
@@ -95,6 +96,8 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.signals.backend.typed_report_links import (
+    IncompleteReportLinks,
+    complete_links_touching_reports,
     duplicate_chain,
     has_open_or_merged_pull_request,
     incoming_links,
@@ -765,6 +768,40 @@ def _resolve_supersede(
     )
 
 
+def _monitoring_implementation_requires_request(team_id: int, report_id: str) -> bool:
+    pending = {report_id}
+    checked: set[str] = set()
+    for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+        frontier = pending - checked
+        if not frontier:
+            return False
+        checked.update(frontier)
+        if len(checked) > SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            return True
+        if (
+            SignalEmissionRecord.objects.using("default")
+            .filter(
+                team_id=team_id,
+                source_product=SignalSourceProduct.SIGNALS_CHECK,
+                source_type=SignalSourceType.MONITORING_UNRESOLVED,
+                report_id__in=frontier,
+            )
+            .exists()
+        ):
+            return True
+        try:
+            edges = complete_links_touching_reports(team_id=team_id, report_ids=frontier)
+        except IncompleteReportLinks:
+            return True
+        # Layers and merged destinations do the same work, so they retain its implementation gate.
+        pending = {
+            edge.target_id for edge in edges if edge.source_id in frontier and edge.kind == ReportLinkKind.PART_OF
+        } | {
+            edge.source_id for edge in edges if edge.target_id in frontier and edge.kind == ReportLinkKind.DUPLICATE_OF
+        }
+    return bool(pending - checked)
+
+
 def _create_implementation_task_if_absent(
     *,
     team_id: int,
@@ -825,6 +862,8 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
+            return False
+        if runner_source != "requested" and _monitoring_implementation_requires_request(team_id, report_id):
             return False
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return False
@@ -1416,6 +1455,11 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
+    # Reviewer autonomy authorizes inferred repositories, not another Monitoring implementation.
+    if await database_sync_to_async(_monitoring_implementation_requires_request, thread_sensitive=False)(
+        team_id, report_id
+    ):
+        return AutostartOutcome(status="blocked", reason="Monitoring follow-up reports require explicit implementation")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
     if (
         assignment.state.corrections_id is None

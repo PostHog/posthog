@@ -3735,6 +3735,7 @@ export const SignalSourceProductApi = {
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
  * * `check_failed` - check_failed
+ * * `monitoring_unresolved` - monitoring_unresolved
  * * `incident` - incident
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
@@ -3763,6 +3764,7 @@ export const SignalSourceTypeApi = {
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
     CheckFailed: 'check_failed',
+    MonitoringUnresolved: 'monitoring_unresolved',
     Incident: 'incident',
 } as const
 
@@ -3965,6 +3967,13 @@ export interface CheckFailedSignalExtraApi {
     observed_value?: number | null
     baseline_value?: number | null
     threshold?: string | null
+}
+
+export interface MonitoringUnresolvedSignalExtraApi {
+    /** Original Closed report whose implementation remains unverified. */
+    report_id: string
+    /** Monitoring attempt that durably requested this investigation. */
+    attempt_id: string
 }
 
 export type LogsAlertStateChangeSignalExtraActionEnumApi =
@@ -4856,6 +4865,7 @@ export type SignalExtraApi =
     | EndpointBreakdownLimitExceededSignalExtraApi
     | SignalsScoutSignalExtraApi
     | CheckFailedSignalExtraApi
+    | MonitoringUnresolvedSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
@@ -5140,6 +5150,7 @@ export interface SignalNodeApi {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `monitoring_unresolved` - monitoring_unresolved
      * * `incident` - incident */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
