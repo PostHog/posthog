@@ -38,12 +38,13 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.implementation_repositories import implementation_access_repositories
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalSourceConfig,
@@ -763,6 +764,19 @@ def _resolve_supersede(
     )
 
 
+def _monitoring_implementation_requires_request(team_id: int, report_id: str) -> bool:
+    return (
+        SignalEmissionRecord.objects.using("default")
+        .filter(
+            team_id=team_id,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            report_id=report_id,
+        )
+        .exists()
+    )
+
+
 def _create_implementation_task_if_absent(
     *,
     team_id: int,
@@ -823,6 +837,8 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
+            return False
+        if runner_source != "requested" and _monitoring_implementation_requires_request(team_id, report_id):
             return False
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
             return False
@@ -1454,6 +1470,11 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
+    # Reviewer autonomy authorizes inferred repositories, not another Monitoring implementation.
+    if await database_sync_to_async(_monitoring_implementation_requires_request, thread_sensitive=False)(
+        team_id, report_id
+    ):
+        return AutostartOutcome(status="blocked", reason="Monitoring follow-up reports require explicit implementation")
     assignment = await database_sync_to_async(ReviewerRules.read_for_report)(team_id=team_id, report_id=report_id)
     if (
         assignment.state.corrections_id is None

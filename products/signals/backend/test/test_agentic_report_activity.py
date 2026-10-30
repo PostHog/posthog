@@ -1081,7 +1081,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
         selection = await SignalReportArtefact.alatest_content(
             team_id=ateam.id, report_id=str(report.id), model=RepoSelectionResult
         )
-        assert selection is not None and selection.autostart_eligible is not monitoring
+        assert selection is not None and selection.autostart_eligible is True
         if monitoring:
             assert "".join(signal.content for signal in safety_inputs[0].signals) == captured_signals[0].content
             assert "Checkout completion remains unverified" in captured_signals[0].content
@@ -1156,7 +1156,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
             "reason": "Single repository connected: posthog/posthog",
             "research_context": None,
             "task_id": None,
-            "autostart_eligible": not monitoring,
+            "autostart_eligible": True,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]

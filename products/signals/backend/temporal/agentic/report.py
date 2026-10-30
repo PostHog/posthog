@@ -1154,12 +1154,6 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         assert input.github_optional or input.repo_selection.repository is not None, (
             "run_agentic_report_activity called without a repository"
         )
-        if any(
-            signal.source_product == SignalSourceProduct.SIGNALS_CHECK
-            and signal.source_type == SignalSourceType.MONITORING_UNRESOLVED
-            for signal in input.signals
-        ):
-            input = replace(input, repo_selection=input.repo_selection.model_copy(update={"autostart_eligible": False}))
         repository = input.repo_selection.repository
 
         assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(

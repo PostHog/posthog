@@ -2,6 +2,8 @@ import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Literal
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -50,10 +52,11 @@ from products.signals.backend.auto_start import (
     maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportPullRequest,
@@ -1706,16 +1709,25 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    ("repository_autostart_eligible", "user_triggered", "has_reviewer", "monitoring", "expect_task"),
     [
-        (True, False, True),
-        (False, False, False),
-        (False, True, True),
+        (True, False, False, False, True),
+        (False, False, False, False, False),
+        (False, True, False, False, True),
+        (False, False, True, False, True),
+        (False, False, True, True, False),
+        (True, False, False, True, False),
+        (True, True, True, True, False),
+        (True, False, True, "late", False),
     ],
 )
-async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task
-):
+async def test_inferred_repository_and_monitoring_autostart_gates(
+    repository_autostart_eligible: bool,
+    user_triggered: bool,
+    has_reviewer: bool,
+    monitoring: bool | Literal["late"],
+    expect_task: bool,
+) -> None:
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
     # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
@@ -1728,6 +1740,11 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         team = Team.objects.create(organization=organization, name="inferred-team")
         enabler = User.objects.create(email="inferred-enabler@example.com")
         OrganizationMembership.objects.create(user=enabler, organization=organization)
+        if has_reviewer:
+            UserSocialAuth.objects.create(
+                user=enabler, provider="github", uid="example-reviewer", extra_data={"login": "example-reviewer"}
+            )
+            SignalUserAutonomyConfig.objects.create(user=enabler, autostart_priority=Priority.P4)
         SignalSourceConfig.objects.create(
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
@@ -1737,6 +1754,24 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
         return team, report, enabler
 
     team, report, enabler = await sync_to_async(_setup)()
+
+    def record_monitoring() -> None:
+        SignalEmissionRecord.objects.create(
+            team=team,
+            source_product=SignalSourceProduct.SIGNALS_CHECK,
+            source_type=SignalSourceType.MONITORING_UNRESOLVED,
+            source_id=str(uuid4()),
+            signal_id=str(uuid4()),
+            report_id=str(report.id),
+            emitted_at=timezone.now(),
+        )
+
+    if monitoring is True:
+        await sync_to_async(record_monitoring)()
+
+    def resolve_after_monitoring(*args: object, **kwargs: object) -> User:
+        record_monitoring()
+        return enabler
 
     def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
@@ -1751,6 +1786,11 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch(
+            "products.signals.backend.auto_start._resolve_autostart_assignee",
+            side_effect=resolve_after_monitoring if monitoring == "late" else None,
+            wraps=_resolve_autostart_assignee,
+        ),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1763,7 +1803,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
                 actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                 already_addressed=False,
             ),
-            reviewers_content=[],
+            reviewers_content=[_reviewer("example-reviewer", user_uuid=str(enabler.uuid))] if has_reviewer else [],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
             triggering_user_id=enabler.id if user_triggered else None,
             repository_autostart_eligible=repository_autostart_eligible,
