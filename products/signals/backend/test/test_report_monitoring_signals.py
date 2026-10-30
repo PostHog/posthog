@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -17,7 +18,9 @@ from products.signals.backend.models import (
     SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCheck,
     SignalReportMonitoringAttempt,
+    SignalReportMonitoringResult,
 )
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
@@ -123,6 +126,72 @@ class TestMonitoringSignals(BaseTest):
         self.emit()
         assert len(self.emitted()) == 1
 
+    def test_query_protected_measurements_stay_out_of_persisted_prompt_inputs(self) -> None:
+        value = 7319.25
+        explanation = f"The measured value was {value}."
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=self.report,
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            title="Completed checkouts",
+            config={},
+            next_run_at=self.now,
+            expires_at=self.now + timedelta(days=1),
+        )
+        SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(id=self.attempt.id).update(
+            aggregation_reason=explanation
+        )
+        result = SignalReportMonitoringResult.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=self.report,
+            attempt=self.attempt,
+            report_check=check,
+            submission_id=uuid4(),
+            definition_version="a" * 64,
+            window_start=self.attempt.monitoring_started_at,
+            window_end=self.now,
+            evaluated_at=self.now,
+            outcome="failed",
+            evidence_status="sufficient",
+            evidence_reason=explanation,
+            evidence_refs=[explanation],
+            explanation=explanation,
+        )
+        for kind in (
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+            SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN,
+        ):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.report,
+                type=kind,
+                content=json.dumps(
+                    {
+                        "check_id": str(check.id),
+                        "kind": check.kind,
+                        "title": check.title,
+                        "outcome": "failed",
+                        "explanation": explanation,
+                        "observed_value": value,
+                        "baseline_value": value,
+                        "monitoring_started_at": str(self.attempt.monitoring_started_at),
+                        "measured_at": str(self.now),
+                        "query": {"kind": "HogQLQuery", "query": "SELECT 7319.25"},
+                    }
+                ),
+            )
+        self.emit()
+        signal = self.emitted()[0].signal
+        payload = MonitoringUnresolvedSignalExtra.model_validate(signal.extra)
+        serialized = monitoring_research_evidence(team_id=self.team.id, payload=payload)
+        assert str(value) not in serialized + signal.description + json.dumps(signal.extra)
+        evidence = json.loads(serialized)
+        assert evidence["artefacts"] == []
+        assert evidence["results"][0]["id"] == str(result.id)
+        assert evidence["results"][0]["outcome"] == "failed"
+        assert "inbox-report-artefacts-list" in evidence["history"]
+
     @parameterized.expand([("brief", 1, 1), ("long_history", 1000, 40)])
     def test_research_loads_saved_evidence_without_putting_it_in_the_signal(
         self, _name: str, repetitions: int, history_rows: int
@@ -148,7 +217,8 @@ class TestMonitoringSignals(BaseTest):
         assert len(serialized) <= MONITORING_EVIDENCE_MAX_CHARS
         evidence = json.loads(serialized)
         assert evidence["original_report"]["summary"] == self.report.summary
-        assert reason.startswith(evidence["requested_attempt"]["reason_excerpt"])
+        assert "reason_excerpt" not in evidence["requested_attempt"]
+        assert reason not in serialized
         assert str(self.attempt.id) == evidence["requested_attempt"]["id"]
         assert "inbox-report-artefacts-list" in evidence["history"]
         assert len(payload.explanation) <= 1000

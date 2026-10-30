@@ -8,7 +8,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Subquery, TextField
+from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Cast, Substr
 from django.utils import timezone
 
@@ -32,6 +32,17 @@ logger = structlog.get_logger(__name__)
 MONITORING_SIGNAL_RETRY_DELAY = timedelta(minutes=5)
 MONITORING_EVIDENCE_MAX_CHARS = 12_000
 MONITORING_EVIDENCE_MAX_ROWS = 10
+# Prompts become team-readable task descriptions, so query-protected snapshots stay behind the API.
+MONITORING_EVIDENCE_ARTEFACT_TYPES = (
+    SignalReportArtefact.ArtefactType.NOTE,
+    SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
+    SignalReportArtefact.ArtefactType.CODE_REFERENCE,
+    SignalReportArtefact.ArtefactType.COMMIT,
+    SignalReportArtefact.ArtefactType.PULL_REQUEST,
+    SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
+    SignalReportArtefact.ArtefactType.IMPLEMENTATION_REPLACEMENT,
+    SignalReportArtefact.ArtefactType.IMPLEMENTATION_HANDOVER,
+)
 
 
 def current_research_attempt(
@@ -102,7 +113,7 @@ def emit_monitoring_research(*, team_id: int, report_id: str | UUID, attempt_id:
         payload = MonitoringUnresolvedSignalExtra(
             report_id=str(report_id),
             attempt_id=str(attempt.id),
-            explanation=(attempt.aggregation_reason or "Monitoring ended without establishing resolution.")[:1000],
+            explanation="Monitoring ended without establishing resolution.",
         )
         report = attempt.report
     team = report.team
@@ -193,7 +204,6 @@ def monitoring_research_evidence(
         .annotate(
             title_excerpt=Substr("report__title", 1, field_chars),
             summary_excerpt=Substr("report__summary", 1, field_chars),
-            reason_excerpt=Substr("aggregation_reason", 1, field_chars),
         )
         .filter(
             id=payload.attempt_id,
@@ -211,34 +221,25 @@ def monitoring_research_evidence(
             .using("default")
             .filter(report_id=attempt.report_id)
             .order_by("-monitoring_started_at", "-id")
-            .annotate(reason_excerpt=Substr("aggregation_reason", 1, field_chars))
-            .values("id", "monitoring_started_at", "aggregation_state", "reason_excerpt")[:MONITORING_EVIDENCE_MAX_ROWS]
+            .values("id", "monitoring_started_at", "aggregation_state")[:MONITORING_EVIDENCE_MAX_ROWS]
         ),
         "results": list(
             SignalReportMonitoringResult.objects.for_team(team_id)
             .using("default")
             .filter(attempt_id=attempt.id)
             .order_by("-created_at", "-id")
-            .annotate(
-                explanation_excerpt=Substr("explanation", 1, field_chars),
-                evidence_reason_excerpt=Substr("evidence_reason", 1, field_chars),
-                evidence_refs_excerpt=Substr(Cast("evidence_refs", TextField()), 1, field_chars),
-            )
             .values(
                 "id",
                 "report_check_id",
                 "outcome",
                 "evidence_status",
-                "explanation_excerpt",
-                "evidence_reason_excerpt",
-                "evidence_refs_excerpt",
                 "window_start",
                 "window_end",
             )[:MONITORING_EVIDENCE_MAX_ROWS]
         ),
         "artefacts": list(
             SignalReportArtefact.objects.using("default")
-            .filter(team_id=team_id, report_id=attempt.report_id)
+            .filter(team_id=team_id, report_id=attempt.report_id, type__in=MONITORING_EVIDENCE_ARTEFACT_TYPES)
             .order_by("-created_at", "-id")
             .annotate(content_excerpt=Substr("content", 1, field_chars))
             .values("id", "type", "content_excerpt", "actor_kind", "task_id", "created_at")[
@@ -258,7 +259,7 @@ def monitoring_research_evidence(
         ),
     }
     evidence: dict[str, object] = {
-        "history": f"Bounded excerpts. Full findings, implementation links and assessment notes: inbox-report-artefacts-list for report_id {attempt.report_id}.",
+        "history": f"Bounded public excerpts. Fetch full history and query-protected measurements through inbox-report-artefacts-list for report_id {attempt.report_id}; its access checks apply.",
         "original_report": {
             "id": str(attempt.report_id),
             "title": attempt.title_excerpt or "",
@@ -267,7 +268,6 @@ def monitoring_research_evidence(
         "requested_attempt": {
             "id": str(attempt.id),
             "outcome": attempt.aggregation_state,
-            "reason_excerpt": attempt.reason_excerpt or "",
         },
         **sections,
     }
