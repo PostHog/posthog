@@ -30,6 +30,8 @@ def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> b
     if scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER:
         return False
     if filter_error_pending(scanner):
+        # Stamped like a failed attempt, so the stale-estimate batch stops picking this scanner first.
+        ReplayScanner.objects.filter(pk=scanner.pk).update(estimate_attempted_at=timezone.now())
         record_estimate_outcome("filter_error")
         return False
     try:

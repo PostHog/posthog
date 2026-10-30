@@ -914,22 +914,32 @@ class TestFindScannerCandidatesActivity:
         assert result.keyset_session_id == "blocked"
         assert result.keyset_end == fetched[0].session_end
 
-    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+    @parameterized.expand(
+        [
+            ("transient", RuntimeError("clickhouse down"), RuntimeError),
+            ("broken_negative_filter", QueryError("Unable to resolve field: event"), ApplicationError),
+        ]
+    )
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(
+        self, _name: str, error: Exception, raised: type[Exception]
+    ) -> None:
         # The in-query blocklists are off by this point, so swallowing this would dispatch unfiltered.
         scanner = _make_scanner(query=self._NEGATIVE_QUERY)
 
         with (
             patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
-            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=error),
         ):
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [
                 CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
             ]
-            with pytest.raises(RuntimeError):
+            with pytest.raises(raised):
                 find_scanner_candidates_activity(
                     FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
                 )
+        scanner.refresh_from_db()
+        assert (scanner.filter_error is not None) is (raised is ApplicationError)
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()

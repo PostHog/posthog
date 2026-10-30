@@ -24,6 +24,9 @@ _NOT_FILTER_CODES = frozenset({47, 60})
 
 _MAX_MESSAGE_LENGTH = 1000
 
+# Shown in place of the reason to a viewer who cannot access the scanner's targeted experiment.
+REDACTED_FILTER_ERROR = "The filter cannot run."
+
 
 def filter_error_message(error: BaseException) -> str | None:
     """The user-facing reason the filter cannot run, or None when the error is not about the filter."""
@@ -35,7 +38,7 @@ def filter_error_message(error: BaseException) -> str | None:
         and error.code not in _NOT_FILTER_CODES
         and classify_query_error(error) == QueryErrorCategory.USER_ERROR
     ):
-        return str(error)[:_MAX_MESSAGE_LENGTH] or "The filter cannot run."
+        return str(error)[:_MAX_MESSAGE_LENGTH] or REDACTED_FILTER_ERROR
     return None
 
 
