@@ -343,14 +343,22 @@ def _observations(
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
     held = frozenset(unknown - breaching)
     kept = [observation for observation in observations if observation.grouping_key not in held]
-    # A firing group the query still returns is reported as still firing, which notifies nothing, so the
-    # platform records it as seen and its absence hold counts from this check.
-    kept.extend(
-        GroupObservation(grouping_key=key, current_breached=True)
-        for key in held
-        if check.instance(key).state == PlatformAlertState.FIRING.value
-    )
+    # An announced firing the query still returns is reported as still firing, which notifies nothing,
+    # so the platform records it as seen and its absence hold counts from this check. An unannounced
+    # one is left out, because a breach would announce it on a value that reached no verdict.
+    kept.extend(GroupObservation(grouping_key=key, current_breached=True) for key in held if _announced(check, key))
     return kept, held
+
+
+def _announced(check: PlatformAlertCheckInput, key: str) -> bool:
+    """Whether a group fires and has announced it, the same test the lifecycle machine applies."""
+    instance = check.instance(key)
+    return (
+        instance.state == PlatformAlertState.FIRING.value
+        and instance.firing_started_at is not None
+        and instance.last_notified_at is not None
+        and instance.last_notified_at >= instance.firing_started_at
+    )
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:
