@@ -315,12 +315,19 @@ describe("PiChats", () => {
   });
 
   describe("on the user's Claude plan", () => {
-    const claude = (runStatus: string): Task =>
-      ({
-        ...task(runStatus),
+    // Desktop puts the agent and who pays on the run, not the task.
+    const claude = (runStatus: string, access = "own-subscription"): Task => {
+      const base = task(runStatus);
+      return {
+        ...base,
         runtime: "acp",
-        runtime_adapter: "claude",
-      }) as Task;
+        latest_run: {
+          ...base.latest_run,
+          runtime_adapter: "claude",
+          state: { ...base.latest_run?.state, claude_model_access: access },
+        },
+      } as unknown as Task;
+    };
 
     it("starts a new chat as a Claude Code cloud run that asks for the plan token", async () => {
       const { api, chats } = setup();
@@ -366,15 +373,36 @@ describe("PiChats", () => {
         pendingUserMessage: "Keep going",
       });
     });
+
+    it("keeps a Claude run that PostHog paid for on PostHog when it continues", async () => {
+      const { api, chats } = setup();
+
+      await chats.reply(claude("completed", "posthog-gateway"), "Keep going");
+
+      expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+        adapter: "claude",
+        resumeFromRunId: "r1",
+        pendingUserMessage: "Keep going",
+      });
+    });
   });
 
   describe("on the user's ChatGPT plan", () => {
-    const codex = (runStatus: string): Task =>
-      ({
-        ...task(runStatus),
+    const codex = (runStatus: string): Task => {
+      const base = task(runStatus);
+      return {
+        ...base,
         runtime: "acp",
-        runtime_adapter: "codex",
-      }) as Task;
+        latest_run: {
+          ...base.latest_run,
+          runtime_adapter: "codex",
+          state: {
+            ...base.latest_run?.state,
+            codex_model_access: "own-subscription",
+          },
+        },
+      } as unknown as Task;
+    };
 
     it("starts a new chat as a Codex cloud run on the connected ChatGPT account", async () => {
       const { api, chats } = setup();
@@ -413,8 +441,7 @@ describe("PiChats", () => {
     const { chats } = setup();
     const other = {
       ...task("completed"),
-      runtime: "acp",
-      runtime_adapter: "gemini",
+      runtime: "mystery",
     } as unknown as Task;
 
     await expect(chats.reply(other, "hi")).rejects.toThrow(
