@@ -284,6 +284,7 @@ const cdpFunctionsLogsRetrieve = (): ToolBase<ReturnType<typeof CdpFunctionsLogs
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })

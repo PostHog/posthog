@@ -1036,6 +1036,9 @@ export const HogFlowsLogsRetrieveParams = () => zod.object({
 export const hogFlowsLogsRetrieveQueryLimitDefault = 50
 export const hogFlowsLogsRetrieveQueryLimitMax = 500
 
+export const hogFlowsLogsRetrieveQueryOffsetDefault = 0
+export const hogFlowsLogsRetrieveQueryOffsetMin = 0
+
 export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
@@ -1061,6 +1064,11 @@ export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
         .max(hogFlowsLogsRetrieveQueryLimitMax)
         .default(hogFlowsLogsRetrieveQueryLimitDefault)
         .describe('Maximum number of log entries to return (1-500, default 50).'),
+    offset: zod
+        .number()
+        .min(hogFlowsLogsRetrieveQueryOffsetMin)
+        .default(hogFlowsLogsRetrieveQueryOffsetDefault)
+        .describe('Number of log entries to skip before the first returned entry (default 0).'),
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
