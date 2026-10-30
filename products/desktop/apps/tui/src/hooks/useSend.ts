@@ -214,7 +214,7 @@ export function useSend({
       openSearch();
       return;
     }
-    if (slash?.command === "settings") {
+    if (slash?.command === "settings" || slash?.command === "config") {
       openSettings();
       return;
     }

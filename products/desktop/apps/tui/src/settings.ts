@@ -10,6 +10,8 @@ export interface SettingsView {
   // Who is logged in to ChatGPT; null when nobody is.
   account: string | null;
   hasToken: boolean;
+  // The context donut on the composer's rule.
+  showContext: boolean;
   index: number;
   // A login is running, so its row takes no second Enter.
   busy: boolean;
@@ -20,7 +22,12 @@ export interface SettingsView {
   error: string | null;
 }
 
-export type SettingsItem = "login" | "logout" | "token" | "removeToken";
+export type SettingsItem =
+  | "login"
+  | "logout"
+  | "token"
+  | "removeToken"
+  | "context";
 
 export type SettingsEffect =
   | { kind: "login" }
@@ -29,6 +36,7 @@ export type SettingsEffect =
   | { kind: "logout" }
   | { kind: "saveToken"; token: string }
   | { kind: "clearToken" }
+  | { kind: "showContext"; on: boolean }
   | { kind: "close" };
 
 export const TOKEN_HINT =
@@ -38,11 +46,13 @@ export function settingsView(saved: {
   billing: Billing;
   account: string | null;
   hasToken?: boolean;
+  showContext?: boolean;
 }): SettingsView {
   return {
     billing: saved.billing,
     account: saved.account,
     hasToken: saved.hasToken ?? false,
+    showContext: saved.showContext ?? false,
     index: 0,
     busy: false,
     prompt: null,
@@ -56,6 +66,7 @@ export function settingsItems(view: SettingsView): SettingsItem[] {
     view.account ? "logout" : "login",
     "token",
     ...(view.hasToken ? ["removeToken" as const] : []),
+    "context",
   ];
 }
 
@@ -115,6 +126,11 @@ export function settingsKey(
       return {
         view: { ...view, hasToken: false, index: items.indexOf("token") },
         effect: { kind: "clearToken" },
+      };
+    if (item === "context")
+      return {
+        view: { ...view, showContext: !view.showContext },
+        effect: { kind: "showContext", on: !view.showContext },
       };
     if (view.busy) return { view };
     return {

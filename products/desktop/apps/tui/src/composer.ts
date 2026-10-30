@@ -85,6 +85,7 @@ export const SLASH_COMMANDS = [
   },
   { name: "search", description: "Search your tasks" },
   { name: "settings", description: "Open settings, like Ctrl+;" },
+  { name: "config", description: "Open settings, like /settings" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },
   {

@@ -67,4 +67,17 @@ describe("settingsKey", () => {
     expect(removed.effect).toEqual({ kind: "clearToken" });
     expect(removed.view.hasToken).toBe(false);
   });
+
+  it("turns the composer's context donut on and off from its own row", () => {
+    const onContext = [DOWN, DOWN].reduce(
+      (current, key) => settingsKey(current, key).view,
+      view(),
+    );
+    const on = settingsKey(onContext, ENTER);
+    expect(on.effect).toEqual({ kind: "showContext", on: true });
+    expect(settingsKey(on.view, ENTER).effect).toEqual({
+      kind: "showContext",
+      on: false,
+    });
+  });
 });

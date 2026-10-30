@@ -19,6 +19,8 @@ export interface Prefs {
   claudeMode: string;
   // The last model picked with /model, which new chats start on when their agent offers it.
   lastModel?: ModelChoice;
+  // The context donut on the composer's rule, from settings.
+  showContext: boolean;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -38,6 +40,7 @@ const DEFAULT_PREFS: Prefs = {
   paneRepositories: {},
   billing: "posthog",
   claudeMode: "auto",
+  showContext: false,
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -63,6 +66,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       claudeMode:
         typeof saved.claudeMode === "string" ? saved.claudeMode : "auto",
       ...(modelOf(saved.lastModel) && { lastModel: modelOf(saved.lastModel) }),
+      showContext: saved.showContext === true,
     };
   } catch {
     return DEFAULT_PREFS;
