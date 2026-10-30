@@ -177,7 +177,7 @@ def resolve_github_tables(
     if source_id is None:
         # Read what the sources list calls synced first. An old source can still hold tables for a repo
         # it no longer lists, and taking it by age alone reads stale data instead of the live source.
-        candidates = sorted(candidates, key=lambda candidate: not candidate.listed)
+        candidates = _listed_first(candidates)
     if repo:
         # An explicit repo must never silently resolve a *different* named repo: the picker lists a
         # source's repos before they finish syncing, so a not-yet-complete pick should surface the
@@ -460,6 +460,17 @@ class _RepoCandidate(NamedTuple):
     listed: bool
 
 
+def _listed_first(candidates: Iterable[_RepoCandidate]) -> Iterator[_RepoCandidate]:
+    """Listed candidates in source order, then the unlisted ones, without reading sources ahead."""
+    unlisted: list[_RepoCandidate] = []
+    for candidate in candidates:
+        if candidate.listed:
+            yield candidate
+        else:
+            unlisted.append(candidate)
+    yield from unlisted
+
+
 def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
     """Every ``(repo, tables)`` a team's GitHub sources expose, in default-resolution order.
 
@@ -468,7 +479,7 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
     inherent priority, so whichever repo the multi-select lists first is the default; unknown
     leftovers trail, sorted. A multi-repo source contributes one entry
     per repo, so a repo-scoped read can reach a repo that isn't the source's legacy one. Lazy (one
-    ``ExternalDataSchema`` query per source, on demand) so a ``source_id`` resolve stops at the
+    ``ExternalDataSchema`` query per source, on demand) so the default resolve path stops at the
     first usable repo instead of querying every source up front.
     """
     for source in sources:

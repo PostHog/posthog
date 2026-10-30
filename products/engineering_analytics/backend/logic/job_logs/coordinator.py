@@ -299,10 +299,18 @@ def _query_depot_attempt_branches(source: ExternalDataSource, attempt_ids: list[
         SELECT attempt_id, head_branch
         FROM ({attempt_head_branches(depot, pull_requests)})
         WHERE attempt_id IN {{attempt_ids}}
+        LIMIT {{limit}}
     """
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=source.team.pk):
         response = execute_hogql_query(
-            query=parse_select(sql, placeholders={"attempt_ids": ast.Constant(value=attempt_ids)}),
+            query=parse_select(
+                sql,
+                placeholders={
+                    "attempt_ids": ast.Constant(value=attempt_ids),
+                    # Without a LIMIT, HogQL caps the read at its default row count, below a discovery page.
+                    "limit": ast.Constant(value=len(attempt_ids)),
+                },
+            ),
             team=source.team,
             query_type="DepotJobLogsBranches",
             bypass_warehouse_access_control=True,

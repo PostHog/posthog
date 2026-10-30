@@ -596,6 +596,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("test_substring", {"test": "TESTTHREE::test_fails"}, T_THREE_PRS, 3),
+            # A pytest selector keeps '.py', which the nodeid drops, so it matches through the selector.
+            ("pytest_selector", {"test": "test_injob.py::TestInJob"}, T_IN_JOB_RETRY, 0),
             # A PR or branch scope still counts the test's failures on every other PR.
             ("pr_number", {"pr_number": "502"}, T_THREE_PRS, 3),
             ("branch", {"branch": "f2"}, T_THREE_PRS, 3),

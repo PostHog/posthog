@@ -96,12 +96,16 @@ def query_flaky_tests(
     if runner is not None:
         test_filters.append("runner = {runner}")
         placeholders["runner"] = ast.Constant(value=runner.value)
-    if test:
-        test_filters.append("positionCaseInsensitive(nodeid, {test}) > 0")
-        placeholders["test"] = ast.Constant(value=test)
     # A branch or PR scope keeps a test that has evidence there, but counts all of its evidence, so
     # the row still shows whether the test also fails elsewhere.
     scope_filters = ["1"]
+    if test:
+        # The nodeid drops '.py' and folds the file/class boundary into '/', so a pytest selector
+        # or file path only matches the selector. In HAVING, `selector` is the row's selector.
+        scope_filters.append(
+            "(positionCaseInsensitive(nodeid, {test}) > 0 OR positionCaseInsensitive(selector, {test}) > 0)"
+        )
+        placeholders["test"] = ast.Constant(value=test)
     if branch:
         scope_filters.append("countIf(branch = {branch}) > 0")
         placeholders["branch"] = ast.Constant(value=branch)
