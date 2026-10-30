@@ -106,8 +106,8 @@ jobs:
         # paths-filter action out of the checkout. See "Runners" in /authoring-ci-workflows.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         # 7 not 5: the debounce step below sleeps up to 120s, so widen the budget to
-        # keep ample headroom. A timeout here skips Playwright, which the aggregator
-        # would count as a pass.
+        # keep ample headroom. A timeout here fails the aggregator, which tests this
+        # job's result directly, rather than costing coverage silently.
         timeout-minutes: 7
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
@@ -284,12 +284,20 @@ jobs:
                   PR: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  created=$(gh api "repos/${REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.created_at' 2>/dev/null || echo "")
-                  elapsed=$(( $(date +%s) - $(date -d "${created:-now}" +%s) ))
-                  remaining=$(( 120 - elapsed ))
+                  # gh api writes an error body to stdout and exits non-zero, so a failed
+                  # call returns JSON, not an empty string. Read that JSON as a moved head and
+                  # the step reports "superseded", the suite is skipped, and the aggregator
+                  # reads the skip as a pass. Validate both values by shape instead, and fall
+                  # back to the full wait when the run's age is unknown.
+                  created=$(gh api "repos/${REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.created_at' 2>/dev/null || true)
+                  if [[ "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+                      remaining=$(( 120 - ( $(date +%s) - $(date -d "$created" +%s) ) ))
+                  else
+                      remaining=120
+                  fi
                   if [ "$remaining" -gt 0 ]; then sleep "$remaining"; fi
-                  tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
-                  if [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]; then
+                  tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || true)
+                  if [[ "$tip" =~ ^[0-9a-f]{40}$ ]] && [ "$tip" != "$HEAD_SHA" ]; then
                       echo "::notice::PR head moved ($HEAD_SHA -> $tip); skipping — the newer run is the gate"
                       echo "superseded=true" >> "$GITHUB_OUTPUT"
                   else

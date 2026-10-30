@@ -417,6 +417,7 @@ Gates chain, so a gate's queue also delays the telemetry job behind it.
 So a light job belongs on `depot-ubuntu-24.04` when later jobs wait on it: a required gate, a telemetry job behind a gate, a test selector, or a `changes` job that every other job needs.
 Keep a light job GitHub-hosted when nothing waits on it.
 `ci-storybook.yml`, `ci-frontend.yml`, `ci-e2e-playwright.yml` and `ci-security.yaml` follow this rule for their `changes` jobs, gates, selectors and telemetry jobs.
+`select-jest-tests` is the exception among the selectors: it installs the frontend workspace to list related tests, so it shares a pnpm cache with the GitHub-hosted jest shards and stays there.
 
 Three exceptions keep a light job GitHub-hosted, or need a fork fallback:
 
