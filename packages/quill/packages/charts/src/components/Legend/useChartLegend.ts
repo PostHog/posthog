@@ -58,11 +58,11 @@ export interface ChartLegendRenderProps {
     onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
-    values: LegendProps['values']
-    formatValue: LegendProps['formatValue']
-    sortBy: LegendProps['sortBy']
-    sortDescending: LegendProps['sortDescending']
-    columnLabels: LegendProps['columnLabels']
+    values?: LegendProps['values']
+    formatValue?: LegendProps['formatValue']
+    sortBy?: LegendProps['sortBy']
+    sortDescending?: LegendProps['sortDescending']
+    columnLabels?: LegendProps['columnLabels']
 }
 
 export interface ChartLegendState<Meta> {
