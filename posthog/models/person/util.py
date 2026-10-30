@@ -36,7 +36,7 @@ from posthog.models.person.sql import (
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.personhog_client.interceptor import is_transient_rpc_error, semantic_refusal_reason
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
     CONSISTENCY_LEVEL_STRONG,
@@ -1063,6 +1063,10 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
     return personhog_call("ensure_person_version_floors", personhog_fn)
 
 
+class PersonRaiseRefused(Exception):
+    """The leader refused the raise because the person's protected properties alone exceed the size limit."""
+
+
 def raise_person_version(team_id: int, person: Person, min_version: int) -> Person | None:
     """Raise a live person's version to at least ``min_version`` on the active write path.
 
@@ -1088,6 +1092,8 @@ def _raise_person_version_on_leader(team_id: int, person: Person, min_version: i
         # The leader holds the person as deleted.
         if callable(getattr(exc, "code", None)) and exc.code() == grpc.StatusCode.NOT_FOUND:
             return None
+        if semantic_refusal_reason(exc) == "person-too-large":
+            raise PersonRaiseRefused(f"person {person.uuid} is too large to raise") from exc
         raise
     return proto_person_to_model(response.person)
 

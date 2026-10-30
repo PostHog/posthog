@@ -539,6 +539,21 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert [a.outcome for a in actions] == ["skipped_tombstoned", "skipped_tombstoned"]
         assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
 
+    @override_settings(PERSONHOG_WRITE_PATH="leader")
+    def test_skips_a_person_the_leader_refuses_as_too_large(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
+        refusal = rpc_error(grpc.StatusCode.FAILED_PRECONDITION)
+        refusal.trailing_metadata = MagicMock(return_value=(("x-semantic-refusal", "person-too-large"),))
+        fake = get_active_fake()
+
+        with patch.object(fake, "raise_person_version", side_effect=refusal):
+            _, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["skipped_raise_refused", "skipped_raise_refused"]
+        fake.assert_not_called("write_distinct_ids")
+
     @parameterized.expand([("dry_run", False, []), ("apply", True, [1.0])])
     def test_throttles_on_each_divergent_row_written(self, _name: str, apply: bool, sleeps: list[float]) -> None:
         person = self._pg_person(version=3, distinct_ids={"throttled-did": 0})

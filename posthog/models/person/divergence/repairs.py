@@ -20,6 +20,7 @@ from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.sql import INSERT_PERSON_SQL
 from posthog.models.person.util import (
+    PersonRaiseRefused,
     _flush_person_producers,
     _person_row,
     create_person_distinct_id,
@@ -298,7 +299,14 @@ def _execute_plan(
     raised: Person | None = None
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
-        raised = raise_person_version(plan.team_id, person, plan.target_version)
+        try:
+            raised = raise_person_version(plan.team_id, person, plan.target_version)
+        except PersonRaiseRefused:
+            return [
+                _person_action(plan, "skipped_raise_refused"),
+                *mapping_actions,
+                *(_mapping_action(plan, m, "skipped_raise_refused") for m in divergent_mappings),
+            ]
 
     # The raise runs on the primary, so its reply is the owner check: the replica list that produced this
     # mapping can lag a merge that moved it to another person.
