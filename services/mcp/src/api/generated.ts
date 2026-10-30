@@ -57957,6 +57957,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubIssueDependencyRef {
+      repository: string;
+      number: number;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -57967,6 +57972,7 @@ export namespace Schemas {
       state: string;
       author_login?: string | null;
       author_association?: string | null;
+      depends_on_issues?: GithubIssueDependencyRef[];
     }
 
     export interface GitlabIssueSignalExtra {
@@ -66670,6 +66676,13 @@ export namespace Schemas {
       role: KeyClauseRoleEnum;
       /** Sentences from the report that explain the clause further. */
       expansion: string[];
+    }
+
+    export interface KnowledgeAvailability {
+      /** True when the project has at least one business knowledge source. */
+      readonly has_sources: boolean;
+      /** True when this environment has at least one GitHub repository selected. */
+      readonly has_repositories: boolean;
     }
 
     /**
@@ -107963,6 +107976,17 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `resume` action.
+     */
+    export interface SavedQueryResumeRequest {
+      /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
+    }
+
+    /**
      * Body of the `resume_schedules` action.
      */
     export interface SavedQueryResumeSchedulesRequest {
@@ -111791,6 +111815,8 @@ export namespace Schemas {
       reason: string | null;
       /** True when the scout owner guardrail added the entry rather than commit authorship. */
       is_skill_owner: boolean;
+      /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+      is_default_owner: boolean;
       /**
          * Scout skill whose run wrote the entry. Null when no scout did.
          * @nullable

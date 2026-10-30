@@ -518,7 +518,8 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
         }
         const act = (action: string, scannerId: string | null, extra: Record<string, string> = {}): void => {
             posthog.capture('replay_vision_highlight_picks_stale_action', {
-                reason: values.staleReason,
+                // With no picks there is no stale reason, so the empty reason names the state that held the button.
+                reason: values.staleReason ?? values.blockReason,
                 action,
                 scanner_id: scannerId,
                 ...extra,

@@ -12,6 +12,7 @@ from posthog.models.integration import Integration
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
+from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
@@ -30,6 +31,8 @@ SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
 REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
+CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -132,18 +135,28 @@ def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_e
 
 
 @pytest.mark.django_db
-def test_no_agent_starts_without_settings(team) -> None:
-    with patch(START_WORKFLOW) as start_workflow:
+@pytest.mark.parametrize("has_writer_settings", [False, True])
+def test_nothing_runs_or_is_captured_while_the_writer_is_unconfigured_or_flagged_off(
+    request, team, has_writer_settings: bool
+) -> None:
+    if has_writer_settings:
+        request.getfixturevalue("writer_env")
+    with (
+        patch(FLAG_CHECK, return_value=False),
+        patch(CAPTURE_VERDICT) as capture_verdict,
+        patch(START_WORKFLOW) as start_workflow,
+    ):
         outcome = intake.submit(_verdict(), team_id=team.id)
 
     assert outcome.status == "unconfigured"
+    capture_verdict.assert_not_called()
     start_workflow.assert_not_called()
 
 
 @pytest.mark.django_db
 def test_no_agent_starts_while_the_launch_flag_is_off(team, writer_env) -> None:
     with (
-        patch(FLAG_CHECK, return_value=False),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != AGENT_LAUNCH_FLAG),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW) as start_workflow,
     ):
@@ -184,8 +197,9 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
 
 @pytest.mark.django_db
 def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_waits_then_joins_it(
-    team, writer_env, django_capture_on_commit_callbacks
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
