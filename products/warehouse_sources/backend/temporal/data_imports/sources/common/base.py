@@ -564,6 +564,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
 
     @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
+
+    @property
     def credential_kind(self) -> str | None:
         """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
 

@@ -551,6 +551,16 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
     return split_job_inputs(ExternalDataSourceType(source_type), inputs)
 
 
+def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """True when two connection field mappings hold the same stored values."""
+    return same_connection_fields(left, right)
+
+
+def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The connection fields of ``inputs``, which a credentials row holds."""
+    return _connection_fields(source_type, inputs)
+
+
 def _in_event_loop() -> bool:
     try:
         asyncio.get_running_loop()
