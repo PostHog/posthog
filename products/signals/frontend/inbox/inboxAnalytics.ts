@@ -189,6 +189,7 @@ export type InboxReportActionType =
     | 'claim'
     | 'unclaim'
     | 'expand_preview'
+    | 'add_note'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as

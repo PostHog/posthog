@@ -42,7 +42,6 @@ import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '..
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { dismissalReasonLabel } from '../../utils/dismissalReasons'
-import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
@@ -89,6 +88,7 @@ import {
 import { CheckObservationBody } from './CheckObservationBody'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
+import { ScoutNoteLeftBody } from './ScoutNoteLeftBody'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -776,17 +776,8 @@ function renderArtefactBody({
             const c = content as NoteContent
             return <NoteBody note={c.note} author={c.author} />
         }
-        case 'scout_note_left': {
-            const c = content as ScoutNoteLeftContent
-            return (
-                <div className="w-full">
-                    <span className="mb-1 block text-xs text-tertiary">
-                        {c.skill_name ? `For ${prettifyScoutSkillName(c.skill_name)}` : 'For every scout'}
-                    </span>
-                    <NoteBody note={c.note} />
-                </div>
-            )
-        }
+        case 'scout_note_left':
+            return <ScoutNoteLeftBody reportId={reportId} content={content as ScoutNoteLeftContent} />
         case 'priority_judgment': {
             const c = content as { explanation?: string }
             return c.explanation ? <ReasoningBody text={c.explanation} /> : null
