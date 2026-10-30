@@ -101,7 +101,9 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        runs-on: depot-ubuntu-24.04
+        # Merge-queue runs use Depot because GitHub-hosted runners queue for minutes at busy hours
+        # and this job sits on the queue's required-check path. Other runs stay on free GitHub-hosted runners.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
@@ -402,7 +404,7 @@ jobs:
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -1248,7 +1250,7 @@ jobs:
     # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -1415,7 +1417,8 @@ jobs:
     playwright_tests:
         needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
-        runs-on: depot-ubuntu-24.04
+        # Same runner choice as `changes`.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
