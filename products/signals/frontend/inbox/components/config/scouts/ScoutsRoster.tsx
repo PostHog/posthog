@@ -116,9 +116,14 @@ export function ScoutsRoster(): JSX.Element {
             <ScoutsRosterList />
             <div className="flex flex-col gap-1 pt-1">
                 <span className="text-xs text-muted">
-                    Run and report totals cover the {SCOUT_ROSTER_WINDOW_LABEL}.{' '}
-                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
-                        <span>Usage covers the last 30 days. </span>
+                    <FlaggedFeature
+                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}
+                        fallback={<span>The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. </span>}
+                    >
+                        <span>
+                            Run and report totals cover the {SCOUT_ROSTER_WINDOW_LABEL}. Usage covers the last 30
+                            days.{' '}
+                        </span>
                     </FlaggedFeature>
                     Each scout's run strip shows its {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay
                     comparable. New scouts are created as skills in your PostHog project, under the name you give them.{' '}
