@@ -192,6 +192,32 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.currentSchedule?.id).toBe('schedule-created')
         })
 
+        it('keeps the other schedules when a manual save writes the edited one', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/:schedule_id/': (req: any) => [
+                        200,
+                        { id: req.params.schedule_id, rrule: 'FREQ=DAILY', starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            const first: HogFlowSchedule = { id: 'schedule-1', rrule: 'FREQ=WEEKLY', starts_at: STARTS_AT }
+            const second: HogFlowSchedule = { id: 'schedule-2', rrule: 'FREQ=MONTHLY', starts_at: STARTS_AT }
+            logic.actions.setSchedules([first, second])
+            logic.actions.selectSchedule(second)
+            logic.actions.setScheduleStartsAt('2026-05-05T09:00:00.000Z')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess', 'setSchedules'])
+
+            expect(logic.values.schedules.map((s) => [s.id, s.rrule])).toEqual([
+                ['schedule-1', 'FREQ=WEEKLY'],
+                ['schedule-2', 'FREQ=DAILY'],
+            ])
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+        })
+
         it('does not re-save when nothing changed during the round-trip', async () => {
             jest.useFakeTimers()
 
