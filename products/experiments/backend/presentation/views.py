@@ -1026,10 +1026,12 @@ class EnterpriseExperimentsViewSet(
         `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
         reads the events up to the end. It is info otherwise. When the first failure reached the
         read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
-        when another metric of the same calculation completed, or `exposure_criteria` when every
-        metric reached a limit and each metric's query applies an exposure filter on a property that
-        ClickHouse keeps in no column of its own. A metric's query doesn't apply the exposure filters
-        when the project precomputes the exposures. It is null otherwise.
+        when another metric of the same calculation completed the same read of the exposures, or
+        `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+        makes each query read all the properties of an event, person or group. `evidence.properties`
+        then names the filters. In a project that precomputes exposures, only data warehouse metrics
+        can get `exposure_criteria`, because the stored failure doesn't say when a precompute failed
+        and a query read the events. It is null otherwise.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from

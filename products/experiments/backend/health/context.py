@@ -326,6 +326,8 @@ class MetricCalculationFailure:
     retriable: bool
     # The effective definition now, in which the wording looks for the names that the message gives.
     definition: Mapping[str, Any]
+    # Whether the metric reads a data warehouse table, which keeps its query from using precomputed exposures.
+    reads_data_warehouse: bool
 
 
 @frozen
@@ -342,18 +344,6 @@ class LatestCalculation:
     completed_count: int
 
 
-ExposureFilterPropertyType = Literal["event", "person", "group"]
-
-
-@frozen
-class ExposureFilterWithoutColumn:
-    """A property that the exposure criteria filter on and that ClickHouse keeps in no column of its own. To apply the
-    filter, the exposure query reads all the properties of each event, person or group."""
-
-    type: ExposureFilterPropertyType
-    key: str
-
-
 @frozen
 class FlagKeyFilter:
     """An event property filter of the exposure criteria on `$feature_flag`, the key of the called flag."""
@@ -363,6 +353,29 @@ class FlagKeyFilter:
 
 
 ExposurePropertyType = Literal["event", "person"]
+ExposureFilterPropertyType = ExposurePropertyType | Literal["group"]
+
+
+@frozen
+class ExposureFilterWithoutColumn:
+    """A property that the exposure query filters on and reads from the JSON of all the properties of each event, person
+    or group."""
+
+    type: ExposureFilterPropertyType
+    key: str
+    # Whether the filter comes from the project's test account filters and not from the exposure criteria.
+    test_account: bool
+
+
+@frozen
+class ExposureReads:
+    """How the metric queries read the exposures, as far as the settings say."""
+
+    # Whether a metric query on events reads precomputed exposures, which apply the filters once. A query on a data
+    # warehouse metric always reads the events. When a precompute fails, any query reads the events, but the stored
+    # failure doesn't say so.
+    precomputed: bool
+    filters_without_column: tuple[ExposureFilterWithoutColumn, ...]
 
 
 @frozen
@@ -520,10 +533,9 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
-    # The exposure filters that each metric's query applies itself, on a property without a column of its own. Empty
-    # when the metric queries read precomputed exposures. None when not loaded or unknown. Only the health endpoints
-    # load it, and only when the latest calculation has a failure.
-    exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only when the latest calculation has a
+    # failure.
+    exposure_reads: ExposureReads | None
 
 
 def parse_flag_state(
@@ -983,5 +995,5 @@ def load_health_context(
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
-        exposure_filters_without_column=None,
+        exposure_reads=None,
     )

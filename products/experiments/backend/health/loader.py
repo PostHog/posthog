@@ -7,7 +7,7 @@ from posthog.models.user import User
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, load_health_context
-from products.experiments.backend.health.exposure_columns import load_exposure_filters_without_column
+from products.experiments.backend.health.exposure_columns import load_exposure_reads
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
@@ -82,7 +82,7 @@ def _health_context(
         primary_metric=load_primary_metric(experiment),
         metric_compiles=load_metric_compiles(experiment, user=user),
         latest_calculation=latest_calculation,
-        exposure_filters_without_column=load_exposure_filters_without_column(experiment)
+        exposure_reads=load_exposure_reads(experiment)
         if latest_calculation is not None and latest_calculation.failures
         else None,
     )

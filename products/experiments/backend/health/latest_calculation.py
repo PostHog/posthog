@@ -12,6 +12,7 @@ from products.experiments.backend.metric_calculation.config import (
     team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import metric_dict_reads_data_warehouse
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
@@ -103,4 +104,5 @@ def _shown_failure(
         can_quote_evaluation_rules=can_hold_evaluation_rules(calculation_config.definition),
         retriable=error.get("retriable") is True,
         definition=calculation_config.definition,
+        reads_data_warehouse=metric_dict_reads_data_warehouse(calculation_config.definition),
     )

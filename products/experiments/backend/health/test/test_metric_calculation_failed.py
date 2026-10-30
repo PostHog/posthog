@@ -26,6 +26,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
     ExposureFilterWithoutColumn,
+    ExposureReads,
     LatestCalculation,
     MetricCalculationFailure,
     MetricCompileFailure,
@@ -47,7 +48,9 @@ NO_QUERIES = ExperimentHealthReaderAccess(
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
 OUT_OF_MEMORY = "This query ran out of memory before it could finish."
-PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan")
+PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan", test_account=False)
+READS_EVENTS = ExposureReads(precomputed=False, filters_without_column=(PLAN_FILTER,))
+READS_PRECOMPUTED = ExposureReads(precomputed=True, filters_without_column=(PLAN_FILTER,))
 CLICKHOUSE_MESSAGE = (
     "Code: 215. DB::Exception: Column `properties` is not under aggregate function and not in GROUP BY keys. "
     "In query SELECT properties FROM events"
@@ -62,6 +65,7 @@ def _failure(
     role: str = "primary",
     retriable: bool = True,
     can_quote_evaluation_rules: bool = False,
+    reads_data_warehouse: bool = False,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -73,6 +77,7 @@ def _failure(
         can_quote_evaluation_rules=can_quote_evaluation_rules,
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
+        reads_data_warehouse=reads_data_warehouse,
     )
 
 
@@ -338,21 +343,14 @@ class TestMetricCalculationFailed(TestCase):
                     _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
                 ),
                 0,
-                (PLAN_FILTER,),
+                READS_EVENTS,
                 ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
-            ),
-            (
-                "another_metric_completed",
-                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
-                1,
-                (PLAN_FILTER,),
-                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
             ),
             (
                 "one_metric_reached_a_limit_with_an_exposure_filter_without_a_column",
                 (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
                 0,
-                (PLAN_FILTER,),
+                READS_EVENTS,
                 (
                     "exposure_criteria",
                     'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one '
@@ -360,19 +358,64 @@ class TestMetricCalculationFailed(TestCase):
                 ),
             ),
             (
-                "two_limits_and_two_exposure_filters_without_a_column",
+                "two_limits_and_two_filters_of_different_kinds",
                 (
                     _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
                     _failure("Limit for rows or bytes to read exceeded", error_type="byte_limit", role="secondary"),
                 ),
                 0,
-                (ExposureFilterWithoutColumn(type="event", key="country"), PLAN_FILTER),
+                ExposureReads(
+                    precomputed=False,
+                    filters_without_column=(
+                        PLAN_FILTER,
+                        ExposureFilterWithoutColumn(type="event", key="$device", test_account=True),
+                    ),
+                ),
                 (
                     "exposure_criteria",
                     "Every metric's query needed more resources than PostHog allows for one calculation. The likely "
-                    'cause is the exposure criteria\'s filters on the event property "country" and the group property '
-                    '"plan", which make each query read all event and group properties. Remove or change these filters',
+                    'cause is the exposure criteria\'s filter on the group property "plan" and the test account filter '
+                    'on the event property "$device", which make each query read all group and event properties. '
+                    "Change these filters, or turn off the test account filter in the exposure criteria, or contact",
                 ),
+            ),
+            (
+                "data_warehouse_metrics_read_the_events_in_a_project_that_precomputes",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", reads_data_warehouse=True),),
+                0,
+                READS_PRECOMPUTED,
+                ("exposure_criteria", 'filter on the group property "plan"'),
+            ),
+            (
+                "another_metric_completed",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
+                1,
+                READS_EVENTS,
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "another_metric_completed_with_precomputed_exposures",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
+                1,
+                READS_PRECOMPUTED,
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "completed_metric_read_the_exposures_another_way",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory", reads_data_warehouse=True),),
+                1,
+                READS_PRECOMPUTED,
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+            ),
+            (
+                "metric_queries_read_precomputed_exposures",
+                (
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
+                ),
+                0,
+                READS_PRECOMPUTED,
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
             ),
             (
                 "every_metric_reached_a_limit_without_an_exposure_filter_without_a_column",
@@ -381,7 +424,7 @@ class TestMetricCalculationFailed(TestCase):
                     _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
                 ),
                 0,
-                (),
+                ExposureReads(precomputed=False, filters_without_column=()),
                 (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
             ),
             (
@@ -391,7 +434,7 @@ class TestMetricCalculationFailed(TestCase):
                     _failure("Queries are a little too busy right now.", error_type="rate_limited", role="secondary"),
                 ),
                 0,
-                (PLAN_FILTER,),
+                READS_EVENTS,
                 (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
             ),
         ]
@@ -401,17 +444,18 @@ class TestMetricCalculationFailed(TestCase):
         _name: str,
         failures: tuple[MetricCalculationFailure, ...],
         completed_count: int,
-        filters_without_column: tuple[ExposureFilterWithoutColumn, ...],
+        reads: ExposureReads,
         expected: tuple[str | None, str],
     ) -> None:
-        finding = _outcome(
-            *failures, completed_count=completed_count, exposure_filters_without_column=filters_without_column
-        )
+        finding = _outcome(*failures, completed_count=completed_count, exposure_reads=reads)
 
         assert isinstance(finding, ExperimentHealthFinding)
         reason, words = expected
         self.assertEqual((finding.subcode, finding.severity, finding.reason), ("query_limit", WARNING, reason))
         self.assertEqual(finding.detail.count(words), 1)
+        names_the_filters = reason == "exposure_criteria"
+        self.assertEqual("properties" in finding.evidence, names_the_filters)
+        self.assertEqual(bool(finding.actions), names_the_filters)
 
     def test_waits_for_a_metric_that_the_experiment_calculates(self) -> None:
         calculation = LatestCalculation(metric_count=0, finished_at=None, failures=(), completed_count=0)
