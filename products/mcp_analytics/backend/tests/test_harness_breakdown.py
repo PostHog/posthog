@@ -139,7 +139,7 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         self.assertEqual(response.column_formats, ["mcp_harness", None])
         self.assertEqual(response.results, [("OpenAI Codex", 2), ("Claude Code", 1)])
 
-    def test_custom_harness_names_calls_in_the_breakdown(self) -> None:
+    def test_custom_harness_names_calls_everywhere_the_label_shows(self) -> None:
         MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
         MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit(properties={"$mcp_client_name": "Acme-Agent/1.2"})
@@ -148,6 +148,13 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         self._emit(properties={"$mcp_client_name": "something-else"}, distinct_id="d4")
         flush_persons_and_events()
 
+        virtual = execute_hogql_query(
+            "SELECT properties.$virt_mcp_harness AS client, count() AS calls "
+            "FROM events WHERE event = '$mcp_tool_call' GROUP BY client ORDER BY calls DESC, client",
+            team=self.team,
+        )
+
+        self.assertEqual(virtual.results, [("Acme Agent", 2), ("Other", 1), ("Our Cursor", 1)])
         self.assertEqual(set(self._breakdown()), {"Acme Agent", "Other", "Our Cursor"})
 
     def test_virtual_harness_property_is_empty_on_other_events(self) -> None:

@@ -116,8 +116,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
         # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
         # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in
-        # the HogQL database build.
-        with self.assertNumQueries(17):
+        # the HogQL database build. +1 for the MCP custom harness fetch in the HogQL database build.
+        with self.assertNumQueries(18):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -154,8 +154,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
         # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
         # TTL instance setting, cold-cache here but TTL-cached per worker in production. +1 for
-        # the organization's flag_evaluations mode lookup in the HogQL database build.
-        expected_queries = 24 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 25
+        # the organization's flag_evaluations mode lookup in the HogQL database build. +1 for the
+        # MCP custom harness fetch in the HogQL database build.
+        expected_queries = 25 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 26
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

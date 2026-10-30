@@ -364,7 +364,8 @@ class TestViewLinkQuery(APIBaseTest):
 
         # Test that listing joins uses efficient querying
 
-        with self.assertNumQueries(FuzzyInt(20, 21)):  # depends when the instance-setting caches are hit in a test
+        # +1 for the MCP custom harness fetch in the HogQL database build, which later requests read from Redis.
+        with self.assertNumQueries(FuzzyInt(21, 22)):  # depends when the instance-setting caches are hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 
         self.assertEqual(response.status_code, 200)
