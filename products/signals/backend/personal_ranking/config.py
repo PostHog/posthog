@@ -55,6 +55,12 @@ class PersonalRankingConfig:
     focus_max_chars: int = 500
     timeout_seconds: float = 30.0
     max_completion_tokens: int = 8000
+    # The `for_me` endpoint reuses a stored list this many minutes old or newer while its inputs are the same.
+    freshness_minutes: int = 60
+    # Builds one person may start from the endpoint: a short burst, an hourly refill and a daily cap.
+    build_burst: int = 2
+    builds_per_hour: int = 12
+    builds_per_day: int = 40
 
 
 DEFAULTS = PersonalRankingConfig()
@@ -76,6 +82,10 @@ _MAXIMUMS: dict[str, int] = {
     "focus_max_chars": 2000,
     "timeout_seconds": 120,
     "max_completion_tokens": 16000,
+    "freshness_minutes": 1440,
+    "build_burst": 20,
+    "builds_per_hour": 120,
+    "builds_per_day": 500,
     "reason_max_chars": 500,
 }
 
