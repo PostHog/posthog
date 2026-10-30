@@ -99,6 +99,16 @@ function removeRestoreTokenFromUrl(): void {
     }
 }
 
+function saveNewTicket(
+    values: Pick<sidepanelTicketsLogicValues, 'draftOwnerId' | 'newTicketDraft' | 'newTicketContext'>
+): void {
+    if (!values.draftOwnerId) {
+        return
+    }
+    const { newTicketDraft: content, newTicketContext: context } = values
+    saveNewTicketDraft(values.draftOwnerId, content || context ? { content, context, updatedAt: Date.now() } : null)
+}
+
 function messageToRichContent(message: string): JSONContent {
     return {
         type: 'doc',
@@ -630,538 +640,530 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             (billing: BillingType | null, billingLoading: boolean): boolean => !billingLoading && billing !== null,
         ],
     }),
-    listeners(({ actions, values, cache }) => {
-        const saveNewTicket = (): void => {
-            if (!values.draftOwnerId) {
+    listeners(({ actions, values, cache }) => ({
+        initTickets: () => {
+            if (cache.initialized) {
                 return
             }
-            const { newTicketDraft: content, newTicketContext: context } = values
-            saveNewTicketDraft(
-                values.draftOwnerId,
-                content || context ? { content, context, updatedAt: Date.now() } : null
-            )
-        }
-        return {
-            initTickets: () => {
-                if (cache.initialized) {
-                    return
-                }
-                cache.initialized = true
+            cache.initialized = true
 
-                const restoreToken = router.values.searchParams['ph_conv_restore']
-                if (restoreToken) {
-                    actions.restoreFromUrlToken(restoreToken)
-                } else {
-                    actions.loadTickets()
-                }
+            const restoreToken = router.values.searchParams['ph_conv_restore']
+            if (restoreToken) {
+                actions.restoreFromUrlToken(restoreToken)
+            } else {
+                actions.loadTickets()
+            }
 
-                if (!cache.onVisibilityChange) {
-                    cache.onVisibilityChange = (): void => {
-                        if (document.visibilityState === 'visible') {
-                            actions.loadTickets()
-                        } else {
-                            actions.stopPolling()
-                        }
+            if (!cache.onVisibilityChange) {
+                cache.onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadTickets()
+                    } else {
+                        actions.stopPolling()
                     }
-                    document.addEventListener('visibilitychange', cache.onVisibilityChange)
                 }
-            },
-            loadTickets: async () => {
-                // We don't support self-hosted, and the conversations extension is cloud-only — both the
-                // panel and the tickets scene already render a community-forum message instead. This logic
-                // still mounts there (the scene declares it in its SceneExport), so without this it would
-                // retry a widget that will never arrive and then tell a self-hosted user to email us.
-                //
-                // Explicitly `=== false` rather than falsy: `isCloudOrDev` is undefined until preflight
-                // resolves, and treating that as self-hosted would block the first load on cloud. Retries
-                // re-read it, so a self-hosted instance stops as soon as preflight lands — well inside the
-                // 20 attempts it takes to warn.
-                if (values.isCloudOrDev === false) {
+                document.addEventListener('visibilitychange', cache.onVisibilityChange)
+            }
+        },
+        loadTickets: async () => {
+            // We don't support self-hosted, and the conversations extension is cloud-only — both the
+            // panel and the tickets scene already render a community-forum message instead. This logic
+            // still mounts there (the scene declares it in its SceneExport), so without this it would
+            // retry a widget that will never arrive and then tell a self-hosted user to email us.
+            //
+            // Explicitly `=== false` rather than falsy: `isCloudOrDev` is undefined until preflight
+            // resolves, and treating that as self-hosted would block the first load on cloud. Retries
+            // re-read it, so a self-hosted instance stops as soon as preflight lands — well inside the
+            // 20 attempts it takes to warn.
+            if (values.isCloudOrDev === false) {
+                return
+            }
+            if (cache.conversationsRetryTimer) {
+                clearTimeout(cache.conversationsRetryTimer)
+                cache.conversationsRetryTimer = null
+            }
+            // Not just a truthiness check: posthog-js creates the `conversations` facade at init,
+            // but its methods resolve null until the lazily loaded manager is ready — a cold page
+            // load would otherwise render an empty list once and never retry
+            if (!posthog.conversations?.isAvailable()) {
+                // Conversations extension loads lazily — retry until it's ready
+                if ((cache.conversationsRetries ?? 0) < 20) {
+                    cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
                     return
                 }
-                if (cache.conversationsRetryTimer) {
-                    clearTimeout(cache.conversationsRetryTimer)
-                    cache.conversationsRetryTimer = null
-                }
-                // Not just a truthiness check: posthog-js creates the `conversations` facade at init,
-                // but its methods resolve null until the lazily loaded manager is ready — a cold page
-                // load would otherwise render an empty list once and never retry
-                if (!posthog.conversations?.isAvailable()) {
-                    // Conversations extension loads lazily — retry until it's ready
-                    if ((cache.conversationsRetries ?? 0) < 20) {
-                        cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
-                        cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
-                        return
-                    }
-                    // Out of retries. Kept separate from the send-failure event because nothing was
-                    // submitted here, and recorded even when we stay quiet so the rate is measurable.
-                    if (!cache.conversationsUnavailableCaptured) {
-                        cache.conversationsUnavailableCaptured = true
-                        captureSupportWidgetLoadFailed({
-                            surface: 'side_panel_tickets',
-                            reason: 'extension_missing',
-                            can_create_ticket: values.canCreateTicket,
-                        })
-                    }
-                    // This logic also mounts from the panel bar's unread badge, which renders on every
-                    // page, so an unavailable widget (an ad blocker is enough) would otherwise raise a
-                    // persistent error toast on surfaces that have nothing to do with support and block
-                    // clicks on whatever sits under the toast container. Only warn while the person is
-                    // actually on a support surface; opening one later re-runs loadTickets and warns then.
-                    const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-                    // Only warn people who could act on it. A free plan has no email fallback, and the
-                    // panel already shows them the community and upgrade options, so a toast offering
-                    // to email us would promise a channel they don't get. Warn while entitlement is
-                    // still unresolved, matching how the composer opens rather than drop a message.
-                    if (
-                        !cache.conversationsUnavailableWarned &&
-                        onSupportSurface &&
-                        (values.canCreateTicket || !values.isBillingResolved)
-                    ) {
-                        cache.conversationsUnavailableWarned = true
-                        warnSupportWidgetUnavailable()
-                    }
-                    return
-                }
-                cache.conversationsRetries = 0
-                // Polls, tab-focus, and scene remounts reuse loadTickets. The flag drives a full-list
-                // spinner, so it is only raised until the first successful fetch.
-                if (!cache.ticketsFetched) {
-                    actions.setTicketsLoading(true)
-                }
-                try {
-                    const response = await posthog.conversations.getTickets({ limit: 50 })
-                    if (response) {
-                        cache.ticketsFetched = true
-                        actions.setTickets(response.results as ConversationTicket[])
-                        // With no tickets there's nothing to poll for; creating one re-runs loadTickets
-                        // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
-                        if (response.results.length > 0) {
-                            actions.startPolling()
-                        } else {
-                            actions.stopPolling()
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to load tickets:', e)
-                    // Reported because a customer who can't see their tickets can't reply to support on
-                    // them either, and the toast alone left us blind to how often that happens
+                // Out of retries. Kept separate from the send-failure event because nothing was
+                // submitted here, and recorded even when we stay quiet so the rate is measurable.
+                if (!cache.conversationsUnavailableCaptured) {
+                    cache.conversationsUnavailableCaptured = true
                     captureSupportWidgetLoadFailed({
                         surface: 'side_panel_tickets',
-                        reason: 'tickets_load_failed',
-                        error: e,
+                        reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
                     })
-                    lemonToast.error('Failed to load tickets.')
-                } finally {
-                    actions.setTicketsLoading(false)
                 }
-            },
-            startPolling: () => {
-                // Only poll while the page is visible
-                if (document.visibilityState !== 'visible') {
-                    return
-                }
-                // Nothing to poll for until the user has at least one ticket. Creating one re-runs
-                // loadTickets, which restarts polling from there.
-                if (values.tickets.length === 0) {
-                    actions.stopPolling()
-                    return
-                }
-                // Clear any existing poll timer
-                if (cache.pollTimer) {
-                    clearTimeout(cache.pollTimer)
-                }
+                // This logic also mounts from the panel bar's unread badge, which renders on every
+                // page, so an unavailable widget (an ad blocker is enough) would otherwise raise a
+                // persistent error toast on surfaces that have nothing to do with support and block
+                // clicks on whatever sits under the toast container. Only warn while the person is
+                // actually on a support surface; opening one later re-runs loadTickets and warns then.
                 const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-                // Only treat a thread as open when the surface showing it is actually visible — the logic
-                // stays mounted for the panel-bar unread badge, so `view` can still be 'ticket' for a
-                // panel the user has since closed.
-                const insideTicket = onSupportSurface && values.view === 'ticket' && !!values.currentTicket
-                const interval = insideTicket
-                    ? POLL_INTERVAL_THREAD
-                    : onSupportSurface
-                      ? POLL_INTERVAL_ACTIVE
-                      : POLL_INTERVAL_BACKGROUND
-                cache.pollTimer = window.setTimeout(() => {
-                    actions.loadTickets()
-                    // loadTickets only refreshes the list, so a support reply wouldn't appear while the
-                    // reader sits inside the thread. Re-check on fire in case they've since navigated away,
-                    // and skip when a load is already running so a slow fetch can't overlap this one.
-                    if (
-                        values.currentTicket &&
-                        values.view === 'ticket' &&
-                        !values.messagesLoading &&
-                        isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-                    ) {
-                        actions.loadMessages(values.currentTicket.id)
-                    }
-                }, interval)
-            },
-            stopPolling: () => {
-                if (cache.pollTimer) {
-                    clearTimeout(cache.pollTimer)
-                    cache.pollTimer = null
-                }
-            },
-            loadMessages: async ({ ticketId }) => {
-                if (!ticketId || !posthog.conversations) {
-                    return
-                }
-                actions.setMessagesLoading(true)
-                try {
-                    const allMessages: ConversationMessage[] = []
-                    let after: string | undefined
-                    let hasMore = true
-
-                    // Fetch all pages of messages using `after` timestamp pagination
-                    while (hasMore) {
-                        const response = await (posthog.conversations.getMessages as any)(ticketId, after)
-                        // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
-                        if (!response || values.currentTicket?.id !== ticketId) {
-                            return
-                        }
-                        const messages = response.messages as ConversationMessage[]
-                        allMessages.push(...messages)
-                        hasMore = response.has_more && messages.length > 0
-                        // Use the last message's created_at as the `after` cursor for next page
-                        if (hasMore && messages.length > 0) {
-                            after = messages[messages.length - 1].created_at
-                        }
-                    }
-
-                    // Transform and set all messages
-                    const transformedMessages: ChatMessage[] = allMessages.map((msg) => ({
-                        id: msg.id,
-                        content: msg.content,
-                        authorType: msg.author_type,
-                        authorName: msg.author_name || '',
-                        createdAt: msg.created_at,
-                    }))
-                    actions.setMessages(transformedMessages)
-                    actions.setHasMoreMessages(false)
-                } catch (e) {
-                    console.error('Failed to load messages:', e)
-                    // A thread that won't open is a customer who can't continue a conversation they
-                    // already started, so it belongs in the same rate signal as a dead panel
-                    captureSupportWidgetLoadFailed({
-                        surface: 'side_panel_tickets',
-                        reason: 'thread_load_failed',
-                        error: e,
-                    })
-                    lemonToast.error('Failed to load messages. Please try again.')
-                } finally {
-                    actions.setMessagesLoading(false)
-                }
-            },
-            sendMessage: async ({ content: typed, onSuccess }) => {
-                if (!typed.trim() || values.messageSending) {
-                    return
-                }
-                const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
-                // Bailing quietly here left the button un-loaded and the typed message sitting in the box
-                // with no explanation, which is the worst version of this now conversations is the only channel
-                if (!posthog.conversations) {
-                    captureSupportTicketBlocked({
-                        surface: 'side_panel_composer',
-                        reason: 'widget_unavailable',
-                        message: content,
-                        is_new_ticket: values.view === 'new',
-                    })
-                    warnSupportWidgetUnavailable()
-                    return
-                }
-                if (warnIfMessageTooLong(content)) {
-                    captureSupportTicketBlocked({
-                        surface: 'side_panel_composer',
-                        reason: 'message_too_long',
-                        message: content,
-                        is_new_ticket: values.view === 'new',
-                    })
-                    return
-                }
-                actions.setMessageSending(true)
-                try {
-                    // If we're in "new" view, force creation of a new ticket
-                    const forceNewTicket = values.view === 'new'
-
-                    const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
-                    if (response) {
-                        // Cleared here as well as by the composer, because a new ticket switches the view
-                        // and unmounts its composer before the composer's own success callback runs
-                        if (forceNewTicket) {
-                            actions.clearNewTicketDraft()
-                        } else {
-                            actions.setTicketDraft(response.ticket_id, null)
-                        }
-                        // If we just created a new ticket, set it as current and switch to chat view
-                        if (values.view === 'new') {
-                            actions.setCurrentTicket({
-                                id: response.ticket_id,
-                                status: response.ticket_status,
-                                message_count: 1,
-                                created_at: response.created_at,
-                                unread_count: 0,
-                                last_message: content,
-                                last_message_at: response.created_at,
-                            })
-                            actions.setView('ticket')
-                        }
-                        actions.loadTickets()
-                        actions.loadMessages(response.ticket_id)
-                        lemonToast.success('Message sent!')
-                        onSuccess()
-                    } else {
-                        // A null response means nothing was sent, so surface it instead of silently
-                        // resetting. The widget endpoint reports the rejections it sees itself, but it
-                        // can't see a send the extension declined to make — and only the client still
-                        // holds the draft, which is the part a responder needs.
-                        captureSupportTicketBlocked({
-                            surface: 'side_panel_composer',
-                            reason: 'widget_declined',
-                            message: content,
-                            is_new_ticket: values.view === 'new',
-                        })
-                        lemonToast.error('Failed to send message. Please try again.', {
-                            button: EMAIL_SUPPORT_BUTTON,
-                        })
-                    }
-                } catch (e) {
-                    console.error('Failed to send message:', e)
-                    captureSupportTicketBlocked({
-                        surface: 'side_panel_composer',
-                        reason: 'send_failed',
-                        message: content,
-                        error: e,
-                        is_new_ticket: values.view === 'new',
-                    })
-                    lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
-                } finally {
-                    actions.setMessageSending(false)
-                }
-            },
-            markAsRead: async ({ ticketId }) => {
-                if (!ticketId || !posthog.conversations) {
-                    return
-                }
-                try {
-                    await posthog.conversations.markAsRead(ticketId)
-                } catch (e) {
-                    console.error('Failed to mark as read:', e)
-                }
-            },
-            setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
-                if (values.ticketDrafts[ticket.id]) {
-                    posthog.capture('support draft restored', { is_new_ticket: false })
-                }
-                actions.setView('ticket')
-                actions.setMessages([]) // Clear messages immediately to avoid showing stale data
-                actions.loadMessages(ticket.id)
-                actions.markAsRead(ticket.id)
-                // Mirror the open ticket into the panel hash so the address bar stays linkable
-                if (values.sidePanelOpen && values.selectedTab === SidePanelTab.Support) {
-                    actions.setSidePanelOptions(`${TICKET_OPTIONS_PREFIX}${ticket.id}`)
-                }
-                // Cadence is bumped to the thread rate by the setView('ticket') dispatched above, so no
-                // startPolling here — it would just reschedule the same timer a second time.
-            },
-            setView: ({ view }) => {
-                // A context with no draft is left over from a CTA the person backed out of
-                if (view !== 'new' && !values.newTicketDraft && values.newTicketContext) {
-                    actions.setNewTicketContext(null)
-                }
-                // Only clear our own format; other option strings belong to the support form
+                // Only warn people who could act on it. A free plan has no email fallback, and the
+                // panel already shows them the community and upgrade options, so a toast offering
+                // to email us would promise a channel they don't get. Warn while entitlement is
+                // still unresolved, matching how the composer opens rather than drop a message.
                 if (
-                    view !== 'ticket' &&
-                    values.sidePanelOpen &&
-                    values.selectedTab === SidePanelTab.Support &&
-                    values.selectedTabOptions?.startsWith(TICKET_OPTIONS_PREFIX)
+                    !cache.conversationsUnavailableWarned &&
+                    onSupportSurface &&
+                    (values.canCreateTicket || !values.isBillingResolved)
                 ) {
-                    actions.setSidePanelOptions(null)
+                    cache.conversationsUnavailableWarned = true
+                    warnSupportWidgetUnavailable()
                 }
-                // Leaving a thread (back to the list or composer) drops polling back to the slower cadence.
-                actions.startPolling()
-            },
-            openNewTicket: () => {
-                if (values.newTicketDraft) {
-                    posthog.capture('support draft restored', { is_new_ticket: true })
-                } else if (values.newTicketContext) {
-                    // Persisted context can outlive its CTA across a reload. A blank ticket must not carry it.
-                    actions.setNewTicketContext(null)
+                return
+            }
+            cache.conversationsRetries = 0
+            // Polls, tab-focus, and scene remounts reuse loadTickets. The flag drives a full-list
+            // spinner, so it is only raised until the first successful fetch.
+            if (!cache.ticketsFetched) {
+                actions.setTicketsLoading(true)
+            }
+            try {
+                const response = await posthog.conversations.getTickets({ limit: 50 })
+                if (response) {
+                    cache.ticketsFetched = true
+                    actions.setTickets(response.results as ConversationTicket[])
+                    // With no tickets there's nothing to poll for; creating one re-runs loadTickets
+                    // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
+                    if (response.results.length > 0) {
+                        actions.startPolling()
+                    } else {
+                        actions.stopPolling()
+                    }
                 }
-                actions.setView('new')
-            },
-            setNewTicketDraft: () => saveNewTicket(),
-            updateNewTicketDraft: () => saveNewTicket(),
-            setNewTicketContext: () => saveNewTicket(),
-            clearNewTicketDraft: () => saveNewTicket(),
-            setTicketDraft: ({ ticketId }) => {
-                if (values.draftOwnerId) {
-                    saveTicketDraft(values.draftOwnerId, ticketId, values.ticketDrafts[ticketId] ?? null)
+            } catch (e) {
+                console.error('Failed to load tickets:', e)
+                // Reported because a customer who can't see their tickets can't reply to support on
+                // them either, and the toast alone left us blind to how often that happens
+                captureSupportWidgetLoadFailed({
+                    surface: 'side_panel_tickets',
+                    reason: 'tickets_load_failed',
+                    error: e,
+                    can_create_ticket: values.canCreateTicket,
+                })
+                // The background poll for the unread badge runs on every page, so a transient
+                // failure there would toast on surfaces that have nothing to do with support
+                if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
+                    lemonToast.error('Failed to load tickets.')
                 }
-            },
-            discardDraft: () => {
-                const isNewTicket = values.view === 'new'
-                if (isNewTicket) {
-                    actions.clearNewTicketDraft()
-                } else if (values.currentTicket) {
-                    actions.setTicketDraft(values.currentTicket.id, null)
+            } finally {
+                actions.setTicketsLoading(false)
+            }
+        },
+        startPolling: () => {
+            // Only poll while the page is visible
+            if (document.visibilityState !== 'visible') {
+                return
+            }
+            // Nothing to poll for until the user has at least one ticket. Creating one re-runs
+            // loadTickets, which restarts polling from there.
+            if (values.tickets.length === 0) {
+                actions.stopPolling()
+                return
+            }
+            // Clear any existing poll timer
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+            }
+            const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
+            // Only treat a thread as open when the surface showing it is actually visible — the logic
+            // stays mounted for the panel-bar unread badge, so `view` can still be 'ticket' for a
+            // panel the user has since closed.
+            const insideTicket = onSupportSurface && values.view === 'ticket' && !!values.currentTicket
+            const interval = insideTicket
+                ? POLL_INTERVAL_THREAD
+                : onSupportSurface
+                  ? POLL_INTERVAL_ACTIVE
+                  : POLL_INTERVAL_BACKGROUND
+            cache.pollTimer = window.setTimeout(() => {
+                actions.loadTickets()
+                // loadTickets only refreshes the list, so a support reply wouldn't appear while the
+                // reader sits inside the thread. Re-check on fire in case they've since navigated away,
+                // and skip when a load is already running so a slow fetch can't overlap this one.
+                if (
+                    values.currentTicket &&
+                    values.view === 'ticket' &&
+                    !values.messagesLoading &&
+                    isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
+                ) {
+                    actions.loadMessages(values.currentTicket.id)
                 }
-                posthog.capture('support draft discarded', { is_new_ticket: isNewTicket })
-            },
-            openTicketById: ({ ticketId }) => {
-                if (values.view === 'ticket' && values.currentTicket?.id === ticketId) {
-                    return
+            }, interval)
+        },
+        stopPolling: () => {
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+                cache.pollTimer = null
+            }
+        },
+        loadMessages: async ({ ticketId }) => {
+            if (!ticketId || !posthog.conversations) {
+                return
+            }
+            actions.setMessagesLoading(true)
+            try {
+                const allMessages: ConversationMessage[] = []
+                let after: string | undefined
+                let hasMore = true
+
+                // Fetch all pages of messages using `after` timestamp pagination
+                while (hasMore) {
+                    const response = await (posthog.conversations.getMessages as any)(ticketId, after)
+                    // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
+                    if (!response || values.currentTicket?.id !== ticketId) {
+                        return
+                    }
+                    const messages = response.messages as ConversationMessage[]
+                    allMessages.push(...messages)
+                    hasMore = response.has_more && messages.length > 0
+                    // Use the last message's created_at as the `after` cursor for next page
+                    if (hasMore && messages.length > 0) {
+                        after = messages[messages.length - 1].created_at
+                    }
                 }
-                const ticket = values.tickets.find((t) => t.id === ticketId)
-                if (ticket) {
-                    actions.setCurrentTicket(ticket)
+
+                // Transform and set all messages
+                const transformedMessages: ChatMessage[] = allMessages.map((msg) => ({
+                    id: msg.id,
+                    content: msg.content,
+                    authorType: msg.author_type,
+                    authorName: msg.author_name || '',
+                    createdAt: msg.created_at,
+                }))
+                actions.setMessages(transformedMessages)
+                actions.setHasMoreMessages(false)
+            } catch (e) {
+                console.error('Failed to load messages:', e)
+                // A thread that won't open is a customer who can't continue a conversation they
+                // already started, so it belongs in the same rate signal as a dead panel
+                captureSupportWidgetLoadFailed({
+                    surface: 'side_panel_tickets',
+                    reason: 'thread_load_failed',
+                    error: e,
+                })
+                lemonToast.error('Failed to load messages. Please try again.')
+            } finally {
+                actions.setMessagesLoading(false)
+            }
+        },
+        sendMessage: async ({ content: typed, onSuccess }) => {
+            if (!typed.trim() || values.messageSending) {
+                return
+            }
+            const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
+            // Bailing quietly here left the button un-loaded and the typed message sitting in the box
+            // with no explanation, which is the worst version of this now conversations is the only channel
+            if (!posthog.conversations) {
+                captureSupportTicketBlocked({
+                    surface: 'side_panel_composer',
+                    reason: 'widget_unavailable',
+                    message: content,
+                    is_new_ticket: values.view === 'new',
+                })
+                warnSupportWidgetUnavailable()
+                return
+            }
+            if (warnIfMessageTooLong(content)) {
+                captureSupportTicketBlocked({
+                    surface: 'side_panel_composer',
+                    reason: 'message_too_long',
+                    message: content,
+                    is_new_ticket: values.view === 'new',
+                })
+                return
+            }
+            actions.setMessageSending(true)
+            try {
+                // If we're in "new" view, force creation of a new ticket
+                const forceNewTicket = values.view === 'new'
+
+                const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
+                if (response) {
+                    // Cleared here as well as by the composer, because a new ticket switches the view
+                    // and unmounts its composer before the composer's own success callback runs
+                    if (forceNewTicket) {
+                        actions.clearNewTicketDraft()
+                    } else {
+                        actions.setTicketDraft(response.ticket_id, null)
+                    }
+                    // If we just created a new ticket, set it as current and switch to chat view
+                    if (values.view === 'new') {
+                        actions.setCurrentTicket({
+                            id: response.ticket_id,
+                            status: response.ticket_status,
+                            message_count: 1,
+                            created_at: response.created_at,
+                            unread_count: 0,
+                            last_message: content,
+                            last_message_at: response.created_at,
+                        })
+                        actions.setView('ticket')
+                    }
+                    actions.loadTickets()
+                    actions.loadMessages(response.ticket_id)
+                    lemonToast.success('Message sent!')
+                    onSuccess()
                 } else {
-                    actions.setPendingTicketId(ticketId)
-                }
-            },
-            setTickets: ({ tickets }) => {
-                const pending = values.pendingTicketId
-                if (!pending) {
-                    return
-                }
-                const ticket = tickets.find((t) => t.id === pending)
-                if (ticket) {
-                    actions.setCurrentTicket(ticket)
-                } else {
-                    // Loaded and absent means a stale link; clear so polls don't re-run the lookup
-                    actions.setPendingTicketId(null)
-                }
-            },
-            // "Contact support" CTAs (error boundaries, empty states, etc.) open the support form via
-            // supportLogic, which should land in this composer instead, carrying any prefilled message
-            // with them
-            startTicketFromSupportForm: () => {
-                // Billing problems are answered on every plan, and a crash the error boundary surfaced is
-                // always worth hearing about, so both earn an exemption even when the plan excludes support
-                if (values.isBillingIssue || values.isErrorReport) {
-                    actions.grantSupportExemption()
-                } else if (values.isBillingResolved && !values.canCreateTicket) {
-                    // Still consume the intent (see below), just without opening the composer — the panel
-                    // explains why and points at the community and upgrade options instead. Only ever on a
-                    // known-ineligible plan: consuming is irreversible, so while entitlement is still
-                    // unknown we open the composer rather than turn someone away on a maybe.
-                    //
-                    // No draft is passed, and that's not an omission: this runs the moment a CTA fires,
-                    // before any composer is on screen, so nothing has been typed yet. Every CTA that
-                    // reaches here passes no message either. What's lost is the customer's intent to
-                    // reach us, which is what the event records.
+                    // A null response means nothing was sent, so surface it instead of silently
+                    // resetting. The widget endpoint reports the rejections it sees itself, but it
+                    // can't see a send the extension declined to make — and only the client still
+                    // holds the draft, which is the part a responder needs.
                     captureSupportTicketBlocked({
-                        surface: 'support_form',
-                        reason: 'not_entitled',
-                        kind: values.sendSupportRequest?.kind,
-                        can_create_ticket: false,
+                        surface: 'side_panel_composer',
+                        reason: 'widget_declined',
+                        message: content,
+                        is_new_ticket: values.view === 'new',
                     })
-                    actions.closeEmailForm()
-                    actions.closeSupportForm()
-                    actions.resetSendSupportRequest()
-                    return
+                    lemonToast.error('Failed to send message. Please try again.', {
+                        button: EMAIL_SUPPORT_BUTTON,
+                    })
                 }
-                const request = values.sendSupportRequest
-                // Guarding on the message alone dropped the exception, because an error boundary CTA
-                // carries an exception and no message — and its crash card promises we attach it
-                const draft = appendExceptionToMessage(request?.message ?? '', request?.exception_event)
-                if (draft) {
-                    actions.setNewTicketDraft(messageToRichContent(draft))
-                }
-                actions.setNewTicketContext(request?.ticket_context || null)
-                actions.setView('new')
-                // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
-                // open and ignores future URL-driven opens), and reset so a stale message can't resurface
-                // prefilled on a later CTA that carries none
+            } catch (e) {
+                console.error('Failed to send message:', e)
+                captureSupportTicketBlocked({
+                    surface: 'side_panel_composer',
+                    reason: 'send_failed',
+                    message: content,
+                    error: e,
+                    is_new_ticket: values.view === 'new',
+                })
+                lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
+            } finally {
+                actions.setMessageSending(false)
+            }
+        },
+        markAsRead: async ({ ticketId }) => {
+            if (!ticketId || !posthog.conversations) {
+                return
+            }
+            try {
+                await posthog.conversations.markAsRead(ticketId)
+            } catch (e) {
+                console.error('Failed to mark as read:', e)
+            }
+        },
+        setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
+            if (values.ticketDrafts[ticket.id]) {
+                posthog.capture('support draft restored', { is_new_ticket: false })
+            }
+            actions.setView('ticket')
+            actions.setMessages([]) // Clear messages immediately to avoid showing stale data
+            actions.loadMessages(ticket.id)
+            actions.markAsRead(ticket.id)
+            // Mirror the open ticket into the panel hash so the address bar stays linkable
+            if (values.sidePanelOpen && values.selectedTab === SidePanelTab.Support) {
+                actions.setSidePanelOptions(`${TICKET_OPTIONS_PREFIX}${ticket.id}`)
+            }
+            // Cadence is bumped to the thread rate by the setView('ticket') dispatched above, so no
+            // startPolling here — it would just reschedule the same timer a second time.
+        },
+        setView: ({ view }) => {
+            // A context with no draft is left over from a CTA the person backed out of
+            if (view !== 'new' && !values.newTicketDraft && values.newTicketContext) {
+                actions.setNewTicketContext(null)
+            }
+            // Only clear our own format; other option strings belong to the support form
+            if (
+                view !== 'ticket' &&
+                values.sidePanelOpen &&
+                values.selectedTab === SidePanelTab.Support &&
+                values.selectedTabOptions?.startsWith(TICKET_OPTIONS_PREFIX)
+            ) {
+                actions.setSidePanelOptions(null)
+            }
+            // Leaving a thread (back to the list or composer) drops polling back to the slower cadence.
+            actions.startPolling()
+        },
+        openNewTicket: () => {
+            if (values.newTicketDraft) {
+                posthog.capture('support draft restored', { is_new_ticket: true })
+            } else if (values.newTicketContext) {
+                // Persisted context can outlive its CTA across a reload. A blank ticket must not carry it.
+                actions.setNewTicketContext(null)
+            }
+            actions.setView('new')
+        },
+        setNewTicketDraft: () => saveNewTicket(values),
+        updateNewTicketDraft: () => saveNewTicket(values),
+        setNewTicketContext: () => saveNewTicket(values),
+        clearNewTicketDraft: () => saveNewTicket(values),
+        setTicketDraft: ({ ticketId }) => {
+            if (values.draftOwnerId) {
+                saveTicketDraft(values.draftOwnerId, ticketId, values.ticketDrafts[ticketId] ?? null)
+            }
+        },
+        discardDraft: () => {
+            const isNewTicket = values.view === 'new'
+            if (isNewTicket) {
+                actions.clearNewTicketDraft()
+            } else if (values.currentTicket) {
+                actions.setTicketDraft(values.currentTicket.id, null)
+            }
+            posthog.capture('support draft discarded', { is_new_ticket: isNewTicket })
+        },
+        openTicketById: ({ ticketId }) => {
+            if (values.view === 'ticket' && values.currentTicket?.id === ticketId) {
+                return
+            }
+            const ticket = values.tickets.find((t) => t.id === ticketId)
+            if (ticket) {
+                actions.setCurrentTicket(ticket)
+            } else {
+                actions.setPendingTicketId(ticketId)
+            }
+        },
+        setTickets: ({ tickets }) => {
+            const pending = values.pendingTicketId
+            if (!pending) {
+                return
+            }
+            const ticket = tickets.find((t) => t.id === pending)
+            if (ticket) {
+                actions.setCurrentTicket(ticket)
+            } else {
+                // Loaded and absent means a stale link; clear so polls don't re-run the lookup
+                actions.setPendingTicketId(null)
+            }
+        },
+        // "Contact support" CTAs (error boundaries, empty states, etc.) open the support form via
+        // supportLogic, which should land in this composer instead, carrying any prefilled message
+        // with them
+        startTicketFromSupportForm: () => {
+            // Billing problems are answered on every plan, and a crash the error boundary surfaced is
+            // always worth hearing about, so both earn an exemption even when the plan excludes support
+            if (values.isBillingIssue || values.isErrorReport) {
+                actions.grantSupportExemption()
+            } else if (values.isBillingResolved && !values.canCreateTicket) {
+                // Still consume the intent (see below), just without opening the composer — the panel
+                // explains why and points at the community and upgrade options instead. Only ever on a
+                // known-ineligible plan: consuming is irreversible, so while entitlement is still
+                // unknown we open the composer rather than turn someone away on a maybe.
+                //
+                // No draft is passed, and that's not an omission: this runs the moment a CTA fires,
+                // before any composer is on screen, so nothing has been typed yet. Every CTA that
+                // reaches here passes no message either. What's lost is the customer's intent to
+                // reach us, which is what the event records.
+                captureSupportTicketBlocked({
+                    surface: 'support_form',
+                    reason: 'not_entitled',
+                    kind: values.sendSupportRequest?.kind,
+                    can_create_ticket: false,
+                })
                 actions.closeEmailForm()
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
-            },
-            // "View" on a submission toast (Max AI, feature-preview feedback, etc.) should land in the
-            // created ticket's thread, matching where the composer flow leaves you
-            openPendingTicket: () => {
-                const pending = values.pendingViewTicket
-                if (!pending) {
-                    return
-                }
-                actions.clearPendingViewTicket()
-                actions.setCurrentTicket({
-                    id: pending.id,
-                    status: pending.status as ConversationTicket['status'],
-                    message_count: 1,
-                    created_at: pending.created_at,
-                    unread_count: 0,
-                    last_message_at: pending.created_at,
-                })
-                actions.loadTickets()
-            },
-            requestRestoreLink: async ({ email }) => {
-                const conversations = posthog.conversations as any
-                if (!conversations?.requestRestoreLink) {
-                    // Returning quietly left the button idle with no explanation. This form already renders
-                    // restoreError inline, which beats a toast for something the user has to act on.
-                    captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'extension_missing' })
-                    actions.setRestoreError(
-                        `${SUPPORT_WIDGET_UNAVAILABLE_MESSAGE} Try turning it off for this site and reloading.`
-                    )
-                    actions.setRestoreState('error')
-                    return
-                }
-                actions.setRestoreState('sending')
-                try {
-                    await conversations.requestRestoreLink(email)
-                    actions.setRestoreState('sent')
-                } catch (e: any) {
-                    // Someone who lost their tickets and can't get the restore link has no way back to a
-                    // conversation they already started, so it's worth the same visibility as a dead panel
-                    captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
-                    const message =
-                        e?.status === 429
-                            ? 'Too many requests. Please try again later.'
-                            : 'Something went wrong. Please try again.'
-                    actions.setRestoreError(message)
-                    actions.setRestoreState('error')
-                }
-            },
-            restoreFromUrlToken: async ({ token }) => {
-                const conversations = posthog.conversations as any
-                // isAvailable rather than method presence: the facade and its methods exist from
-                // posthog-js init, but resolve null until the manager loads — which would consume
-                // the one-shot restore token without restoring anything
-                if (!posthog.conversations?.isAvailable()) {
-                    if ((cache.restoreRetries ?? 0) < 20) {
-                        cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
-                        cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
-                    } else {
-                        removeRestoreTokenFromUrl()
-                        actions.loadTickets()
-                    }
-                    return
-                }
-                try {
-                    // Use restoreFromToken(token) directly instead of restoreFromUrlToken()
-                    // because posthog-js clears the token from the URL during its own
-                    // initialization, causing restoreFromUrlToken() to return null.
-                    const result = await conversations.restoreFromToken(token)
-                    if (result?.status === 'success') {
-                        const count = result.migrated_ticket_ids?.length ?? 0
-                        if (count > 0) {
-                            lemonToast.success(
-                                `Restored ${count} ticket${count === 1 ? '' : 's'} from your previous session.`
-                            )
-                        }
-                    }
-                } catch (e) {
-                    // Token may have been consumed by posthog-js already — that's OK,
-                    // the migration still happened so loadTickets will see them.
-                    console.error('Failed to restore from URL token:', e)
-                } finally {
+                return
+            }
+            const request = values.sendSupportRequest
+            // Guarding on the message alone dropped the exception, because an error boundary CTA
+            // carries an exception and no message — and its crash card promises we attach it
+            const draft = appendExceptionToMessage(request?.message ?? '', request?.exception_event)
+            if (draft) {
+                actions.setNewTicketDraft(messageToRichContent(draft))
+            }
+            actions.setNewTicketContext(request?.ticket_context || null)
+            actions.setView('new')
+            // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
+            // open and ignores future URL-driven opens), and reset so a stale message can't resurface
+            // prefilled on a later CTA that carries none
+            actions.closeEmailForm()
+            actions.closeSupportForm()
+            actions.resetSendSupportRequest()
+        },
+        // "View" on a submission toast (Max AI, feature-preview feedback, etc.) should land in the
+        // created ticket's thread, matching where the composer flow leaves you
+        openPendingTicket: () => {
+            const pending = values.pendingViewTicket
+            if (!pending) {
+                return
+            }
+            actions.clearPendingViewTicket()
+            actions.setCurrentTicket({
+                id: pending.id,
+                status: pending.status as ConversationTicket['status'],
+                message_count: 1,
+                created_at: pending.created_at,
+                unread_count: 0,
+                last_message_at: pending.created_at,
+            })
+            actions.loadTickets()
+        },
+        requestRestoreLink: async ({ email }) => {
+            const conversations = posthog.conversations as any
+            if (!conversations?.requestRestoreLink) {
+                // Returning quietly left the button idle with no explanation. This form already renders
+                // restoreError inline, which beats a toast for something the user has to act on.
+                captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'extension_missing' })
+                actions.setRestoreError(
+                    `${SUPPORT_WIDGET_UNAVAILABLE_MESSAGE} Try turning it off for this site and reloading.`
+                )
+                actions.setRestoreState('error')
+                return
+            }
+            actions.setRestoreState('sending')
+            try {
+                await conversations.requestRestoreLink(email)
+                actions.setRestoreState('sent')
+            } catch (e: any) {
+                // Someone who lost their tickets and can't get the restore link has no way back to a
+                // conversation they already started, so it's worth the same visibility as a dead panel
+                captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
+                const message =
+                    e?.status === 429
+                        ? 'Too many requests. Please try again later.'
+                        : 'Something went wrong. Please try again.'
+                actions.setRestoreError(message)
+                actions.setRestoreState('error')
+            }
+        },
+        restoreFromUrlToken: async ({ token }) => {
+            const conversations = posthog.conversations as any
+            // isAvailable rather than method presence: the facade and its methods exist from
+            // posthog-js init, but resolve null until the manager loads — which would consume
+            // the one-shot restore token without restoring anything
+            if (!posthog.conversations?.isAvailable()) {
+                if ((cache.restoreRetries ?? 0) < 20) {
+                    cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
+                    cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
+                } else {
                     removeRestoreTokenFromUrl()
                     actions.loadTickets()
                 }
-            },
-        }
-    }),
+                return
+            }
+            try {
+                // Use restoreFromToken(token) directly instead of restoreFromUrlToken()
+                // because posthog-js clears the token from the URL during its own
+                // initialization, causing restoreFromUrlToken() to return null.
+                const result = await conversations.restoreFromToken(token)
+                if (result?.status === 'success') {
+                    const count = result.migrated_ticket_ids?.length ?? 0
+                    if (count > 0) {
+                        lemonToast.success(
+                            `Restored ${count} ticket${count === 1 ? '' : 's'} from your previous session.`
+                        )
+                    }
+                }
+            } catch (e) {
+                // Token may have been consumed by posthog-js already — that's OK,
+                // the migration still happened so loadTickets will see them.
+                console.error('Failed to restore from URL token:', e)
+            } finally {
+                removeRestoreTokenFromUrl()
+                actions.loadTickets()
+            }
+        },
+    })),
     // Both blocks guard on the pathname because this logic also backs the side panel, which can
     // be open on any page where the URL must stay untouched
     urlToAction(({ actions, values }) => ({

@@ -264,7 +264,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         className={clsx({
-                            'flex flex-1 flex-col [&>div]:flex [&>div]:flex-1 [&>div]:flex-col':
+                            'flex min-h-0 flex-1 flex-col [&>div]:flex [&>div]:min-h-0 [&>div]:flex-1 [&>div]:flex-col':
                                 activeTab === 'workflow',
                         })}
                     />

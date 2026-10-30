@@ -616,6 +616,38 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
     })
 
+    // The unread badge keeps this logic polling on every page, so a failed background fetch must
+    // not toast over unrelated work. It is still captured so the failure rate stays visible.
+    it.each([
+        ['toasts on the support panel', true, 1],
+        ['stays quiet outside support surfaces', false, 0],
+    ])('when fetching tickets fails, %s', async (_case, onSupportPanel, expectedToasts) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        if (onSupportPanel) {
+            sidePanelStateLogic.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        }
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('429'))
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets()
+        }).toFinishAllListeners()
+
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(errorToast).toHaveBeenCalledTimes(expectedToasts)
+        errorToast.mockRestore()
+        ;(console.error as jest.Mock).mockRestore()
+    })
+
     it('reports a missing widget instead of silently dropping the composed message', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()

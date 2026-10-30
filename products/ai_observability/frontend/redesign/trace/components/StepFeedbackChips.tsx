@@ -38,7 +38,7 @@ export function StepFeedbackChips({ feedback, onOpen }: StepFeedbackChipsProps):
                     {`+${hidden}`}
                 </LemonButton>
             ) : null}
-            {feedback.textCount > 0 ? (
+            {feedback.responseCount > 0 ? (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
@@ -47,7 +47,7 @@ export function StepFeedbackChips({ feedback, onOpen }: StepFeedbackChipsProps):
                     tooltip="Show what users said"
                     data-attr="trace-view-feedback-step-chip"
                 >
-                    {`Feedback ${feedback.textCount}`}
+                    {`Feedback ${feedback.responseCount}`}
                 </LemonButton>
             ) : null}
         </>

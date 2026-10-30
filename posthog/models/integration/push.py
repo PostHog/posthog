@@ -12,6 +12,7 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
@@ -124,10 +125,10 @@ def preserved_push_config(
 class FirebaseIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "firebase":
             raise Exception("FirebaseIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_key(
@@ -278,10 +279,10 @@ class ApplePushIntegration:
 
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "apns":
             raise Exception("ApplePushIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def integration_from_key(

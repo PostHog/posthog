@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from functools import cache
 from typing import Any, Final
+from uuid import UUID
 
 import structlog
 
@@ -17,13 +18,13 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
-from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
@@ -43,9 +44,16 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     MessageLink,
+    StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic.alert_destinations import (
+    INCIDENT_DESTINATION_TYPES,
+    enabled_alert_destinations,
+)
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
 logger = structlog.get_logger(__name__)
@@ -181,12 +189,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
-    native_announced, emissions = _split_by_path(request, announced)
+    platform_destinations = _platform_destinations(request)
+    native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
     if request.parts > 1 and request.overflowed:
         notice_keys = _overflow_notice_keys(
             request,
+            platform_destinations,
             announced_kinds(
                 request.team_id,
                 request.configuration_id,
@@ -214,7 +224,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
     for event_id, all_transitions in _by_subscription(request, announced).items():
-        for subscribed_destination in _destinations(request, event_id):
+        for subscribed_destination in _destinations(request, event_id, platform_destinations):
             transitions = (
                 native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
             )
@@ -370,7 +380,9 @@ def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabe
 
 
 def _split_by_path(
-    request: AlertDeliveryRequest, announced: EvaluationAnnouncement
+    request: AlertDeliveryRequest,
+    announced: EvaluationAnnouncement,
+    platform_destinations: "_PlatformDestinations | None",
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
     """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
 
@@ -380,7 +392,12 @@ def _split_by_path(
     A transition inside a firing takes the path its firing took first, so a firing and its resolve
     never split across paths. Any other transition takes the path its destinations allow now.
     """
-    if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
+    # Destinations in `AlertDestination` have no HogFunction to emit for.
+    if (
+        not request.owned_by_platform
+        or platform_destinations is not None
+        or delivery_paths.emitter_for(request.source) is None
+    ):
         return announced, ()
 
     # Read once per delivery, because the chooser reads every destination of the alert.
@@ -422,7 +439,11 @@ def _split_by_path(
     return replace(announced, transitions=tuple(native)), tuple(emissions)
 
 
-def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertEventKind]) -> dict[str, str]:
+def _overflow_notice_keys(
+    request: AlertDeliveryRequest,
+    platform_destinations: "_PlatformDestinations | None",
+    kinds: dict[str, AlertEventKind],
+) -> dict[str, str]:
     """For each destination, the grouping key whose part tells it about the overflow.
 
     Read from the kinds of the whole announcement, so every part agrees, and a destination whose
@@ -437,7 +458,7 @@ def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertE
             first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
     for event_id, first in first_by_event_id.items():
-        for subscribed_destination in _destinations(request, event_id):
+        for subscribed_destination in _destinations(request, event_id, platform_destinations):
             destination = json.dumps(subscribed_destination.data, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)
     return keys
@@ -482,19 +503,72 @@ def _subscribed_events(request: AlertDeliveryRequest, transition: AnnouncedTrans
 
 @frozen
 class _SubscribedDestination:
-    # The HogFunction that subscribed this destination to the event, which its sends are recorded under.
+    # The HogFunction or `AlertDestination` row its sends are recorded under. None for a source's own recipients.
     id: str | None
     data: AlertDestinationData
     # Whether the destination hears the events the source emits for its HogFunctions.
     receives_emitted_events: bool
 
 
-def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_SubscribedDestination]:
+@frozen
+class _PlatformDestinations:
+    """An alert's enabled `AlertDestination` rows, with the kind each of its event ids announces."""
+
+    destinations: tuple[StoredAlertDestination, ...]
+    # The addresses the source's own settings name, read once per delivery.
+    recipients: tuple[str, ...]
+    kind_by_event_id: dict[str, AlertEventKind]
+    incident_event_ids: frozenset[str]
+
+
+def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations | None:
+    """The alert's destinations when the platform owns them, or None when its source's HogFunctions
+    hold them. Read once per delivery, and after the check, so a destination removed in between is
+    not sent to. Only an alert the platform owns can have its destinations on the platform."""
+    if not request.owned_by_platform:
+        return None
+    owner = (
+        PlatformAlertConfiguration.objects.for_team(request.team_id)
+        .filter(id=request.configuration_id)
+        .values_list("destinations_owner", flat=True)
+        .first()
+    )
+    if owner != PlatformAlertOwner.PLATFORM:
+        return None
+    incident_kinds = {
+        event_id: INCIDENT_KINDS[IncidentAction(action)]
+        for action, event_id in request.event_ids_by_incident_action.items()
+    }
+    return _PlatformDestinations(
+        destinations=enabled_alert_destinations(
+            team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        ),
+        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
+        recipients=recipients.addresses(
+            request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        )
+        if request.sends_messages
+        else (),
+        kind_by_event_id={
+            **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
+            **incident_kinds,
+        },
+        incident_event_ids=frozenset(incident_kinds),
+    )
+
+
+def _destinations(
+    request: AlertDeliveryRequest,
+    event_id: str,
+    platform_destinations: "_PlatformDestinations | None",
+) -> list[_SubscribedDestination]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
     would get wrong.
     """
+    if platform_destinations is not None:
+        return _platform_subscribers(event_id, platform_destinations)
     groups = list_alert_destination_groups(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,
@@ -509,3 +583,27 @@ def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_Subscri
         for group in groups
         if group.fully_enabled
     ]
+
+
+def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> list[_SubscribedDestination]:
+    """The `AlertDestination` rows that hear this event.
+
+    A message event reaches every destination but an incident manager that asked for its kind. An
+    incident event reaches every incident manager, whatever kinds it lists: one that heard a
+    trigger and not its resolve would keep the incident open.
+    """
+    kind = platform.kind_by_event_id.get(event_id)
+    if kind is None:
+        return []
+    incident = event_id in platform.incident_event_ids
+    subscribers = [
+        _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
+        for destination in platform.destinations
+        if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
+        and (incident or kind in destination.event_kinds)
+    ]
+    # The source's recipients read messages. An incident edge is for an incident manager only.
+    if platform.recipients and not incident:
+        email: AlertDestinationData = {"type": DestinationType.EMAIL, "email_addresses": list(platform.recipients)}
+        subscribers.append(_SubscribedDestination(id=None, data=email, receives_emitted_events=False))
+    return subscribers

@@ -32,7 +32,14 @@ _SHARED_HISTOGRAM_QUANTILES = re.compile(
 
 
 class PromQLQueryError(ValueError):
-    """A PromQL query that Snuffle rejected or could not run. The message is safe to show."""
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 def _sample_value(raw: Any) -> float | None:
@@ -79,25 +86,30 @@ def snuffle_payload(
     *,
     data: dict[str, str] | None = None,
     params: dict[str, list[str]] | None = None,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show."""
     try:
-        response = snuffle_request(team.pk, method, path, data=data, params=params)
+        response = snuffle_request(team.pk, method, path, data=data, params=params, timeout=timeout)
     except SnuffleNotConfiguredError as exc:
-        raise PromQLQueryError("PromQL queries are not available on this PostHog instance.") from exc
+        # Deployment config, not the query, so an alert waiting on it is not counted as broken.
+        raise PromQLQueryError("PromQL queries are not available on this PostHog instance.", transient=True) from exc
     except requests.Timeout as exc:
-        raise PromQLQueryError("The PromQL query timed out. Try a shorter date range.") from exc
+        raise PromQLQueryError("The PromQL query timed out. Try a shorter date range.", transient=True) from exc
     except requests.RequestException as exc:
-        raise PromQLQueryError("The PromQL query backend cannot be reached. Try again later.") from exc
+        raise PromQLQueryError("The PromQL query backend cannot be reached. Try again later.", transient=True) from exc
 
     if response.status_code in (401, 403) or response.status_code >= 500:
-        raise PromQLQueryError("The PromQL query backend failed. Try again later.")
+        raise PromQLQueryError("The PromQL query backend failed. Try again later.", transient=True)
+    # Snuffle's rate limit, which passes once the budget refills.
+    if response.status_code == 429:
+        raise PromQLQueryError(_error_message(response), transient=True)
     if response.status_code >= 400:
         raise PromQLQueryError(_error_message(response))
     try:
         payload = response.json()
     except ValueError as exc:
-        raise PromQLQueryError("The PromQL query backend sent a response that cannot be read.") from exc
+        raise PromQLQueryError("The PromQL query backend sent a response that cannot be read.", transient=True) from exc
     if not isinstance(payload, dict) or payload.get("status") != "success":
         raise PromQLQueryError(_error_message(response))
     return payload

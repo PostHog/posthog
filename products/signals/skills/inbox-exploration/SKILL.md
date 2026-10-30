@@ -7,7 +7,7 @@ description: >
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
   drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed.
+  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
 ---
 
 # Exploring the Inbox
@@ -37,6 +37,10 @@ the user's actual question.
   _Workflow: resolve, dismiss, or snooze a report_
 - "Get this merged" / "run the suggested prompt on this report" — see
   _Workflow: run an action on a report_
+
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
+**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
+what waits on them.
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -699,6 +703,12 @@ the user before flipping a source, since enabling one drives signal processing a
 inbox-source-configs-partial-update
 { "id": "<source_config_uuid>", "enabled": false }
 ```
+
+To edit individual source settings, send only the top-level keys to change in `config_set` and keys to delete in `config_remove`.
+These edits preserve unrelated settings even when another editor saves at the same time.
+For guidance, set `config_set.steering` and include `default_not_actionable` in `config_remove`.
+Use `config_set.linear_team_ids` for Linear team selection.
+Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.
 
 ## Tips
 
