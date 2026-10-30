@@ -663,6 +663,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     )
     info = MagicMock(
         workflow_start_time=actual_start,
+        start_time=actual_start,
         typed_search_attributes=attributes,
         workflow_id="tick",
         run_id="run",
@@ -675,6 +676,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
         patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+        patch.object(workflow, "logger"),
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
     assert discover.await_args is not None

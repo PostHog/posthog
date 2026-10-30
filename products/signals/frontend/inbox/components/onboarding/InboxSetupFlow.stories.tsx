@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import { expect } from 'storybook/test'
 
@@ -462,6 +462,36 @@ export const QuickConnected: Story = {
             patch: { '/api/projects/:id/vision/scanners/:scanner/': {} },
         }),
     ],
+}
+
+export const QuickActivationFailed: Story = {
+    ...QuickConnected,
+    name: 'Quick activation error',
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/projects/:id/signals/onboarding/complete/': [
+                    503,
+                    { detail: 'Activation interrupted', code: 'activation_interrupted' },
+                ],
+            },
+        })
+        return <QuickActivationPreview />
+    },
+    beforeEach: () => {
+        quickActivationCompleted = false
+    },
+    play: async ({ canvas, userEvent }) => {
+        const activate = (await canvas.findByText('Activate Self-Driving')).closest('button')!
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await userEvent.click(activate)
+        const message = await canvas.findByText('Activation interrupted')
+        await waitFor(() => {
+            expect(inboxSetupLogic.values.saving).toBe(false)
+            expect(message.parentElement!.clientWidth).toBeGreaterThan(0)
+        })
+        await expect(canvas.getByText('Retry')).toBeVisible()
+    },
 }
 
 export const QuickActivated: Story = {

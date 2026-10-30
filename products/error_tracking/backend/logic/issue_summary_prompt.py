@@ -42,8 +42,11 @@ Facts:
 - First seen: {first_seen}, first release: {first_release}
 - Latest release: {latest_release}
 - Trend: {trend_direction} ({previous_occurrences} -> {current_occurrences} occurrences)
-- Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions
+- {impact}
 </issue>"""
+
+ISSUE_SUMMARY_IMPACT_LINE = "Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions"
+ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
 
 
 class IssueSummaryResponse(BaseModel):

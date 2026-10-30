@@ -25,6 +25,7 @@ from products.batch_exports.backend.hogql_source import (
     find_interval_placeholders,
     parse_hogql_select_for_batch_export,
 )
+from products.batch_exports.backend.logic.exports import load_batch_export
 from products.batch_exports.backend.logic.pagination import select_page
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
 from products.batch_exports.backend.service import (
@@ -222,10 +223,7 @@ def create_backfill(
         start_at_input: ISO formatted datetime string for backfill start
         end_at_input: ISO formatted datetime string for backfill end
     """
-    try:
-        batch_export = BatchExport.objects.select_related("destination").get(id=export_id, team_id=team_id)
-    except BatchExport.DoesNotExist as e:
-        raise contracts.BatchExportNotFoundError() from e
+    batch_export = load_batch_export(team_id, export_id, "destination")
 
     if start_at_input is None:
         _check_earliest_backfill_allowed(team_id, batch_export)
