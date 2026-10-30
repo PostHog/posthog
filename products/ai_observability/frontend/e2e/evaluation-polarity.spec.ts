@@ -100,19 +100,25 @@ test.describe('AI observability boolean evaluation polarity', () => {
         await playwrightSetup.login(page, workspace)
 
         await test.step('the polarity choice round-trips through save + reload', async () => {
-            const seeded = await playwrightSetup.seedEvaluation({
-                team_id: workspace.team_id,
-                name: 'User struggled',
-                evaluation_type: 'hog',
-                evaluation_config: { source: HOG_SOURCE },
-                output_type: 'boolean',
-                output_config: {},
+            // Created through the API, not seeded: a save needs at least one condition set, which a seed lacks.
+            const createResponse = await page.request.post(`/api/projects/${workspace.team_id}/evaluations/`, {
+                headers: { Authorization: `Bearer ${workspace.personal_api_key}` },
+                data: {
+                    name: 'User struggled',
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: HOG_SOURCE },
+                    output_type: 'boolean',
+                    output_config: {},
+                    conditions: [{ id: 'all', rollout_percentage: 100, properties: [] }],
+                },
             })
+            expect(createResponse.ok()).toBe(true)
+            const evaluationId = ((await createResponse.json()) as { id: string }).id
 
             const passOption = page.getByTestId('llma-evaluation-true-is-pass')
             const failOption = page.getByTestId('llma-evaluation-true-is-failure')
             const gotoConfiguration = async (): Promise<void> => {
-                await page.goto(`/ai-evals/evaluations/${seeded.evaluation_id}`)
+                await page.goto(`/ai-evals/evaluations/${evaluationId}`)
                 await page.getByTestId('llma-evaluation-configuration-tab').click()
                 await page.getByTestId('llma-evaluation-create-step-check').click()
             }
