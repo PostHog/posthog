@@ -17,12 +17,12 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -31,7 +31,6 @@ import {
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -41,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     DashboardFilter,
@@ -915,7 +915,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
+            const dashboardName = dashboard
+                ? dashboardsModel.findMounted()?.values.rawDashboards[dashboard]?.name
+                : undefined
             const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
             const tileFiltersOverride = searchParams['tile_filters_override']

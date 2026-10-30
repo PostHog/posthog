@@ -30,7 +30,37 @@ REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
 
 
+# Every country Plaid supports; /institutions/get_by_id requires the list and the Item's country is not known.
+INSTITUTION_COUNTRY_CODES = [
+    "US", "GB", "ES", "NL", "FR", "IE", "CA", "DE", "IT", "PL",
+    "DK", "NO", "SE", "EE", "LT", "LV", "PT", "BE", "AT", "FI",
+]  # fmt: skip
+# Item errors that mean the Item has no data for the product, so the table is empty, not failed.
+NO_PRODUCT_DATA_ERROR_CODES = frozenset(
+    {"NO_ACCOUNTS", "NO_INVESTMENT_ACCOUNTS", "NO_LIABILITY_ACCOUNTS", "PRODUCTS_NOT_SUPPORTED"}
+)
+# endpoint -> (path, rows key, total count key) for endpoints paginated with options.offset.
+OFFSET_PAGINATED_ENDPOINTS = {
+    "transactions": ("/transactions/get", "transactions", "total_transactions"),
+    "investment_transactions": (
+        "/investments/transactions/get",
+        "investment_transactions",
+        "total_investment_transactions",
+    ),
+}
+# endpoint -> the Plaid product the Item must already have before we call the endpoint.
+PRODUCT_GATED_ENDPOINTS = {
+    "investment_holdings": "investments",
+    "investment_transactions": "investments",
+    "liabilities": "liabilities",
+}
+
+
 class PlaidRetryableError(Exception):
+    pass
+
+
+class PlaidNoProductDataError(Exception):
     pass
 
 
@@ -64,6 +94,14 @@ def _format_date(value: Any) -> str:
 
 def _today() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _error_code(response: requests.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("error_code") if isinstance(body, dict) else None
 
 
 def validate_credentials(environment: str, client_id: str, secret: str, access_token: str) -> bool:
@@ -100,20 +138,32 @@ def get_rows(
         wait=wait_exponential_jitter(initial=5, max=120),
         reraise=True,
     )
-    def post(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    def post(path: str, body: dict[str, Any], with_access_token: bool = True) -> dict[str, Any]:
         # Stay under the 30 req/min per-Item budget.
         time.sleep(REQUEST_INTERVAL_SECONDS)
         url = f"{base_url}{path}"
-        response = session.post(url, json={**credentials, **body}, timeout=REQUEST_TIMEOUT_SECONDS)
+        auth = credentials if with_access_token else {"client_id": client_id, "secret": secret}
+        response = session.post(url, json={**auth, **body}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise PlaidRetryableError(f"Plaid API error (retryable): status={response.status_code}, url={url}")
+
+        if response.status_code == 400 and endpoint in PRODUCT_GATED_ENDPOINTS:
+            error_code = _error_code(response)
+            if error_code in NO_PRODUCT_DATA_ERROR_CODES:
+                raise PlaidNoProductDataError(error_code)
+            # Returned while Plaid still extracts the Item's investment history.
+            if error_code == "PRODUCT_NOT_READY":
+                raise PlaidRetryableError(f"Plaid product not ready yet: url={url}")
 
         if not response.ok:
             logger.error(f"Plaid API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response.json()
+
+    def get_item() -> dict[str, Any]:
+        return post("/item/get", {}).get("item") or {}
 
     if endpoint == "accounts":
         data = post("/accounts/get", {})
@@ -122,41 +172,84 @@ def get_rows(
             yield items
         return
 
-    # transactions
-    start_date = (
-        _format_date(db_incremental_field_last_value)
-        if should_use_incremental_field and db_incremental_field_last_value is not None
-        else DEFAULT_START_DATE
-    )
-    end_date = _today()
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume_config.offset if resume_config is not None else 0
-    if resume_config is not None:
-        logger.debug(f"Plaid: resuming transactions from offset {offset}")
-
-    while True:
+    if endpoint == "institutions":
+        institution_id = get_item().get("institution_id")
+        if not institution_id:
+            return
         data = post(
-            "/transactions/get",
-            {
-                "start_date": start_date,
-                "end_date": end_date,
-                "options": {"count": PAGE_SIZE, "offset": offset},
-            },
+            "/institutions/get_by_id",
+            {"institution_id": institution_id, "country_codes": INSTITUTION_COUNTRY_CODES},
+            with_access_token=False,
         )
-        items = data.get("transactions", []) or []
+        if institution := data.get("institution"):
+            yield [institution]
+        return
 
-        if items:
-            yield items
+    try:
+        if product := PRODUCT_GATED_ENDPOINTS.get(endpoint):
+            # Calling a product endpoint on an Item without that product adds the product to the Item,
+            # and Plaid bills for it, so skip the table instead.
+            item = get_item()
+            if product not in {*(item.get("billed_products") or []), *(item.get("products") or [])}:
+                logger.info(f"Plaid: Item does not have the {product} product, skipping {endpoint}")
+                return
 
-        total = data.get("total_transactions")
-        offset += len(items)
-        if not items or (isinstance(total, int) and offset >= total):
-            break
+        if endpoint == "investment_holdings":
+            data = post("/investments/holdings/get", {})
+            items = data.get("holdings", []) or []
+            if items:
+                yield items
+            return
 
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(PlaidResumeConfig(offset=offset))
+        if endpoint == "liabilities":
+            data = post("/liabilities/get", {})
+            rows = [
+                {**liability, "liability_type": liability_type}
+                for liability_type, liabilities in (data.get("liabilities") or {}).items()
+                for liability in liabilities or []
+            ]
+            if rows:
+                yield rows
+            return
+
+        path, rows_key, total_key = OFFSET_PAGINATED_ENDPOINTS[endpoint]
+        start_date = (
+            _format_date(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value is not None
+            else DEFAULT_START_DATE
+        )
+        end_date = _today()
+
+        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        offset = resume_config.offset if resume_config is not None else 0
+        if resume_config is not None:
+            logger.debug(f"Plaid: resuming {endpoint} from offset {offset}")
+
+        while True:
+            data = post(
+                path,
+                {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "options": {"count": PAGE_SIZE, "offset": offset},
+                },
+            )
+            items = data.get(rows_key, []) or []
+
+            total = data.get(total_key)
+            offset += len(items)
+            has_more = bool(items) and not (isinstance(total, int) and offset >= total)
+
+            if has_more:
+                resumable_source_manager.save_state(PlaidResumeConfig(offset=offset))
+
+            if items:
+                yield items
+
+            if not has_more:
+                break
+    except PlaidNoProductDataError as error:
+        logger.info(f"Plaid: Item has no data for {endpoint} ({error}), skipping")
 
 
 def plaid_source(
@@ -185,13 +278,13 @@ def plaid_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint == "transactions" else None,
-        partition_format="month" if endpoint == "transactions" else None,
-        partition_keys=["date"] if endpoint == "transactions" else None,
-        # /transactions/get returns newest-first; the pipeline commits desc
-        # watermarks only when a run completes.
-        sort_mode="desc" if endpoint == "transactions" else "asc",
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        # /transactions/get and /investments/transactions/get return newest-first;
+        # the pipeline commits desc watermarks only when a run completes.
+        sort_mode="desc" if endpoint in OFFSET_PAGINATED_ENDPOINTS else "asc",
     )

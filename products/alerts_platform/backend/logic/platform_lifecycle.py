@@ -828,6 +828,7 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    destinations_owner: PlatformAlertOwner,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
@@ -837,6 +838,7 @@ def create_native_configuration(
         check_interval_minutes=check_interval_minutes,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
+        destinations_owner=destinations_owner,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.

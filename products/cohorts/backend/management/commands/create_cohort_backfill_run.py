@@ -41,7 +41,7 @@ from products.cohorts.backend.backfill.sizing import (
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_processing_team
 
 
 def _parse_boundary_at(value: str | None) -> datetime | None:
@@ -107,8 +107,8 @@ class Command(BaseCommand):
         if max_scan_events_per_day < 0:
             raise CommandError("--max-scan-events-per-day must be 0 or more")
 
-        if not is_realtime_cohort_team(team_id):
-            raise CommandError(f"Team {team_id} is not in the realtime cohort allowlist")
+        if not is_processing_team(team_id):
+            raise CommandError(f"Team {team_id} is not processed by the realtime cohort pipeline")
 
         if kind == CohortBackfillKind.PERSON_PROPERTY:
             assert person_horizon_days is not None

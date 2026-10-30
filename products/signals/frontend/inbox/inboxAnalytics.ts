@@ -36,6 +36,7 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -234,6 +235,9 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
+/** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
+export type InboxWrite = 'claim' | 'priority' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -948,6 +952,14 @@ export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeout
     })
 }
 
+/** A report write was aborted for taking too long. Like a stalled panel read, it records no `client_request_failure`. */
+export function captureWriteTimedOut(params: { write: InboxWrite; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.WRITE_TIMED_OUT, {
+        write: params.write,
+        timeout_ms: params.timeoutMs,
+    })
+}
+
 /**
  * The list moved to a new query — a filter, sort, search, or scope change. `Inbox viewed` fires once
  * per tab mount, so re-querying an already-open inbox left no trace at all: a user working a filtered
@@ -1244,6 +1256,23 @@ export function captureScoutCreatePathSwitched(params: {
         actionType: 'switch_create_path',
         surface: params.surface,
         extra: { direction: params.direction },
+    })
+}
+
+/** Which link opened the scratchpad, so each entry point's pull reads separately. */
+export type ScratchpadEntryPoint = 'told_tab' | 'learned_tab' | 'roster_stats' | 'roster_footer'
+
+/** A person followed a link to the scratchpad. The panel view itself is captured on open. */
+export function captureScratchpadLinkClicked(params: {
+    entryPoint: ScratchpadEntryPoint
+    surface: ScoutSurface
+    skillName?: string | null
+}): void {
+    captureScoutAction({
+        actionType: 'open_memory',
+        surface: params.surface,
+        skillName: params.skillName,
+        extra: { entry_point: params.entryPoint },
     })
 }
 

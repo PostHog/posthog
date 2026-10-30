@@ -32,8 +32,10 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    BillingServiceResponseError,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
+    OrganizationHasNoOwnerError,
     PrepaidCreditState,
     _get_user_organization_role,
     _parse_funding_status,
@@ -401,6 +403,7 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
+                    "mcp_events": {"usage": 30, "limit": 500},
                     "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
@@ -438,6 +441,7 @@ class TestBillingManager(BaseTest):
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "mcp_events": {"usage": 30, "limit": 500, "todays_usage": 0},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
             "replay_vision_credits": {},
@@ -1562,8 +1566,116 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
         # Should capture exception about no owner
         mock_capture_exception.assert_called_once()
-        exception_call = mock_capture_exception.call_args
-        assert "No owner membership found" in str(exception_call[0][0])
+        exception, properties = mock_capture_exception.call_args[0]
+        assert str(exception) == "No owner membership found for organization"
+        assert properties == {"organization_id": self.organization.id}
+
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, None, False),
+            ("not_found", 404, None, False),
+            ("server_error", 500, None, True),
+            ("connection_error", None, requests.ConnectionError("boom"), True),
+        ]
+    )
+    @patch("ee.billing.billing_manager.capture_exception")
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_update_billing_org_users_never_raises_and_captures_only_errors(
+        self, _name, status_code, side_effect, expect_capture, mock_patch, mock_capture_exception
+    ):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+        mock_patch.side_effect = side_effect
+
+        BillingManager(self.license, user=self.user).update_billing_organization_users(self.organization)
+
+        mock_patch.assert_called_once()
+        if expect_capture:
+            mock_capture_exception.assert_called_once()
+            assert mock_capture_exception.call_args[0][1] == {"organization_id": self.organization.id}
+        else:
+            mock_capture_exception.assert_not_called()
+
+    @parameterized.expand([("ok", 200), ("unauthorized", 401), ("not_found", 404)])
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_returns_billing_response(self, _name, status_code, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=status_code, json=MagicMock(return_value={}))
+
+        response = BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert response.status_code == status_code
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_on_billing_error(self, mock_patch):
+        User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        mock_patch.return_value = MagicMock(status_code=500, json=MagicMock(return_value={}))
+
+        with self.assertRaises(BillingServiceResponseError) as ctx:
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        assert ctx.exception.status_code == 500
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_raises_without_owner(self, mock_patch):
+        with self.assertRaises(OrganizationHasNoOwnerError):
+            BillingManager(self.license, user=self.user).sync_organization_users(self.organization)
+
+        mock_patch.assert_not_called()
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_sync_organization_users_leaves_out_values_billing_rejects(self, mock_patch):
+        mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        owner = User.objects.create_and_join(
+            organization=self.organization,
+            email="owner@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        admin_without_distinct_id = User.objects.create_and_join(
+            organization=self.organization,
+            email="admin@example.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        User.objects.filter(id=admin_without_distinct_id.id).update(distinct_id=None)
+        admin_with_invalid_email = User.objects.create_and_join(
+            organization=self.organization,
+            email="not-an-email",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        BillingManager(self.license, user=owner).sync_organization_users(self.organization)
+
+        payload = mock_patch.call_args.kwargs["json"]
+        assert len(payload["distinct_ids"]) == 3
+        assert set(payload["distinct_ids"]) == {
+            self.user.distinct_id,
+            owner.distinct_id,
+            admin_with_invalid_email.distinct_id,
+        }
+        assert payload["org_customer_email"] == "owner@example.com"
+        assert sorted(payload["org_admin_emails"]) == ["admin@example.com", "owner@example.com"]
+        assert payload["org_users"] == [
+            {"email": "not-an-email", "distinct_id": admin_with_invalid_email.distinct_id, "role": 8},
+            {"email": "owner@example.com", "distinct_id": owner.distinct_id, "role": 15},
+        ]
 
     @patch("ee.billing.billing_manager.http_session.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")

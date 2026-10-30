@@ -2824,6 +2824,27 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand([("empty_string",), ("other_team",)])
+    def test_create_task_github_integration_reference(self, case: str) -> None:
+        github_integration: int | str = ""
+        if case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other team")
+            github_integration = Integration.objects.create(team=other_team, kind="github", integration_id="999").id
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "New Task", "description": "New Description", "github_integration": github_integration},
+            format="json",
+        )
+
+        if case == "empty_string":
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertIsNone(Task.objects.get(id=response.json()["id"]).github_integration_id)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "github_integration")
+            self.assertFalse(Task.objects.filter(title="New Task").exists())
+
     def test_create_task_defaults_origin_product(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",
@@ -11314,14 +11335,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("default_keeps_the_copy", "", status.HTTP_200_OK, True),
-            ("thread_drops_the_copy", "?view=thread", status.HTTP_200_OK, False),
-            ("thread_drops_the_copy_from_a_page", "?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
-            ("unknown_view_rejected", "?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("default_keeps_the_copy", "logs/", status.HTTP_200_OK, True),
+            ("thread_drops_the_copy", "logs/?view=thread", status.HTTP_200_OK, False),
+            ("thread_drops_the_copy_from_a_page", "logs/?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
+            ("unknown_view_rejected", "logs/?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("log_entries_drops_the_copy", "log_entries?view=thread", status.HTTP_200_OK, False),
+            ("log_entries_rejects_unknown_view", "log_entries?view=compact", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_view(self, _name: str, query: str, expected_status: int, has_copy: bool | None, mock_read):
+    def test_logs_endpoint_view(self, _name: str, path: str, expected_status: int, has_copy: bool | None, mock_read):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team)
         entry = {
@@ -11332,10 +11355,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         }
         mock_read.side_effect = lambda path, missing_ok=False: json.dumps(entry) + "\n" if path == run.log_url else None
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{path}")
 
         self.assertEqual(response.status_code, expected_status)
         if has_copy is not None:
+            self.assertEqual(response["Cache-Control"], "no-cache")
             claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
                 "update"
             ]["_meta"]["claudeCode"]

@@ -83,10 +83,9 @@ export function EvaluationOutputFields(): JSX.Element | null {
                             value={config.true_is_failure ? 'fail' : 'pass'}
                             onChange={(value) => setTrueIsFailure(value === 'fail')}
                             options={[
-                                { value: 'pass', label: 'Pass' },
-                                { value: 'fail', label: 'Fail' },
+                                { value: 'pass', label: 'Pass', 'data-attr': 'llma-evaluation-true-is-pass' },
+                                { value: 'fail', label: 'Fail', 'data-attr': 'llma-evaluation-true-is-failure' },
                             ]}
-                            data-attr="llma-evaluation-true-is-failure-switch"
                         />
                     </>
                 )}

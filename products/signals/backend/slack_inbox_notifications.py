@@ -2,14 +2,11 @@
 
 Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
 (its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
-enforced upstream — and has at least one suggested reviewer that resolves to a destination.
-Each reviewer is routed to one destination: their own configured target if set (filtered by
-their min-priority), otherwise the team-default channel. A personal target is either a channel or
-the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
-destination get a single post mentioning only the reviewers routed there. When no suggested
-reviewer resolves, the report is still delivered to the team-default channel (if one is
-configured) with no mentions, so a team is notified even when none of its members are linked to a
-resolvable GitHub identity.
+enforced upstream. The team-default channel (if configured) receives every such report. Each
+suggested reviewer is also routed to one destination: their own configured target if set (filtered
+by their min-priority), otherwise the team-default channel. A personal target is either a channel
+or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
+destination get a single post mentioning only the reviewers routed there.
 All sends are best-effort.
 """
 
@@ -27,8 +24,9 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
@@ -245,17 +243,25 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _get_team_slack_integration(team_id: int) -> Integration | None:
-    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
-
-
-def _team_notification_channel(team_id: int) -> str | None:
-    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
-    if config is None:
+def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
+    """The team-default channel and the Slack workspace that owns it."""
+    config = (
+        SignalTeamConfig.objects.filter(team_id=team_id)
+        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .first()
+    )
+    channel = ((config.default_slack_notification_channel if config else None) or "").strip()
+    if config is None or not channel:
         return None
-    channel = (config.default_slack_notification_channel or "").strip()
-    return channel or None
+    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
+    slack_rows = IntegrationManager.slack.any
+    bound_id = config.default_slack_notification_integration_id
+    if bound_id is not None and (integration := slack_rows.get_many(team_id, [bound_id]).get(bound_id)):
+        return integration, channel
+    # A channel saved before the binding existed, or bound to a removed workspace, keeps the old
+    # routing through the oldest workspace.
+    legacy = slack_rows.find(team_id)
+    return (legacy, channel) if legacy is not None else None
 
 
 def _channel_display_name(value: str) -> str:
@@ -387,7 +393,7 @@ class _ChannelRoute:
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
 
-    def __init__(self, integration: Integration, channel: str, *, is_team_channel: bool) -> None:
+    def __init__(self, integration: IntegrationRecord, channel: str, *, is_team_channel: bool) -> None:
         self.integration = integration
         self.channel = channel
         self.is_team_channel = is_team_channel
@@ -397,7 +403,7 @@ class _ChannelRoute:
 
 @frozen
 class _Destination:
-    integration: Integration
+    integration: IntegrationRecord
     channel: str
     is_team_channel: bool
 
@@ -433,7 +439,7 @@ def _reviewer_destination(
     *,
     own_config: SignalUserAutonomyConfig | None,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> _Destination | None:
     """Where one suggested reviewer is notified: their own target if set, else the team default.
@@ -443,7 +449,7 @@ def _reviewer_destination(
     if own_config is not None:
         if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
             return None
-        integration = own_config.slack_notification_integration
+        integration: IntegrationRecord | None = own_config.slack_notification_integration
         channel = own_config.slack_notification_channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
@@ -460,17 +466,16 @@ def _build_reviewer_routes(
     report: SignalReport,
     *,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
     """Route resolvable suggested reviewers to a destination, mentioning them there.
 
     Own target (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
-    filtered out of their own target does not fall back to the team channel — that was their choice.
+    filtered out of their own target is not mentioned in the team channel — that was their choice.
     Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
-    its own reviewers. When no suggested reviewer resolves, the report is still delivered to the
-    team-default channel (if configured) with no mentions, so a team is notified even when none of
-    its members are linked to a resolvable GitHub identity.
+    its own reviewers. The team-default channel (if configured) receives every report, with no
+    mentions when no reviewer is routed there.
     """
     reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
@@ -491,11 +496,9 @@ def _build_reviewer_routes(
             continue
         table.add(destination, user=user)
 
-    # No suggested reviewer resolved to a PostHog user: deliver to the team-default channel (if
-    # configured) so the team is still notified, without @-mentions — the message omits the
-    # suggested-reviewers section when there is nobody to tag. Per-user own channels are reviewer
-    # notifications, so they are not used here.
-    if not reviewer_user_ids and team_integration is not None and team_channel:
+    # The team channel gets every report. It mentions only the reviewers routed there, so a reviewer
+    # with their own target is not pinged twice.
+    if team_integration is not None and team_channel:
         table.add(_Destination(integration=team_integration, channel=team_channel, is_team_channel=True))
 
     return table.routes()
@@ -545,9 +548,9 @@ def _deliver_route_notification(
         # A member target opens a direct message, so the conversation Slack posted into is not the
         # id we sent. An inbound mention names the conversation, so that is what the link records.
         posted_channel = response.get("channel") if hasattr(response, "get") else None
-        if thread_ts:
+        if thread_ts and (slack_workspace_id := route.integration.integration_id):
             record_report_slack_thread(
-                slack_workspace_id=route.integration.integration_id,
+                slack_workspace_id=slack_workspace_id,
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=route.integration.id,
@@ -645,8 +648,8 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         return 0
 
     priority = _latest_priority(report)
-    team_integration = _get_team_slack_integration(team_id)
-    team_channel = _team_notification_channel(team_id) if team_integration is not None else None
+    team_target = _team_notification_target(team_id)
+    team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(
         report,
