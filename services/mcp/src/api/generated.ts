@@ -75610,7 +75610,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -75667,7 +75667,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -75754,7 +75754,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
