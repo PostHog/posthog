@@ -222,13 +222,24 @@ describe('validateEventAgainstSchema', () => {
     })
 
     describe.each(['Object', 'Array'])('%s type coercion', (propertyType) => {
-        it.each([
+        const objectCases: [string, unknown][] = [
             ['plain object', { foo: 'bar' }],
             ['empty object', {}],
+        ]
+        const arrayCases: [string, unknown][] = [
             ['array', [1, 2, 3]],
             ['empty array', []],
             ['mixed array', [1, 'two', null, { nested: [true] }]],
-        ].filter(([, value]) => propertyType === 'Object' || Array.isArray(value)))('should accept %s', (_, value) => {
+        ]
+        const primitiveCases: [string, unknown][] = [
+            ['string', 'hello'],
+            ['number', 42],
+            ['boolean', true],
+        ]
+        const acceptCases = propertyType === 'Object' ? [...objectCases, ...arrayCases] : arrayCases
+        const rejectCases = propertyType === 'Object' ? primitiveCases : [...objectCases, ...primitiveCases]
+
+        it.each(acceptCases)('should accept %s', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
                 required_properties: new Map([['prop', [propertyType]]]),
@@ -239,12 +250,7 @@ describe('validateEventAgainstSchema', () => {
             expect(result.valid).toBe(true)
         })
 
-        it.each([
-            ...(propertyType === 'Array' ? [['plain object', { foo: 'bar' }], ['empty object', {}]] : []),
-            ['string', 'hello'],
-            ['number', 42],
-            ['boolean', true],
-        ])('should reject %s', (_, value) => {
+        it.each(rejectCases)('should reject %s', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
                 required_properties: new Map([['prop', [propertyType]]]),
