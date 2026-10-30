@@ -5,6 +5,8 @@
 //   node frontend/bin/check-layers.mjs --prune-baseline   drop fixed entries, never add one
 //   node frontend/bin/check-layers.mjs --update-baseline  rewrite the baseline, new debt included
 //   node frontend/bin/check-layers.mjs --html <file>      write an interactive view of the graph
+//   node frontend/bin/check-layers.mjs --report-only      write layer-report.json for the CI report, never fail
+import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -208,6 +210,27 @@ if (htmlIndex !== -1) {
         renderLayerGraphHtml({ files, shellRoot, shellReach, upward: current, layerOf, layers: LAYERS, opportunities })
     )
     console.info(`Wrote ${htmlPath}`)
+}
+
+// Same naming as check-eager-graph: the CI bundle-size job measures the PR and then the base in one
+// workspace, so the sha-suffixed file keeps the PR's numbers and the plain file ends up with the base's.
+if (args.includes('--report-only')) {
+    const report = {
+        sha: execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim(),
+        layers: LAYERS,
+        eagerBytes: eager,
+        upward: current,
+        eagerChains: Object.fromEntries(
+            current
+                .map((edge) => edge.split(' -> ')[0])
+                .filter((from) => shellReach.has(from))
+                .map((from) => [from, chainTo(shellReach, from)])
+        ),
+    }
+    const serialized = JSON.stringify(report)
+    fs.writeFileSync(path.join(repoRoot, 'frontend', 'layer-report.json'), serialized)
+    fs.writeFileSync(path.join(repoRoot, 'frontend', `layer-report-${report.sha}.json`), serialized)
+    process.exit(0)
 }
 
 if (args.includes('--update-baseline')) {

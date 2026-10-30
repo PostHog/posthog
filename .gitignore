@@ -133,6 +133,8 @@ frontend/.unminified-chunks/
 frontend/.stable-chunks-rewritten/
 frontend/dist-report/
 frontend/eager-graph-report*.json
+frontend/layer-report*.json
+frontend/layer-graph.html
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
