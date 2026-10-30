@@ -1,5 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { blue, orange } from "./theme";
+import { orange } from "./theme";
 
 // The day's briefing, as the Today API returns it. PostHog writes one each morning in the user's time zone.
 export interface BriefingSegment {
@@ -142,7 +142,7 @@ function itemStyle(item: BriefingItem | undefined, highlight: boolean) {
   if (item.state !== "open") return (text: string) => dim(underline(text));
   return highlight
     ? (text: string) => orange(underline(text))
-    : (text: string) => blue(underline(text));
+    : (text: string) => orange(underline(text));
 }
 
 const LOADING = "Reading what changed in your project…";

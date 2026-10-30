@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatView, overlayBottom, shimmer } from "./chatView";
 import { IMAGES_DIR } from "./images";
-import { blue } from "./theme";
+import { orange } from "./theme";
 import type { TranscriptLine } from "./transcript";
 
 const plain = (lines: string[]): string[] =>
@@ -196,7 +196,7 @@ describe("ChatView", () => {
     ]);
   });
 
-  it("colours inline code and links PostHog blue", () => {
+  it("colours inline code and links PostHog orange", () => {
     const chat = new ChatView();
     chat.setTranscript([
       {
@@ -207,8 +207,8 @@ describe("ChatView", () => {
     ]);
     const row = chat.render(70, 1)[0];
 
-    expect(row).toContain(blue("pnpm test"));
-    expect(row).toContain(blue("the docs"));
+    expect(row).toContain(orange("pnpm test"));
+    expect(row).toContain(orange("the docs"));
   });
 
   it("cuts a long command short so the status keeps its time and tool count, faint", () => {

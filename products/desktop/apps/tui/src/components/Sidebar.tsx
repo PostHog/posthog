@@ -1,7 +1,7 @@
 import { Box, type DOMElement, Text } from "ink";
 import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
-import { posthogBlue, selectionBackground } from "../theme";
+import { posthogOrange, selectionBackground } from "../theme";
 import { Spinner } from "./Spinner";
 
 // PostHog orange, which reads on light and dark terminals alike.
@@ -303,7 +303,7 @@ export function Sidebar({
       <Box flexGrow={1} />
       <Text
         dimColor={!notice}
-        color={notice ? posthogBlue() : undefined}
+        color={notice ? posthogOrange() : undefined}
         wrap="truncate-end"
       >
         {narrow

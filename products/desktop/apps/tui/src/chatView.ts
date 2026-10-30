@@ -22,7 +22,7 @@ import { savedImage } from "./images";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
 import { wordAt } from "./selection";
-import { blue, orange, userMessageBackground } from "./theme";
+import { orange, userMessageBackground } from "./theme";
 import {
   type ShellLine,
   type ToolLine,
@@ -329,8 +329,8 @@ class CodeBlocks implements Component {
 function componentFor(line: TranscriptLine): Component {
   const markdown = {
     ...getMarkdownTheme(),
-    code: blue,
-    link: blue,
+    code: orange,
+    link: orange,
   };
   switch (line.kind) {
     case "user":
