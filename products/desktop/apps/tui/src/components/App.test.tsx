@@ -444,6 +444,7 @@ describe("App", () => {
     const split = splitFocused(initialLayout(), "row");
     const [left, right] = paneIds(activeWorkspace(split).root);
     saveLayout(focusPane(split, left));
+    savePrefs({ welcomed: true });
     const mouse: MouseEvents = new EventEmitter();
     const { instance, output } = renderInTerminal(
       <App
@@ -567,6 +568,7 @@ describe("App", () => {
 
   it("narrows the sidebar with Ctrl+B and keeps it narrow, without losing other preferences", async () => {
     saveLayout(initialLayout());
+    savePrefs({ welcomed: true });
     const mouse: MouseEvents = new EventEmitter();
     const { instance, output, type } = renderInTerminal(
       <App

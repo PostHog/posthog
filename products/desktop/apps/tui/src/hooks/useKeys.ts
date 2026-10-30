@@ -21,7 +21,6 @@ import {
   splitFocused,
 } from "../layout";
 import type { PiControl } from "../models";
-import { editQuery } from "../search";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { DoublePress, optionSplitFor, shortcutFor } from "../shortcuts";
 import type { Notice } from "./useNotice";
@@ -260,7 +259,7 @@ export function useKeys({
         modal.edit &&
         (isTyping(sequence) || matchesKey(sequence, "backspace"))
       ) {
-        modal.edit(editQuery(field.text, sequence));
+        modal.edit(sequence);
         return;
       }
       if (key) onModalKey(paneId, modal, key);

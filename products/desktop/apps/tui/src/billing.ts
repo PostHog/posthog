@@ -74,6 +74,23 @@ export function billingBlocker(
   return null;
 }
 
+// Takes the Claude token the Anthropic plan runs on, typed or pasted into its one item.
+export function claudeTokenSheet(draft: string, error: string | null): Sheet {
+  return {
+    title: "Add your Claude token",
+    description:
+      error ??
+      "Run `claude setup-token` in another terminal and paste what it prints.",
+    items: [
+      {
+        label: "Claude token",
+        input: { placeholder: "sk-ant-oat01-…", text: draft },
+      },
+    ],
+    footer: "Enter to save · Esc to keep PostHog billing",
+  };
+}
+
 export function billingSheet(current: Billing): Sheet {
   return {
     title: "What new chats run on",

@@ -13,17 +13,20 @@ import {
   takesText,
   wantsText,
 } from "../prompts";
+import { editQuery } from "../search";
 import { moveCursor, type Sheet, type SheetKey } from "../sheet";
 import type { FlashNotice } from "./useNotice";
 
 export interface OpenModal {
   sheet: Sheet;
   index: number;
-  choose: (index: number) => void;
+  // The chosen item, with its text field's contents when it has one.
+  choose: (index: number, text?: string) => void;
   // Runs on Esc, for a sheet whose opener needs to hear about a cancel.
   dismiss?: () => void;
-  // Takes what is typed into the selected item's text field.
-  edit?: (text: string) => void;
+  // Takes a key typed into the selected item's text field.
+  // Keys arrive in bursts before React renders, so it applies the key to the text as last edited, never as last drawn.
+  edit?: (sequence: string) => void;
   // Set when the answer is typed in the composer instead of picked from the list.
   submitText?: (text: string) => void;
 }
@@ -34,7 +37,7 @@ export interface Sheets {
   openModal: (
     paneId: string,
     sheet: Sheet,
-    choose: (index: number) => void,
+    choose: (index: number, text?: string) => void,
   ) => void;
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
 }
@@ -59,12 +62,24 @@ export function useSheets({
 }): Sheets {
   // Modal sheets the app opened, one per pane; they take the pane's keys until closed.
   const [modals, setModals] = useState<Map<string, OpenModal>>(new Map());
-  const closeModal = (paneId: string): void =>
+  // What is typed into an app-opened sheet's text field, by pane: a ref, as the prompts' drafts below.
+  const typed = useRef(new Map<string, string>()).current;
+  const closeModal = (paneId: string): void => {
+    typed.delete(paneId);
     setModals((current) => {
       const next = new Map(current);
       next.delete(paneId);
       return next;
     });
+  };
+  const withTyped = (paneId: string, modal: OpenModal): OpenModal => {
+    const text = typed.get(paneId);
+    if (text === undefined) return modal;
+    const items = modal.sheet.items.map((item) =>
+      item.input ? { ...item, input: { ...item.input, text } } : item,
+    );
+    return { ...modal, sheet: { ...modal.sheet, items } };
+  };
   const paneTaskId = (paneId: string): string | null =>
     findPane(layout, paneId)?.taskId ?? null;
   // A question prompt's picks so far, and the text typed for an option that takes some, by prompt.
@@ -116,8 +131,8 @@ export function useSheets({
       index: promptCursors.get(id) ?? 0,
       choose: reply,
       dismiss: () => reply(null),
-      edit: (text) => {
-        drafts.set(id, text);
+      edit: (sequence) => {
+        drafts.set(id, editQuery(draft, sequence));
         changed();
       },
       submitText: takesText(prompt) ? reply : undefined,
@@ -138,14 +153,26 @@ export function useSheets({
   });
 
   return {
-    modalFor: (paneId) => modals.get(paneId) ?? promptModal(paneTaskId(paneId)),
+    modalFor: (paneId) => {
+      const modal = modals.get(paneId);
+      return modal ? withTyped(paneId, modal) : promptModal(paneTaskId(paneId));
+    },
     openModal: (paneId, sheet, choose) => {
       const current = sheet.items.findIndex((item) => item.current);
+      const field = sheet.items.find((item) => item.input)?.input;
+      typed.delete(paneId);
       setModals((open) =>
         new Map(open).set(paneId, {
           sheet,
           index: Math.max(0, current),
           choose,
+          edit: (sequence) => {
+            typed.set(
+              paneId,
+              editQuery(typed.get(paneId) ?? field?.text ?? "", sequence),
+            );
+            changed();
+          },
         }),
       );
     },
@@ -187,7 +214,7 @@ export function useSheets({
         return;
       }
       closeModal(paneId);
-      modal.choose(index);
+      modal.choose(index, item.input?.text);
     },
   };
 }
