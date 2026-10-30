@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -347,6 +353,16 @@ export function renameWorkspace(
       workspace.id === workspaceId ? { ...workspace, name } : workspace,
     ),
   };
+}
+
+// The shared file held every layout before accounts had their own. An account without its own file takes it over,
+// so an upgrade keeps its workspaces and a later sign-out starts from a fresh layout instead of showing them.
+export function adoptSharedLayout(
+  path: string,
+  shared: string = LAYOUT_PATH,
+): void {
+  if (path === shared || existsSync(path) || !existsSync(shared)) return;
+  renameSync(shared, path);
 }
 
 export function loadLayout(path: string = LAYOUT_PATH): LayoutState {
