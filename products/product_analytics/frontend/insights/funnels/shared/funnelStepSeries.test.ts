@@ -51,6 +51,16 @@ describe('funnelStepSeries', () => {
             expected: { kind: NodeKind.EventsNode, event: '$autocapture', name: '$autocapture' },
         },
         {
+            case: 'a renamed action to the name the runner gave the step, keeping its custom name',
+            query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ ...signups, custom_name: 'Converted' }],
+            },
+            stepIndex: 0,
+            stepName: 'Sign-ups',
+            expected: { ...signups, name: 'Sign-ups', custom_name: 'Converted' },
+        },
+        {
             case: 'an action series saved without a name to the name the runner gave the step',
             query: { kind: NodeKind.FunnelsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] },
             stepIndex: 0,

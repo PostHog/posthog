@@ -2,6 +2,7 @@ import type { DisplayableEntity } from 'lib/components/EntityFilterInfo'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import {
     SeriesNode,
+    isActionsSeriesNode,
     isEventsSeriesNode,
     isGroupSeriesNode,
     isWarehouseSeriesNode,
@@ -52,8 +53,13 @@ export function isRepeatedFunnelStep(series: SeriesNode | null, previousSeries: 
     return seriesNodeKey(series) === seriesNodeKey(previousSeries)
 }
 
-// The query does not hold an action's name, so a nameless action or group takes the name the runner gave the step.
+// The query holds the action name saved with the funnel, and the runner names the step from the database. So an action,
+// and a group without a name, take the step's name.
 function withDisplayName(node: SeriesNode, step: Pick<FunnelStep, 'name'>): SeriesNode {
+    const stepName = ensureStringIsNotBlank(step.name)
+    if (isActionsSeriesNode(node) && stepName) {
+        return { ...node, name: stepName }
+    }
     if (ensureStringIsNotBlank(node.name)) {
         return node
     }
