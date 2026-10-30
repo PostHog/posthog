@@ -605,6 +605,24 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
             new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
+        # A client may point the source at another credentials row only when the source can use that row.
+        # The check runs for every team, also while the dual-write flag is off, because it keeps a client
+        # from attaching credentials of another team. The source then uses the credentials of that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(
+                instance, existing_job_inputs, incoming_job_inputs
+            )
+            if requested_reference is not None:
+                new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
+
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -638,20 +656,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
-        # The parsed config has no credentials reference, so the store keeps the stored one. A client may
-        # point the source at another credentials row only when the source can use that row.
-        try:
-            requested_reference = SourceInputsStore.requested_credentials_reference(
-                instance, existing_job_inputs, incoming_job_inputs
-            )
-        except UnusableCredentialsReferenceError:
-            raise ValidationError(
-                {
-                    "job_inputs": {
-                        CREDENTIALS_REFERENCE_KEY: "These credentials don't exist or this source can't use them."
-                    }
-                }
-            )
+        # The parsed config has no credentials reference, so the store keeps the stored one.
         if requested_reference is not None:
             validated_job_inputs[CREDENTIALS_REFERENCE_KEY] = requested_reference
         validated_data["job_inputs"] = validated_job_inputs
@@ -728,6 +733,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
+        # One transaction for the credentials row and the source, so a failed source save also undoes the
+        # row write, and the source lock of the copy holds until the source save commits.
         with transaction.atomic():
             if "job_inputs" in validated_data:
                 # An edit of credentials that other sources or products use raises `SharedCredentialsError`

@@ -263,8 +263,10 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
+    // A cleared input stores a blank caption, which hides the subtitle. Text equal to the derived
+    // caption stays unset, so the subtitle keeps following later metric edits.
     const onCaptionChange = (value: string): void => {
-        emit({ caption: value.trim() ? value : undefined })
+        emit({ caption: value === autoCaption(tile) ? undefined : value })
     }
 
     const onFormatChange = (format: TileValueFormat): void => {
@@ -302,9 +304,9 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                 </div>
                 <div className="pl-6">
                     <LemonInput
-                        value={tile.caption ?? ''}
+                        value={tile.caption ?? autoCaption(tile) ?? ''}
                         onChange={onCaptionChange}
-                        placeholder={autoCaption(tile) ?? 'Subtitle (optional)'}
+                        placeholder="Subtitle (optional)"
                         size="small"
                         fullWidth
                         data-attr={`accounts-overview-tile-caption-${tile.id}`}
