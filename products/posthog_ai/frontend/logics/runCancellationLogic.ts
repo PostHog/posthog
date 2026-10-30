@@ -15,7 +15,7 @@ export interface RunCancellationLogicProps {
 
 export type CancellationState = 'waiting' | 'sending' | null
 
-export const CANCEL_TURN_END_GRACE_MS = 10_000
+export const CANCEL_TURN_END_GRACE_MS = 35_000
 
 function confirmsAgentReady(entry: StoredLogEntry, runId: string): boolean {
     const { method, params } = entry.notification
@@ -170,6 +170,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
                     throw new Error('Agent rejected cancellation')
                 }
                 if (!disposables.isDisposed && cache.cancelRequest === request && values.bootstrappedRunId === runId) {
+                    cache.cancelGraceArmed = true
                     disposables.add(() => {
                         const timer = setTimeout(() => actions.cancellationUnanswered(), CANCEL_TURN_END_GRACE_MS)
                         return () => clearTimeout(timer)
@@ -185,6 +186,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
         },
         cancellationFailed: () => {
             cache.cancelRequest = undefined
+            cache.cancelGraceArmed = false
             cache.disposables.dispose('cancelTurnEndGrace')
         },
         cancellationUnanswered: () => {
@@ -195,6 +197,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
         },
         clearCancellation: () => {
             cache.cancelRequest = undefined
+            cache.cancelGraceArmed = false
             cache.disposables.dispose('cancelTurnEndGrace')
         },
         [runStreamLogic(props).actionTypes.appendEntries]: () => {
@@ -208,6 +211,16 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
                 entry.source_run_id === values.bootstrappedRunId &&
                 entry.notification.method === '_posthog/turn_complete'
             ) {
+                actions.clearCancellation()
+            }
+        },
+        [runStreamLogic(props).actionTypes.markTurnStarted]: () => {
+            if (cache.cancelGraceArmed) {
+                actions.clearCancellation()
+            }
+        },
+        [runStreamLogic(props).actionTypes.pushHumanMessage]: () => {
+            if (cache.cancelGraceArmed) {
                 actions.clearCancellation()
             }
         },

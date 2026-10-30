@@ -163,9 +163,10 @@ describe('runCancellationLogic', () => {
     })
 
     it.each([
-        ['an idle agent that never ends a turn', false, null, true],
-        ['an agent that ends the turn, before the next turn starts', true, null, false],
-    ])('settles a stop confirmed by %s', async (_case, turnEnds, expectedState, expectedTurnComplete) => {
+        ['an idle agent that never ends a turn', 'none', null, true],
+        ['an agent that ends the turn, before the next turn starts', 'turn end, then message', null, false],
+        ['an idle agent, before a new message starts a turn', 'message', null, false],
+    ])('settles a stop confirmed by %s', async (_case, between, expectedState, expectedTurnComplete) => {
         jest.useFakeTimers()
         try {
             attach()
@@ -179,12 +180,14 @@ describe('runCancellationLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(logic.values.cancellationState).toBe('sending')
 
-            if (turnEnds) {
+            if (between === 'turn end, then message') {
                 stream.actions.ingestAcpFrame({
                     type: 'notification',
                     source_run_id: 'run-1',
                     notification: { method: '_posthog/turn_complete' },
                 })
+            }
+            if (between !== 'none') {
                 stream.actions.pushHumanMessage('and the mobile funnel?')
             }
             await jest.advanceTimersByTimeAsync(CANCEL_TURN_END_GRACE_MS)
