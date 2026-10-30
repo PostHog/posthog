@@ -1,43 +1,15 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { CloudRegion, Task } from "@posthog/shared";
-import {
-  type Dispatch,
-  type SetStateAction,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import type { Task } from "@posthog/shared";
+import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { track } from "../analytics";
-import { REGIONS } from "../auth";
-import {
-  BILLINGS,
-  billingBlocker,
-  billingNotice,
-  billingSheet,
-  chatgptLoginSheet,
-  claudeTokenSheet,
-  cloudHarnessFor,
-  localHarnessFor,
-  TOKEN_SHEET_RUN,
-} from "../billing";
-import { chatgptAccount, chatgptLogin } from "../chatgpt";
+import { billingBlocker, cloudHarnessFor, localHarnessFor } from "../billing";
 import type { PiChats, StartPick } from "../chats";
-import { claudeOnPath } from "../claudeSetup";
-import {
-  isValidClaudeSetupToken,
-  loadClaudeToken,
-  saveClaudeToken,
-} from "../claudeToken";
-import { connectCodexCloud } from "../codexCloud";
-import type { WelcomeStep } from "../components/Welcome";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import {
-  activeWorkspace,
   assignTask,
   expandPane,
   findPane,
-  focusPane,
   type LayoutState,
   newChatIn,
   optimizeWorkspace,
@@ -46,25 +18,13 @@ import {
   workspaceOf,
 } from "../layout";
 import type { LocalAgent } from "../local";
-import {
-  addMcpServer,
-  localMcpServers,
-  MCP_AUTHS,
-  type McpClient,
-  mcpAuthSheet,
-  mcpSheet,
-  mcpTextSheet,
-  reauthorizeMcpServer,
-} from "../mcp";
 import { parseSlash } from "../models";
-import { openUrl } from "../openUrl";
-import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
-import { TOKEN_HINT } from "../settings";
-import type { Sheet } from "../sheet";
+import { type ChatPlace, loadPrefs } from "../prefs";
 import { parseShell } from "../shell";
+import type { Account } from "./useAccount";
+import type { McpSheet } from "./useMcpSheet";
 import type { Notice } from "./useNotice";
 import type { RepoPicker } from "./useRepoPicker";
-import type { CodexCloudClient } from "./useSettings";
 import type { OpenModal } from "./useSheets";
 
 export interface Send {
@@ -83,10 +43,6 @@ export interface Send {
   ) => void;
   // The chat shows its pending message now, so it is no longer on its way.
   delivered: (taskId: string) => void;
-  // A first run's sign-in sheet, which goes on to ask who pays once signed in.
-  welcome: (paneId: string) => void;
-  // Where the first run's welcome is; null once it is done or dismissed.
-  welcomeStep: WelcomeStep | null;
 }
 
 // The server's clock can run a little behind this machine's.
@@ -99,13 +55,10 @@ export function useSend({
   setTitles,
   chats,
   taskOf,
-  resetWork,
   local,
   places,
   composerFor,
   modalFor,
-  openModal,
-  closeModal,
   openModelSheet,
   openEffortSheet,
   openModeSheet,
@@ -117,12 +70,9 @@ export function useSend({
   onChatStarted,
   runShell,
   repos,
-  notice: { flashNotice, showNotice },
-  login,
-  logout,
-  runSetup,
-  codexCloud,
-  mcp,
+  notice: { flashNotice },
+  account,
+  mcpSheet,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -130,7 +80,6 @@ export function useSend({
   setTitles: Dispatch<SetStateAction<Map<string, string>>>;
   chats: PiChats | undefined;
   taskOf: (taskId: string | null) => Task | undefined;
-  resetWork: () => void;
   local: {
     isLocal: (taskId: string | null) => taskId is string;
     localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
@@ -143,13 +92,6 @@ export function useSend({
   };
   composerFor: (paneId: string) => Composer;
   modalFor: (paneId: string) => OpenModal | undefined;
-  openModal: (
-    paneId: string,
-    sheet: Sheet,
-    choose: (index: number, text?: string) => void,
-    dismiss?: () => void,
-  ) => void;
-  closeModal: (paneId: string) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
   openModeSheet: (paneId: string, task: Task | undefined) => void;
@@ -171,16 +113,25 @@ export function useSend({
     text: string,
   ) => void;
   notice: Notice;
-  login: (region: CloudRegion, onAuth: (url: string) => void) => Promise<void>;
-  logout: () => void;
-  // Runs `claude setup-token` on the terminal and returns the token; absent where the terminal cannot be handed over.
-  runSetup?: () => Promise<string>;
-  // PostHog's copy of the user's ChatGPT account, for cloud Codex runs; absent while signed out.
-  codexCloud?: CodexCloudClient;
-  // The account's MCP servers; absent while signed out.
-  mcp?: McpClient;
+  account: Pick<
+    Account,
+    | "openLoginSheet"
+    | "openClaudeTokenSheet"
+    | "signInToChatgpt"
+    | "openBillingSheet"
+    | "signOut"
+    | "planState"
+  >;
+  mcpSheet: McpSheet;
 }): Send {
   const { isLocal, localFor, markActive } = local;
+  const {
+    openLoginSheet,
+    openClaudeTokenSheet,
+    signInToChatgpt,
+    openBillingSheet,
+    planState,
+  } = account;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   const [reopening, setReopening] = useState<Set<string>>(new Set());
   // When each chat's pending reply went out, so an older delivery failure cannot take back a newer message.
@@ -195,326 +146,6 @@ export function useSend({
       else next.delete(taskId);
       return next;
     });
-
-  // The layout as of the last render: a sign-in swaps in the account's layout, so a sheet opened after it needs the pane it has.
-  const latestLayout = useRef(layout);
-  latestLayout.current = layout;
-
-  // Whether PostHog holds a ChatGPT account for cloud Codex runs; false until the server has answered.
-  const [chatgptCloud, setChatgptCloud] = useState(false);
-  // The welcome's sheets were opened signed out, so they reach the client through this, not their closure.
-  const latestCodexCloud = useRef(codexCloud);
-  latestCodexCloud.current = codexCloud;
-  useEffect(() => {
-    let current = true;
-    codexCloud
-      ?.get()
-      .then((integration) => {
-        if (current) setChatgptCloud(integration.status === "connected");
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [codexCloud]);
-  const planState = (): Parameters<typeof billingBlocker>[1] => ({
-    chatgptAccount: chatgptAccount(),
-    chatgptCloud,
-    claudeToken: loadClaudeToken() !== null,
-  });
-
-  // The first run's welcome: its sheets report where it is, and the last one, or an Esc, ends it.
-  // It starts from the first render, so the app's chrome never shows before the welcome does.
-  const firstRun = chats === undefined && !loadPrefs().welcomed;
-  const [welcomeStep, setWelcomeStep] = useState<WelcomeStep | null>(
-    firstRun ? "signIn" : null,
-  );
-  const welcoming = useRef(firstRun);
-  const welcomeAt = (step: WelcomeStep): void => {
-    if (welcoming.current) setWelcomeStep(step);
-  };
-  const endWelcome = (): void => {
-    welcoming.current = false;
-    setWelcomeStep(null);
-  };
-
-  const openLoginSheet = (
-    paneId: string,
-    description: string,
-    then?: (paneId: string) => void,
-  ): void => {
-    welcomeAt("signIn");
-    openModal(
-      paneId,
-      {
-        title: "Sign in to PostHog",
-        description,
-        items: REGIONS.map((region) => ({ label: region.label })),
-        footer: "Enter to open your browser · Esc to cancel",
-      },
-      (index) => {
-        const region = REGIONS[index];
-        showNotice("Finish signing in with your browser…");
-        welcomeAt("signingIn");
-        login(region.id, () => {}).then(
-          () => {
-            flashNotice(`Signed in to ${region.label}`);
-            then?.(activeWorkspace(latestLayout.current).focusedPaneId);
-          },
-          (error: unknown) => {
-            flashNotice(`Sign-in failed: ${messageOf(error)}`);
-            // A welcome asks again, so a failed browser sign-in is not its end.
-            if (welcoming.current) openLoginSheet(paneId, description, then);
-          },
-        );
-      },
-      endWelcome,
-    );
-  };
-
-  // Gets the Claude token the Anthropic plan needs, by running `claude setup-token` or from a paste, and saves the plan with it.
-  const openClaudeTokenSheet = (
-    paneId: string,
-    draft: string,
-    error: string | null,
-  ): void => {
-    const run = runSetup && claudeOnPath() ? runSetup : undefined;
-    const save = (token: string): void => {
-      try {
-        saveClaudeToken(token);
-        savePrefs({ billing: "anthropic" });
-        flashNotice(billingNotice("anthropic"));
-      } catch (saveError) {
-        flashNotice(`Couldn't save: ${messageOf(saveError)}`);
-      }
-      endWelcome();
-    };
-    welcomeAt("token");
-    openModal(
-      paneId,
-      claudeTokenSheet(draft, error, run !== undefined),
-      (index, token = "") => {
-        if (index === TOKEN_SHEET_RUN && run) {
-          run().then(save, (runError: unknown) =>
-            openClaudeTokenSheet(
-              paneId,
-              "",
-              `Couldn't get a token: ${messageOf(runError)}`,
-            ),
-          );
-          return;
-        }
-        if (!isValidClaudeSetupToken(token))
-          return openClaudeTokenSheet(paneId, token, TOKEN_HINT);
-        save(token);
-      },
-      endWelcome,
-    );
-  };
-
-  // A question pi's login asks, answered on a sheet; the browser answering it first closes the sheet.
-  const askOnSheet = (
-    paneId: string,
-    question: string,
-    signal?: AbortSignal,
-  ): Promise<string> =>
-    new Promise((resolve, reject) => {
-      openModal(
-        paneId,
-        chatgptLoginSheet(question),
-        (_, text = "") => resolve(text),
-        () => reject(new Error("Sign-in cancelled")),
-      );
-      signal?.addEventListener("abort", () => {
-        closeModal(paneId);
-        reject(new Error("Sign-in cancelled"));
-      });
-    });
-
-  // Signs in to ChatGPT in the browser: pi's own login for chats here, or the account PostHog keeps for cloud Codex runs.
-  const signInToChatgpt = (
-    paneId: string,
-    cloud: boolean,
-    then: () => void,
-  ): void => {
-    welcomeAt("chatgpt");
-    showNotice("Finish signing in to ChatGPT with your browser…");
-    const ui = {
-      openUrl,
-      prompt: (question: string, signal?: AbortSignal) =>
-        askOnSheet(paneId, question, signal),
-    };
-    const signal = new AbortController().signal;
-    const client = latestCodexCloud.current;
-    const signedIn = cloud
-      ? client
-        ? connectCodexCloud({
-            login: async (path) => {
-              await chatgptLogin(ui, signal, path);
-            },
-            connect: (tokens) => client.connect(tokens),
-          }).then((integration) =>
-            setChatgptCloud(integration.status === "connected"),
-          )
-        : Promise.reject(new Error("Sign in to PostHog first"))
-      : chatgptLogin(ui, signal).then(() => {});
-    signedIn.then(then, (error: unknown) => {
-      flashNotice(`ChatGPT sign-in failed: ${messageOf(error)}`);
-      endWelcome();
-    });
-  };
-
-  const openBillingSheet = (paneId: string): void => {
-    const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
-    welcomeAt("billing");
-    openModal(
-      paneId,
-      billingSheet(loadPrefs().billing),
-      (index) => {
-        const billing = BILLINGS[index];
-        const place = places.placeFor(paneId);
-        const save = (): void => {
-          savePrefs({ billing });
-          flashNotice(billingNotice(billing), here);
-          endWelcome();
-        };
-        const blocker = billingBlocker(billing, planState(), place);
-        if (billing === "anthropic" && blocker)
-          return openClaudeTokenSheet(paneId, "", null);
-        // The plan's sign-in for where this pane's chats run; the other place asks for its own when first used.
-        if (billing === "chatgpt" && blocker)
-          return signInToChatgpt(paneId, place === "cloud", save);
-        save();
-      },
-      endWelcome,
-    );
-  };
-
-  // The account's servers come from the server; this machine's are read as the sheet opens, so an edit to
-  // ~/.claude.json shows on the next /mcp.
-  const openMcpSheet = (paneId: string): void => {
-    const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
-    if (!mcp) {
-      flashNotice("Sign in first: type /login", here);
-      return;
-    }
-    mcp.installations().then(
-      (installations) => {
-        const sheet = mcpSheet(installations, localMcpServers(), {
-          relay: loadPrefs().relayLocalMcp,
-        });
-        openModal(paneId, sheet, (index) => {
-          closeModal(paneId);
-          const stale = sheet.reauth.get(index);
-          if (stale) {
-            showNotice(
-              `Finish signing in to ${stale.display_name || stale.name} with your browser…`,
-            );
-            reauthorizeMcpServer(mcp, stale, openUrl).then(
-              (signedIn) =>
-                flashNotice(
-                  `${signedIn.display_name || signedIn.name} signed in again`,
-                  here,
-                ),
-              (error: unknown) =>
-                flashNotice(
-                  `Couldn't sign in again: ${messageOf(error)}`,
-                  here,
-                ),
-            );
-            return;
-          }
-          if (index === sheet.addServer) {
-            addServer(paneId);
-            return;
-          }
-          if (index !== sheet.relayToggle) return;
-          const relay = !loadPrefs().relayLocalMcp;
-          savePrefs({ relayLocalMcp: relay });
-          track("mcp relay switched", { on: relay });
-          flashNotice(
-            relay
-              ? "New cloud Claude Code and Codex chats reach this machine's MCP servers while the TUI is open"
-              : "New cloud chats no longer reach this machine's MCP servers",
-            here,
-          );
-        });
-      },
-      (error: unknown) =>
-        flashNotice(`Couldn't list MCP servers: ${messageOf(error)}`, here),
-    );
-  };
-
-  // A typed answer, or a pick, on a sheet of its own; Esc ends the questions.
-  const askText = (paneId: string, sheet: Sheet): Promise<string> =>
-    new Promise((resolve, reject) =>
-      openModal(
-        paneId,
-        sheet,
-        (_, text = "") => resolve(text.trim()),
-        () => reject(new Error("cancelled")),
-      ),
-    );
-  const pickIndex = (paneId: string, sheet: Sheet): Promise<number> =>
-    new Promise((resolve, reject) =>
-      openModal(paneId, sheet, resolve, () => reject(new Error("cancelled"))),
-    );
-
-  // Adds a custom server to the account: its name, its URL, and how it signs in, one sheet each.
-  const addServer = async (paneId: string): Promise<void> => {
-    const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
-    if (!mcp) return;
-    try {
-      const name = await askText(
-        paneId,
-        mcpTextSheet("Add an MCP server", "What is it called?", "Linear"),
-      );
-      if (!name) return;
-      const url = await askText(
-        paneId,
-        mcpTextSheet(
-          `Add ${name}`,
-          "Its MCP URL.",
-          "https://mcp.example.com/mcp",
-        ),
-      );
-      if (!url) return;
-      const auth = MCP_AUTHS[await pickIndex(paneId, mcpAuthSheet())].id;
-      const apiKey =
-        auth === "api_key"
-          ? await askText(
-              paneId,
-              mcpTextSheet(`Add ${name}`, "Its API key.", ""),
-            )
-          : undefined;
-      if (auth === "oauth")
-        showNotice(`Finish signing in to ${name} with your browser…`);
-      track("mcp server added", { auth });
-      const added = await addMcpServer(
-        mcp,
-        { name, url, auth, apiKey },
-        openUrl,
-      );
-      flashNotice(
-        `Added ${added.display_name || added.name}: new chats reach it`,
-        here,
-      );
-    } catch (error) {
-      if (messageOf(error) !== "cancelled")
-        flashNotice(`Couldn't add the server: ${messageOf(error)}`, here);
-    }
-  };
-
-  // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
-  const signOut = (paneId: string): void => {
-    track("signed out");
-    logout();
-    resetWork();
-    setFresh(new Map());
-    setPending(new Map());
-    flashNotice("Signed out");
-    openLoginSheet(paneId, "Pick the PostHog you sign in to.");
-  };
 
   const onSubmit = (
     paneId: string,
@@ -687,8 +318,8 @@ export function useSend({
       return;
     }
     if (slash?.command === "mcp") {
-      if (slash.args.trim() === "add") void addServer(paneId);
-      else openMcpSheet(paneId);
+      if (slash.args.trim() === "add") void mcpSheet.addServer(paneId);
+      else mcpSheet.open(paneId);
       return;
     }
     if (slash?.command === "login") {
@@ -696,7 +327,8 @@ export function useSend({
       return;
     }
     if (slash?.command === "logout") {
-      signOut(paneId);
+      setPending(new Map());
+      account.signOut(paneId);
       return;
     }
     const shell = parseShell(text);
@@ -891,24 +523,6 @@ export function useSend({
     flashNotice("Your message is back in the composer", { paneId, taskId });
   };
 
-  // Signed out, the sign-in sheet opens by itself. A first run goes on to who pays; a run that was welcomed before,
-  // or one that signed out, stops at the sign-in.
-  const welcome = (paneId: string): void => {
-    const first = !loadPrefs().welcomed;
-    if (first) {
-      savePrefs({ welcomed: true });
-      track("welcomed");
-      welcoming.current = true;
-    }
-    // The welcome's sheets take the keys of this pane.
-    setLayout((current) => focusPane(current, paneId));
-    openLoginSheet(
-      paneId,
-      "Pick the PostHog you sign in to. Your chats run on it.",
-      first ? openBillingSheet : undefined,
-    );
-  };
-
   const delivered = (taskId: string): void =>
     setPending((messages) => {
       if (!messages.has(taskId)) return messages;
@@ -923,7 +537,5 @@ export function useSend({
     reopening,
     undelivered,
     delivered,
-    welcome,
-    welcomeStep,
   };
 }
