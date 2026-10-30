@@ -208,8 +208,7 @@ class _ExperimentInputs:
     extras: Extras
     # The baseline family's report input for every examples row, graded against the experiment's.
     baseline_reports: np.ndarray
-    # The baseline family's project vectors when it reads other kinds than the experiment, else None
-    # and the baseline reads the experiment's.
+    # None when the baseline reads the experiment's kinds.
     baseline_context: ProjectContext | None = None
 
 

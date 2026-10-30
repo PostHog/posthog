@@ -35,7 +35,6 @@ class ProjectContext:
     has_history: np.ndarray
     # (rows,) int, the pair each example row reads.
     index: np.ndarray
-    # The kind of each column of `vectors` and `has_history`, in order.
     kinds: tuple[str, ...] = PROJECT_VECTOR_KINDS
 
     def __post_init__(self) -> None:

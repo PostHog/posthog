@@ -67,7 +67,6 @@ FIXED_COLUMN = "first_fixed_at"
 UI_ACTION_FIRST_COLUMNS = tuple(first for _, count, first in ACTION_TYPES if count in UI_ACTION_COLUMNS)
 # The engagement export carries exactly these columns to the other region, so `fixed` stays out.
 LABEL_COLUMNS = ("report_id", OPEN_COLUMN, DISMISS_COLUMN, *UI_ACTION_FIRST_COLUMNS)
-# What a training reader loads, so a family can ask for any of `CONTEXT_KINDS`.
 CONTEXT_LABEL_COLUMNS = (*LABEL_COLUMNS, FIXED_COLUMN)
 EMBEDDING_COLUMNS = ("report_id", "report_team_id", "embedding_small", "embedding_inserted_at", "is_tombstone")
 

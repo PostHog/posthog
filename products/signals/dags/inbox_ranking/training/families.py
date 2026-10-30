@@ -138,11 +138,8 @@ class ModelFamily:
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
 # `nn_with_prio_sources_v1` is an experiment: `nn_with_prio_v2` plus the source products of the
 # report's signals as of the moment, graded against `nn_with_prio_v2`.
-# `nn_with_prio_fixed_v1` is an experiment: `nn_with_prio_v2` plus a `fixed` project vector, the
-# team's recently fixed reports. Fixes come from the status stream, so a team that works through
-# agents or merged PRs gets history there when its UI kinds are thin. `nn_with_prio_fixed_nodismiss_v1`
-# swaps `dismiss`, the kind the fewest teams have history for, for `fixed`. Both are graded against
-# `nn_with_prio_v2`.
+# `nn_with_prio_fixed_v1` adds a `fixed` project vector to `nn_with_prio_v2`, because fixes reach
+# teams whose UI kinds are thin. `nn_with_prio_fixed_nodismiss_v1` swaps `dismiss` for `fixed`.
 # `nn_pair_base_v1` and `nn_pair_user_v1` are the user-history comparison at pair grain: one network,
 # one input shape, the same pairs and seeds, and the same reviewer flag. The base holds every
 # user-history input at zero, so `nn_pair_user_v1` against it is the uplift of the user's history

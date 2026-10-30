@@ -297,7 +297,6 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         asset_metadata = nn_dag.train_candidate(context, client, "bucket", day, family)
 
     metadata = json.loads(client.objects[model_object_key(PREFIX, family.name, day, METADATA_FILE)])
-    # A family's own kinds reach the graph, its recipe and the run's history shares.
     assert metadata["project_vector_kinds"] == metadata["recipe"]["project_vector_kinds"]
     assert metadata["project_vector_kinds"] == list(family.project_vector_kinds)
     assert {key for key in asset_metadata if key.endswith("_history_share")} == {
