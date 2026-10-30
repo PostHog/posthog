@@ -197,11 +197,13 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
 
 
 class StableCursorPagination(CursorPagination):
-    """Cursor pages that never skip or repeat a row, with a `count` like the limit/offset response.
+    """Cursor pages with a stable row order, and a `count` like the limit/offset response.
 
     A cursor stores the value of the first ordering field. When rows share that value, their order
     must be the same in every query, so the primary key is added as the last ordering term, in the
-    direction of the first term.
+    direction of the first term. Paging forward then never skips or repeats a row. A `previous` link
+    can still land on the wrong rows when more rows share one value than fit on a page, because the
+    cursor does not store the primary key.
     """
 
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
