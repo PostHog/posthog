@@ -34,7 +34,12 @@ from products.signals.backend.models import (
     SignalReportAssignment,
 )
 from products.signals.backend.personal_ranking.candidates import Candidate
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasonLimits, parse_config
+from products.signals.backend.personal_ranking.config import (
+    CandidatePool,
+    PersonalRankingConfig,
+    ReasonLimits,
+    parse_config,
+)
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
 from products.signals.backend.personal_ranking.prompt import render_person, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
@@ -226,6 +231,57 @@ class TestConfig(SimpleTestCase):
                 {"default_limit": 40, "max_limit": 30},
                 PersonalRankingConfig(default_limit=30, max_limit=30),
             ),
+            (
+                "pools_in_order_with_default_names_and_large_values_capped",
+                {
+                    "pools": [
+                        {"source": "priority", "size": 5, "lowest_priority": "P0", "window_days": 1000},
+                        {"source": "assigned", "size": 0},
+                        {"source": "scored", "size": 500, "head": "fixed", "has_pr": True, "actionable_only": True},
+                    ]
+                },
+                PersonalRankingConfig(
+                    pools=(
+                        CandidatePool(name="priority", source="priority", size=5, lowest_priority="P0", window_days=90),
+                        CandidatePool(name="assigned", source="assigned", size=0),
+                        CandidatePool(
+                            name="scored_fixed",
+                            source="scored",
+                            size=100,
+                            head="fixed",
+                            has_pr=True,
+                            actionable_only=True,
+                        ),
+                    )
+                ),
+            ),
+            (
+                "invalid_pools_drop",
+                {
+                    "pools": [
+                        {"source": "assigned", "size": 5, "name": "mine"},
+                        {"source": "for_you_updated", "size": 5, "name": "mine"},
+                        {"source": "everything", "size": 5},
+                        {"source": "scored", "size": 5},
+                        {"source": "assigned", "size": 5, "head": "open"},
+                        {"source": "assigned", "size": True},
+                        {"source": "assigned", "size": -1},
+                        {"source": "priority", "size": 5, "lowest_priority": "urgent"},
+                        {"source": "priority", "size": 5, "has_pr": "yes"},
+                        {"source": "assigned", "size": 5, "name": "Has Spaces"},
+                    ]
+                },
+                PersonalRankingConfig(pools=(CandidatePool(name="mine", source="assigned", size=5),)),
+            ),
+            ("no_valid_pool_keeps_the_defaults", {"pools": [{"source": "scored", "size": 5}]}, PersonalRankingConfig()),
+            ("pools_not_a_list", {"pools": {"source": "assigned", "size": 5}}, PersonalRankingConfig()),
+            (
+                "pools_past_the_maximum_drop",
+                {"pools": [{"source": "assigned", "size": 1, "name": f"p{index}"} for index in range(12)]},
+                PersonalRankingConfig(
+                    pools=tuple(CandidatePool(name=f"p{index}", source="assigned", size=1) for index in range(10))
+                ),
+            ),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -305,6 +361,15 @@ class TestBuildPersonalRanking(BaseTest):
                 scored_at=timezone.now(), manifest_version="m", served_key=served.key, results={served.key: served}
             ).model_dump_json(),
         )
+
+    def _prioritize(self, report: SignalReport, priority: str) -> SignalReport:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": priority, "explanation": "test"}),
+        )
+        return report
 
     def _setup_reports(self) -> dict[str, SignalReport]:
         reports = {
@@ -433,6 +498,34 @@ class TestBuildPersonalRanking(BaseTest):
             assert pools == {}
             assert build.status == "empty"
             self.create.assert_not_called()
+
+    @parameterized.expand([("can_see_scores", True), ("cannot_see_ranking", False)])
+    def test_configured_pools_keep_their_order_and_names(self, _name: str, staff: bool) -> None:
+        self.user.is_staff = staff
+        self.user.save(update_fields=["is_staff"])
+        urgent = self._prioritize(self._report("Urgent and unscored"), "P1")
+        self._prioritize(self._report("Not urgent"), "P3")
+        scored = self._report("Scored")
+        self._score(scored, action=0.8)
+        claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
+        SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+        config = PersonalRankingConfig(
+            pools=(
+                CandidatePool(name="assigned", source="assigned", size=0),
+                CandidatePool(name="scored_action", source="scored", size=5, head="action"),
+                CandidatePool(name="urgent", source="priority", size=5),
+            )
+        )
+
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
+            build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
+
+        pools = [(candidate.report_id, candidate.pools) for candidate in build.candidates]
+        expected = [(str(urgent.id), ("urgent",))]
+        if staff:
+            expected = [(str(scored.id), ("scored_action",)), *expected]
+        assert pools == expected
 
     @parameterized.expand([("dry_run", True, 0), ("stored", False, 1)])
     def test_command(self, _name: str, dry_run: bool, expected_rows: int) -> None:

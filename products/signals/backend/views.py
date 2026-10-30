@@ -10,19 +10,15 @@ from functools import cached_property, partial
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     BooleanField,
     Case,
-    CharField,
     Count,
     Exists,
     F,
-    Func,
     IntegerField,
-    JSONField,
     OuterRef,
     Prefetch,
     Q,
@@ -33,7 +29,7 @@ from django.db.models import (
     Window,
 )
 from django.db.models.expressions import OrderBy
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
@@ -223,7 +219,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_plan import report_plan
-from products.signals.backend.report_priority import update_report_priority
+from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -2470,37 +2466,7 @@ class SignalReportViewSet(
     def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
         # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
-        # The startswith guard skips non-object content.
-        # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
-        # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
-        unranked = Value(len(AutonomyPriority.values))
-        priority_value = Func(
-            Cast(F("content"), output_field=JSONField()),
-            Value("priority"),
-            function="jsonb_extract_path_text",
-            output_field=CharField(),
-        )
-        priority_position = Func(
-            Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
-            priority_value,
-            function="array_position",
-            output_field=IntegerField(),
-        )
-        latest_priority_rank = Subquery(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content__startswith="{",
-            )
-            .order_by("-created_at")
-            # `array_position` counts from 1 and returns NULL for a value outside the list.
-            .annotate(_priority_rank=priority_position - 1)
-            .values("_priority_rank")[:1],
-            output_field=IntegerField(),
-        )
-        return queryset.annotate(
-            priority_sort_rank=Coalesce(latest_priority_rank, unranked, output_field=IntegerField())
-        )
+        return queryset.annotate(priority_sort_rank=latest_priority_rank())
 
     def _annotate_signal_report_ranking(self, queryset):
         # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
