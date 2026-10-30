@@ -12,8 +12,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OccurrencesList } from './OccurrencesList'
 import {

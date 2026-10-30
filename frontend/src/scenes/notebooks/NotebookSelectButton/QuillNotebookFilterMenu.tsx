@@ -4,11 +4,11 @@ import { useMemo } from 'react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
+import { membersLogic } from '~/models/membersLogic'
 
 const ANY_USER = 'any'
 

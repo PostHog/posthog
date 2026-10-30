@@ -10,10 +10,10 @@ import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEd
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils/durations'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
+import { membersLogic } from '~/models/membersLogic'
 import { CommentType, OrganizationMemberType } from '~/types'
 
 import type { SessionPlayerData } from '../../../../types'

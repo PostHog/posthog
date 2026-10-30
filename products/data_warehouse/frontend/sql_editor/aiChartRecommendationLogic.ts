@@ -15,9 +15,9 @@ import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { withTimeout } from 'lib/utils/async'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

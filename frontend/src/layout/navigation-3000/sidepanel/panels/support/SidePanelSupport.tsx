@@ -9,8 +9,8 @@ import { DEFAULT_PAID_RESPONSE_TIME, getSupportPlanRows } from 'lib/components/S
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
 

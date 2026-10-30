@@ -3,7 +3,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

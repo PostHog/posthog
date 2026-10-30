@@ -4,7 +4,7 @@ import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SupportTicketKind, supportLogic } from 'lib/components/Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 interface SupportModalButtonProps {
     name?: string

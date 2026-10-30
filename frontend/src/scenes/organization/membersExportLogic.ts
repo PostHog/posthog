@@ -9,10 +9,10 @@ import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { slugify } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { OrganizationMemberType } from '~/types'
 
 import type { OrganizationType } from '../../types'
-import { membersLogic } from './membersLogic'
 
 function escapeCsvField(value: string): string {
     if (/[",\n\r]/.test(value)) {

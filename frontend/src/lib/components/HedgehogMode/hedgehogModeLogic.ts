@@ -15,9 +15,9 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'

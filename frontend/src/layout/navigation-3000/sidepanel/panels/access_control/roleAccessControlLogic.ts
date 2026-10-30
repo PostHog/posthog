@@ -7,12 +7,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AccessControlResponseType, RoleType } from '~/types'
 
 import type { AvailableFeature, OrganizationMemberType } from '../../../../../types'

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { LoginMethod, Region, SSOProvider } from '~/types'
 

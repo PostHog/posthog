@@ -6,8 +6,8 @@ import posthog from 'posthog-js'
 
 import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { dayjs } from 'lib/dayjs'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

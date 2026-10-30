@@ -11,7 +11,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 

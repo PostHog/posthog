@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 export function IPAllowListInfo(): JSX.Element {
     const { preflight } = useValues(preflightLogic)

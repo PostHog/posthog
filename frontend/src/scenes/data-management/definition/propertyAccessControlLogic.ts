@@ -2,8 +2,9 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 
 import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import {
     propertyAccessControlsCreate,

@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 import { MemberSelectOptions } from './MemberSelectOptions'

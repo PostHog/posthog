@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

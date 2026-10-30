@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 const BASE_COMMAND = 'npx -y @posthog/wizard@latest'

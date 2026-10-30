@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { DetailPanel } from 'scenes/debug/signals/DetailPanel'
 import { EdgeTooltip } from 'scenes/debug/signals/EdgeTooltip'
 import { buildEdges } from 'scenes/debug/signals/helpers'
@@ -9,7 +10,6 @@ import { SignalGraph } from 'scenes/debug/signals/SignalGraph'
 import { SimulationControls } from 'scenes/debug/signals/SimulationControls'
 import { DEFAULT_CONFIG, GraphEdge, SignalNode, SimConfig } from 'scenes/debug/signals/types'
 import { useD3ForceSimulation } from 'scenes/debug/signals/useD3ForceSimulation'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const STORAGE_KEY = 'inbox-signal-graph-physics'
 

@@ -11,7 +11,7 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

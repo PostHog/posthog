@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'

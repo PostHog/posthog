@@ -1,9 +1,9 @@
 import { MakeLogicType, LogicWrapper, actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import type { OrganizationMemberType, RoleType } from '~/types'
 
 import { isRoleAssigneeFilter, type CustomerTaskAssigneeFilter } from './customerTaskFilters'

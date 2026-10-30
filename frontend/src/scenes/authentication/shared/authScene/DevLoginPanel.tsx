@@ -7,10 +7,10 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { hashCodeForString } from 'lib/utils/strings'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 

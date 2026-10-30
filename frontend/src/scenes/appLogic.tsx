@@ -2,8 +2,8 @@ import { MakeLogicType, actions, connect, events, kea, path, reducers, selectors
 import { router, urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 

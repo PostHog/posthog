@@ -21,10 +21,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { membersLogic } from '~/models/membersLogic'
 import {
     APIScopeObject,
     AccessControlDefaultsResponse,

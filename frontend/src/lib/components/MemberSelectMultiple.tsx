@@ -4,8 +4,8 @@ import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullNameOrEmail } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 type UserIdType = string | number

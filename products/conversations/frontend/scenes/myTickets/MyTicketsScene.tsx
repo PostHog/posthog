@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { Link, Spinner } from '@posthog/lemon-ui'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'

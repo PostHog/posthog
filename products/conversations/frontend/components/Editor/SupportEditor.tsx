@@ -41,9 +41,9 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))

@@ -5,8 +5,9 @@ import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { OrganizationMenu } from 'lib/components/Account/OrganizationMenu'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import { twoFactorLogic } from './twoFactorLogic'
 import { TwoFactorSetup } from './TwoFactorSetup'

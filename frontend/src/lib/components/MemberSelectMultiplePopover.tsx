@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
 import { useMemberFilterClearAction } from './useMemberFilterClearAction'
