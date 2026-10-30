@@ -1268,7 +1268,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def send_to_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         if not self._slack_mirror_flag_enabled():
-            raise exceptions.NotFound("Sending discussions to Slack is not enabled for this project.")
+            raise exceptions.NotFound("Sending discussions to Slack isn't available for your account yet.")
 
         comment = self.get_object()
         if comment.source_comment_id is not None:
