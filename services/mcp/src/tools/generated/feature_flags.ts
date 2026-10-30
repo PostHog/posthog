@@ -398,7 +398,15 @@ const featureFlagRestore = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['id', 'key', 'active', 'deleted', 'version']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'deleted',
+            'status',
+            'version',
+        ]) as typeof result
         return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })

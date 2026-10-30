@@ -366,7 +366,9 @@ tools:
             Sets `deleted` to false and never accepts or replaces the `filters` object. A flag linked to an experiment
             had its key renamed to `<key>:deleted:<id>` when it was deleted. Restoring puts the original key back, or
             adds a numeric suffix when another flag has taken that key since, so check the returned `key` and tell the
-            user if it changed. The flag comes back enabled or disabled, as it was before the delete.
+            user if it changed. The flag comes back enabled or disabled, as it was before the delete. A flag that was
+            archived before the delete stays archived, so check the returned `archived` and call
+            `feature-flag-unarchive` if the user wants it back in the flag list.
 
 
             Returns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Restoring a flag
@@ -387,7 +389,9 @@ tools:
                 - id
                 - key
                 - active
+                - archived
                 - deleted
+                - status
                 - version
     feature-flag-roll-out-to-everyone:
         operation: feature_flags_roll_out_to_everyone_create
