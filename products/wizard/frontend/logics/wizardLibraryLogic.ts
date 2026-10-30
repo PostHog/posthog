@@ -24,6 +24,7 @@ import { wizardEventProperties, wizardRunEventProperties } from '../lib/wizardAn
 import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from '../lib/wizardRunDisplay'
 import { type WizardRunDetailSource, wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 import { wizardRunsLogic } from './wizardRunsLogic'
+import { wizardRunSyncLogic } from './wizardRunSyncLogic'
 
 function requestError(error: unknown, fallback: string): string {
     return error instanceof ApiError && error.detail ? error.detail : fallback
@@ -433,6 +434,9 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
 
             // Follow the new run in the drawer so the old failed run cannot reappear.
             if (createRunRequest) {
+                wizardRunSyncLogic
+                    .findMounted({ projectId: String(createRunRequest.team_id) })
+                    ?.actions.runsLoaded([createRunRequest], true)
                 actions.selectRun(createRunRequest, 'wizard_library')
             }
 

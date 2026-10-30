@@ -1,10 +1,12 @@
 import './Onboarding.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { Logo } from 'lib/brand'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { onboardingWizardRunLogic } from 'products/wizard/frontend/views/onboarding/onboardingWizardRunLogic'
 
 import { OnboardingFlowHost } from './OnboardingFlowHost'
 import { onboardingLogic } from './onboardingLogic'
@@ -24,7 +26,10 @@ const CARD_CLASSES =
  * flow skips product selection.
  */
 export function Onboarding(): JSX.Element | null {
-    const { productKey, flowVariant } = useValues(onboardingLogic)
+    const { productKey, flowVariant, currentTeam, user } = useValues(onboardingLogic)
+    useMountedLogic(
+        onboardingWizardRunLogic({ projectId: currentTeam ? String(currentTeam.id) : '', userId: user?.id ?? 0 })
+    )
 
     return (
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
