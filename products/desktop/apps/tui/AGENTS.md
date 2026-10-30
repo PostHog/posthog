@@ -71,7 +71,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 
 ## Things that bit us
 
-- **Tests and smoke runs never touch the real `~/.config/posthog-tui`.** `vitest.config.ts` sets a temp `HOME`. Drive the app in a pty with a temp `HOME` too, or a run can overwrite the user's session and layout.
+- **Tests and smoke runs never touch the real `~/.config/posthog-tui`.** `src/testHome.ts` gives each test file its own temp `HOME`, because the files run in parallel and one file's session files once showed up in another's sidebar. Drive the app in a pty with a temp `HOME` too, or a run can overwrite the user's session and layout.
 - **Ink draws an empty string with no height.** A blank row must carry a space, as `ChatView.render` does.
 - **Flex layout rounds half rows and leaves gaps.** Splits get whole-cell sizes from `splitSizes`, and a split with its own divider sizes its children inside that divider.
 - **Ink enters the alternate screen without moving the cursor home.** The full-height root box is what makes it draw from the top.

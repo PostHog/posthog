@@ -32,7 +32,15 @@ export function useRepoPicker({
   const [repos, setRepos] = useState<Record<string, string[]>>(
     () => loadPrefs().paneRepositories,
   );
-  const [pickers, setPickers] = useState<Map<string, Picker>>(new Map());
+  const [pickers, setPickersState] = useState<Map<string, Picker>>(new Map());
+  // Keys arrive in bursts before React renders, so each one reads the picker the last one left.
+  const openPickers = useRef(pickers);
+  const setPickers = (
+    change: (current: Map<string, Picker>) => Map<string, Picker>,
+  ): void => {
+    openPickers.current = change(openPickers.current);
+    setPickersState(openPickers.current);
+  };
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   // The latest search per pane, so an older answer arriving late is dropped.
   const latest = useRef(new Map<string, number>());
@@ -114,7 +122,7 @@ export function useRepoPicker({
       searchFor(paneId, "");
     },
     onKey: (paneId, sequence) => {
-      const picker = pickers.get(paneId);
+      const picker = openPickers.current.get(paneId);
       if (!picker) return false;
       const key = pickerKey(sequence);
       if (!key) return true;
