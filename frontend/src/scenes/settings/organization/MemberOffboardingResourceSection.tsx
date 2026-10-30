@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconSlack, IconMicrosoftTeams, IconEnvelope } from 'lib/lemon-ui/icons'
+import { IconSlack, IconMicrosoftTeams } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userLogic } from 'scenes/userLogic'
@@ -16,7 +16,7 @@ import { subscriptionDestination } from 'products/subscriptions/frontend/scenes/
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 
 const DESTINATION_ICONS: Record<string, JSX.Element> = {
-    email: <IconEnvelope />,
+    email: <IconLetter />,
     slack: <IconSlack />,
     teams: <IconMicrosoftTeams />,
 }
