@@ -12,22 +12,6 @@ function mapBytes(map: Record<string, string> | null | undefined): number {
     return total
 }
 
-function arrayBytes(values: string[] | null | undefined): number {
-    let total = 0
-    for (const value of values ?? []) {
-        total += stringBytes(value)
-    }
-    return total
-}
-
-/** Span columns that decode into the same record type. A log record has none of them. */
-type SpanPayload = {
-    name?: string | null
-    status_message?: string | null
-    events?: string[] | null
-    links?: string[] | null
-}
-
 function resourceKey(map: Record<string, string> | null | undefined): string {
     return JSON.stringify(Object.entries(map ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 }
@@ -51,14 +35,9 @@ export function measureContentWeights(records: LogRecord[]): Map<LogRecord, numb
     const weights = new Map<LogRecord, number>()
     records.forEach((record, i) => {
         const { resource, scope } = keys[i]
-        const span = record as SpanPayload
         weights.set(
             record,
             stringBytes(record.body) +
-                stringBytes(span.name) +
-                stringBytes(span.status_message) +
-                arrayBytes(span.events) +
-                arrayBytes(span.links) +
                 stringBytes(record.event_name) +
                 stringBytes(record.severity_text) +
                 mapBytes(record.attributes) +

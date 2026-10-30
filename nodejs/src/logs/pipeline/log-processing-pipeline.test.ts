@@ -1,11 +1,6 @@
 import type { LogRecord } from '~/logs/log-record-avro'
 
-import {
-    EMPTY_STAGE_DROP_STATS,
-    type PipelineStage,
-    measureContentWeights,
-    runPipelineStages,
-} from './log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage, runPipelineStages } from './log-processing-pipeline'
 
 describe('runPipelineStages', () => {
     const rec = (uuid: string): LogRecord =>
@@ -100,18 +95,6 @@ describe('runPipelineStages', () => {
         const share = stats.contentBytesDropped / stats.contentBytesTotal
         expect(share).toBeGreaterThanOrEqual(minShare)
         expect(share).toBeLessThanOrEqual(maxShare)
-    })
-
-    it('weighs the span payload, so a byte rate limit charges a large span for its events and links', () => {
-        const span = (extra: Record<string, unknown>): LogRecord =>
-            ({ ...rec('s'), body: null, name: 'GET /api', status_message: 'ok', ...extra }) as unknown as LogRecord
-        const bare = span({ events: null, links: null })
-        const heavy = span({ events: ['x'.repeat(1000)], links: ['y'.repeat(500)] })
-
-        const weights = measureContentWeights([bare, heavy])
-
-        expect(weights.get(bare)).toBe('GET /api'.length + 'ok'.length)
-        expect(weights.get(heavy)! - weights.get(bare)!).toBe(1500)
     })
 
     it('stops running stages once every record is dropped', async () => {

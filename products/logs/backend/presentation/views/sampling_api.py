@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 from django.db import transaction
@@ -19,8 +20,9 @@ from posthog.schema import PropertyGroupFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.logs.backend.models import LogsExclusionRule
 from products.logs.backend.presentation.filter_group_validation import (
     MAX_FILTER_GROUP_DEPTH,
@@ -303,6 +305,11 @@ class LogsSamplingRuleSimulateResponseSerializer(serializers.Serializer):
     notes = serializers.CharField(help_text="Human-readable caveats for the estimate.")
 
 
+# Logs consumers on a release that does not filter rules by `source` would apply span rules to logs.
+# Turn this on only after every logs consumer reads `source=logs` rules alone.
+LOGS_SPAN_DROP_RULES_FLAG = "logs-span-drop-rules"
+
+
 class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
@@ -310,16 +317,24 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
-        # A span rule drops trace data, so API-key writes need authority over tracing as well as logs.
-        if self.action in ("create", "update", "partial_update", "destroy") and self._write_targets_spans(request):
+        # A span rule drops trace data, so API keys need authority over tracing as well as logs.
+        if self.action in ("list", "retrieve") and self._request_targets_spans(request):
+            return ["logs:read", "tracing:read"]
+        if self.action in ("create", "update", "partial_update", "destroy", "reorder") and self._request_targets_spans(
+            request
+        ):
             return ["logs:write", "tracing:write"]
         return None
 
-    def _write_targets_spans(self, request: Request) -> bool:
+    def _request_targets_spans(self, request: Request) -> bool:
         if self.action == "create":
             # drf-spectacular calls this with a mock request during schema generation.
-            data = getattr(request, "data", None) or {}
-            return data.get("source") == LogsExclusionRule.RecordSource.SPANS
+            data = getattr(request, "data", None)
+            # A non-object body has no source. The serializer rejects it with a 400.
+            return isinstance(data, Mapping) and data.get("source") == LogsExclusionRule.RecordSource.SPANS
+        if self.action in ("list", "reorder"):
+            query_params = getattr(request, "query_params", None) or {}
+            return query_params.get("source") == LogsExclusionRule.RecordSource.SPANS
         rule_id = self.kwargs.get(self.lookup_field)
         if not isinstance(rule_id, str):
             # Schema generation has no rule id.
@@ -336,13 +351,26 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return False
         return source == LogsExclusionRule.RecordSource.SPANS
 
-    def _assert_tracing_access_for_span_rules(self, source: str) -> None:
-        # A span rule drops trace data, and AccessControlPermission only checks the view's `logs` scope.
+    def _assert_tracing_access_for_span_rules(self, source: str, level: AccessControlLevel = "editor") -> None:
+        # A span rule acts on trace data, and AccessControlPermission only checks the view's `logs` scope.
         if source != LogsExclusionRule.RecordSource.SPANS:
             return
         user_access_control = UserAccessControl(user=cast(User, self.request.user), team=self.team)
-        if not user_access_control.check_access_level_for_resource("tracing", "editor"):
-            raise PermissionDenied("Managing span drop rules requires editor access to tracing.")
+        if not user_access_control.check_access_level_for_resource("tracing", level):
+            verb = "Managing" if level == "editor" else "Viewing"
+            raise PermissionDenied(f"{verb} span drop rules requires {level} access to tracing.")
+
+    def _assert_span_rule_writes_enabled(self, source: str) -> None:
+        if source != LogsExclusionRule.RecordSource.SPANS:
+            return
+        user = cast(User, self.request.user)
+        if not posthog_feature_flag_enabled(
+            LOGS_SPAN_DROP_RULES_FLAG,
+            str(user.distinct_id),
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+        ):
+            raise PermissionDenied("Span drop rules are not available for this project yet.")
 
     def _requested_source(self) -> str:
         query = LogsSamplingRuleSourceQuerySerializer(data=self.request.query_params)
@@ -357,12 +385,19 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(parameters=[LogsSamplingRuleSourceQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._assert_tracing_access_for_span_rules(self._requested_source(), "viewer")
         return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(LogsExclusionRule, self.get_object())
+        self._assert_tracing_access_for_span_rules(instance.source, "viewer")
+        return Response(self.get_serializer(instance).data)
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
         self._assert_tracing_access_for_span_rules(s.validated_data["source"])
+        self._assert_span_rule_writes_enabled(s.validated_data["source"])
         max_priority = LogsExclusionRule.objects.filter(
             team_id=self.team_id, source=s.validated_data["source"]
         ).aggregate(m=Max("priority"))["m"]
@@ -389,6 +424,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
         self._assert_tracing_access_for_span_rules(cast(LogsExclusionRule, s.instance).source)
+        self._assert_span_rule_writes_enabled(cast(LogsExclusionRule, s.instance).source)
         instance = cast(LogsExclusionRule, s.save())
         LogsExclusionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
@@ -428,6 +464,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ordered_ids = serializer.validated_data["ordered_ids"]
         source = self._requested_source()
         self._assert_tracing_access_for_span_rules(source)
+        self._assert_span_rule_writes_enabled(source)
         team_rule_ids = set(
             LogsExclusionRule.objects.filter(team_id=self.team_id, source=source).values_list("id", flat=True)
         )

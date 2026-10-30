@@ -67,7 +67,7 @@ import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
-import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling-rules-cache'
+import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
@@ -395,8 +395,6 @@ export class LogsIngestionConsumer {
     // Record source this consumer evaluates retention rules for. Same vocabulary as
     // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
     protected retentionRuleSource: RetentionRuleSource = 'logs'
-    // Drop rules and rate limits this consumer evaluates. TracesIngestionConsumer overrides to 'spans'.
-    protected samplingRuleSource: SamplingRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -592,7 +590,7 @@ export class LogsIngestionConsumer {
         const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
         let ruleSet: CompiledRuleSet | null = null
         if (samplingCache && samplingEvalEnabled && this.appliesTeamLogRules(message)) {
-            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId, this.samplingRuleSource)
+            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
