@@ -28,7 +28,6 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.utils.urls import remove_query_param, replace_query_param
 from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
@@ -61,7 +60,7 @@ from posthog.api.integration_push_tokens import (
     push_channel_app_id,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import PageLinksSerializer, previous_offset
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
@@ -445,12 +444,7 @@ def external_page_links(request: Request, *, offset: int, limit: int, next_offse
     The links drop `force_refresh`, so a followed link reads the list that the first page cached
     and does not call the external API again.
     """
-    url = remove_query_param(request.build_absolute_uri(), "force_refresh")
-    previous = previous_offset(offset, limit)
-    return {
-        "next": replace_query_param(url, "offset", next_offset) if next_offset is not None else None,
-        "previous": replace_query_param(url, "offset", previous) if previous is not None else None,
-    }
+    return offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset, drop="force_refresh")
 
 
 def github_repos_page(request: Request, github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:

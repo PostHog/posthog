@@ -8,7 +8,7 @@ from rest_framework.pagination import CursorPagination, LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
-from rest_framework.utils.urls import replace_query_param
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 
 from posthog.paging import CursorBound, CursorPageRequest, Page, PageRequest
 
@@ -46,6 +46,23 @@ def previous_offset(offset: int, limit: int) -> int | None:
     if offset <= 0:
         return None
     return max(offset - limit, 0)
+
+
+def offset_page_links(
+    request: Request, *, offset: int, limit: int, next_offset: int | None, drop: str | None = None
+) -> dict[str, str | None]:
+    """Return the `next` and `previous` links of one page of a list that pages with an `offset` param.
+
+    `drop` names a query param that the links leave out.
+    """
+    url = request.build_absolute_uri()
+    if drop is not None:
+        url = remove_query_param(url, drop)
+    previous = previous_offset(offset, limit)
+    return {
+        "next": None if next_offset is None else replace_query_param(url, "offset", next_offset),
+        "previous": None if previous is None else replace_query_param(url, "offset", previous),
+    }
 
 
 class PageLinksSerializer(serializers.Serializer):

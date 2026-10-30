@@ -9,7 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.pagination import page_link, previous_offset
+from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
@@ -106,8 +106,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit=limit,
         )
         data = ReusableWidgetPageSerializer(result).data
-        data["next"] = page_link(request, "offset", result.next_offset)
-        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
         return Response(data)
 
     @extend_schema(
@@ -144,8 +143,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except WidgetError as error:
             return self._error_response(error)
         data = ReusableWidgetVersionPageSerializer(result).data
-        data["next"] = page_link(request, "offset", result.next_offset)
-        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
         return Response(data)
 
     @extend_schema(

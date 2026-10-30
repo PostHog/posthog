@@ -32,7 +32,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.hogql.direct_connection import get_direct_connection_source
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import page_link, previous_offset
+from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
@@ -1219,8 +1219,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except WidgetError as error:
             return self._widget_error_response(error)
         data = WidgetVersionPageSerializer(result).data
-        data["next"] = page_link(request, "offset", result.next_offset)
-        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
         return Response(data)
 
     @extend_schema(

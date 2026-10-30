@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
-from posthog.api.pagination import PageLinksSerializer, page_link, previous_offset
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -917,8 +917,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             offset=filters["offset"],
         )
         data = ReviewReviewsTablePageSerializer(page).data
-        data["next"] = page_link(request, "offset", _next_table_offset(filters["offset"], filters["limit"], page.count))
-        data["previous"] = page_link(request, "offset", previous_offset(filters["offset"], filters["limit"]))
+        offset, limit = filters["offset"], filters["limit"]
+        next_offset = _next_table_offset(offset, limit, page.count)
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset))
         return Response(data)
 
     @extend_schema(
