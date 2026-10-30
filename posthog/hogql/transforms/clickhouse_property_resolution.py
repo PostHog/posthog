@@ -1313,20 +1313,27 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     # --- comparison / call rewrites ---
 
     def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
-        """String, float or Bool extraction of one native property, computed from its subcolumn without JSON text.
+        """String, float or Bool extraction of one native property, or its JSON type, computed from its subcolumn.
 
-        Covers `JSONExtractString`, `JSONExtractFloat`, `JSONExtractBool` and `JSONExtract` to String or Float64. The
-        property pass has replaced the document with `ifNull(toJSONString(<subcolumn>), '')`, so the function would
-        serialize one value and parse it back. This reads the `Dynamic` value instead and reproduces the function's
-        result per stored type: a string passes through, a number or Bool becomes its text for a string target, an
-        integer becomes a number for a float target, a Bool does so only for typed `JSONExtract`, and a missing key
-        gives '' or 0 unless the target is Nullable. A stored Float64 keeps the function for string and Bool targets,
-        because JSON number formatting (an integer token for 2.0, exponent notation) decides the result.
+        Covers `JSONExtractString`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtract` to String or Float64, and
+        `JSONType`. The property pass has replaced the document with `ifNull(toJSONString(<subcolumn>), '')`, so the
+        function would serialize one value and parse it back. This reads the `Dynamic` value instead and reproduces
+        the function's result per stored type: a string passes through, a number or Bool becomes its text for a string
+        target, an integer becomes a number for a float target, a Bool does so only for typed `JSONExtract`, and a
+        missing key gives '' or 0 unless the target is Nullable. A stored Float64 keeps the function for a string
+        target, because JSON number formatting (an integer token for 2.0, exponent notation) decides the result. It
+        reads as false for a Bool target and as `Double` for `JSONType`, which the integer token of an integral float
+        would hide.
 
         Integer extraction keeps ClickHouse's JSON parser: its coercion rules (fractional and exponent strings truncate,
         Bool reads as 0, overflow reads as 0) take more SQL to emulate than the parse of one serialized value costs.
         """
-        scalar_types = {"JSONExtractString": "String", "JSONExtractFloat": "Float64", "JSONExtractBool": "Bool"}
+        scalar_types = {
+            "JSONExtractString": "String",
+            "JSONExtractFloat": "Float64",
+            "JSONExtractBool": "Bool",
+            "JSONType": "String",
+        }
         target = scalar_types.get(node.name)
         nullable = False
         path_args = node.args[1:]
@@ -1373,6 +1380,18 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             [_json_subcolumn_access(field_type, keys, source=source, is_nullable=True), _const("Dynamic")],
         )
         value_type = _call("dynamicType", [clone_expr(value)])
+        if node.name == "JSONType":
+            json_text = _json_subcolumn_value_expr(field_type, keys, source=source, as_json=True)
+            json_type = _call(
+                "if",
+                [
+                    _call("equals", [value_type, _const("Float64")]),
+                    _const("Double"),
+                    _call("JSONType", [_call("ifNull", [json_text, _const("")])]),
+                ],
+            )
+            json_type.type = node.type
+            return json_type
         if target == "String":
             result = _json_subcolumn_value_expr(field_type, keys, source=source)
         elif node.name == "JSONExtractBool":
@@ -1394,7 +1413,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                         result,
                     ],
                 )
-        if target == "String" or node.name == "JSONExtractBool":
+        if target == "String":
             # Float serialization can become an integer token or overflow JSON's integer parser. Keep its defaults.
             float_extract = replace(
                 node,
