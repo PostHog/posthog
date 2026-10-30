@@ -28,7 +28,7 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         report = InvestigationReport(
             verdict="true_positive",
             metric_meaning="Unique users who loaded a page under /pricing each day.",
-            summary="Traffic doubled after a marketing campaign launch.",
+            summary="- **Traffic doubled** after the `spring_launch` campaign.\n- Check [the report](https://example.com) with _marketing_.",
             hypotheses=[
                 InvestigationHypothesis(
                     title="Marketing launch",
@@ -51,6 +51,10 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "## Recommendations" in markdown
         assert "### Run details" in markdown
         assert "- Campaign ID 42 launched at 2024-06-01 08:00" in markdown
+        # The summary keeps its formatting, and its link stays text.
+        assert "- **Traffic doubled** after the `spring_launch` campaign." in markdown
+        assert "- Check the report with *marketing*." in markdown
+        assert "example.com" not in markdown
 
         # The source insight stays live through a SavedInsightNode Query component.
         assert '<Query title="pageviews/day"' in markdown

@@ -1,6 +1,10 @@
 import json
 import uuid
 from dataclasses import dataclass
+from typing import Any
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
@@ -11,9 +15,13 @@ from products.notebooks.backend.facade.content import (
     convert_notebook_content_to_markdown,
     create_bullet_list,
     create_heading_with_text,
+    create_paragraph_with_content,
     create_paragraph_with_text,
 )
 from products.product_analytics.backend.facade.models import Insight
+
+_SUMMARY_MARKDOWN = MarkdownIt("commonmark")
+_SUMMARY_MARKS = {"strong_open": "bold", "em_open": "italic"}
 
 VERDICT_LABEL = {
     "true_positive": "True positive",
@@ -43,7 +51,8 @@ def build_investigation_markdown(ctx: NotebookRenderContext) -> str:
 
     content.append(create_heading_with_text("Verdict", level=2))
     verdict_text = VERDICT_LABEL.get(ctx.report.verdict, ctx.report.verdict)
-    content.append(create_paragraph_with_text(f"{verdict_text} — {ctx.report.summary}"))
+    content.append(create_paragraph_with_text(verdict_text))
+    content.extend(_summary_content(ctx.report.summary))
 
     metric_meaning = ctx.report.metric_meaning.strip()
     if metric_meaning:
@@ -75,6 +84,51 @@ def build_investigation_markdown(ctx: NotebookRenderContext) -> str:
     content.append(create_paragraph_with_text(_footer_line(ctx)))
 
     return convert_notebook_content_to_markdown({"type": "doc", "content": content})
+
+
+def _summary_content(summary: str) -> TipTapContent:
+    """Rebuild the agent's Markdown summary as paragraphs and bullet lists with inline marks.
+
+    The summary is model output, so it becomes escaped text with marks. Raw notebook markdown
+    could embed components or links.
+    """
+    content: TipTapContent = []
+    items: list[TipTapContent] = []
+    list_depth = 0
+    for token in _SUMMARY_MARKDOWN.parse(summary):
+        if token.type in ("bullet_list_open", "ordered_list_open"):
+            list_depth += 1
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
+            list_depth -= 1
+            if list_depth == 0 and items:
+                content.append(create_bullet_list(items))
+                items = []
+        elif token.type == "inline":
+            paragraph = create_paragraph_with_content(_inline_content(token.children or []))
+            if list_depth:
+                items.append([paragraph])
+            else:
+                content.append(paragraph)
+    return content
+
+
+def _inline_content(children: list[Token]) -> TipTapContent:
+    marks: list[str] = []
+    nodes: TipTapContent = []
+    for child in children:
+        if child.type in _SUMMARY_MARKS:
+            marks.append(_SUMMARY_MARKS[child.type])
+        elif child.type in ("strong_close", "em_close") and marks:
+            marks.pop()
+        elif child.type in ("text", "html_inline", "code_inline", "softbreak", "hardbreak"):
+            text = " " if child.type in ("softbreak", "hardbreak") else child.content
+            node_marks = [*marks, "code"] if child.type == "code_inline" else marks
+            if text:
+                node: dict[str, Any] = {"type": "text", "text": text}
+                if node_marks:
+                    node["marks"] = [{"type": mark} for mark in node_marks]
+                nodes.append(node)
+    return nodes
 
 
 def _summary_line(ctx: NotebookRenderContext) -> str:
