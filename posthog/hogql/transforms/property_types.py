@@ -472,8 +472,8 @@ class PropertySwapper(CloningVisitor):
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, first_key],
-            # The function parses this value as JSON, so the read is marked `as_json`: the metadata pass leaves a
-            # typed key unconverted and the join wrapper exports its JSON text.
+            # The function parses this value as JSON, so the read is marked `as_json` and the metadata pass leaves a
+            # typed key unconverted.
             type=ast.PropertyType(chain=[first_key], field_type=field_type, as_json=True),
         )
         property_document: ast.Expr = ast.Call(

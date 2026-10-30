@@ -188,6 +188,35 @@ class TestWrappedEventJoins(SimpleTestCase):
             }
             assert "toJSONString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(joined.properties, %(hogql_val_" in inner
 
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_grouped_clauses_export_the_value_under_a_serialization(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT toJSONString(joined.properties.a) AS a, JSONExtractString(joined.properties, 'label') AS label, "
+            f"any(toJSONString(joined.properties.arr)), count() {WRAPPED_JOIN} GROUP BY joined.properties.a, label "
+            "HAVING toJSONString(joined.properties.a) != '' ORDER BY toJSONString(joined.properties.a)",
+            native=native,
+        )
+        outer = re.sub(r" AS `[^`]*`", "", printed.split(" FROM ", 1)[0])
+        assert "toJSONString(joined.properties___a) AS a" in outer, printed
+        assert "any(joined.properties___arr)" in outer, printed
+        tail = printed.rsplit(") AS joined ON ", 1)[1]
+        assert "GROUP BY joined.properties___a," in tail, printed
+        assert tail.count("toJSONString(joined.properties___a)") == 2, printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        if native:
+            assert "JSONExtractString(ifNull(toJSONString(joined.properties___label), ''))" in outer, printed
+            assert self._exports(printed, "joined", native) == {
+                "properties___a",
+                "properties___label",
+                "properties___arr",
+            }
+            assert "toString(joined.properties.a)" in inner, printed
+            assert "toString(joined.properties.arr)" not in inner, printed
+        else:
+            assert "JSONExtractString(joined.properties, %(hogql_val_" in outer, printed
+            assert self._exports(printed, "joined", native) == {"properties___a", "properties", "properties___arr"}
+            assert inner.count("toJSONString(") == 1, printed
+
     def test_decides_exports_per_source(self) -> None:
         printed, _ = self._compile(
             "SELECT b.properties, c.properties.amount FROM events AS a "
@@ -406,12 +435,26 @@ class TestLazyJoins(BaseTest):
                 "JSONExtractRaw(related.properties, 'a'), JSONExtractString(related.properties, 'a', 'b'), "
                 "JSONLength(related.properties, 'a'), JSONExtractRaw(related.properties, 'amount'), "
                 "toJSONString(related.properties.amount), toJSONString(related.properties.rating)",
-                ('{"b":"nested"}', "nested", 1, '"7"', "7", "null"),
+                ('{"b":"nested"}', "nested", 1, '"7"', "7", None),
+            ),
+            (
+                "grouped",
+                "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), count()",
+                ('"ready"', "ready", "7", '"ready"', 1),
+                "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount)",
+            ),
+            (
+                "grouped_by_key",
+                "toJSONString(related.properties.label), count()",
+                ('"ready"', 1),
+                "GROUP BY related.properties.label",
             ),
         ]
     )
     def test_wrapped_events_join_executes_exported_property_reads(
-        self, _name: str, select: str, expected: tuple[object, ...]
+        self, _name: str, select: str, expected: tuple[object, ...], clause: str = ""
     ) -> None:
         for name, property_type in [
             ("amount", "Numeric"),
@@ -440,7 +483,7 @@ class TestLazyJoins(BaseTest):
         result = execute_hogql_query(
             f"SELECT {select} FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
-            "WHERE source.uuid = {event_uuid} AND related.uuid = {event_uuid}",
+            f"WHERE source.uuid = {{event_uuid}} AND related.uuid = {{event_uuid}} {clause}",
             team=self.team,
             placeholders={"event_uuid": ast.Constant(value=event_uuid)},
             modifiers=HogQLQueryModifiers(

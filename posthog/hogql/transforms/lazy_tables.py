@@ -7,6 +7,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
@@ -133,6 +134,44 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         self.properties: dict[int, tuple[ast.PropertyType, str, bool]] = {}
         self.reads_lazy_join = False
         self._names: dict[tuple[object, ...], str] = {}
+        self._in_grouped_clause = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # The property resolver lowers a read in a clause that runs after grouping to the property's value and keeps
+        # the calls around it, so the clause split here follows its `visit_select_query`.
+        was_in_grouped_clause = self._in_grouped_clause
+        self._in_grouped_clause = False
+        try:
+            if not node.group_by and node.group_by_mode != "all":
+                super().visit_select_query(node)
+                return
+            super().visit_select_query(
+                dataclasses.replace(
+                    node,
+                    select=[],
+                    group_by=None,
+                    having=None,
+                    order_by=None,
+                    qualify=None,
+                    window_exprs=None,
+                    limit_by=None,
+                    interpolate=None,
+                )
+            )
+            self._in_grouped_clause = True
+            for expr in (
+                *node.select,
+                *(node.group_by or []),
+                node.having,
+                *(node.order_by or []),
+                node.qualify,
+                *(node.window_exprs or {}).values(),
+                node.limit_by,
+                *(node.interpolate or []),
+            ):
+                self.visit(expr)
+        finally:
+            self._in_grouped_clause = was_in_grouped_clause
 
     def visit_field(self, node: ast.Field) -> None:
         field_type = node.type
@@ -153,6 +192,13 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         self._note_hops(hops)
 
     def visit_call(self, node: ast.Call) -> None:
+        if self._in_grouped_clause and find_hogql_aggregation(node.name):
+            self._in_grouped_clause = False
+            try:
+                super().visit_call(node)
+            finally:
+                self._in_grouped_clause = True
+            return
         if node.name == "toJSONString" and len(node.args) == 1 and self._collect_serialized_read(node.args[0]):
             return
         super().visit_call(node)
@@ -183,10 +229,9 @@ class WrappedTableReferenceCollector(TraversingVisitor):
         if hops is None:
             return
         through_lazy_join = any(isinstance(hop, ast.LazyJoinType) for hop in hops)
-        # A lazy join's subquery exports the value itself, so a read through one keeps its outer `toJSONString`.
-        as_json = (as_json or property_type.as_json) and not through_lazy_join
-        if as_json:
-            property_type.as_json = True
+        # A lazy join's subquery exports the value itself, so a read through one keeps its outer `toJSONString`. After
+        # grouping the export is the value as well, so a GROUP BY key on the same property shares the column.
+        as_json = (as_json or property_type.as_json) and not through_lazy_join and not self._in_grouped_clause
         field_chain = (*(hop.field for hop in hops), document.name)
         property_path = tuple(property_type.chain)
         # An integer array index and a string key with the same text are different paths.
@@ -335,8 +380,8 @@ class LazyTableResolver(TraversingVisitor):
                 # (toFloatOrZero) that rejects the converted type, so the inner read is lowered to a raw extract now.
                 column.expr = lower_property_access(column.expr, self.context)
             if export.as_json:
-                # The property resolver drops the outer `toJSONString` of a read marked `as_json`, so the column
-                # has to hold the JSON text itself.
+                # The property resolver drops the outer `toJSONString` of a read from this column, so the column has
+                # to hold the JSON text itself.
                 column.expr = ast.Call(name="toJSONString", args=[column.expr], type=ast.StringType(nullable=True))
                 column.type = ast.FieldAliasType(alias=column.alias, type=ast.StringType(nullable=True))
                 subquery.type.columns[column.alias] = column.type
@@ -356,6 +401,7 @@ class LazyTableResolver(TraversingVisitor):
             # definition, while the printer reads the exported column.
             property_type.joined_subquery = join_ptr.type
             property_type.joined_subquery_field_name = export_name
+            property_type.joined_subquery_json_text = collector.exports[export_name].as_json
             if through_lazy_join:
                 # The lazy join's subquery converted the value already, as it does without this wrapper.
                 property_type.field_type.table_type = join_ptr.type

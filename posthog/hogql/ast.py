@@ -779,6 +779,8 @@ class PropertyType(Type):
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
+    # That field holds the property's JSON text, serialized inside the subquery, so the printer must not serialize it again.
+    joined_subquery_json_text: bool = field(default=False, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
