@@ -680,7 +680,7 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand([("emitting", True, "running"), ("in dry run", False, "dry_run")])
     def test_a_scout_a_person_set_up_gains_the_suggestion_grant_and_outlives_the_opt_out(
-        self, _mock_flag, _name: str, emit: bool, scout_status: str
+        self, _name: str, emit: bool, scout_status: str
     ):
         flow_id = self._create_active_flow(optimize=False)
         SignalScoutConfig.objects.for_team(self.team.id).create(
