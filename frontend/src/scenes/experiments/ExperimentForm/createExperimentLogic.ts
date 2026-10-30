@@ -65,28 +65,49 @@ function experimentWritePayloadForApi(
     } as unknown as Parameters<typeof experimentsCreate>[1]
 }
 
-const isUnique = (keys: string[], key: string): boolean => keys.indexOf(key) === keys.lastIndexOf(key)
+const isFirst = (keys: string[], index: number): boolean => keys.indexOf(keys[index]) === index
 
+/**
+ * While variants share a key, the first of them keeps the details under that key, and each of the others holds its own
+ * under a key no variant has. Renaming either variant then gives each one its own details back.
+ */
 function pickVariantDetails<T>(details: Record<string, T>, keys: string[], previousKeys: string[]): Record<string, T> {
-    // Adding or removing a variant shifts the positions, so only a same-length change can be a rename
-    const sameCount = previousKeys.length === keys.length
-    const heldKey = Object.keys(details).find((key) => !previousKeys.includes(key))
+    // Where each previous variant's details are: under its key, or held under a key no variant had
+    const heldKeys = Object.keys(details).filter((key) => !previousKeys.includes(key))
+    const previousSources = previousKeys.map((key, index) => (isFirst(previousKeys, index) ? key : heldKeys.shift()))
+    // Only a same-length change can be a rename, so each variant keeps its place. Adding or removing a variant shifts
+    // the places, so then a variant takes the details of the previous variant with its key, in order
+    const sourcesByKey = new Map<string, (string | undefined)[]>()
+    previousKeys.forEach((key, index) =>
+        sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), previousSources[index]])
+    )
+    const sources =
+        previousKeys.length === keys.length
+            ? previousSources
+            : keys.map((key) => {
+                  const queue = sourcesByKey.get(key)
+                  return queue?.length ? queue.shift() : key
+              })
+
     const picked: Record<string, T> = {}
-    keys.forEach((key, index) => {
-        const previousKey = previousKeys[index]
-        const sourceKey =
-            sameCount && key !== previousKey ? (isUnique(previousKeys, previousKey) ? previousKey : heldKey) : key
-        if (sourceKey === undefined || !Object.hasOwn(details, sourceKey)) {
+    const taken = new Set(keys)
+    const read = new Set<string>()
+    sources.forEach((source, index) => {
+        if (source === undefined || read.has(source) || !Object.hasOwn(details, source)) {
             return
         }
-        // While a key collides with another variant's, hold its details under the old key until it's unique again
-        picked[isUnique(keys, key) ? key : sourceKey] = details[sourceKey]
+        read.add(source)
+        if (isFirst(keys, index)) {
+            picked[keys[index]] = details[source]
+            return
+        }
+        // Hold under the key it's under now if no variant has it, or else under a key a variant had before
+        const holdKey = [source, ...previousKeys].find((key) => !taken.has(key))
+        if (holdKey !== undefined) {
+            taken.add(holdKey)
+            picked[holdKey] = details[source]
+        }
     })
-    // An update that leaves the colliding keys as they are, like a split change, must keep holding them
-    const collisionUnresolved = keys.some((key) => !isUnique(keys, key))
-    if (collisionUnresolved && heldKey !== undefined && !Object.hasOwn(picked, heldKey)) {
-        picked[heldKey] = details[heldKey]
-    }
     return picked
 }
 

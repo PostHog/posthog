@@ -528,6 +528,38 @@ describe('createExperimentLogic', () => {
             })
         })
 
+        it.each([
+            {
+                renames: 'test to control, then the original control to baseline',
+                steps: [
+                    ['control', 'control'],
+                    ['baseline', 'control'],
+                ],
+            },
+            {
+                renames: 'control to test, then the original test to one-page',
+                steps: [
+                    ['test', 'test'],
+                    ['test', 'one-page'],
+                ],
+            },
+        ])('gives each variant its own details back after a collision ($renames)', ({ steps }) => {
+            startWith(['control', 'test'], {
+                variant_notes: { control: 'Current checkout', test: 'One-page checkout' },
+                variant_screenshot_media_ids: { control: ['media-1'], test: ['media-2'] },
+            })
+
+            for (const keys of steps) {
+                logic.actions.setFeatureFlagConfig({ variants: variantsWithKeys(...keys) })
+            }
+
+            const [first, second] = steps[steps.length - 1]
+            expect(logic.values.experiment.parameters).toEqual({
+                variant_notes: { [first]: 'Current checkout', [second]: 'One-page checkout' },
+                variant_screenshot_media_ids: { [first]: ['media-1'], [second]: ['media-2'] },
+            })
+        })
+
         it("drops a removed variant's details, without shifting the rest onto other variants", () => {
             startWith(['control', 'test', 'test-2'], {
                 variant_notes: { test: 'One-page checkout', 'test-2': 'Express checkout' },
