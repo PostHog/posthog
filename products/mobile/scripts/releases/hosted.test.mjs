@@ -210,7 +210,7 @@ test('lost submission response retains staged IDs and rerunning the workflow can
     assert.equal(receipt.staged.builds.length, 2)
     assert.equal(f.state().pointer, null)
     const state = f.state()
-    state.extraReleases = Array.from({ length: 100 }, (_, index) => ({
+    state.extraReleases = Array.from({ length: 199 }, (_, index) => ({
         id: index + 100,
         tag_name: `example-release-${index}`,
         draft: false,
@@ -222,6 +222,13 @@ test('lost submission response retains staged IDs and rerunning the workflow can
     assert.notEqual(retry.status, 0)
     assert.match(retry.stderr, /already claimed/)
     assert.equal(f.state().submissions.length, 1)
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
+    const overlapping = f.state()
+    overlapping.extraReleases.push({ ...overlapping.releases['mobile-release/native-140'] })
+    writeFileSync(f.stateFile, JSON.stringify(overlapping))
+    const repeatedEntry = f.invoke(['publish'])
+    assert.notEqual(repeatedEntry.status, 0)
+    assert.match(repeatedEntry.stderr, /already claimed/)
     assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
     f.addRequest('native-150', 'native', null, '1.5.0')
     const bypass = f.invoke(['publish'], { MOBILE_FAKE_VERSION: '1.5.0' })

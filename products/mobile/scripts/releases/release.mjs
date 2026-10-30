@@ -306,7 +306,7 @@ function releaseReceipt(id) {
                 break
             }
         }
-        releaseInventory = inventory
+        releaseInventory = [...new Map(inventory.map((release) => [release.id, release])).values()]
     }
     const matches = releaseInventory.filter(({ tag_name }) => tag_name === releaseTag(id))
     if (matches.length > 1) {
