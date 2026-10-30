@@ -1,6 +1,6 @@
-import uuid
 import dataclasses
 from typing import Any, cast, get_args
+from uuid import UUID
 
 from django.db import models
 from django.utils import timezone
@@ -846,6 +846,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
     schema = _PageEnvelopeSchema()
+    path_parameters = {"pk": UUID}
 
     def _root_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
@@ -1050,7 +1051,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(
         parameters=[
-            # The viewset has no queryset, so the path parameter does not get its type from the model.
+            # _PageEnvelopeSchema does not extend PostHogAutoSchema, so path_parameters does not type the id here.
             OpenApiParameter(
                 "id",
                 OpenApiTypes.UUID,
@@ -1073,15 +1074,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "
         "under `scope=everyone` can be opened too.",
     )
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        try:
-            report_uuid = uuid.UUID(str(pk))
-        except ValueError:
-            raise NotFound("Review not found.")
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         params = ReviewDetailParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
-            detail = get_review_detail(self._root_team_id(), report_uuid, params.validated_data.get("run_index"))
+            detail = get_review_detail(self._root_team_id(), pk, params.validated_data.get("run_index"))
         except ReviewTurnNotFoundError:
             raise NotFound("No completed review turn with that run_index.")
         except ReviewNotFoundError:

@@ -385,9 +385,10 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_malformed_config_id_is_a_404(self) -> None:
+    @parameterized.expand([("repo_configs",), ("review_runs",), ("pull_requests",), ("digest_runs",)])
+    def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
-        response = self.client.get(f"{self.url}not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/{resource}/not-a-uuid/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cannot_delete_other_teams_config(self) -> None:

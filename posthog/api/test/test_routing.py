@@ -3,10 +3,13 @@ import pathlib
 import importlib
 import importlib.util
 from datetime import timedelta
+from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Count
 from django.db.models.functions import Lower
 from django.test import override_settings
@@ -16,8 +19,10 @@ from django.utils import timezone
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from parameterized import parameterized
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.pagination import stable_queryset_ordering
@@ -60,6 +65,30 @@ class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class TypedPathFooViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    path_parameters = {"pk": UUID, "number": int}
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        return Response({"kwargs": sorted(kwargs)})
+
+    def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        return Response({"pk_type": type(pk).__name__})
+
+    @action(detail=True, methods=["get"], url_path=r"numbers/(?P<number>[^/]+)")
+    def numbers(self, request: Request, pk: UUID, number: int, **kwargs: Any) -> Response:
+        return Response({"pk_type": type(pk).__name__, "number": number})
+
+
+@pytest.mark.parametrize(
+    "path_parameters",
+    [{"parent_lookup_team_id": int}, {"project_id": int}, {"organization_id": UUID}, {"pk": float}],
+)
+def test_path_parameters_reject_parent_lookups_and_unsupported_types(path_parameters: dict[str, type]) -> None:
+    with pytest.raises(ImproperlyConfigured):
+        type("BadPathViewSet", (TeamAndOrgViewSetMixin, viewsets.GenericViewSet), {"path_parameters": path_parameters})
+
+
 def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
     queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
 
@@ -93,6 +122,7 @@ test_ordered_router.register(r"foos", OrderedFooViewSet, "team_ordered_foos", ["
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
+test_projects_router.register(r"typed_foos", TypedPathFooViewSet, "project_typed_foos", ["project_id"])
 
 test_organizations_router = test_router.register(r"organizations", FooViewSet, "organizations")
 test_organizations_router.register(r"foos", FooViewSet, "organization_foos", ["organization_id"])
@@ -220,6 +250,33 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+
+    @parameterized.expand(
+        [
+            ("uuid", "{id}/", 200, {"pk_type": "UUID"}),
+            ("second_capture", "{id}/numbers/7/", 200, {"pk_type": "UUID", "number": 7}),
+            ("list_route_has_no_pk", "", 200, {"kwargs": ["parent_lookup_project_id"]}),
+            ("malformed_uuid", "not-a-uuid/", 404, None),
+            ("malformed_second_capture", "{id}/numbers/seven/", 404, None),
+        ]
+    )
+    def test_path_parameters_reach_the_handler_parsed(
+        self, _name: str, suffix: str, expected_status: int, expected_body: dict | None
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/typed_foos/{suffix.format(id='3f1c9f0e-2b7a-4a5f-9c1d-8e6b2a4f7d31')}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_body is not None:
+            self.assertEqual(response.json(), expected_body)
+
+    def test_path_parameters_parse_after_authentication(self) -> None:
+        self.client.logout()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/typed_foos/not-a-uuid/")
+
+        self.assertEqual(response.status_code, 401)
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

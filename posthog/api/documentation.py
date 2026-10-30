@@ -2,6 +2,7 @@ import os
 import re
 import copy
 from typing import Any, get_args
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
@@ -40,6 +41,13 @@ _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
     "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
+}
+
+# OpenAPI schemas for the types a view can declare in TeamAndOrgViewSetMixin.path_parameters.
+_DECLARED_PATH_PARAM_SCHEMAS: dict[type, dict[str, str]] = {
+    UUID: {"type": "string", "format": "uuid"},
+    int: {"type": "integer"},
+    str: {"type": "string"},
 }
 
 
@@ -112,6 +120,15 @@ class PostHogAutoSchema(AutoSchema):
             operation["x-request-dependent-scopes"] = True
         return operation
 
+    def _declared_path_parameter_type(self, variable: str) -> type | None:
+        declared: dict[str, type] = getattr(self.view, "path_parameters", {})
+        if variable in declared:
+            return declared[variable]
+        # The router names the detail kwarg `pk`, and drf-spectacular renames `{pk}` to `{id}` in the path.
+        if variable == "id":
+            return declared.get("pk")
+        return None
+
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
 
@@ -119,6 +136,7 @@ class PostHogAutoSchema(AutoSchema):
         parameters = []
 
         for variable in variables:
+            declared_type = self._declared_path_parameter_type(variable)
             if variable in _KNOWN_PATH_PARAMS:
                 # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
                 parameters.append(
@@ -127,6 +145,16 @@ class PostHogAutoSchema(AutoSchema):
                         location=OpenApiParameter.PATH,
                         description=_KNOWN_PATH_PARAMS[variable]["description"],
                         schema=_KNOWN_PATH_PARAMS[variable]["schema"],
+                    )
+                )
+            elif declared_type is not None:
+                # TeamAndOrgViewSetMixin parses the kwarg to this type, so the schema states the same type.
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description="",
+                        schema=_DECLARED_PATH_PARAM_SCHEMAS[declared_type],
                     )
                 )
             elif model is None:
