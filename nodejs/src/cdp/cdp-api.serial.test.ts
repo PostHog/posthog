@@ -16,6 +16,7 @@ import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -2444,6 +2445,41 @@ describe('CDP API', () => {
 
             expect(retry.status).toEqual(202)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['a valid address', { to: 'user@example.com' }, 202, 'queued'],
+            ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
+            ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
+            ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
+            ['no recipient', { to: undefined }, 400, 'invalid_request'],
+            [
+                'a bad address and no distinct_id',
+                { to: 'user@ph\u3002example.com', distinct_id: '' },
+                400,
+                'invalid_request',
+            ],
+        ] as const)('answers a send to %s', async (_desc, overrides, expectedStatus, outcome) => {
+            const warn = jest.spyOn(logger, 'warn')
+            const before = await outcomeCount(outcome)
+
+            const res = await send(
+                hogFlow.id,
+                { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                { ...body, ...overrides }
+            )
+
+            expect(res.status).toEqual(expectedStatus)
+            expect(await outcomeCount(outcome)).toEqual(before + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(expectedStatus === 202 ? 1 : 0)
+            if (expectedStatus === 422) {
+                expect(res.body).toEqual({ error: 'recipient_unreachable' })
+            }
+            const validationLogs = warn.mock.calls.filter((args) =>
+                args.includes('Transactional email request failed validation')
+            )
+            expect(validationLogs).toHaveLength(expectedStatus === 400 ? 1 : 0)
+            expect(JSON.stringify(validationLogs)).not.toContain('example.com')
         })
 
         it('sends to a recipient whose only suppression is a spam complaint', async () => {

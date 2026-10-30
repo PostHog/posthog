@@ -312,7 +312,6 @@ function FocusPane({
 
 export interface RecordingMomentsProps {
     sessionId: string
-    /** The player this column seeks and follows. It is keyed, so the exact mounted instance is named. */
     playerLogicProps: SessionRecordingPlayerLogicProps
 }
 
@@ -374,8 +373,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
             ) : observations.length === 0 ? (
                 <div className="flex flex-col flex-1 items-center justify-center gap-2 p-4 text-center">
                     {scanBlock ? (
-                        // No scanner can clear the gate for this recording, so offering the picker would
-                        // only lead to an ineligible result.
+                        // No scanner can clear the gate, so the picker would only lead to an ineligible result.
                         <>
                             <p className="text-muted text-sm mb-0" data-attr="vision-observations-tab-skipped">
                                 Replay vision skipped this recording, so it has no summary.

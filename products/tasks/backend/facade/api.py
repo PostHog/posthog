@@ -3041,6 +3041,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
+        # Decides which repositories the run's GitHub token can write to.
+        "github_access_repositories",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -9433,7 +9435,13 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
+    for protected_key in (
+        "wizard_head_branch",
+        "self_driving_head_branch",
+        "stack_base_branch",
+        "github_read_access",
+        "github_access_repositories",
+    ):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
@@ -9828,6 +9836,11 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
+        # The resumed agent still works with the repositories it was told about, so its token must
+        # keep covering them. The key is PATCH-protected, so this copy is the only way it carries.
+        prev_github_access_repositories = (previous_run.state or {}).get("github_access_repositories")
+        if prev_github_access_repositories:
+            extra_state["github_access_repositories"] = prev_github_access_repositories
         if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 

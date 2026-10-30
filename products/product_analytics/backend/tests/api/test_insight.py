@@ -3329,7 +3329,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(response["results"][0]["hogql"])
         self.assertEqual(
             response["results"][0]["resolved_compare_date_range"],
-            {"date_from": "2012-01-01T00:00:00Z", "date_to": "2012-01-08T23:59:59.999999Z"},
+            {"date_from": "2012-01-01T00:00:00Z", "date_to": "2012-01-08T23:59:59.999999Z", "read_from": None},
         )
 
     def test_insight_returns_cached_types(self) -> None:

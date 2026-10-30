@@ -12,10 +12,8 @@ from collections import defaultdict
 from datetime import datetime
 from itertools import batched
 from typing import Any
-from uuid import UUID
 
-from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 
 import numpy as np
 import structlog
@@ -36,13 +34,14 @@ from products.replay_vision.backend.embeddings import (
     team_embeddings_params,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
     AnchorReading,
     WatchCategory,
     anchor_vectors,
     classify,
-    current_rank,
+    current_ranks,
     normalize,
     save_anchor_similarities,
 )
@@ -140,7 +139,7 @@ def _rank_scanner(
     for row in rows:
         observation_id = str(row["id"])
         vector = vectors.get(observation_id)
-        if vector is None or current_rank(row) is not None:
+        if vector is None or row["ranked"]:
             continue
         written[observation_id] = classify(vector, anchors)
     return written
@@ -157,8 +156,9 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
         for row in ReplayObservation.objects.filter(
             team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=since
         )
+        .annotate(ranked=Exists(current_ranks(team_id).filter(observation_id=OuterRef("id"))))
         .order_by("created_at", "id")
-        .values("id", "scanner_id", "watch_rank")
+        .values("id", "scanner_id", "ranked")
     ]
     by_scanner: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -176,23 +176,15 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                 save_anchor_similarities(
                     team_id, {observation_id: reading.similarities for observation_id, reading in written.items()}
                 )
-                # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
-                # waits for this one and a rank it already wrote, with its group, stays.
-                with transaction.atomic():
-                    still_unranked = set(
-                        ReplayObservation.objects.select_for_update()
-                        .filter(team_id=team_id, id__in=list(written))
-                        .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
-                        .values_list("id", flat=True)
-                    )
-                    ReplayObservation.objects.bulk_update(
-                        [
-                            ReplayObservation(id=observation_id, watch_rank=reading.rank.to_json())
-                            for observation_id, reading in written.items()
-                            if UUID(observation_id) in still_unranked
-                        ],
-                        ["watch_rank"],
-                    )
+                # A rank the consumer wrote meanwhile, with its group, stays: an existing rank row is never replaced.
+                record_ranks(
+                    team_id,
+                    ANCHOR_VERSION,
+                    {
+                        observation_id: NewRank(contrast=reading.rank.contrast, category=reading.rank.category)
+                        for observation_id, reading in written.items()
+                    },
+                )
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",
