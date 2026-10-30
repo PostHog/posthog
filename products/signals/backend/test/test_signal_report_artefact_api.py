@@ -1482,7 +1482,15 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
         assert all(item["is_default_owner"] is False for item in reviewers)
 
-    def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self):
+    @parameterized.expand(
+        [
+            # Names a teammate today.
+            ("another_members_login", "teammate-login"),
+            # Names nobody today, and whoever links that account tomorrow.
+            ("an_unlinked_login", "nobody-here"),
+        ]
+    )
+    def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self, _name: str, login: str):
         # An unprotected report stores the pair as given, and a later edit matches the stored login.
         report = self._create_report()
         owner = self._create_org_member("owner@example.com", github_login="owner-login")
@@ -1493,7 +1501,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             self._list_url(str(report.id)),
             {
                 "artefact_type": "suggested_reviewers",
-                "content": [{"user_uuid": str(owner.uuid), "github_login": "teammate-login"}],
+                "content": [{"user_uuid": str(owner.uuid), "github_login": login}],
             },
             format="json",
         )

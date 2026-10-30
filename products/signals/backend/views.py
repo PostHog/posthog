@@ -5865,9 +5865,9 @@ def _with_carried_default_owner(
     the add/remove endpoints do.
 
     Both identity fields are resolved to the org member they name first, the way the reviewer merge
-    resolves them a step later. An entry whose two fields name two different members carries
-    nothing: this endpoint stores the pair as given on an unprotected report, and a later edit that
-    matches the stored login would otherwise hand the mark to the member that login belongs to.
+    resolves them a step later. A login this organization cannot place, or one that places a
+    different member, carries nothing: this endpoint stores the pair as given on an unprotected
+    report, and a later edit matching that login would hand the mark to whoever ends up behind it.
     """
     stored_owners = {
         normalized
@@ -5878,12 +5878,13 @@ def _with_carried_default_owner(
     login_to_org_user = resolve_org_github_login_to_users(team_id, logins_to_resolve) if logins_to_resolve else {}
 
     def carried(entry: SuggestedReviewerEntry) -> bool:
-        member = login_to_org_user.get(entry.github_login.strip().lower()) if entry.github_login else None
-        login_uuid = str(member.uuid) if member is not None else None
         user_uuid = _normalized_reviewer_user_uuid(entry.user_uuid)
-        if user_uuid and login_uuid and user_uuid != login_uuid:
+        if not entry.github_login:
+            return user_uuid in stored_owners
+        member = login_to_org_user.get(entry.github_login.strip().lower())
+        if member is None or (user_uuid and user_uuid != str(member.uuid)):
             return False
-        return (user_uuid or login_uuid) in stored_owners
+        return str(member.uuid) in stored_owners
 
     return SuggestedReviewers(
         root=[entry.model_copy(update={"is_default_owner": carried(entry)}) for entry in content.root]
