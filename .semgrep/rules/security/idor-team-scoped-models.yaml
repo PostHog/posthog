@@ -386,6 +386,7 @@ rules:
                               |HeatmapCaptureRequest
                               |HeatmapScreenshotHistory
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
@@ -875,6 +876,7 @@ rules:
                         |HeatmapCaptureRequest
                         |HeatmapScreenshotHistory
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
@@ -1229,6 +1231,7 @@ rules:
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScoreDefinition
+                        |SdkVersionsDaily
                         |SessionRecording
                         |SessionRecordingEvent
                         |SessionRecordingPlaylist

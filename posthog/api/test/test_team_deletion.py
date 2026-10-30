@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
@@ -18,6 +19,7 @@ from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflow
 
 from products.batch_exports.backend.facade.temporal import ACTIVITIES, WORKFLOWS
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.growth.backend.models import SdkVersionsDaily
 
 
 class TestTeamDeletionSideEffects(NonAtomicBaseTest):
@@ -170,11 +172,22 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         EarlyAccessFeature.objects.create(
             team=team, name="Test flag", description="A fancy new flag.", stage="beta", feature_flag=flag
         )
+        for team_id in (team.id, self.team.id):
+            SdkVersionsDaily.objects.unscoped().create(
+                team_id=team_id,
+                day=dt.date(2026, 10, 22),
+                lib="web",
+                lib_version="1.0.0",
+                event_count=1,
+                max_timestamp=dt.datetime(2026, 10, 22, tzinfo=dt.UTC),
+            )
 
         with execute_deletion_workflows_inline():
             response = self.client.delete(f"/api/environments/{team.id}")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Team.objects.filter(id=team.id).exists())
+        self.assertFalse(SdkVersionsDaily.objects.for_team(team.id).exists())
+        self.assertTrue(SdkVersionsDaily.objects.for_team(self.team.id).exists())
 
         # Verify personhog RPCs were called for persons-DB cleanup
         fake = get_active_fake()

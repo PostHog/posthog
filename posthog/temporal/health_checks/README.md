@@ -225,6 +225,40 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+## Daily rollups
+
+Checks that would scan days of raw `events` read a daily rollup on Postgres instead.
+A Dagster job per rollup reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
+
+| Table                       | Product | Kept    | Dagster job                     |
+| --------------------------- | ------- | ------- | ------------------------------- |
+| `growth_sdk_versions_daily` | growth  | 10 days | `growth_sdk_versions_daily_job` |
+
+### How a day is published
+
+The job runs at 01:00 UTC. It publishes yesterday, and refills the day before only if its rows or events moved by more than 1%, which picks up late events.
+It also publishes every day that retention keeps and that has no rows yet.
+So the first run after a deploy fills the whole retention window, and a day lost to an outage comes back on the next run.
+
+A filled day is refused, and the published day stays as it was, when:
+
+- it has no rows, which is what a ClickHouse outage looks like
+- it has more than 2M rows
+- it has fewer than half the rows of the median of the last 7 published days, unless the run is forced
+
+Rows for teams that no longer exist are dropped before writing, and team deletion removes a team's rows.
+A refused or failed day does not stop the other days or retention, and the run fails at the end, which alerts the owning team.
+
+To fill a day by hand, launch the job in Dagster with `days: ["2026-10-01", ...]`, and add `force: true` to publish a day the median rule refused.
+
+### Adding a rollup
+
+Subclass `DailyRollup` (`rollups/framework.py`) next to the product's model, with `columns`, `fill_sql()` and `retention_days`.
+The fill drops rows whose strings exceed a column's `max_length` or hold a NUL byte, but filter client-controlled values in `fill_sql()` too, so the dropped count stays near zero.
+A fill reads every team's events, so read event properties through their materialized columns where they exist.
+Build its job and schedule with `build_daily_rollup_definitions` (`posthog/dags/daily_rollups.py`) in the product's `dags/`, and register both in the product's Dagster location.
+The model needs a composite primary key over the natural key, an index on `day`, no foreign keys, and `EnvironmentScopedManager`, and the product facade must delete its rows on team deletion.
+
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).

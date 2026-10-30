@@ -7,6 +7,7 @@ from products.growth.dags import (
     identity_matching,
     oauth,
     product_push_campaigns,
+    sdk_versions_rollup,
     team_production_event_activation,
 )
 
@@ -18,6 +19,7 @@ jobs = [
     team_production_event_activation.detect_first_team_production_event_job,
     product_push_campaigns.product_push_campaigns_job,
     ai_enrichment.ai_enrichment_job,
+    sdk_versions_rollup.sdk_versions_daily_rollup.job,
     # Manual-run only: growth names the organizations, product, and window per run.
     custom_product_push_campaigns.custom_product_push_campaigns_job,
 ]
@@ -27,6 +29,7 @@ schedules = [
     team_production_event_activation.detect_first_team_production_event_schedule,
     product_push_campaigns.product_push_campaigns_schedule,
     ai_enrichment.ai_enrichment_schedule,
+    sdk_versions_rollup.sdk_versions_daily_rollup.schedule,
 ]
 # Identity matching processes internal PostHog data that only exists on Cloud US (team 2),
 # so the job is not registered on Cloud EU.
