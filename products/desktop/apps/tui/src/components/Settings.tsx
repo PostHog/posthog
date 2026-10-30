@@ -9,6 +9,7 @@ const LABELS = {
   logout: "Log out of ChatGPT",
   connectCloud: "Connect ChatGPT for cloud runs",
   disconnectCloud: "Disconnect ChatGPT from cloud runs",
+  setupToken: "Run claude setup-token",
   token: "Claude token",
   removeToken: "Remove token",
   context: "Show context in composer",
@@ -27,6 +28,9 @@ export function Settings({
     disconnectCloud: view.cloudAccount
       ? `Connected as ${view.cloudAccount}`
       : "",
+    setupToken: view.canSetup
+      ? "Opens your browser"
+      : "Install Claude Code first",
     token: view.hasToken ? "Saved" : "Not set",
     removeToken: "",
     context: view.showContext ? "On" : "Off",
@@ -63,7 +67,7 @@ export function Settings({
       ))}
       <Text> </Text>
       <Text dimColor wrap="wrap">
-        Run `claude setup-token` in another terminal, then paste the token here.
+        Run `claude setup-token` from its row, or paste a token here.
       </Text>
       {asking ? (
         <Box flexDirection="column">

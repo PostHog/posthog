@@ -158,7 +158,10 @@ export function useSheets({
       return modal ? withTyped(paneId, modal) : promptModal(paneTaskId(paneId));
     },
     openModal: (paneId, sheet, choose) => {
-      const current = sheet.items.findIndex((item) => item.current);
+      // The cursor starts on the item the setting holds, else the first one that can be chosen.
+      const held = sheet.items.findIndex((item) => item.current);
+      const current =
+        held >= 0 ? held : sheet.items.findIndex((item) => !item.disabled);
       const field = sheet.items.find((item) => item.input)?.input;
       typed.delete(paneId);
       setModals((open) =>

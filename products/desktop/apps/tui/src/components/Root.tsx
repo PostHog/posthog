@@ -6,14 +6,16 @@ import { TuiAuth } from "../auth";
 import { createCloud } from "../cloud";
 import type { MouseEvents } from "../mouse";
 import { WorkList } from "../work";
-import { App, type Session } from "./App";
+import { App, type Handoff, type Session } from "./App";
 
 export function Root({
   initialAuth,
   mouse,
+  handoff,
 }: {
   initialAuth: TuiAuth | null;
   mouse?: MouseEvents;
+  handoff?: Handoff;
 }): ReactElement {
   const { rows } = useWindowSize();
   const [auth, setAuth] = useState(initialAuth);
@@ -45,7 +47,13 @@ export function Root({
   // A full-height frame makes Ink repaint from the top-left of the screen.
   return (
     <Box height={rows} flexDirection="column">
-      <App session={session} login={login} logout={logout} mouse={mouse} />
+      <App
+        session={session}
+        login={login}
+        logout={logout}
+        mouse={mouse}
+        handoff={handoff}
+      />
     </Box>
   );
 }

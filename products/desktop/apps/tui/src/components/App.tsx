@@ -1,12 +1,13 @@
 import { homedir } from "node:os";
 import type { CloudRegion, Task } from "@posthog/shared";
-import { Box, type DOMElement, useBoxMetrics } from "ink";
+import { Box, type DOMElement, useApp, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionsLine } from "../actions";
 import { track } from "../analytics";
 import { bannerLines } from "../banner";
 import type { StartPick } from "../chats";
 import { currentRepository, type PiChats } from "../chats";
+import { runClaudeSetupToken } from "../claudeSetup";
 import { dividerGlyphs } from "../dividers";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useKeys } from "../hooks/useKeys";
@@ -77,17 +78,23 @@ export interface Session {
   codexCloud?: CodexCloudClient;
 }
 
+// Hands the terminal's input to `run` and takes it back after, around Ink's own suspension.
+export type Handoff = (run: () => Promise<void>) => Promise<void>;
+
 export function App({
   session,
   login,
   logout,
   mouse,
+  handoff,
 }: {
   // Null while signed out: the layout and composers still work, and /login signs in.
   session: Session | null;
   login: (region: CloudRegion, onAuth: (url: string) => void) => Promise<void>;
   logout: () => void;
   mouse?: MouseEvents;
+  // Absent where no terminal can be handed over, such as tests.
+  handoff?: Handoff;
 }): ReactElement {
   const {
     work,
@@ -97,6 +104,19 @@ export function App({
     startLocal,
   } = session ?? {};
   const notice = useNotice();
+  const { suspendTerminal } = useApp();
+  // Runs `claude setup-token` on the user's terminal and returns the token it prints.
+  const runSetup = handoff
+    ? async (): Promise<string> => {
+        let token = "";
+        await handoff(() =>
+          suspendTerminal(async () => {
+            token = await runClaudeSetupToken();
+          }),
+        );
+        return token;
+      }
+    : undefined;
   const { flashNotice } = notice;
   const layoutFile = layoutPath(session?.account);
   const [layout, setLayout] = useState<LayoutState>(() => {
@@ -214,7 +234,7 @@ export function App({
     local: { active: localActive, running: new Set(localSessions.keys()) },
   });
 
-  const settings = useSettings(session?.codexCloud);
+  const settings = useSettings(session?.codexCloud, runSetup);
 
   const { modalFor, openModal, onModalKey } = useSheets({
     layout,
@@ -292,6 +312,7 @@ export function App({
     notice,
     login,
     logout,
+    runSetup,
   });
 
   const sidebar = useSidebar({

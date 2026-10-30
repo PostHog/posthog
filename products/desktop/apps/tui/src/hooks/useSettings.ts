@@ -4,6 +4,7 @@ import type {
 } from "@posthog/api-client/posthog-client";
 import { useRef, useState } from "react";
 import { chatgptAccount, chatgptLogin, chatgptLogout } from "../chatgpt";
+import { claudeOnPath } from "../claudeSetup";
 import {
   clearClaudeToken,
   loadClaudeToken,
@@ -43,7 +44,11 @@ interface Asked {
 }
 
 // The full-screen settings: each change is saved as it is made, so closing loses nothing.
-export function useSettings(codexCloud?: CodexCloudClient): SettingsState {
+// `runSetup` runs `claude setup-token` on the terminal and returns the token; absent where the terminal cannot be handed over.
+export function useSettings(
+  codexCloud?: CodexCloudClient,
+  runSetup?: () => Promise<string>,
+): SettingsState {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<SettingsView>(() =>
     settingsView({ billing: "posthog", account: null }),
@@ -116,6 +121,20 @@ export function useSettings(codexCloud?: CodexCloudClient): SettingsState {
     }
   };
 
+  const setupToken = async (): Promise<void> => {
+    try {
+      if (!runSetup) throw new Error("The terminal cannot be handed over here");
+      saveClaudeToken(await runSetup());
+      update({ ...latest.current, hasToken: true, busy: false });
+    } catch (error) {
+      update({
+        ...latest.current,
+        busy: false,
+        error: `Couldn't get a token: ${messageOf(error)}`,
+      });
+    }
+  };
+
   return {
     open,
     view,
@@ -126,6 +145,7 @@ export function useSettings(codexCloud?: CodexCloudClient): SettingsState {
             billing: loadPrefs().billing,
             account: chatgptAccount(),
             hasToken: loadClaudeToken() !== null,
+            canSetup: runSetup !== undefined && claudeOnPath(),
             showContext: loadPrefs().showContext,
           }),
         );
@@ -158,6 +178,7 @@ export function useSettings(codexCloud?: CodexCloudClient): SettingsState {
         });
       }
       if (effect.kind === "login") void startLogin(false);
+      else if (effect.kind === "runSetupToken") void setupToken();
       else if (effect.kind === "connectCloud") void startLogin(true);
       else if (effect.kind === "disconnectCloud")
         codexCloud?.disconnect().catch((error) =>
