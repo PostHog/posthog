@@ -378,6 +378,35 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.suggestions.map((item) => item.id)).toEqual([CUSTOM_ITEM.id])
     })
 
+    it.each([
+        ['the sync creates the scout', () => mockConfigSync.mockResolvedValueOnce([CONFIG]), true, null],
+        [
+            'the sync is refused',
+            () => mockConfigSync.mockRejectedValueOnce(new ApiError('nope', 403)),
+            false,
+            expect.stringContaining('edit access'),
+        ],
+    ])('syncs the fleet again when a canonical pick has no scout and %s', async (_, arrangeSync, opens, toast) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        await mountWithBatch()
+        scoutFleetLogic.actions.loadScoutConfigsSuccess([])
+        mockConfigSync.mockClear()
+        arrangeSync()
+
+        logic.actions.openCreateFromSuggestion(CANONICAL_ITEM, 'strip')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockConfigSync).toHaveBeenCalledTimes(1)
+        expect(logic.values.createFromSuggestion?.existing?.config ?? null).toEqual(opens ? CONFIG : null)
+        if (toast) {
+            expect(errorToast).toHaveBeenCalledWith(toast)
+        } else {
+            expect(errorToast).not.toHaveBeenCalled()
+        }
+        expect(logic.values.busySuggestionIds).toEqual([])
+        errorToast.mockRestore()
+    })
+
     it('reports a card-body press as the button it stands in for, marked as the card', async () => {
         await mountWithBatch()
         ;(posthog.capture as jest.Mock).mockClear()
