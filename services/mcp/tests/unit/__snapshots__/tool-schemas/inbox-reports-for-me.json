@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "focus": {
+            "description": "Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "limit": {
+            "description": "The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "refresh": {
+            "default": false,
+            "description": "Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

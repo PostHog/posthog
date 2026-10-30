@@ -45,6 +45,35 @@ class StoredPrimaryResult:
 
 
 @frozen
+class ExperimentUnfurlVariant:
+    """One variant of the experiment's flag and its share of the rollout."""
+
+    key: str
+    # As the flag stores it, so a whole number stays an int and prints as `50`, not `50.0`.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentUnfurl:
+    """What a link preview shows for an experiment."""
+
+    id: int
+    # An object access check reads the creator. The preview does not show it.
+    created_by_id: int | None
+    name: str
+    description: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    updated_at: datetime
+    # The name of the first inline primary metric, when that metric has one.
+    primary_metric_name: str | None
+    # The variants of the experiment's flag, in the flag's order. Empty when the flag config can't be read.
+    variants: tuple[ExperimentUnfurlVariant, ...]
+
+
+@frozen
 class ExperimentSummaryData:
     """Result of fetching experiment data for the AI results summary."""
 
@@ -52,6 +81,47 @@ class ExperimentSummaryData:
     last_refresh: datetime | None
     pending_calculation: bool
     omitted_metric_count: int
+
+
+@frozen
+class ExperimentResultsWidgetMetric:
+    """One metric of the dashboard experiment results widget."""
+
+    uuid: str | None
+    name: str
+    # The metric that the query ran, as JSON. None when the metric has no result.
+    metric: dict[str, Any] | None
+    # The query response as JSON, without the SQL and the per-variant session payloads.
+    result: dict[str, Any] | None
+    # A message that is safe to show to the viewer. None when the metric has a result.
+    error: str | None
+
+
+@frozen
+class ExperimentResultsWidgetMetrics:
+    """The metrics of a launched experiment, per section, in display order."""
+
+    primary: tuple[ExperimentResultsWidgetMetric, ...]
+    secondary: tuple[ExperimentResultsWidgetMetric, ...]
+    # The metric count of each section. Only the first metrics of a section run, so a total can be larger than the
+    # metrics above.
+    primary_total: int
+    secondary_total: int
+
+
+@frozen
+class ExperimentResultsWidget:
+    """One experiment, as the dashboard experiment results widget shows it."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    # None for a draft, which has no exposures to compute results from.
+    metrics: ExperimentResultsWidgetMetrics | None
 
 
 @frozen
@@ -452,6 +522,29 @@ class ExperimentActionReference:
     created_by: ExperimentCreator | None
 
 
+@frozen
+class ExperimentListWidgetRow:
+    """One experiment in the dashboard experiments list widget."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    conclusion: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    feature_flag_key: str
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetPage:
+    rows: tuple[ExperimentListWidgetRow, ...]
+    # True when more experiments match than the page holds.
+    has_more: bool
+
+
 @dataclass(frozen=True)
 class Experiment:
     """Experiment output."""
@@ -466,6 +559,15 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class ExperimentRef:
+    """The fields that an object access check reads from one experiment."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
 
 
 @frozen

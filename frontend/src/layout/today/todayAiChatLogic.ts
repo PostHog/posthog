@@ -3,20 +3,24 @@ import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { mainFocusUrl } from 'scenes/max/mainFocusUrl'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    MAX_SIDE_PANEL_ID,
+    REPORT_AI_PANEL,
+    SCOUT_AI_PANEL,
+    SIDE_PANEL_PANEL_ID,
+    type PhaiViewMode,
+} from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/types/contextTypes'
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
 import { todayContextPanelLogic } from './todayContextPanelLogic'

@@ -8,11 +8,9 @@ import { PhaiSidePanelChat } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sidePanelMaxLogic } from 'scenes/max/maxLogic'
 
+import { REPORT_AI_PANEL, SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { SidePanelMax } from '~/layout/navigation-3000/sidepanel/panels/max/SidePanelMax'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 export function TodayAiPanel(): JSX.Element {
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
