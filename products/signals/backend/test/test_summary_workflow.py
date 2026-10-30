@@ -570,7 +570,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
     if target == "ready":
-        assert inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
+        assert recorder.ready_inputs[0].processed_pending_signal_id == recorder.processed_pending_signal_id
 
 
 @pytest.mark.asyncio
