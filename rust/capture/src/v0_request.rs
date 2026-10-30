@@ -9,7 +9,7 @@ use tracing::{instrument, Span};
 use crate::{
     api::CaptureError,
     config::CaptureMode,
-    event_restrictions::Pipeline,
+    event_restrictions::{EventRestrictionService, Pipeline},
     ingestion_warnings::SdkAttribution,
     payload::{decompress_payload, Compression},
 };
@@ -212,6 +212,21 @@ pub fn is_ai_event(name: &str) -> bool {
 /// the looser measure still keeps an accepted event under the producer's cap.
 pub fn exceeds_max_ai_event_bytes(body_bytes: usize, max: u64) -> bool {
     max != 0 && body_bytes as u64 > max
+}
+
+/// Callers consult this only once an event is already past `default`, so a
+/// token without an override pays nothing beyond the check it paid before,
+/// and the lookup is one read of the in-memory restriction cache per request.
+pub async fn resolve_ai_max_event_bytes(
+    service: Option<&EventRestrictionService>,
+    token: &str,
+    now_ts: i64,
+    default: u64,
+) -> u64 {
+    match service {
+        Some(service) => service.ai_max_event_bytes(token, now_ts, default).await,
+        None => default,
+    }
 }
 
 impl DataType {

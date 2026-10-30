@@ -42364,6 +42364,7 @@ export namespace Schemas {
      * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
      * * `redirect_to_dlq` - Redirect To Dlq
      * * `redirect_to_topic` - Redirect To Topic
+     * * `override_ai_max_event_bytes` - Override AI max event bytes
      */
     export type RestrictionTypeEnum = typeof RestrictionTypeEnum[keyof typeof RestrictionTypeEnum];
 
@@ -42374,6 +42375,7 @@ export namespace Schemas {
       ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
       RedirectToDlq: 'redirect_to_dlq',
       RedirectToTopic: 'redirect_to_topic',
+      OverrideAiMaxEventBytes: 'override_ai_max_event_bytes',
     } as const;
 
     /**
@@ -42403,7 +42405,8 @@ export namespace Schemas {
        * * `drop_event_from_ingestion` - Drop Event From Ingestion
        * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
        * * `redirect_to_dlq` - Redirect To Dlq
-       * * `redirect_to_topic` - Redirect To Topic */
+       * * `redirect_to_topic` - Redirect To Topic
+       * * `override_ai_max_event_bytes` - Override AI max event bytes */
       restriction_type: RestrictionTypeEnum;
       /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
       distinct_ids: string[];

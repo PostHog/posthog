@@ -36,8 +36,8 @@ use crate::{
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
-        ProcessedEventMetadata, ProcessingContext,
+        exceeds_max_ai_event_bytes, resolve_ai_max_event_bytes, DataType, OverflowReason,
+        ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
     v1::{
         analytics::constants::{CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_MAX_EVENT_NAME_LENGTH},
@@ -416,17 +416,29 @@ async fn process_events_inner(
     // can look up. The non-AI-event rejection above deliberately omits it: its
     // offender may be the `$$heatmap` event capture itself synthesized, and
     // naming a uuid the client never issued would misdirect them.
-    if let Some(offender) = events.iter().find(|e| {
-        e.metadata.data_type == DataType::AiEvents
-            && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
-    }) {
-        return Err(CaptureError::AiEventTooBig(format!(
-            "AI event {} (uuid {}) is {} bytes, over the {}-byte limit",
-            offender.metadata.event_name,
-            offender.event.uuid,
-            offender.event.data.len(),
-            context.ai_max_event_bytes
-        )));
+    let first_ai_event_over = |max_event_bytes: u64| {
+        events.iter().find(|e| {
+            e.metadata.data_type == DataType::AiEvents
+                && exceeds_max_ai_event_bytes(e.event.data.len(), max_event_bytes)
+        })
+    };
+    if first_ai_event_over(context.ai_max_event_bytes).is_some() {
+        let max_event_bytes = resolve_ai_max_event_bytes(
+            restriction_service.as_ref(),
+            &context.token,
+            context.now.timestamp(),
+            context.ai_max_event_bytes,
+        )
+        .await;
+        if let Some(offender) = first_ai_event_over(max_event_bytes) {
+            return Err(CaptureError::AiEventTooBig(format!(
+                "AI event {} (uuid {}) is {} bytes, over the {}-byte limit",
+                offender.metadata.event_name,
+                offender.event.uuid,
+                offender.event.data.len(),
+                max_event_bytes
+            )));
+        }
     }
 
     events.retain(|e| {
@@ -1576,6 +1588,56 @@ mod tests {
         )
         .await
         .expect("an oversize analytics event must not be refused");
+
+        assert_eq!(sink.get_events().len(), 1);
+    }
+
+    /// This path checks size before it applies the token's restrictions, so
+    /// the grant has to reach it on its own.
+    #[tokio::test]
+    async fn an_ai_size_override_lifts_the_ceiling_for_its_token() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300))
+            .with_ai_max_event_bytes_ceiling(10_000);
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::OverrideAiMaxEventBytes,
+                scope: RestrictionScope::AllEvents,
+                args: Some(json!({"max_event_bytes": 2_000})),
+            }],
+        );
+        service.update(manager).await;
+
+        let sink = MockSink::new();
+        let mut oversized = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(800)));
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            vec![oversized],
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("an event under the token's override must be accepted");
 
         assert_eq!(sink.get_events().len(), 1);
     }
