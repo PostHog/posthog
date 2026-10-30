@@ -74,6 +74,16 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
 
+**Lifecycle sagas (identity server):**
+`client.lifecycle.delete_persons` runs the fenced delete saga for up to 250 person ids of one team and returns one outcome per requested id (`DELETED`, `NOT_FOUND`, `SKIPPED_CONFLICT`).
+The sagas live under `client.lifecycle` because the facade has a `delete_persons` too, and the two go to places with opposite consistency: the facade writes the replica's database directly, a saga fences the person's leader first.
+They go out on a second channel to `PERSONHOG_LIFECYCLE_ADDR` (a router with the identity proxy enabled); without that setting `client.lifecycle.configured` is false and every saga method raises `PersonHogLifecycleUnavailable`.
+The lifecycle service is the only identity-server surface Django has: `bin/generate_personhog_proto.sh` emits no stubs for `personhog.identity.v1`, so the ingestion RPCs (`GetOrCreate*`, `MergePersons`) cannot be called from Python.
+The call waits for the saga to complete, so its deadline is `PERSONHOG_LIFECYCLE_TIMEOUT_MS` rather than `PERSONHOG_TIMEOUT_MS`.
+Every request carries a caller-generated `op_id`. Retry a transient failure with the same `op_id` and the identical `person_ids` list; the retry attaches to the existing operation and returns its recorded outcome.
+A `FAILED_PRECONDITION` with a reason from `semantic_refusal_reason()` (in `interceptor.py`) is final: never retry it under the same `op_id`. The identity server's own reason is `op_id_reused` (the `op_id` belongs to a different request; reissue under a fresh one). The leader's reasons (`release-unverified`, `uuid-mismatch`, `no-lifecycle-db`) pass through the saga unchanged and mean the operation cannot finish as issued; surface them rather than looping.
+The request and response types are re-exported from `posthog.personhog_client.proto` as `LifecycleDeletePersonsRequest` and `LifecycleDeletePersonsResponse`, because the facade's delete messages share their names.
+
 **Version floors:**
 `ensure_person_version_floors` (raise each tombstone to a minimum version, inserting a tombstone where no row exists, and leave live rows unchanged; a lost insert race fails the whole request with `FAILED_PRECONDITION`).
 Each write takes at most 250 keys in one transaction. Use the helper in `posthog/models/person/util.py`: it batches and retries a lost race.

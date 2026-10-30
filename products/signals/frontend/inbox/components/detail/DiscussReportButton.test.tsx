@@ -196,18 +196,18 @@ describe('DiscussReportButton', () => {
     it('keeps the report context attached', async () => {
         attachedContextLogic.actions.registerContext('report', [
             {
-                type: 'signal_report',
+                type: 'inbox_report',
                 key: 'report-1',
-                label: 'Report: Exceptions spiked',
+                label: 'Self-driving Inbox Report',
                 dismissible: false,
             },
         ])
         const user = await openPanel(makeReport())
 
-        await user.click(screen.getByText('Report: Exceptions spiked'))
+        await user.click(screen.getByText('Self-driving Inbox Report'))
 
         expect(attachedContextLogic.values.contextItems).toEqual([
-            expect.objectContaining({ type: 'signal_report', key: 'report-1' }),
+            expect.objectContaining({ type: 'inbox_report', key: 'report-1' }),
         ])
     })
 

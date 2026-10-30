@@ -311,26 +311,57 @@ class TestSignupAPI(APIBaseTest):
         existing_user.refresh_from_db()
         self.assertEqual(existing_user.first_name, "Hoggy")
 
+    @parameterized.expand(
+        [
+            (
+                "plus_addressed",
+                "john+alias@posthog.com",
+                "Email addresses with a '+' aren't supported. Please use your primary email address.",
+                "plus_addressing_not_allowed",
+            ),
+            (
+                "lookalike_dot",
+                "john@ph\u3002posthog.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+            (
+                "zero_width_space",
+                "john@posthog\u200b.com",
+                "Enter an email address using standard dots and no hidden characters.",
+                "lookalike_characters_not_allowed",
+            ),
+        ]
+    )
     @pytest.mark.skip_on_multitenancy
-    def test_signup_disallowed_with_plus_addressed_email(self):
+    def test_signup_disallowed_with_unsupported_email(self, _name, email, message, code):
         response = self.client.post(
             "/api/signup/",
             {
                 "first_name": "John",
-                "email": "john+alias@posthog.com",
+                "email": email,
                 "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            self.validation_error_response(
-                "Email addresses with a '+' aren't supported. Please use your primary email address.",
-                code="plus_addressing_not_allowed",
-                attr="email",
-            ),
+            self.validation_error_response(message, code=code, attr="email"),
         )
         self.assertEqual(User.objects.count(), 0)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_allowed_with_internationalized_domain(self):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "john@ex\u00e4mple.com",
+                "password": VALID_TEST_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(User.objects.get().email, "john@ex\u00e4mple.com")
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_stripped_alias_collision(self):
@@ -3011,13 +3042,14 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
-    def test_cant_claim_invalid_invite(self):
+    @parameterized.expand([("unknown_uuid", str(uuid.uuid4())), ("malformed", "not-a-uuid")])
+    def test_cant_claim_invalid_invite(self, _name, invite_id):
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
         response = self.client.post(
-            f"/api/signup/{uuid.uuid4()}/",
+            f"/api/signup/{invite_id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

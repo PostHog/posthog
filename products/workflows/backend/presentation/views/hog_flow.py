@@ -722,7 +722,7 @@ def _require_replay_vision_editor_access(request: Request | None, context: dict[
             raise serializers.ValidationError({"variables": error})
 
 
-_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
 MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
@@ -1511,6 +1511,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
             "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
+            "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
+            "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
+            "no variables, so it can't be rerun. "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
@@ -1703,11 +1706,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                 except WorkflowTaskSkillsInvalid as e:
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
-        repository = (inputs.get("repository") or {}).get("value")
-        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
+        repository_value = (inputs.get("repository") or {}).get("value") or []
+        repositories = [repository_value] if isinstance(repository_value, str) else repository_value
+        if not all(REPOSITORY_SHAPE.fullmatch(repository) for repository in repositories):
             raise serializers.ValidationError(
-                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
+                {"inputs": {"repository": "Each repository must be an organization/repo name like your-org/your-repo."}}
             )
+        if len({repository.lower() for repository in repositories}) != len(repositories):
+            raise serializers.ValidationError({"inputs": {"repository": "Each repository can only be added once."}})
 
         model_value = (inputs.get("model") or {}).get("value") or {}
         model = model_value.get("model")

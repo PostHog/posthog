@@ -7,9 +7,9 @@ import api from 'lib/api'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { OrganizationMemberType, Region, UserType } from '~/types'
 
 import { adminLoginAs } from './adminLoginAs'

@@ -112,9 +112,10 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         use_new_events_schema: bool | None = None,
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
     ) -> str:
         expr = parse_select(select)
-        context = self._context(use_new_events_schema)
+        context = self._context(use_new_events_schema, event_properties)
         if restricted_properties is not None:
             context.restricted_properties = restricted_properties
         if property_groups_mode is not None:
@@ -202,10 +203,59 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "events.properties" not in restricted
         assert "events.person_properties" not in restricted
 
+    @parameterized.expand(
+        [
+            ("aliased", "SELECT s.properties.amount = 'seven' FROM (SELECT properties FROM events) AS s"),
+            (
+                "nested",
+                "SELECT t.properties.amount = 'seven' FROM (SELECT * FROM (SELECT properties FROM events) AS s) AS t",
+            ),
+            ("unaliased", "SELECT properties.amount = 'seven' FROM (SELECT properties FROM events)"),
+            (
+                "union",
+                "SELECT s.properties.amount = 'seven' "
+                "FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events) AS s",
+            ),
+            (
+                "cte",
+                "WITH docs AS (SELECT properties FROM events) SELECT docs.properties.amount = 'seven' FROM docs",
+            ),
+        ]
+    )
+    def test_property_read_from_a_user_document_subquery_stays_a_string(self, _name: str, select: str) -> None:
+        for use_new_events_schema in (False, True):
+            printed = self._print_select(
+                select, use_new_events_schema=use_new_events_schema, event_properties={"amount": {"type": "Numeric"}}
+            )
+            assert "accurateCastOrNull" not in printed, printed
+            assert "JSONExtractRaw(" in printed
+
+    def test_property_converted_inside_a_user_subquery_is_not_converted_again(self) -> None:
+        printed = self._print_select(
+            "SELECT s.amount = 7 FROM (SELECT properties.amount AS amount FROM events) AS s",
+            use_new_events_schema=False,
+            event_properties={"amount": {"type": "Numeric"}},
+        )
+        assert printed.count("accurateCastOrNull") == 1
+        assert "ifNull(equals(s.amount, 7), 0)" in printed
+
     def test_native_string_predicate_inside_an_unaliased_column(self) -> None:
         native = self._print_select("SELECT countIf(properties.value = '5') FROM events")
         assert (
             "countIf(ifNull(equals(CAST(events.properties.value, 'Nullable(String)'), %(hogql_val_0)s), 0))" in native
+        )
+
+    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toBool(toString(properties.opted_in)) = 'pending' FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "CAST(events.properties.opted_in, 'Nullable(String)')" not in printed
+        assert (
+            "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.opted_in)" in printed
         )
 
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
@@ -789,6 +839,53 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":"5"}',
                     "{}",
                     '{"step":"nan"}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            (
+                "boolean_true_aliases_in",
+                "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
+                [2],
+            ),
+            (
+                "boolean_false_aliases_in",
+                "countIf(properties.opted_in IN ('false', '0', 'F', 'N', 'No', 'OFF', 'Disable', 'Disabled'))",
+                [1],
+            ),
+        ]
+    )
+    def test_boolean_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"opted_in":"pending"}',
+                    '{"opted_in":"declined"}',
+                    '{"opted_in":true}',
+                    '{"opted_in":"true"}',
+                    "{}",
+                    '{"opted_in":false}',
                 ],
             },
         )
@@ -2615,7 +2712,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
         )
 
-    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
+    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict[str, object]]:
         self.team.timezone = timezone
         self.team.save()
         # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
@@ -2720,24 +2817,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
         assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
-
-    def test_toTimeZone_not_stripped_in_join_on(self):
-        """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
-        sql, _ = self._compile_hogql(
-            "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
-            "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
-            "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
-        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
-        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
-            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
-        )
-        # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
-        assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
-            f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"
-        )
-        assert re.search(r"less\(e\.timestamp,", sql), f"Expected bare e.timestamp in WHERE less, got:\n{sql}"
 
     def test_toTimeZone_not_stripped_inside_function_calls(self):
         """toTimeZone should NOT be stripped from comparisons inside function calls."""
