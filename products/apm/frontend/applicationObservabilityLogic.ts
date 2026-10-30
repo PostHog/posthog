@@ -52,9 +52,7 @@ export function drillDownParams(serviceName: string, timeRange: TimeRange): stri
     return `serviceNames=${encodeURIComponent(serviceNames)}&dateRange=${encodeURIComponent(dateRange)}`
 }
 
-// Matches the Metrics URL reader: `filterGroup` is the two-level group its filter bar writes, and a
-// service filter with no metric opens the viewer, where the metric picker lists only that service's
-// metrics.
+// Uses the two-level `filterGroup` that the Metrics filter bar writes, so the viewer opens on this service.
 export function metricsDrillDownUrl(serviceName: string, timeRange: TimeRange): string {
     const filterGroup = {
         type: 'AND',
@@ -369,8 +367,6 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         serviceUsage: [
             null as ServiceUsageResponseApi | null,
             {
-                // Usage has no environment parameter: logs and metrics often carry no environment
-                // attribute, so a filter would hide the services that send the most.
                 loadServiceUsage: async (_: void, breakpoint): Promise<ServiceUsageResponseApi> => {
                     const dateTo = new Date()
                     const dateFrom = new Date(dateTo.getTime() - TIME_RANGE_MS[values.timeRange])

@@ -4,8 +4,13 @@ import datetime as dt
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from posthog.clickhouse.client import sync_execute
+from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.apm.backend.tests.span_fixtures import SpanWriter, recreate_trace_spans_tables, restore_trace_spans_tables
 
 DATE_FROM = "2026-10-02T07:00:00Z"
@@ -87,9 +92,7 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
             spans.span("api")
         spans.insert()
         insert_metric_points(cls.team.id, "checkout", series=2, points=3)
-        # proxy sends only logs, and the most bytes, so it sorts first.
         insert_logs(cls.team.id, "proxy", [5000, 5000])
-        # node-exporter sends only metrics.
         insert_metric_points(cls.team.id, "node-exporter", series=3, points=4)
 
         # Rows outside the window or for another team must not count.
@@ -191,3 +194,39 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
                 {"date_from": "2026-09-20T00:00:00Z", "date_to": DATE_TO},
             )
         self.assertEqual(response.status_code, 400)
+
+    @parameterized.expand(
+        [
+            ("tracing_only", ["tracing:read"], 403),
+            ("no_metrics", ["tracing:read", "logs:read"], 403),
+            ("every_signal", ["tracing:read", "logs:read", "metrics:read"], 200),
+        ]
+    )
+    def test_api_key_needs_read_scope_for_every_signal(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        with patch(FLAG_PATCH, return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/apm/usage/",
+                {"date_from": DATE_FROM, "date_to": DATE_TO},
+                HTTP_AUTHORIZATION=f"Bearer {key}",
+            )
+        self.assertEqual(response.status_code, expected, response.content)
+
+    @parameterized.expand([("logs", "none", 403), ("metrics", "none", 403), ("logs", "viewer", 200)])
+    def test_member_needs_viewer_access_to_logs_and_metrics(self, resource: str, level: str, expected: int) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        user = User.objects.create_and_join(self.organization, "usage-member@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource=resource, access_level=level, organization_member_id=membership.id
+        )
+        self.client.force_login(user)
+        with patch(FLAG_PATCH, return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/apm/usage/", {"date_from": DATE_FROM, "date_to": DATE_TO}
+            )
+        self.assertEqual(response.status_code, expected, response.content)
