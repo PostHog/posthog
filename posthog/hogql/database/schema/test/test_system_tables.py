@@ -153,8 +153,8 @@ TEAM_ID_FILTER_PATTERNS = {
     "batch_export_runs": "system__batch_exports.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
-    "_event_definition_tagged_items": "system__event_definitions.team_id",
-    "_property_definition_tagged_items": "system__property_definitions.team_id",
+    "_event_definition_tagged_items": "system___event_definition_tagged_items.team_id",
+    "_property_definition_tagged_items": "system___property_definition_tagged_items.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
     # Roles scope one level deeper, through the assignments that reference them
     "_ticket_assignee_roles": "system__support_tickets.team_id",

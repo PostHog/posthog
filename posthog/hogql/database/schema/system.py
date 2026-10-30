@@ -3864,6 +3864,7 @@ def _definition_tagged_items(tagged_model: str, definitions_table: str) -> Tagge
                 hidden=True,
                 description=f"Kind of object the tag is applied to; the table only returns {tagged_model} rows.",
             ),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         },
     )
 
@@ -3940,6 +3941,7 @@ def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin
 event_definitions: PostgresTable = PostgresTable(
     name="event_definitions",
     postgres_table_name="posthog_eventdefinition",
+    access_scope="event_definition",
     description="Events known to the project, from ingestion or defined ahead of time; one row per event name.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Event definition UUID."),
@@ -3990,6 +3992,8 @@ class _PropertyDefinitionsTable(PostgresTable):
 property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
     name="property_definitions",
     postgres_table_name="posthog_propertydefinition",
+    access_scope="property_definition",
+    push_team_guard_with_predicates=True,
     description="Properties known to the project for events, persons, groups, and sessions; one row per property name and type.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Property definition UUID."),

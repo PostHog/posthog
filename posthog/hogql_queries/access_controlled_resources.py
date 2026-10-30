@@ -70,6 +70,8 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_tagged_items": frozenset({"ticket"}),
     "system._ticket_assignments": frozenset({"ticket"}),
     "system._ticket_assignee_roles": frozenset({"ticket"}),
+    "system._event_definition_tagged_items": frozenset({"event_definition"}),
+    "system._property_definition_tagged_items": frozenset({"property_definition"}),
     # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
