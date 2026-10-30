@@ -378,6 +378,7 @@ export function createCloud(
           model: start.harness === "pi" ? start.model : undefined,
         }),
         mcp,
+        start.harness === "pi" && start.model !== undefined,
       );
       await session.start();
       return session;

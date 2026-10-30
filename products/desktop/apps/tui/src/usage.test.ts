@@ -45,6 +45,14 @@ describe("isCompacting", () => {
   });
 });
 
+const acpUsage = (used: number, size: number): StoredLogEntry => ({
+  type: "acp_message",
+  notification: {
+    method: "session/update",
+    params: { update: { sessionUpdate: "usage_update", used, size } },
+  },
+});
+
 describe("contextFill", () => {
   it.each([
     ["no turns", [], null],
@@ -65,6 +73,12 @@ describe("contextFill", () => {
       { tokens: 5, window: 100 },
     ],
     ["a turn with no context tokens", [turn(10, 100), turn(null, 100)], null],
+    [
+      "a Claude Code usage update",
+      [acpUsage(30, 200), acpUsage(60, 200)],
+      { tokens: 60, window: 200 },
+    ],
+    ["a Claude Code usage update with no window", [acpUsage(60, 0)], null],
   ])("reads %s", (_, entries, expected) => {
     expect(contextFill(entries)).toEqual(expected);
   });
@@ -79,6 +93,8 @@ describe("usageStatus", () => {
     [{ tokens: 50, window: 100 }, 3.12, "◑ • $3.12"],
     [{ tokens: 100, window: 100 }, 0.001, "● • <$0.01"],
     [null, 12, "$12.00"],
+    [{ tokens: 50, window: 100 }, "plan" as const, "◑ • using sub"],
+    [null, "plan" as const, "using sub"],
   ])("draws %o and %o as %s", (fill, cost, expected) => {
     expect(stripTerminalSequences(usageStatus(fill, cost))).toBe(expected);
   });

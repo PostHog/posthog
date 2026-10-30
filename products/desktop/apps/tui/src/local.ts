@@ -22,6 +22,8 @@ const asEntry = (event: AgentConversationEvent): StoredLogEntry => ({
 // An agent running on this machine, shown like a cloud run. Its runtime says how its log reads.
 export interface LocalAgent {
   readonly runtime: AgentRuntime;
+  // The user's own plan pays for this chat, not PostHog.
+  readonly plan: boolean;
   readonly control: PiControl;
   start(): Promise<void>;
   watch(onView: (view: RunView) => void): () => void;
@@ -48,6 +50,7 @@ export class LocalSession implements LocalAgent {
   constructor(
     private readonly client: PiRpcClient,
     private readonly policies: McpToolPolicyUpdater,
+    readonly plan = false,
   ) {
     this.pi = new PiRuntime(client, () => this.contextWindow);
     this.pi.onExtensionEvent((event) => {
