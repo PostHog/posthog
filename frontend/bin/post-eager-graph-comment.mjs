@@ -28,9 +28,14 @@ const errorCount = report.errors?.length ?? 0
 const overBudgetRoots = report.roots.filter((r) => r.overBudget).length
 const forbiddenCount = report.roots.reduce((n, r) => n + r.forbiddenHits.length, 0)
 const growth = eagerGrowth(report, baseReport)
-const growthApproved = readPrLabels()?.includes(GROWTH_APPROVAL_LABEL) ?? false
-const unapprovedGrowth = growthApproved ? 0 : growth.filter((g) => g.overThreshold).length
-const anyFailure = Boolean(errorCount || overBudgetRoots || forbiddenCount)
+// null means CI could not read the labels. check-eager-graph.mjs only warns then, so this comment warns too.
+const labels = readPrLabels()
+const labelsUnknown = labels === null
+const growthApproved = !labelsUnknown && labels.includes(GROWTH_APPROVAL_LABEL)
+const overThresholdGrowth = growth.filter((g) => g.overThreshold)
+const unapprovedGrowth = growthApproved || labelsUnknown ? 0 : overThresholdGrowth.length
+const growthWarnings = labelsUnknown ? overThresholdGrowth.length : 0
+const anyFailure = Boolean(errorCount || overBudgetRoots || forbiddenCount || growthWarnings)
 
 const problems = [
     unapprovedGrowth && `${unapprovedGrowth} root(s) grew past the limit`,
@@ -52,6 +57,10 @@ function growthLines() {
         } else if (growthApproved) {
             lines.push(
                 `✅ **${g.label}**: ${change}, over the ${limit} growth limit. The \`${GROWTH_APPROVAL_LABEL}\` label approves it.`
+            )
+        } else if (labelsUnknown) {
+            lines.push(
+                `⚠️ **${g.label}**: ${change}, over the ${limit} growth limit. The pull request labels could not be read, so this does not fail CI.`
             )
         } else {
             lines.push(`❌ **${g.label}**: ${change}, over the ${limit} growth limit. ${approvalHint}`)
