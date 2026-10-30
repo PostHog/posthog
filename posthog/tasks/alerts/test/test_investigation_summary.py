@@ -25,7 +25,7 @@ from products.alerts.backend.models import AlertConfiguration
         ("Latency rose for <none> service.", "Latency rose for <none> service."),
     ],
 )
-def test_investigation_summary_teaser_basic(input, expected) -> None:
+def test_investigation_summary_teaser_basic(input: str | None, expected: str | None) -> None:
     assert investigation_summary_teaser(input) == expected
 
 
