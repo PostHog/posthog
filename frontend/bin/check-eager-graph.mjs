@@ -256,6 +256,11 @@ function fail(message) {
     process.exitCode = 1
 }
 
+// The PR build writes the report, so a root label with a line break could start a forged workflow command.
+function singleLineLabel(label) {
+    return String(label).replace(/[\r\n]+/g, ' ')
+}
+
 function encodeWorkflowCommandValue(message) {
     return message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
 }
@@ -303,7 +308,7 @@ function assertReport(reportFilePath) {
             forbiddenHits++
         }
         if (topLevelErrors.length === 0 && !r.overBudget && rootForbiddenHits.length === 0) {
-            console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
+            console.info(`🟢 ${singleLineLabel(r.label)}:${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
     return { violations, forbiddenHits, analysisErrors: topLevelErrors.length }
@@ -324,7 +329,7 @@ function assertGrowth(reportFilePath, baseReportPath) {
     let blocking = 0
     for (const row of eagerGrowth(report, baseReport)) {
         const summary =
-            `'${row.label}' grows by ${formatBytes(row.delta)} against the base build ` +
+            `'${singleLineLabel(row.label)}' grows by ${formatBytes(row.delta)} against the base build ` +
             `(${formatBytes(row.baseBytes)} -> ${formatBytes(row.bytes)}). ` +
             `The limit is ${formatBytes(GROWTH_THRESHOLD_BYTES)}.`
         if (!row.overThreshold) {

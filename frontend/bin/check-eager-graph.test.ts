@@ -27,7 +27,7 @@ interface EagerGraphReport {
 function runChecker(
     report: EagerGraphReport,
     { baseReport, labels }: { baseReport?: EagerGraphReport; labels?: string[] } = {}
-): number | null {
+): { status: number | null; stdout: string } {
     const directory = mkdtempSync(join(tmpdir(), 'eager-graph-'))
     const reportPath = join(directory, 'report.json')
     const baseReportPath = join(directory, 'base-report.json')
@@ -41,7 +41,7 @@ function runChecker(
     }
 
     try {
-        return spawnSync(
+        const { status, stdout } = spawnSync(
             'node',
             [CHECKER, '--assert-report', reportPath, '--fail-forbidden-hits', '--base-report', baseReportPath],
             {
@@ -49,18 +49,17 @@ function runChecker(
                 encoding: 'utf8',
                 env: { ...process.env, PR_LABELS_FILE: labelsPath },
             }
-        ).status
+        )
+        return { status, stdout }
     } finally {
         rmSync(directory, { recursive: true, force: true })
     }
 }
 
-function shellReport(sha: string, bytes: number): EagerGraphReport {
+function shellReport(sha: string, bytes: number, label = 'authenticated shell'): EagerGraphReport {
     return {
         errors: [],
-        roots: [
-            { root: SHELL, label: 'authenticated shell', bytes, forbiddenHits: [], largest: [], overBudget: false },
-        ],
+        roots: [{ root: SHELL, label, bytes, forbiddenHits: [], largest: [], overBudget: false }],
         sha,
         warnings: [],
     }
@@ -83,7 +82,7 @@ describe('check-eager-graph.mjs', () => {
                 errors,
                 roots: [{ root: 'src/index.tsx', forbiddenHits, largest: [], overBudget }],
                 warnings: [],
-            })
+            }).status
         ).toBe(expectedStatus)
     })
 
@@ -97,7 +96,19 @@ describe('check-eager-graph.mjs', () => {
             runChecker(shellReport('pr-sha', SHELL_BASE_BYTES + growthBytes), {
                 baseReport: hasBaseReport ? shellReport('base-sha', SHELL_BASE_BYTES) : undefined,
                 labels,
-            })
+            }).status
         ).toBe(expectedStatus)
+    })
+
+    it.each([
+        ['under the limit', 19 * 1024, []],
+        ['over the limit', 21 * 1024, []],
+        ['over the limit with the approval label', 21 * 1024, ['eager-growth-approved']],
+    ])('keeps a root label from starting a workflow command line %s', (_, growthBytes, labels) => {
+        const { stdout } = runChecker(
+            shellReport('pr-sha', SHELL_BASE_BYTES + growthBytes, 'shell\r\n::warning title=forged::approved'),
+            { baseReport: shellReport('base-sha', SHELL_BASE_BYTES), labels }
+        )
+        expect(stdout.split('\n').filter((line) => line.startsWith('::warning title=forged'))).toEqual([])
     })
 })
