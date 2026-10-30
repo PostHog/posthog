@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 
 import pydantic
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
 
 from posthog.dataclasses import frozen
 
@@ -183,10 +183,16 @@ def _resolve_exposure(
 
 
 def _exposure_entity(
-    config: ExperimentEventExposureConfig | ActionsNode | None, stored_config: Any, *, default_event_resolves: bool
+    config: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | None,
+    stored_config: Any,
+    *,
+    default_event_resolves: bool,
 ) -> dict[str, Any]:
     """The event or action of an exposure or activation config, and its property filters as stored. The stored
-    filters stay the same when a schema change adds a defaulted field to a filter model, so the key does too."""
+    filters stay the same when a schema change adds a defaulted field to a filter model, so the key does too.
+    A warehouse-native exposure has no event and no filters, so its source and its SQL identify it."""
+    if isinstance(config, ExperimentWarehouseNativeExposureConfig):
+        return {"connection_id": config.connection_id, "query": config.query}
     stored_properties = stored_config.get("properties") if isinstance(stored_config, dict) else None
     properties = deepcopy(list(stored_properties or []))
     if isinstance(config, ActionsNode):
