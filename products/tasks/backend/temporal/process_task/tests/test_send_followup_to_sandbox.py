@@ -66,6 +66,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.created_by_id = created_by_id
     task.team_id = team_id
     task.internal = False
+    task.stored_profile = None
     task.origin_product = "user_created"
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
@@ -143,6 +144,7 @@ class TestRefreshSandboxMcp:
             task_agent_key="support",
             credential_owner_id=99,
             allowed_gateway_server_ids=["srv-9"],
+            profile=None,
         )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args

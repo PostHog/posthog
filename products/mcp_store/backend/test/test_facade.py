@@ -478,6 +478,17 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         assert mismatched_results == []
 
+        profiled_results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="user_created",
+            task_agent_key="support",
+            profile_agent_key="support",
+            credential_owner_id=self.user.id,
+        )
+        assert [result.id for result in profiled_results] == [str(personal.id)]
+
     def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
         account = self._support_agent()
         other_user = User.objects.create_and_join(self.organization, "other-owner@posthog.com", "password")

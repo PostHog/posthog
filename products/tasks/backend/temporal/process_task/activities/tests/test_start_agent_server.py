@@ -16,7 +16,6 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
-from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -28,7 +27,6 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
-    _include_personal_mcp_for_task,
     _invoke_start_agent_server,
     _launch_agent_shadow,
     _LaunchParams,
@@ -710,22 +708,6 @@ def _mock_github_integration(mocker, pr_base: str | None):
     return integration
 
 
-@pytest.mark.parametrize(
-    "internal,profile,expected",
-    [
-        # Internal/autonomous runs (support reply, signals) get shared team
-        # connections only — never a resolved member's personal MCP creds.
-        (True, None, False),
-        # User-initiated Code runs get shared + the creator's personal installs.
-        (False, None, True),
-        (False, get_task_profile("business_knowledge"), False),
-    ],
-)
-def test_include_personal_mcp_for_task(mocker, internal, profile, expected) -> None:
-    task = mocker.Mock(internal=internal, stored_profile=profile)
-    assert _include_personal_mcp_for_task(task) is expected
-
-
 def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:
     task_get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
@@ -1257,6 +1239,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         task_agent_key="support",
         credential_owner_id=17,
         allowed_gateway_server_ids=["srv-1"],
+        profile=None,
     )
     sandbox.start_agent_server.assert_called_once()
     sandbox.wait_for_agent_server_ready.assert_not_called()
