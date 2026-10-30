@@ -26,13 +26,13 @@ export function MemberOffboardingModal(): JSX.Element {
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
-    const busyReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
+    const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const hasResources = !resourcesLoading && !loadError && !!resources?.length
 
     return (
         <LemonModal
             isOpen={!!member}
-            onClose={busyReason ? undefined : close}
+            onClose={disabledReason ? undefined : close}
             title={
                 isSelf
                     ? 'Leave organization?'
@@ -41,7 +41,7 @@ export function MemberOffboardingModal(): JSX.Element {
             width={hasResources ? 720 : 576}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={close} disabledReason={busyReason}>
+                    <LemonButton type="secondary" onClick={close} disabledReason={disabledReason}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -49,7 +49,7 @@ export function MemberOffboardingModal(): JSX.Element {
                         status="danger"
                         loading={removedLoading}
                         disabledReason={
-                            busyReason ||
+                            disabledReason ||
                             (resourcesLoading
                                 ? 'Checking shared resources and subscriptions…'
                                 : loadError || resources === null

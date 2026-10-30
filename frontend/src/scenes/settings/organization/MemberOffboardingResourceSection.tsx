@@ -43,7 +43,7 @@ export function MemberOffboardingResourceSection({
     const { setKeep, disableResources } = useActions(memberOffboardingLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
-    const busyReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
+    const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const isSubscription = kind === 'subscriptions'
     return (
         <section className="space-y-3">
@@ -52,7 +52,6 @@ export function MemberOffboardingResourceSection({
                 {isSubscription
                     ? 'These subscriptions and alerts were created by this member. You can keep or disable them.'
                     : "These resources were shared by this member and are accessible to anyone with the link. You can disable public sharing. This won't delete them."}
-                {' Changes apply immediately, even if you cancel.'}
             </p>
             {!isSelf && (
                 <div className="relative h-9">
@@ -78,7 +77,7 @@ export function MemberOffboardingResourceSection({
                                   ? 'Select all subscriptions and alerts on this page'
                                   : 'Select all resources on this page',
                               clearSelectionKey: member?.user.uuid,
-                              isRowSelectable: () => (busyReason ? { disabledReason: busyReason } : true),
+                              isRowSelectable: () => (disabledReason ? { disabledReason } : true),
                               barPortalTarget: bulkBarTarget,
                               actionsPlacement: 'start',
                               barClassName: 'justify-start! px-0! [&>span]:min-w-0 [&>span]:truncate',
@@ -89,7 +88,7 @@ export function MemberOffboardingResourceSection({
                                       status="danger"
                                       size="small"
                                       loading={savingResourcesLoading}
-                                      disabledReason={busyReason}
+                                      disabledReason={disabledReason}
                                       onClick={() => {
                                           disableResources([...ctx.selectedKeys])
                                           ctx.clearSelection()
@@ -180,7 +179,7 @@ export function MemberOffboardingResourceSection({
                                               loading={savingResourcesLoading}
                                               checked={keep.includes(resource.id)}
                                               onChange={(enabled) => setKeep(resource.id, enabled)}
-                                              disabledReason={busyReason}
+                                              disabledReason={disabledReason}
                                               aria-label={`${isSubscription ? 'Enable' : 'Public sharing for'} ${resource.name}`}
                                               data-attr={
                                                   isSubscription
