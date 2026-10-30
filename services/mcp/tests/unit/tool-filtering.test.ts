@@ -1125,6 +1125,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'logs-agent-tools',
             'workflows-transactional-email-api',
             'activity-summary',
+            'personal-inbox-ranking',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',

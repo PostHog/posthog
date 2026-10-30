@@ -232,5 +232,5 @@ def serve_personal_ranking(
     build = build_personal_ranking(team, user, focus=focus, limit=limit, config=config)
     if build.ranking_id is None:
         return UNAVAILABLE
-    row = PersonalInboxRanking.objects.for_team(team.id).get(id=build.ranking_id)
+    row = PersonalInboxRanking.objects.for_team(team.id).get(id=build.ranking_id, team_id=team.id, user_id=user.id)
     return _serve_row(row, build.candidates, limit=limit, cached=False, stale=False)

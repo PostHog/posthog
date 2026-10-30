@@ -1549,7 +1549,9 @@ class PersonalRankingSerializer(serializers.Serializer):
             "summary yet or the build fell back to the inbox order."
         )
     )
-    cached = serializers.BooleanField(help_text="True when the list comes from storage, false when this request built it.")
+    cached = serializers.BooleanField(
+        help_text="True when the list comes from storage, false when this request built it."
+    )
     stale = serializers.BooleanField(
         help_text=(
             "True when the list does not match your current inbox, because you reached the build limit. "
@@ -1565,7 +1567,8 @@ class PersonalRankingSerializer(serializers.Serializer):
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the list was built.")
     latency_ms = serializers.IntegerField(
-        allow_null=True, help_text="How long the model call of the build took, in ms. Null when there was no model call."
+        allow_null=True,
+        help_text="How long the model call of the build took, in ms. Null when there was no model call.",
     )
     activity_summary_version = serializers.IntegerField(
         allow_null=True, help_text="The version of your activity summary that the build read, or null."
