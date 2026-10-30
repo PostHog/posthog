@@ -202,20 +202,30 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot"]
 
+    @parameterized.expand([("one_pass", 4), ("pass_per_source", 1)])
     @pytest.mark.asyncio
-    async def test_streams_staged_files_into_one_projected_bundle_per_distinct_id(self):
-        source = PersonPropertySyncSource(
-            source_id="source-1",
-            definition_id="def-1",
-            key_column="distinct_id",
-            column_property_map={"plan": "plan_tier", "seats": "seat_count"},
-        )
+    async def test_streams_staged_files_into_one_projected_bundle_per_distinct_id(self, _name, sources_per_pass):
+        sources = [
+            PersonPropertySyncSource(
+                source_id="source-1",
+                definition_id="def-1",
+                key_column="distinct_id",
+                column_property_map={"plan": "plan_tier", "seats": "seat_count"},
+            ),
+            PersonPropertySyncSource(
+                source_id="source-2",
+                definition_id="def-2",
+                key_column="distinct_id",
+                column_property_map={"seats": "seat_count"},
+            ),
+        ]
         fake = _FakeS3()
         _stage(fake, "chunk_1_000001", [{"distinct_id": "a", "plan": "pro", "seats": 3, "notes": "unmapped"}])
         _stage(fake, "chunk_1_000000", [{"distinct_id": "a", "plan": "free"}, {"distinct_id": "b", "plan": "pro"}])
         with (
             _fake_s3_patch(fake),
-            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.SOURCES_PER_STAGED_PASS", sources_per_pass),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.build_bundles", wraps=pps.build_bundles) as build,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
@@ -228,10 +238,11 @@ class TestRunOrchestration:
             team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
             result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
-        assert sorted(produce.call_args.args[3]) == [
-            ("a", {"plan_tier": "pro", "seat_count": 3}),
-            ("b", {"plan_tier": "pro"}),
-        ]
+        produced = {call.args[2].source_id: sorted(call.args[3]) for call in produce.call_args_list}
+        assert produced == {
+            "source-1": [("a", {"plan_tier": "pro", "seat_count": 3}), ("b", {"plan_tier": "pro"})],
+            "source-2": [("a", {"seat_count": 3})],
+        }
         assert result.rows_read == 3
         assert all("notes" not in row for call in build.call_args_list for row in call.args[0])
 

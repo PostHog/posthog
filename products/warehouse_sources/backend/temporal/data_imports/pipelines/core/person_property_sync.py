@@ -92,6 +92,11 @@ _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 # batch plus the per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality).
 ROW_BATCH_SIZE = 50_000
 
+# Sources folded per pass over the staged files. Every source in a pass keeps its own
+# {distinct_id: bundle} map, so a binding with many sources would otherwise hold one map per source
+# for every person at once. Each extra pass reads only its own sources' columns.
+SOURCES_PER_STAGED_PASS = 4
+
 
 @frozen(frozen=False)
 class PerSourceResult:
@@ -238,12 +243,8 @@ def _accumulate_staged_file(
     return rows_read
 
 
-async def _read_staged_bundles(
-    team_id: int, binding: WarehouseBinding, job_id: str, sources: list[PersonPropertySyncSource]
-) -> StagedBundleRead:
-    """Stream every staged file of the job into {source_id: {distinct_id: bundle}}, one file and one
-    batch at a time, so peak memory tracks distinct persons rather than staged row count."""
-    accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
+async def _list_staged_files(team_id: int, binding: WarehouseBinding, job_id: str) -> list[str]:
+    """S3 keys of the job's staged files in write order. Empty when the run staged nothing."""
     prefix = job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         try:
@@ -251,7 +252,7 @@ async def _read_staged_bundles(
         except FileNotFoundError:
             # No staged folder — the run staged nothing (common on a no-change incremental run).
             logger.debug("person-property sync: no staged rows folder", team_id=team_id, **_log_fields(binding))
-            return StagedBundleRead(bundles_by_source=accumulated, rows_read=0)
+            return []
     values = listing.values() if isinstance(listing, dict) else listing
     files = [f for f in values if f.get("type") != "directory"]
     # Staged filenames sort in attempt and chunk order, so last-write-wins follows write order.
@@ -264,7 +265,13 @@ async def _read_staged_bundles(
         staged_files=len(file_keys),
         staged_bytes=sum(f.get("size") or 0 for f in files),
     )
+    return file_keys
 
+
+async def _read_staged_bundles(file_keys: list[str], sources: list[PersonPropertySyncSource]) -> StagedBundleRead:
+    """Stream the staged files into {source_id: {distinct_id: bundle}}, one file and one batch at a
+    time, so peak memory tracks distinct persons rather than staged row count."""
+    accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
     s3_sync_client = get_s3_client()
     rows_read = 0
     for key in file_keys:
@@ -581,6 +588,30 @@ async def _process_source_bundles(
     return ps
 
 
+async def _process_accumulated_source(
+    *,
+    team_id: int,
+    team: Team,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    bundles_by_source: dict[str, dict[str, dict]],
+    rows_read: int,
+    run_token: str,
+) -> PerSourceResult:
+    bundles = list(bundles_by_source.pop(str(source.source_id)).items())
+    return await _process_source_bundles(
+        team_id=team_id,
+        project_id=team.project_id,
+        binding=binding,
+        team_api_token=team.api_token,
+        team_uuid=str(team.uuid),
+        source=source,
+        bundles=bundles,
+        rows_read=rows_read,
+        run_token=run_token,
+    )
+
+
 def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.per_source.append(ps)
     result.changed += ps.changed
@@ -602,32 +633,32 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    read = await _read_staged_bundles(team_id, binding, job_id, sources)
+    file_keys = await _list_staged_files(team_id, binding, job_id)
     result.sources = len(sources)
-    result.rows_read = read.rows_read
-    logger.info(
-        "person-property sync: read staged rows",
-        team_id=team_id,
-        **_log_fields(binding),
-        job_id=job_id,
-        sources=len(sources),
-        rows_read=read.rows_read,
-    )
 
-    for source in sources:
-        bundles = list(read.bundles_by_source[str(source.source_id)].items())
-        ps = await _process_source_bundles(
+    for start in range(0, len(sources), SOURCES_PER_STAGED_PASS):
+        pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
+        read = await _read_staged_bundles(file_keys, pass_sources)
+        result.rows_read = read.rows_read
+        logger.info(
+            "person-property sync: read staged rows",
             team_id=team_id,
-            project_id=team.project_id,
-            binding=binding,
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
-            source=source,
-            bundles=bundles,
+            **_log_fields(binding),
+            job_id=job_id,
+            sources=len(pass_sources),
             rows_read=read.rows_read,
-            run_token=job_id,
         )
-        _accumulate(result, ps)
+        for source in pass_sources:
+            ps = await _process_accumulated_source(
+                team_id=team_id,
+                team=team,
+                binding=binding,
+                source=source,
+                bundles_by_source=read.bundles_by_source,
+                rows_read=read.rows_read,
+                run_token=job_id,
+            )
+            _accumulate(result, ps)
 
     await _clear_staged(team_id, binding, job_id)
     return result
@@ -779,15 +810,12 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
                 ),
             )
             continue
-        bundles = list(read.bundles_by_source[str(source.source_id)].items())
-        ps = await _process_source_bundles(
+        ps = await _process_accumulated_source(
             team_id=team_id,
-            project_id=team.project_id,
+            team=team,
             binding=binding,
-            team_api_token=team.api_token,
-            team_uuid=str(team.uuid),
             source=source,
-            bundles=bundles,
+            bundles_by_source=read.bundles_by_source,
             rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )
