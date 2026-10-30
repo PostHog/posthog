@@ -15,6 +15,7 @@ import {
   splitFocused,
 } from "../layout";
 import { type Click, hitTest, type Box as ScreenBox } from "../mouse";
+import type { CloudRuns } from "../runs";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
@@ -52,9 +53,11 @@ function dividerProps(divider: "left" | "top" | null) {
 
 export function App({
   work,
+  runs,
   clicks,
 }: {
   work: WorkList;
+  runs: CloudRuns;
   clicks?: EventEmitter<{ click: [Click] }>;
 }): ReactElement {
   const { exit } = useApp();
@@ -89,7 +92,7 @@ export function App({
             setPage((current) => ({
               ...current,
               loadingMore: false,
-              error: String(error),
+              error: error instanceof Error ? error.message : String(error),
             }));
           }
         },
@@ -220,6 +223,8 @@ export function App({
       >
         <Pane
           title={titleOf(node.taskId)}
+          task={page.tasks?.find((task) => task.id === node.taskId)}
+          runs={runs}
           focused={!sidebarFocused && node.id === workspace.focusedPaneId}
         />
       </Box>

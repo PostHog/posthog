@@ -1,0 +1,91 @@
+import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
+import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
+import type { IAnalytics } from "@posthog/platform/analytics";
+import { CloudRuns } from "./runs";
+
+export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
+
+interface TokenSource {
+  getAccessToken(): Promise<string>;
+  refreshAccessToken(): Promise<string>;
+}
+
+export function authenticatedFetch(
+  auth: TokenSource,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): (url: string, init?: RequestInit) => Promise<Response> {
+  const send = (url: string, init: RequestInit | undefined, token: string) => {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...init, headers });
+  };
+  return async (url, init) => {
+    const response = await send(url, init, await auth.getAccessToken());
+    if (response.status !== 401) return response;
+    return send(url, init, await auth.refreshAccessToken());
+  };
+}
+
+// Ink owns the screen, so logs go to a file.
+function fileLogger(scope: string): ScopedLogger {
+  const write =
+    (level: string) =>
+    (...args: unknown[]): void =>
+      appendFileSync(
+        LOG_PATH,
+        `${new Date().toISOString()} ${level} [${scope}] ${args
+          .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+          .join(" ")}\n`,
+      );
+  return {
+    debug: write("debug"),
+    info: write("info"),
+    warn: write("warn"),
+    error: write("error"),
+  };
+}
+
+const logger: RootLogger = { ...fileLogger("tui"), scope: fileLogger };
+
+const noAnalytics: IAnalytics = {
+  initialize: () => {},
+  track: () => {},
+  identify: () => {},
+  setCurrentUserId: () => {},
+  getCurrentUserId: () => null,
+  getOrCreateSessionId: () => "posthog-tui",
+  resetUser: () => {},
+  captureException: () => {},
+  flush: async () => {},
+  shutdown: async () => {},
+};
+
+export function createCloudRuns(
+  auth: TokenSource & { apiHost: string },
+  api: PostHogAPIClient,
+): CloudRuns {
+  let teamId: Promise<number> | null = null;
+  const context = async () => {
+    teamId ??= api.getCurrentUser().then(
+      (user) => user.team.id,
+      (error: unknown) => {
+        teamId = null;
+        throw error;
+      },
+    );
+    return { apiHost: auth.apiHost, teamId: await teamId };
+  };
+  const engine = createCloudTaskEngine({
+    auth: {
+      authenticatedFetch: authenticatedFetch(auth),
+      getCloudContext: context,
+    },
+    analytics: noAnalytics,
+    logger,
+  });
+  return new CloudRuns(engine, context);
+}
