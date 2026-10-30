@@ -39,7 +39,6 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import (
-    API_SQL_WINDOW_CACHE_AGE_FLAG,
     SqlFreshness,
     classify,
     freshness_from_record,
@@ -59,6 +58,7 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -94,8 +94,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     @cached_property
     def _api_sql_freshness_enabled(self) -> bool:
         return (
-            not self.query.connectionId
-            and self.query.executionTarget != ExecutionTarget.MANAGED_TRINO
+            self._reads_events_route()
             and is_api_key_access_method(get_query_tag_value("access_method"))
             and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
         )
@@ -330,7 +329,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with record_relative_date_reads() as relative_date_reads:
             query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
-        if self._api_sql_freshness_enabled and self._direct_engine is None:
+        if self._api_sql_freshness_enabled:
             self._sql_classification = self._classify_sql_freshness(query, relative_date_reads)
         return query
 

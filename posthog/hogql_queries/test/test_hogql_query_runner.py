@@ -38,9 +38,9 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
-from posthog.hogql_queries.sql_freshness.classifier import API_SQL_WINDOW_CACHE_AGE_FLAG, SqlFreshness, freshness_record
+from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
 from posthog.models.utils import UUIDT
 
