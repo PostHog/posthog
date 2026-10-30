@@ -64,6 +64,38 @@ class TestGithubIssueEmitter:
         assert result.existing_source_only is True
         assert "Charts fail to render" in result.description
 
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [
+            pytest.param("Depends on #86", [("acme/analytics", 86)], id="same_repo_ref"),
+            pytest.param("- blocked by Acme/Other#5", [("acme/other", 5)], id="list_item_cross_repo_ref"),
+            pytest.param(
+                "**Depends on:** https://github.com/acme/web/issues/9", [("acme/web", 9)], id="bold_phrase_url_ref"
+            ),
+            pytest.param(
+                "1. Depends on #1, #2 and #3", [("acme/analytics", n) for n in (1, 2, 3)], id="several_refs_on_a_line"
+            ),
+            pytest.param("Depends on #4 because #5 broke", [("acme/analytics", 4)], id="later_mention_ignored"),
+            pytest.param("We saw this after #4 shipped", [], id="bare_mention_ignored"),
+            pytest.param("> Depends on #4", [], id="quote_ignored"),
+            pytest.param("```\nDepends on #4\n```", [], id="code_block_ignored"),
+            pytest.param("Depends on `#4`", [], id="inline_code_ignored"),
+            pytest.param("Depends on #87", [], id="self_reference_ignored"),
+            pytest.param(
+                "\n".join(f"Depends on #{n}" for n in range(1, 13)),
+                [("acme/analytics", n) for n in range(1, 11)],
+                id="capped",
+            ),
+        ],
+    )
+    def test_dependency_lines_parse_into_depends_on_issues(self, github_issue_record, body, expected):
+        github_issue_record["body"] = body
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        assert result.extra["depends_on_issues"] == [{"repository": r, "number": n} for r, n in expected]
+        GithubIssueSignalExtra(**result.extra)
+
     @pytest.mark.parametrize("missing_field", ["id", "title"])
     def test_raises_when_required_field_falsy(self, github_issue_record, missing_field):
         github_issue_record[missing_field] = None
