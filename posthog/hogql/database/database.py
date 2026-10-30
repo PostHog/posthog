@@ -2163,11 +2163,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    saved_queries = (
-                        all_saved_queries
-                        if is_managed_viewset_enabled
-                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
-                    )
+                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
+                    saved_queries = [
+                        sq
+                        for sq in all_saved_queries
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                    ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             # Endpoint-origin rows are a subset of the non-deleted saved queries fetched above,

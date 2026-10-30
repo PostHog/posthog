@@ -175,6 +175,68 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    def test_create_raw_managed_trino_view(self) -> None:
+        trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "hub_occupancy",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": trino_sql,
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "types": [["hub_id", "Int64"], ["occupied_at", "DateTime64(6)"]],
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201, response.content)
+        view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        self.assertEqual(view.query["query"], trino_sql)
+        self.assertEqual(view.query["executionTarget"], "managed_trino")
+        self.assertEqual(set(view.columns), {"hub_id", "occupied_at"})
+        self.assertFalse(Node.objects.filter(saved_query=view).exists())
+
+        # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "select * from hub_occupancy"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Unknown table", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("not_select", "SHOW SCHEMAS", True, [["x", "Int64"]], "read-only SELECT"),
+            ("flag_off", "SELECT 1 AS x", False, [["x", "Int64"]], "not enabled"),
+            ("no_types", "SELECT 1 AS x", True, [], "Run the query"),
+        ]
+    )
+    def test_create_raw_managed_trino_view_refused(
+        self, _case: str, sql: str, flag_enabled: bool, types: list[list[str]], expected_detail: str
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "trino_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": sql,
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "types": types,
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="trino_view").exists())
+
     @parameterized.expand(
         [("ui", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}), ("api", {"HTTP_USER_AGENT": "test-api-client"})]
     )

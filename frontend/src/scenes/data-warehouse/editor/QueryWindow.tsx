@@ -37,7 +37,7 @@ import { QueryPane } from './QueryPane'
 import { QueryPlaceholdersMenu } from './QueryPlaceholdersMenu'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { RunButton } from './RunButton'
-import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
+import { isRawTrinoView, sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
@@ -325,6 +325,11 @@ export function QueryWindow({
                                     size="small"
                                     icon={<IconDatabase />}
                                     onClick={() => openMaterializationModal(editingView)}
+                                    disabledReason={
+                                        isRawTrinoView(editingView)
+                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                            : undefined
+                                    }
                                     data-attr="sql-editor-materialization-button"
                                 >
                                     Materialization

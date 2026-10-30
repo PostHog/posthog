@@ -499,6 +499,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+        if saved_query.is_raw_managed_trino:
+            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
 
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)

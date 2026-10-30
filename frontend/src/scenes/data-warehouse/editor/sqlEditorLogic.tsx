@@ -419,6 +419,11 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+// Raw Trino views run only on hosted Trino, so they have no lineage node and cannot be materialized.
+export function isRawTrinoView(view: DataWarehouseSavedQuery): boolean {
+    return view.query?.executionTarget === 'managed_trino' && !!view.query?.sendRawQuery
+}
+
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
     return {
         kind: NodeKind.DataVisualizationNode,
@@ -3574,7 +3579,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView) {
+            if (editingView && !isRawTrinoView(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },
