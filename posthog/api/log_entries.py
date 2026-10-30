@@ -185,7 +185,8 @@ def count_log_entries(
         search=search,
         level=level,
     )
-    rows = cast(list, sync_execute(f"SELECT count() FROM log_entries WHERE {where}", clickhouse_kwargs))
+    clickhouse_query = f"SELECT count() FROM log_entries WHERE {where}"
+    rows = cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
     return int(rows[0][0])
 
 
