@@ -1,3 +1,5 @@
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
+
 export interface AiSceneViewInput {
     /** The task `/ai?task=` selects, if any. */
     taskId?: string
@@ -21,4 +23,3 @@ export function aiSceneView({ taskId, chatId, effectivePhaiView }: AiSceneViewIn
     }
     return effectivePhaiView === 'new' ? 'runner' : 'chat'
 }
-import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
