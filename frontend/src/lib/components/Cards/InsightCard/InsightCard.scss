@@ -11,7 +11,8 @@
     border-radius: var(--radius);
     transition: border 200ms ease;
 
-    &:has([data-bi-filter-status='unaffected']) {
+    &:has([data-bi-filter-status='unaffected']),
+    &:has([data-insight-filter-status='unaffected']) {
         opacity: 0.3;
     }
 

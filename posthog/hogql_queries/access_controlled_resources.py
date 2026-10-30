@@ -204,6 +204,11 @@ def queried_access_controlled_resources(
 
     catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
 
+    # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
+    # references are expanded here, conservatively partition on every access-control scope.
+    if "matchesInsight" in query.model_dump_json():
+        return None
+
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
 

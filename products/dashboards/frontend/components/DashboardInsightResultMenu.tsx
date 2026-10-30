@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { deepEqual } from 'fast-equals'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useId, useRef, useState } from 'react'
 
 import { capturePersonsModalForClick, CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
@@ -23,15 +24,23 @@ import {
 } from '~/queries/utils'
 import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
 
+import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
+import { getDashboardResultActors, getDashboardResultFilterLink } from '../dashboardResultFilters'
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
 
 export function DashboardInsightResultMenu({
     insight,
     children,
+    dashboardId,
+    tileId,
 }: {
     insight: InsightModel
     children: ReactNode
+    dashboardId?: number
+    tileId?: number
 }): JSX.Element {
+    const { selection: activeFilter } = useValues(dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 }))
+    const { selectResult } = useActions(dashboardResultFilterLogic({ dashboardId: dashboardId ?? 0 }))
     const [position, setPosition] = useState<ResultMenuPoint | null>(null)
     const [actors, setActors] = useState<CapturedPersonsModal | null>(null)
     // Each opened menu loads its result again, so selecting the same point again retries a failed load.
@@ -110,6 +119,21 @@ export function DashboardInsightResultMenu({
             ? actors.title('Results')
             : actors.title
         : insight.name || 'Untitled insight'
+    const filterActors = actors ? getDashboardResultActors(actors) : null
+    const filterSelection =
+        filterActors && dashboardId !== undefined && tileId !== undefined
+            ? {
+                  dashboardId,
+                  tileId,
+                  label: typeof selectedResult === 'string' ? selectedResult : insight.name || 'Insight result',
+                  query: filterActors,
+              }
+            : null
+    const isActiveFilter =
+        !!filterSelection &&
+        !!activeFilter &&
+        activeFilter.tileId === tileId &&
+        deepEqual(activeFilter.query, filterSelection.query)
     return (
         <div
             ref={triggerRef}
@@ -158,6 +182,31 @@ export function DashboardInsightResultMenu({
                     interaction={position}
                     close={close}
                     actions={[
+                        ...(dashboardId !== undefined && tileId !== undefined
+                            ? [
+                                  {
+                                      name: isActiveFilter ? 'Remove filter' : 'Filter dashboard by this result',
+                                      className: 'ResultMenu__filter',
+                                      to: filterSelection
+                                          ? getDashboardResultFilterLink(
+                                                window.location.href,
+                                                filterSelection,
+                                                isActiveFilter
+                                            )
+                                          : undefined,
+                                      inPlace: true,
+                                      disabledReason: filterSelection
+                                          ? undefined
+                                          : 'Right-click a result that identifies people, groups, or sessions. Other breakdowns and warehouse identities cannot filter insights.',
+                                      onClick: () => {
+                                          if (filterSelection) {
+                                              selectResult(filterSelection)
+                                          }
+                                          close()
+                                      },
+                                  },
+                              ]
+                            : []),
                         {
                             name: sqlQuery ? 'View underlying rows' : 'View people',
                             className: 'ResultMenu__rows',

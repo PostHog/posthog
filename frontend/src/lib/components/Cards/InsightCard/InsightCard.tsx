@@ -51,6 +51,9 @@ import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/
 import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
 import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
+import { DashboardResultFilterStatus } from 'products/dashboards/frontend/components/DashboardResultFilterStatus'
+import { DashboardResultInsight } from 'products/dashboards/frontend/components/DashboardResultInsight'
+import { canFilterInsight } from 'products/dashboards/frontend/dashboardResultFilters'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
@@ -418,6 +421,19 @@ function InsightCardInternal(
                 />
             )
         }
+        if (resultMenuEnabled && dashboardId && tile && canFilterInsight(insight.query)) {
+            return (
+                <DashboardResultInsight
+                    dashboardId={dashboardId}
+                    tileId={tile.id}
+                    insight={insight}
+                    insightProps={insightLogicProps}
+                    filtersOverride={filtersOverride}
+                    variablesOverride={variablesOverride}
+                    loadPriority={loadPriority}
+                />
+            )
+        }
         return (
             <Query
                 query={insight.query}
@@ -446,6 +462,8 @@ function InsightCardInternal(
         renderVizWhenMounted,
         resultMenuEnabled,
         biDashboardTileId,
+        tile,
+        filtersOverride,
         dashboardId,
         loadPriority,
     ])
@@ -454,7 +472,9 @@ function InsightCardInternal(
         <div className="InsightCard__viz">
             <div className="InsightCard__vizInner">
                 {resultMenuEnabled && (!isBIVisualizationNode(insight.query) || insight.query.config.querySnapshot) ? (
-                    <DashboardInsightResultMenu insight={insight}>{vizInner}</DashboardInsightResultMenu>
+                    <DashboardInsightResultMenu insight={insight} dashboardId={dashboardId} tileId={tile?.id}>
+                        {vizInner}
+                    </DashboardInsightResultMenu>
                 ) : (
                     vizInner
                 )}
@@ -484,7 +504,10 @@ function InsightCardInternal(
                     <InsightMeta
                         headerStatus={
                             biDashboardTileId !== undefined && dashboardId ? (
-                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                <>
+                                    <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                    <DashboardResultFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                </>
                             ) : undefined
                         }
                         tile={tile}

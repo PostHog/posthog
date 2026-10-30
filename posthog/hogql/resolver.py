@@ -456,6 +456,7 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
+        self._inside_insight_selection: bool = False
         # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
@@ -2117,6 +2118,21 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
+            if node.name == "matchesInsight":
+                from posthog.hogql.functions.insight import (
+                    matches_insight,  # noqa: PLC0415 -- keeps query schemas off Django's startup path
+                )
+
+                if self._inside_insight_selection:
+                    raise QueryError("Insight selections cannot contain another insight selection")
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesInsight can only be used with the events table")
+                self._inside_insight_selection = True
+                try:
+                    return self.visit(matches_insight(node, self.context, events_alias))
+                finally:
+                    self._inside_insight_selection = False
             if node.name == "getSurveyResponse":
                 return self.visit(
                     get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
