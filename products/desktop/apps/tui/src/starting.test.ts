@@ -32,7 +32,14 @@ describe("startingOptions", () => {
 
   it("offers Codex models on a ChatGPT plan, starting on GPT-5.5 locally", () => {
     const local = startingOptions("chatgpt", "local", {});
-    expect(local.model?.id).toBe("gpt-5.5");
+    expect(local.model).toMatchObject({
+      provider: "openai-codex",
+      id: "gpt-5.5",
+    });
+    // A cloud Codex pick never reaches local pi, which knows no "codex" provider.
+    const cloudPick =
+      startingOptions("chatgpt", "cloud", {}).model ?? undefined;
+    expect(heldPick({ model: cloudPick }, local)).toEqual({});
     expect(local.models.every((model) => model.id.startsWith("gpt-"))).toBe(
       true,
     );

@@ -7,7 +7,7 @@ import {
   MODELS,
 } from "@posthog/shared/model-catalog";
 import type { Billing } from "./billing";
-import { CHATGPT_MODEL } from "./chatgpt";
+import { CHATGPT_MODEL, CHATGPT_PROVIDER } from "./chatgpt";
 import {
   EFFORT_LABELS,
   type Effort,
@@ -55,13 +55,16 @@ export function startingOptions(
     return { models, model: STARTING_MODEL, effort: null, efforts };
   }
   const adapter = billing === "anthropic" ? "claude" : "codex";
+  // A cloud run names the adapter; a local pi chat names pi's own provider, which knows no "codex".
+  const provider =
+    adapter === "codex" && place === "local" ? CHATGPT_PROVIDER : adapter;
   // The gateway serves other vendors through the Claude adapter; a Claude plan only runs Anthropic's own.
   const models = MODELS.filter(
     (entry) =>
       entry.runtimeAdapter === adapter &&
       isOfferedModel(entry.id) &&
       (adapter !== "claude" || entry.id.startsWith("claude-")),
-  ).map((entry) => choice(adapter, entry.id));
+  ).map((entry) => choice(provider, entry.id));
   const wanted =
     adapter === "claude"
       ? claude.model
