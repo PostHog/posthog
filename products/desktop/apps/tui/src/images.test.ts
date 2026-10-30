@@ -2,7 +2,9 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { droppedImage } from "./images";
+import { droppedImages } from "./images";
+
+const droppedImage = (sequence: string) => droppedImages(sequence)[0];
 
 describe("droppedImage", () => {
   const folder = mkdtempSync(join(tmpdir(), "tui images "));
@@ -10,6 +12,21 @@ describe("droppedImage", () => {
   writeFileSync(png, "hi");
   writeFileSync(join(folder, "notes.txt"), "hi");
   const paste = (text: string): string => `\x1b[200~${text}\x1b[201~`;
+
+  it("reads every image in a drop of several files, escaped or quoted, and skips what is not an image", () => {
+    const second = join(folder, "second shot.jpg");
+    writeFileSync(second, "yo");
+    const escaped = (path: string) => path.replaceAll(" ", "\\ ");
+    const dropped = droppedImages(
+      paste(
+        `${escaped(png)} ${escaped(second)} '${join(folder, "notes.txt")}' ${escaped(join(folder, "gone.png"))}`,
+      ),
+    );
+    expect(dropped.map((image) => [image.mimeType, image.data])).toEqual([
+      ["image/png", "aGk="],
+      ["image/jpeg", "eW8="],
+    ]);
+  });
 
   it.each([
     [

@@ -6,7 +6,7 @@ import { track } from "../analytics";
 import { readClipboardImage } from "../clipboard";
 import { type Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
-import { droppedImage, droppedPath } from "../images";
+import { droppedImages, droppedPaths } from "../images";
 import {
   activeWorkspace,
   backToPrevious,
@@ -248,11 +248,15 @@ export function useKeys({
       if (matchesKey(sequence, "escape")) help.close();
       return;
     }
-    // A dropped file goes to the pane under the pointer, which takes focus, like a click would.
-    const dropPane = droppedPath(sequence) ? paneAtDrop() : undefined;
+    // Dropped files go to the pane under the pointer, which takes focus, like a click would.
+    const droppedFiles = droppedPaths(sequence).length;
+    const dropPane = droppedFiles > 0 ? paneAtDrop() : undefined;
     const paneId = dropPane ?? workspace.focusedPaneId;
-    if (droppedPath(sequence))
-      track("file dropped", { on_pane_under_pointer: dropPane !== undefined });
+    if (droppedFiles > 0)
+      track("file dropped", {
+        on_pane_under_pointer: dropPane !== undefined,
+        count: droppedFiles,
+      });
     if (
       dropPane &&
       (dropPane !== workspace.focusedPaneId || layout.focus === "sidebar")
@@ -337,8 +341,8 @@ export function useKeys({
       );
       return;
     }
-    const dropped = droppedImage(sequence);
-    if (dropped) composer.attach(dropped);
+    const dropped = droppedImages(sequence);
+    if (dropped.length > 0) for (const image of dropped) composer.attach(image);
     else composer.handleInput(sequence);
   };
 

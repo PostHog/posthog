@@ -14,30 +14,35 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-// A file dropped on the terminal arrives as a paste of its path, quoted or with its spaces escaped.
-export function droppedPath(sequence: string): string | null {
+// Files dropped on the terminal arrive as one paste of their paths, each quoted or with its spaces escaped, and
+// separated by spaces. Anything else pasted, or a path that is not absolute, is text.
+export function droppedPaths(sequence: string): string[] {
   if (!sequence.startsWith(PASTE_START) || !sequence.endsWith(PASTE_END))
-    return null;
+    return [];
   const pasted = sequence.slice(PASTE_START.length, -PASTE_END.length).trim();
-  const path = /^(['"]).*\1$/.test(pasted)
-    ? pasted.slice(1, -1)
-    : pasted.replace(/\\(.)/g, "$1");
-  return isAbsolute(path) && !path.includes("\n") ? path : null;
+  if (pasted.includes("\n")) return [];
+  const paths: string[] = [];
+  const word = /'([^']*)'|"([^"]*)"|((?:\\.|[^\s'"])+)/g;
+  for (const match of pasted.matchAll(word)) {
+    paths.push(match[1] ?? match[2] ?? match[3].replace(/\\(.)/g, "$1"));
+  }
+  return paths.length > 0 && paths.every(isAbsolute) ? paths : [];
 }
 
-export function droppedImage(sequence: string): ImageContent | null {
-  const path = droppedPath(sequence);
-  const mimeType = path ? MIME_TYPES[extname(path).toLowerCase()] : undefined;
-  if (!path || !mimeType) return null;
-  try {
-    return {
-      type: "image",
-      data: readFileSync(path).toString("base64"),
-      mimeType,
-    };
-  } catch {
-    return null;
+export function droppedImages(sequence: string): ImageContent[] {
+  const images: ImageContent[] = [];
+  for (const path of droppedPaths(sequence)) {
+    const mimeType = MIME_TYPES[extname(path).toLowerCase()];
+    if (!mimeType) continue;
+    try {
+      images.push({
+        type: "image",
+        data: readFileSync(path).toString("base64"),
+        mimeType,
+      });
+    } catch {}
   }
+  return images;
 }
 
 // Sent images are kept with the TUI's other state, by a hash of their bytes, so a click can open one after its source is gone.

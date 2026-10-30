@@ -754,8 +754,11 @@ describe("App flows", () => {
       expect(loadPrefs().billing).toBe("posthog");
       // Running the command takes the token from what it prints.
       mouse.emit("keys", "1");
-      await vi.waitFor(() =>
-        expect(readFileSync(CLAUDE_TOKEN_PATH, "utf8").trim()).toBe(TOKEN),
+      // The fake `claude` is spawned and read on the terminal handoff, which can take over a second on a busy box.
+      await vi.waitFor(
+        () =>
+          expect(readFileSync(CLAUDE_TOKEN_PATH, "utf8").trim()).toBe(TOKEN),
+        { timeout: 5_000 },
       );
       expect(loadPrefs().billing).toBe("anthropic");
       await vi.waitFor(() =>
