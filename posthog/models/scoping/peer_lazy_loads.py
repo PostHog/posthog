@@ -56,12 +56,18 @@ def _is_test_path(path: str) -> bool:
     )
 
 
+@cache
+def _normalized(path: str) -> str:
+    # Product shards run pytest from products/<name>/ with --rootdir ../.., so frames carry ../ paths.
+    return os.path.normpath(path)
+
+
 def call_site() -> str:
     """The first repo frame outside test code, or the first repo frame when the read is in a test."""
     first: str | None = None
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
-        path = frame.f_code.co_filename
+        path = _normalized(frame.f_code.co_filename)
         if (
             path.startswith(_REPO_PREFIX)
             and path not in _SKIPPED_FILES

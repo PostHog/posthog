@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -37,6 +38,22 @@ def test_blocked_entry(mode: str, entry: str, blocked: str | None, status: str) 
         assert peer_lazy_loads.blocked_entry(model, field) == blocked
 
     observe.assert_called_once_with(status, entry)
+
+
+def test_call_site_skips_this_module_and_names_app_code_under_unnormalized_paths() -> None:
+    detour = f"{peer_lazy_loads.REPO_ROOT}/products/thing/../.."
+    namespace: dict[str, Any] = {"call_site": peer_lazy_loads.call_site}
+    exec(
+        compile(
+            "def blocked_entry():\n    return call_site()\n",
+            f"{detour}/posthog/models/scoping/peer_lazy_loads.py",
+            "exec",
+        ),
+        namespace,
+    )
+    exec(compile("def get_owner():\n    return blocked_entry()\n", f"{detour}/posthog/api/thing.py", "exec"), namespace)
+
+    assert namespace["get_owner"]() == "posthog/api/thing.py:get_owner"
 
 
 def test_write_baseline_merges_observations_sorted_and_unique(tmp_path: Path) -> None:
