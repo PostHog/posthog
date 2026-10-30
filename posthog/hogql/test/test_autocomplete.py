@@ -763,6 +763,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
 
+        query = "select * from STRIPE."
+        results = self._select(query=query, start=21, end=21)
+
+        assert "some_table" in [x.label for x in results.suggestions]
+
     def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         source = ExternalDataSource.objects.create(
