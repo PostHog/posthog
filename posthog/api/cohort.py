@@ -39,7 +39,6 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
@@ -1055,15 +1054,11 @@ class HiddenEventRefusal:
     reason: str
 
 
-def _static_hidden_event_reasons(
-    references: Iterable[tuple[str, Property]], *, check_flag_call_shape: bool = True
-) -> collections.Counter[HiddenEventRefusal]:
+def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[HiddenEventRefusal]:
     reasons: collections.Counter[HiddenEventRefusal] = collections.Counter()
     for event, prop in references:
         reason = (
-            flag_call_criterion_shape_problem(prop)
-            if check_flag_call_shape and event == FLAG_EVALUATIONS_SOURCE_EVENT
-            else HIDDEN_EVENT_REASON
+            flag_call_criterion_shape_problem(prop) if event == FLAG_EVALUATIONS_SOURCE_EVENT else HIDDEN_EVENT_REASON
         )
         if reason is not None:
             reasons[HiddenEventRefusal(event=event, reason=reason)] += 1
@@ -1089,11 +1084,6 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
         # returns 400 instead of 500.
         capture_exception(error, additional_properties={"team_id": team.id})
         return None
-
-
-def _flag_call_rewrite_enabled(team: Team) -> bool:
-    """Whether the batch query swaps flag calls to flag_evaluations for this team."""
-    return Database.create_for(team=team, bypass_warehouse_access_control=True).read_flag_calls_from_flag_evaluations
 
 
 def _is_flag_call_criterion(prop: Property) -> bool:
@@ -1144,15 +1134,6 @@ def _added_unsupported_hidden_event_reference(
     new_references = list(_hidden_event_references(new_properties))
     existing_references = list(_hidden_event_references(existing_properties))
     added = _static_hidden_event_reasons(new_references) - _static_hidden_event_reasons(existing_references)
-    if (
-        added
-        and any(refusal.reason != HIDDEN_EVENT_REASON for refusal in added)
-        and not _flag_call_rewrite_enabled(team)
-    ):
-        # Without the swap, flag calls stay on events, so the shape of a stored criterion doesn't matter.
-        added = _static_hidden_event_reasons(
-            new_references, check_flag_call_shape=False
-        ) - _static_hidden_event_reasons(existing_references, check_flag_call_shape=False)
     if added:
         return next(iter(added))
 
@@ -1171,7 +1152,7 @@ def _added_unsupported_hidden_event_reference(
     elif existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
         return None
     else:
-        reason = _FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON
+        reason = _FLAG_CALL_KEY_REASON
     if _another_criterions_sql_expression_blocks_swap(new_candidates, team):
         reason = _FLAG_CALL_SQL_EXPRESSION_REASON
     return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=reason)

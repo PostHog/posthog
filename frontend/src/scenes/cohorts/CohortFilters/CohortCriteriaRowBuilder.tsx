@@ -58,6 +58,24 @@ function moveNoticeText(problem: FlagCallCriterionProblem | null): string {
     return `Feature flag called is moving out of the events table. ${MOVE_NOTICE_EFFECTS[problem]}`
 }
 
+function moveNoticeState(
+    criteria: AnyCohortCriteriaType,
+    moveNoticeEvents: string[],
+    flagCallsReadFromFlagEvaluations: boolean
+): { flagCallProblem: ReturnType<typeof flagCallCriterionProblem>; showsMoveNotice: boolean } {
+    const namesMovingEvent =
+        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
+        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
+            moveNoticeEvents.includes(String(criteria.seq_event)))
+    // Without the rewrite, the batch calculation reads every flag-call criterion from events.
+    const flagCallProblem =
+        namesMovingEvent && flagCallsReadFromFlagEvaluations ? flagCallCriterionProblem(criteria) : null
+    return {
+        flagCallProblem,
+        showsMoveNotice: namesMovingEvent && (!flagCallsReadFromFlagEvaluations || flagCallProblem !== null),
+    }
+}
+
 export function CohortCriteriaRowBuilder({
     type,
     groupIndex,
@@ -74,15 +92,11 @@ export function CohortCriteriaRowBuilder({
         useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     )
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const namesMovingEvent =
-        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
-        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
-            moveNoticeEvents.includes(String(criteria.seq_event)))
-    // Without the rewrite, the batch calculation reads every flag-call criterion from events.
-    const flagCallsReadFromFlagEvaluations = readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
-    const flagCallProblem =
-        namesMovingEvent && flagCallsReadFromFlagEvaluations ? flagCallCriterionProblem(criteria) : null
-    const showsMoveNotice = namesMovingEvent && (!flagCallsReadFromFlagEvaluations || flagCallProblem !== null)
+    const { flagCallProblem, showsMoveNotice } = moveNoticeState(
+        criteria,
+        moveNoticeEvents,
+        readsFlagCallsFromFlagEvaluations(currentTeam?.flag_evaluations_mode)
+    )
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.

@@ -40,7 +40,6 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
@@ -4893,12 +4892,9 @@ email@example.org,
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
 
-    def _flag_calls_rewrite(self, enabled: bool):
-        return override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not enabled)
-
     @parameterized.expand(
         [
-            ("event", [_FLAG_CALLED_CRITERION], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, None),
+            ("event", [_FLAG_CALLED_CRITERION], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, None),
             (
                 "multiple_times",
                 [
@@ -4910,14 +4906,12 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 None,
             ),
             (
                 "did_not_complete_event",
                 [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 None,
             ),
             (
@@ -4931,14 +4925,12 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 _FLAG_CALL_KEY_REFUSAL,
             ),
             (
                 "any_flag_in_flag_evaluations_only_mode",
                 [_FLAG_CALLED_ANY_FLAG_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 None,
             ),
             (
@@ -4958,28 +4950,24 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 _FLAG_CALL_TYPE_REFUSAL,
             ),
             (
                 "multiple_times_zero",
                 [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
                 "hogql_filter",
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 _FLAG_CALL_FILTER_REFUSAL,
             ),
             (
                 "hogql_filter_on_another_criterion",
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 None,
             ),
             (
@@ -4989,21 +4977,18 @@ email@example.org,
                     _pageview_with_hogql_filter("properties.x = ("),
                 ],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
             ),
             (
                 "unresolvable_flag_calls_in_another_criterion_in_flag_evaluations_only_mode",
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
             ),
             (
                 "unresolvable_flag_call_criterion_beside_hogql_filter",
                 [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
@@ -5018,34 +5003,29 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
                 "events_mode",
                 [_FLAG_CALLED_ANY_FLAG_CRITERION],
                 FlagEvaluationsMode.EVENTS,
-                True,
                 None,
             ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_create_cohort_with_criterion_on_hidden_event(
-        self, _name, criteria, mode, rewrite_enabled, expected_refusal, patch_capture
-    ):
+    def test_create_cohort_with_criterion_on_hidden_event(self, _name, criteria, mode, expected_refusal, patch_capture):
         self._set_flag_evaluations_mode(mode)
 
-        with self._flag_calls_rewrite(rewrite_enabled):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/cohorts",
-                data={
-                    "name": "flag callers",
-                    # A cohort that filters out test accounts is a batch cohort.
-                    # The realtime block refuses only realtime cohorts.
-                    "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
-                },
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "flag callers",
+                # A cohort that filters out test accounts is a batch cohort.
+                # The realtime block refuses only realtime cohorts.
+                "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+            },
+        )
 
         created = Cohort.objects.filter(team=self.team, name="flag callers").exists()
         if expected_refusal is None:
@@ -5061,11 +5041,10 @@ email@example.org,
     def test_create_cohort_with_legacy_group_on_hidden_event(self, patch_capture):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
-        with self._flag_calls_rewrite(True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/cohorts",
-                data={"name": "flag callers", "groups": [{"event_id": "$feature_flag_called", "days": 30}]},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "flag callers", "groups": [{"event_id": "$feature_flag_called", "days": 30}]},
+        )
 
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
@@ -5143,13 +5122,6 @@ email@example.org,
                 [{**_FLAG_CALLED_PAST_RETENTION_CRITERION, "time_value": 120}],
                 None,
             ),
-            param(
-                "widens_past_retention_without_rewrite",
-                [_FLAG_CALLED_CRITERION],
-                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
-                None,
-                rewrite_enabled=False,
-            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -5161,7 +5133,6 @@ email@example.org,
         expected_refusal,
         patch_capture,
         mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-        rewrite_enabled=True,
     ):
         self._set_flag_evaluations_mode(mode)
         # A cohort that filters out test accounts is a batch cohort.
@@ -5172,14 +5143,13 @@ email@example.org,
             filters={"properties": {"type": "OR", "values": stored_criteria}, "filterTestAccounts": True},
         )
 
-        with self._flag_calls_rewrite(rewrite_enabled):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-                data={
-                    "name": "flag callers renamed",
-                    "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
-                },
-            )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "name": "flag callers renamed",
+                "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+            },
+        )
 
         cohort.refresh_from_db()
         if expected_refusal is None:
@@ -5236,25 +5206,22 @@ email@example.org,
             "filterTestAccounts": filter_test_accounts,
         }
 
-        with self._flag_calls_rewrite(True):
-            if stored_filter_test_accounts is None:
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
-                )
-            else:
-                cohort = Cohort.objects.create(
-                    team=self.team,
-                    name="flag callers",
-                    # A criterion stored without the validator has no negation key.
-                    filters={
-                        "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
-                        "filterTestAccounts": stored_filter_test_accounts,
-                    },
-                    cohort_type=stored_cohort_type,
-                )
-                response = self.client.patch(
-                    f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters}
-                )
+        if stored_filter_test_accounts is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
+            )
+        else:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="flag callers",
+                # A criterion stored without the validator has no negation key.
+                filters={
+                    "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+                    "filterTestAccounts": stored_filter_test_accounts,
+                },
+                cohort_type=stored_cohort_type,
+            )
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters})
 
         if expected_refusal is None:
             self.assertIn(response.status_code, (200, 201), response.json())
@@ -5271,7 +5238,7 @@ email@example.org,
         self.team.save()
         criterion = {**_FLAG_CALLED_CRITERION, "time_value": 88}
 
-        with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False), self._flag_calls_rewrite(True):
+        with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts",
                 data={"name": "flag callers", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
@@ -5285,11 +5252,10 @@ email@example.org,
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         criterion = {**_FLAG_CALLED_CRITERION, "key": "$other_hidden"}
 
-        with self._flag_calls_rewrite(True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/cohorts",
-                data={"name": "other", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "other", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
+        )
 
         self.assertEqual(response.status_code, 400, response.json())
         self.assertEqual(response.json()["code"], "hidden_event")
