@@ -94,6 +94,7 @@ export const SLASH_COMMANDS = [
     description: "Pick the repositories new cloud chats in this pane clone",
   },
   { name: "cloud", description: "Run new chats in this pane in the cloud" },
+  { name: "mcp", description: "Show the MCP servers your chats can reach" },
   { name: "login", description: "Sign in to PostHog" },
   {
     name: "logout",

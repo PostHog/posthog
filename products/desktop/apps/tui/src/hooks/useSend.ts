@@ -46,6 +46,7 @@ import {
   workspaceOf,
 } from "../layout";
 import type { LocalAgent } from "../local";
+import { localMcpServers, type McpClient, mcpSheet } from "../mcp";
 import { parseSlash } from "../models";
 import { openUrl } from "../openUrl";
 import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
@@ -105,6 +106,7 @@ export function useSend({
   logout,
   runSetup,
   codexCloud,
+  mcp,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -159,6 +161,8 @@ export function useSend({
   runSetup?: () => Promise<string>;
   // PostHog's copy of the user's ChatGPT account, for cloud Codex runs; absent while signed out.
   codexCloud?: CodexCloudClient;
+  // The account's MCP servers; absent while signed out.
+  mcp?: McpClient;
 }): Send {
   const { isLocal, localFor, markActive } = local;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
@@ -367,6 +371,24 @@ export function useSend({
     );
   };
 
+  // The account's servers come from the server; this machine's are read as the sheet opens, so an edit to
+  // ~/.claude.json shows on the next /mcp.
+  const openMcpSheet = (paneId: string): void => {
+    const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
+    if (!mcp) {
+      flashNotice("Sign in first: type /login", here);
+      return;
+    }
+    mcp.installations().then(
+      (installations) =>
+        openModal(paneId, mcpSheet(installations, localMcpServers()), () =>
+          closeModal(paneId),
+        ),
+      (error: unknown) =>
+        flashNotice(`Couldn't list MCP servers: ${messageOf(error)}`, here),
+    );
+  };
+
   // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
   const signOut = (): void => {
     track("signed out");
@@ -545,6 +567,10 @@ export function useSend({
           : "New chats run in the cloud",
         here,
       );
+      return;
+    }
+    if (slash?.command === "mcp") {
+      openMcpSheet(paneId);
       return;
     }
     if (slash?.command === "login") {
