@@ -86,6 +86,22 @@ describe("PiChats", () => {
     expect(resumed.latest_run?.id).toBe("r2");
   });
 
+  it("resumes the run when a reply finds it already ended", async () => {
+    const { api, sendMessage, chats } = setup();
+    sendMessage.mockRejectedValueOnce(
+      new Error("Failed to queue user message for task run"),
+    );
+
+    const resumed = await chats.reply(task("in_progress"), "Keep going");
+
+    expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+      piRuntime: true,
+      resumeFromRunId: "r1",
+      pendingUserMessage: "Keep going",
+    });
+    expect(resumed.latest_run?.id).toBe("r2");
+  });
+
   it("refuses to continue a chat that was not started with pi", async () => {
     const { chats } = setup();
     const claude = { ...task("completed"), runtime: "acp" } as Task;
