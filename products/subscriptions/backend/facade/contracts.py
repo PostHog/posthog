@@ -244,21 +244,6 @@ class SubscriptionListQuery:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class CreatedAtCursorWindow:
-    """One window of a list ordered by creation time, as cursor pagination asks for it.
-
-    `created_before` and `created_after` are the cursor position as the cursor carries it, a
-    timestamp string. `limit` rows are returned from `offset` on.
-    """
-
-    newest_first: bool
-    created_before: str | None = None
-    created_after: str | None = None
-    offset: int
-    limit: int
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class SubscriptionDeliveryRecord:
     """One delivery run of a subscription, as stored."""
 

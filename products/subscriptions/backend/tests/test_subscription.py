@@ -2821,6 +2821,22 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert back.status_code == status.HTTP_200_OK
         assert [row["id"] for row in back.json()["results"]] == [row["id"] for row in body["results"]]
 
+        # Rows that share the cursor value need a stable order, or a page boundary skips or repeats them.
+        self._create_delivery(idempotency_key="page-d")
+        self._create_delivery(idempotency_key="page-e")
+        SubscriptionDelivery.objects.filter(subscription=self.subscription).update(
+            created_at=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+        pages = [self.client.get(base).json()]
+        # Bounded, so a cursor that never advances fails instead of hanging.
+        while pages[-1]["next"] and len(pages) <= 5:
+            pages.append(self.client.get(pages[-1]["next"]).json())
+        assert [page["count"] for page in pages] == [5, 5, 5]
+        listed = [row["id"] for page in pages for row in page["results"]]
+        assert sorted(listed) == sorted(
+            str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
+        )
+
     def test_summaries_list_completed_summaries_across_subscriptions_on_the_source(self):
         second_subscription = Subscription.objects.create(
             team=self.team,
