@@ -1,3 +1,9 @@
+"""Approval-gate response handling that other products' viewsets mix in.
+
+It lives in presentation, not in a facade, because a facade must not import DRF. Another
+product's presentation may import this module, but not approvals internals.
+"""
+
 from rest_framework import status
 from rest_framework.response import Response
 

@@ -20,7 +20,7 @@ export function RecordingDebugSection(): JSX.Element {
 
     return (
         <div
-            className="flex flex-col border rounded bg-surface-primary overflow-hidden h-[60vh] min-h-96"
+            className="flex flex-col border rounded bg-surface-primary overflow-hidden h-[calc(45cqh-1.5rem)] min-h-48"
             data-attr="watch-panel-debug"
         >
             <DebugTabBar tabs={DEBUG_TAB_KEYS} activeTab={tab} onChange={setTab}>

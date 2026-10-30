@@ -120,9 +120,9 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
 }
 
 export function SavedFilters({
-    setFilters,
+    applyFilters,
 }: {
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    applyFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(
         sessionRecordingSavedFiltersLogic
@@ -162,7 +162,7 @@ export function SavedFilters({
                                 if (!universalFilters) {
                                     return
                                 }
-                                setFilters(stripSessionIds(universalFilters))
+                                applyFilters(stripSessionIds(universalFilters))
                                 setActiveFilterTab('filters')
                                 setAppliedSavedFilter(filter)
                             }}

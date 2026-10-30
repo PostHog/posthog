@@ -8,6 +8,7 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
+import { useToggleTaskRead } from "@posthog/ui/features/sidebar/useToggleTaskRead";
 import { useRestoreTask } from "@posthog/ui/features/suspension/useRestoreTask";
 import { useSuspendTask } from "@posthog/ui/features/suspension/useSuspendTask";
 import { useDeleteTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
@@ -26,6 +27,7 @@ export function useTaskContextMenu() {
   const { restoreTask } = useRestoreTask();
   const { channels } = useChannels();
   const fileTaskToChannel = useFileTaskToChannel();
+  const toggleRead = useToggleTaskRead();
 
   const showContextMenu = useCallback(
     async (
@@ -35,6 +37,9 @@ export function useTaskContextMenu() {
         worktreePath?: string;
         folderPath?: string;
         isPinned?: boolean;
+        isUnread?: boolean;
+        /** Marking unread needs it, so the item is hidden without it. */
+        lastActivityAt?: number;
         isSuspended?: boolean;
         canStop?: boolean;
         runId?: string;
@@ -57,6 +62,8 @@ export function useTaskContextMenu() {
         worktreePath,
         folderPath,
         isPinned,
+        isUnread,
+        lastActivityAt,
         isSuspended,
         canStop,
         runId,
@@ -78,6 +85,7 @@ export function useTaskContextMenu() {
           worktreePath,
           folderPath,
           isPinned,
+          isUnread: lastActivityAt === undefined ? undefined : isUnread,
           isSuspended,
           canStop,
           isInCommandCenter,
@@ -96,9 +104,19 @@ export function useTaskContextMenu() {
 
         const intent = resolveTaskContextMenuIntent(result.action, {
           isSuspended,
+          isUnread,
         });
 
         switch (intent.type) {
+          case "mark-read":
+          case "mark-unread":
+            if (lastActivityAt !== undefined) {
+              toggleRead(task.id, {
+                isUnread: intent.type === "mark-read",
+                lastActivityAt,
+              });
+            }
+            break;
           case "rename":
             setEditingTaskId(task.id);
             break;
@@ -171,6 +189,7 @@ export function useTaskContextMenu() {
       suspendTask,
       hostClient,
       openExternalApp,
+      toggleRead,
     ],
   );
 

@@ -87,6 +87,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_querie
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
+from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -121,6 +122,8 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    InsightExplainBurstThrottle,
+    InsightExplainDailyThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -196,6 +199,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataChecksStatus,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
+from products.product_analytics.backend.presentation.insight_explain import ChartCause, ExplainFacts, explain_chart
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -1648,6 +1652,84 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+INSIGHT_EXPLAIN_MAX_CHAPTERS = 8
+INSIGHT_EXPLAIN_MAX_FINDINGS = 6
+
+
+class InsightExplainChapterFactsSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        max_length=64, help_text="Identifier of the chapter. The response returns the chapter under the same one."
+    )
+    title = serializers.CharField(
+        max_length=200, help_text="What the chapter is about, for example 'A peak on October 2'."
+    )
+    summary = serializers.CharField(
+        max_length=600,
+        help_text="The computed facts of the chapter in one or two sentences, with their numbers and dates.",
+    )
+    evidence = serializers.ListField(
+        child=serializers.CharField(max_length=600),
+        required=False,
+        default=list,
+        max_length=INSIGHT_EXPLAIN_MAX_FINDINGS,
+        help_text=(
+            "Findings about the cause of the chapter, one sentence each. "
+            f"Empty when nothing was found. At most {INSIGHT_EXPLAIN_MAX_FINDINGS}."
+        ),
+    )
+
+
+class InsightExplainRequestSerializer(serializers.Serializer):
+    series_label = serializers.CharField(max_length=200, help_text="Name of the series that the explanation follows.")
+    insight_name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Name of the insight. Blank for an insight that has no name yet.",
+    )
+    overview = serializers.CharField(
+        max_length=600,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="The computed facts of the whole chart, such as its typical level, its range and how it ends.",
+    )
+    chapters = serializers.ListField(
+        child=InsightExplainChapterFactsSerializer(),
+        max_length=INSIGHT_EXPLAIN_MAX_CHAPTERS,
+        help_text=(
+            f"The chapters of the explanation in reading order. At most {INSIGHT_EXPLAIN_MAX_CHAPTERS}. "
+            "Empty when nothing stands out on the chart."
+        ),
+    )
+
+
+class InsightExplainChapterSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Identifier of the chapter, as it was sent.")
+    cause = serializers.ChoiceField(
+        choices=ChartCause.choices,
+        help_text=(
+            "What most likely caused the chapter: outside traffic, a real change in usage, one person or a test "
+            "account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts."
+        ),
+    )
+    confidence = serializers.FloatField(help_text="How sure the model is of the cause, from 0 to 1.")
+
+
+class InsightExplainUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The decision model is not available right now. Try again in a moment."
+    default_code = "insight_explain_unavailable"
+
+
+class InsightExplainSerializer(serializers.Serializer):
+    chapters = InsightExplainChapterSerializer(
+        many=True,
+        help_text="The likely cause of each chapter the model answered, in the order they were sent.",
+    )
+
+
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
 
 
@@ -2111,13 +2193,15 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to the AI metadata endpoint."""
+        """Apply LLM-specific throttles to the endpoints that call a model."""
         if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
                 AIObservabilitySummarizationDailyThrottle(),
             ]
+        if self.action == "explain":
+            return [InsightExplainBurstThrottle(), InsightExplainDailyThrottle()]
         return super().get_throttles()
 
     def _validate_ai_feature_access(self) -> None:
@@ -2629,6 +2713,36 @@ When set, the specified dashboard's filters and date range override will be appl
             raise APIException("Failed to generate insight metadata. Please try again.")
 
         return Response({"name": metadata.name, "description": metadata.description})
+
+    @validated_request(
+        request_serializer=InsightExplainRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InsightExplainSerializer, description="The explanation of the chart."),
+            503: OpenApiResponse(description="The decision model failed or timed out."),
+        },
+        description=(
+            "Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it "
+            "computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a "
+            "confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. "
+            "Without a decision model on the instance, the list is empty. "
+            "The organization must approve AI data processing."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    def explain(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._validate_ai_feature_access()
+
+        try:
+            causes = explain_chart(ExplainFacts.model_validate(request.validated_data), team_id=self.team.pk)
+        except SystemOneNotConfigured:
+            causes = []
+        except SystemOneRequestFailed as error:
+            # The page shows its own text without the causes, so a slow or failed model is a "not now", not an error.
+            logger.warning("insight_explain_unavailable", team_id=self.team.pk, reason=type(error).__name__)
+            raise InsightExplainUnavailable() from error
+
+        chapters = [{"id": c.id, "cause": c.cause.value, "confidence": c.confidence} for c in causes]
+        return Response(InsightExplainSerializer({"chapters": chapters}).data)
 
     # ******************************************
     # /projects/:id/insights/viewed
