@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyUpdate,
   CloudRuns,
+  deliveryFailure,
   emptyRunView,
   formatDuration,
   type RunView,
@@ -463,6 +464,75 @@ describe("setupProgress", () => {
     expect(setupProgress(resumed, "r1")?.startedAt).toBe(
       Date.UTC(2026, 0, 1, 0, 1, 0),
     );
+  });
+});
+
+describe("deliveryFailure", () => {
+  const delivery = (status: string, detail?: string): StoredLogEntry =>
+    ({
+      type: "notification",
+      timestamp: "2026-01-01T00:00:10.000Z",
+      notification: {
+        method: "_posthog/progress",
+        params: {
+          step: "followup_delivery",
+          status,
+          label: "Couldn't deliver your message",
+          ...(detail ? { detail } : {}),
+        },
+      },
+    }) as StoredLogEntry;
+  const said = {
+    type: "pi_event",
+    event: { type: "user_message" },
+  } as StoredLogEntry;
+
+  it.each([
+    [
+      "names a failed delivery without the backend's exception prefix",
+      [
+        said,
+        delivery(
+          "failed",
+          "RuntimeError: send_followup failed: Could not rebind (x)",
+        ),
+      ],
+      "Couldn't deliver your message: Could not rebind (x)",
+    ],
+    ["forgets it once the chat moves on", [delivery("failed"), said], null],
+    [
+      "forgets it once a later delivery goes through",
+      [delivery("failed"), delivery("completed")],
+      null,
+    ],
+  ])("%s", (_, entries, text) => {
+    expect(deliveryFailure(entries)?.text ?? null).toBe(text);
+  });
+
+  it("says so in place of the finished turn, unless a newer message waits", () => {
+    const view = {
+      ...emptyRunView,
+      loaded: true,
+      status: "in_progress" as const,
+    };
+    const lines = [
+      { kind: "user" as const, id: "u", text: "hi" },
+      { kind: "assistant" as const, id: "a", text: "hello" },
+    ];
+    const failed = { at: 0, text: "Couldn't deliver your message" };
+    expect(
+      runNotice(view, lines, false, null, null, { delivery: failed }),
+    ).toEqual({ text: "Couldn't deliver your message", tone: "error" });
+    expect(
+      runNotice(
+        view,
+        [...lines, { kind: "user" as const, id: "pending", text: "again" }],
+        false,
+        null,
+        null,
+        { delivery: failed },
+      )?.text,
+    ).toBe("Thinking…");
   });
 });
 

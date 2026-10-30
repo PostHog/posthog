@@ -599,6 +599,144 @@ describe("App", () => {
     }
   });
 
+  it.each([
+    ["after it was sent puts it back in the composer", 5_000, true],
+    ["from before it was sent leaves it waiting", -60_000, false],
+  ])(
+    "takes a cloud message the backend could not deliver: a failure %s",
+    async (_, failedAfterMs, putBack) => {
+      saveLayout(openTask(initialLayout(), "cloud-chat"));
+      const cloudTask = {
+        id: "cloud-chat",
+        title: "Cloud chat",
+        runtime: "pi",
+        latest_run: {
+          id: "r1",
+          status: "in_progress",
+          environment: "cloud",
+          state: {},
+        },
+      } as unknown as Task;
+      // The pane and the sidebar's turn tracking both watch the run.
+      const watchers: ((view: typeof emptyRunView) => void)[] = [];
+      const showView = (view: typeof emptyRunView): void => {
+        for (const watcher of watchers) watcher(view);
+      };
+      const entries = [
+        { type: "pi_run_started", timestamp: new Date().toISOString() },
+        {
+          type: "pi_event",
+          timestamp: new Date().toISOString(),
+          event: {
+            type: "user_message",
+            id: "u1",
+            timestamp: Date.now(),
+            content: [{ type: "text", text: "First question" }],
+          },
+        },
+        {
+          type: "pi_event",
+          timestamp: new Date().toISOString(),
+          event: {
+            type: "assistant_message_chunk",
+            timestamp: Date.now(),
+            content: { type: "text", text: "Earlier answer" },
+          },
+        },
+        {
+          type: "pi_event",
+          timestamp: new Date().toISOString(),
+          event: {
+            type: "turn_completed",
+            timestamp: Date.now(),
+            stopReason: "stop",
+          },
+        },
+      ];
+      const viewWith = (more: unknown[] = []) => ({
+        ...emptyRunView,
+        loaded: true,
+        status: "in_progress" as const,
+        entries: [...entries, ...more] as typeof emptyRunView.entries,
+      });
+      const reply = vi.fn(async () => cloudTask);
+      const mouse: MouseEvents = new EventEmitter();
+      const { instance, output } = renderInTerminal(
+        <App
+          session={{
+            work: {
+              listRecent: async () => ({ tasks: [cloudTask], hasMore: false }),
+            } as unknown as WorkList,
+            runs: {
+              prefetch: async () => {},
+              watch: (
+                _taskId: string,
+                _runId: string,
+                onView: (view: typeof emptyRunView) => void,
+              ) => {
+                watchers.push(onView);
+                onView(viewWith());
+                return { stop: () => {}, loadOlder: async () => {} };
+              },
+            } as unknown as CloudRuns,
+            chats: { reply } as unknown as PiChats,
+            control: () =>
+              ({
+                commands: async () => [],
+                models: async () => ({ available: [], current: null }),
+                efforts: async () => ({ available: [], current: null }),
+              }) as unknown as PiControl,
+            startLocal: () => Promise.reject(new Error("no local")),
+          }}
+          login={async () => {}}
+          logout={() => {}}
+          mouse={mouse}
+        />,
+      );
+      try {
+        await vi.waitFor(() => expect(watchers.length).toBeGreaterThan(0));
+        mouse.emit("keys", "are you there");
+        mouse.emit("keys", "\r");
+        await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+        const sent = output().length;
+        showView(
+          viewWith([
+            {
+              type: "notification",
+              timestamp: new Date(Date.now() + failedAfterMs).toISOString(),
+              notification: {
+                method: "_posthog/progress",
+                params: {
+                  step: "followup_delivery",
+                  status: "failed",
+                  label: "Couldn't deliver your message",
+                  group: "followup-delivery:x:r1",
+                  detail:
+                    "RuntimeError: send_followup failed: Could not rebind credentials",
+                },
+              },
+            },
+          ]),
+        );
+        const drawn = (): string =>
+          stripTerminalSequences(output().slice(sent));
+        if (putBack) {
+          await vi.waitFor(() =>
+            expect(drawn()).toContain(
+              "Couldn't deliver your message: Could not rebind credentials",
+            ),
+          );
+          expect(drawn()).toContain("Your message is back in the composer");
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          expect(drawn()).not.toContain("back in the composer");
+        }
+      } finally {
+        instance.unmount();
+      }
+    },
+  );
+
   it("starts new chats where the last /local or /cloud pointed, after a restart", async () => {
     saveLayout(initialLayout());
     const session = {

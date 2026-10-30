@@ -1,6 +1,6 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
-import { type Dispatch, type SetStateAction, useState } from "react";
+import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { REGIONS } from "../auth";
 import type { PiChats } from "../chats";
 import type { Composer } from "../composer";
@@ -29,7 +29,12 @@ export interface Send {
   pending: Map<string, string>;
   // Chats whose stopped run a reply is bringing back.
   reopening: Set<string>;
+  // The backend could not deliver a chat's message: it goes back into the pane's composer if it was sent before `at`.
+  undelivered: (paneId: string, taskId: string, at: number) => void;
 }
+
+// The server's clock can run a little behind this machine's.
+const CLOCK_SKEW_MS = 2_000;
 
 export function useSend({
   layout,
@@ -100,6 +105,8 @@ export function useSend({
   const { isLocal, localFor, markActive } = local;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   const [reopening, setReopening] = useState<Set<string>>(new Set());
+  // When each chat's pending reply went out, so an older delivery failure cannot take back a newer message.
+  const sentAt = useRef(new Map<string, number>());
   const reopened = (taskId: string, on: boolean): void =>
     setReopening((current) => {
       const next = new Set(current);
@@ -329,6 +336,7 @@ export function useSend({
       );
       return;
     }
+    if (current) sentAt.current.set(current.id, Date.now());
     (current
       ? chats.reply(current, text, images, (resumed) => {
           reopened(current.id, true);
@@ -360,5 +368,20 @@ export function useSend({
     );
   };
 
-  return { onSubmit, pending, reopening };
+  const undelivered = (paneId: string, taskId: string, at: number): void => {
+    const text = pending.get(taskId);
+    const sent = sentAt.current.get(taskId);
+    if (text === undefined || sent === undefined || at < sent - CLOCK_SKEW_MS)
+      return;
+    sentAt.current.delete(taskId);
+    setPending((messages) => {
+      const next = new Map(messages);
+      next.delete(taskId);
+      return next;
+    });
+    composerFor(paneId).putBack(text, []);
+    flashNotice("Your message is back in the composer", { paneId, taskId });
+  };
+
+  return { onSubmit, pending, reopening, undelivered };
 }
