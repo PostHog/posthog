@@ -6767,6 +6767,7 @@ email@example.org,
     @parameterized.expand(
         [
             ("non_numeric_limit", "limit=abc"),
+            ("limit_over_max", "limit=501"),
             ("non_numeric_offset", "offset=abc"),
             ("negative_offset", "offset=-1"),
         ]
