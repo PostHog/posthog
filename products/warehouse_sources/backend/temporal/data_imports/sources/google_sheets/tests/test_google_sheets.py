@@ -538,17 +538,20 @@ def test_discover_worksheet_schemas_skips_unparseable_range():
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     handle = _worksheet_handle("csm_followups", 123)
-    handle.get_all_values.side_effect = _api_error(
-        400, "Unable to parse range: 'csm_followups'!1:2", "INVALID_ARGUMENT"
-    )
+    unparseable = _api_error(400, "Unable to parse range: 'csm_followups'!1:2", "INVALID_ARGUMENT")
+    handle.get_all_values.side_effect = unparseable
+    readable = _worksheet_handle("budget", 124)
+    readable.get_all_values.return_value = [["id"], [1]]
+    client = _sheets_client_listing(handle, readable)
+    client.open_by_url.return_value.values_batch_get.side_effect = unparseable
 
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
-        return_value=_sheets_client_listing(handle),
+        return_value=client,
     ):
-        [schema] = discover_worksheet_schemas(config)
+        schemas = discover_worksheet_schemas(config)
 
-    assert schema.incremental_fields == []
+    assert [len(schema.incremental_fields) for schema in schemas] == [0, 1]
 
 
 def test_google_sheets_source_skips_unparseable_header_range():
@@ -620,7 +623,9 @@ def test_discover_worksheet_schemas_reraises_other_api_errors_after_a_short_retr
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     handle = _worksheet_handle("sheet1", 123)
-    handle.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
+    client = _sheets_client_listing(handle)
+    batch_get = client.open_by_url.return_value.values_batch_get
+    batch_get.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
 
     with (
         mock.patch(
@@ -628,13 +633,13 @@ def test_discover_worksheet_schemas_reraises_other_api_errors_after_a_short_retr
         ) as mock_time,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
-            return_value=_sheets_client_listing(handle),
+            return_value=client,
         ),
         pytest.raises(gspread.exceptions.APIError),
     ):
         discover_worksheet_schemas(config)
 
-    assert handle.get_all_values.call_count == 3
+    assert batch_get.call_count == 3
     assert sum(call.args[0] for call in mock_time.sleep.call_args_list) < 10
 
 
@@ -870,10 +875,10 @@ def test_google_sheets_source_resolves_the_stored_worksheet_id_before_the_name(
 
 def test_discovered_schemas_list_worksheets_once_and_carry_title_and_id():
     budget = _worksheet_handle("Budget 2025", 7)
-    budget.get_all_values.return_value = [["id"], [1]]
     notes = _worksheet_handle("Notes", 8)
-    notes.get_all_values.return_value = [["text"], ["hello"]]
     client = _sheets_client_listing(budget, notes)
+    batch_get = client.open_by_url.return_value.values_batch_get
+    batch_get.return_value = {"valueRanges": [{"values": [["id"], [1]]}, {"values": [["text"], ["hello"]]}]}
 
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client",
@@ -885,8 +890,10 @@ def test_discovered_schemas_list_worksheets_once_and_carry_title_and_id():
     assert mock_client_factory.call_count == 1
     assert client.open_by_url.call_count == 1
     assert client.open_by_url.return_value.worksheets.call_count == 1
-    assert budget.get_all_values.call_count == 1
-    assert notes.get_all_values.call_count == 1
+    assert batch_get.call_count == 1
+    assert batch_get.call_args.args[0] == ["'Budget 2025'!1:2", "'Notes'!1:2"]
+    assert budget.get_all_values.call_count == 0
+    assert notes.get_all_values.call_count == 0
     assert [(s.name, s.label, s.schema_metadata, s.supports_incremental) for s in schemas] == [
         ("budget_2025", "Budget 2025", {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}, True),
         ("notes", "Notes", {SCHEMA_RESOURCE_ID_METADATA_KEY: "8"}, False),
