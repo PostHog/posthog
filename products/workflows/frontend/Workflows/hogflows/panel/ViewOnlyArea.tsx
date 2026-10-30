@@ -3,9 +3,8 @@ import { useValues } from 'kea'
 import { workflowLogic } from '../../workflowLogic'
 
 const READING_CONTROLS = '.LemonCollapsePanel__header, a[href]'
-const READING_KEYS = new Set([
-    'Tab',
-    'Escape',
+const FOCUS_KEYS = new Set(['Tab', 'Escape'])
+const TEXT_CURSOR_KEYS = new Set([
     'ArrowUp',
     'ArrowDown',
     'ArrowLeft',
@@ -15,6 +14,8 @@ const READING_KEYS = new Set([
     'PageUp',
     'PageDown',
 ])
+const TEXT_FIELDS =
+    'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], .monaco-editor'
 const READING_SHORTCUTS = new Set(['a', 'c'])
 
 function isReadingControl(event: React.SyntheticEvent): boolean {
@@ -28,9 +29,17 @@ function blockEditing(event: React.SyntheticEvent): void {
     }
 }
 
+function isInTextField(event: React.SyntheticEvent): boolean {
+    return event.target instanceof Element && event.target.closest(TEXT_FIELDS) !== null
+}
+
 function isReadingKey(event: React.KeyboardEvent): boolean {
     const isShortcut = event.metaKey || event.ctrlKey
-    return READING_KEYS.has(event.key) || (isShortcut && READING_SHORTCUTS.has(event.key.toLowerCase()))
+    return (
+        FOCUS_KEYS.has(event.key) ||
+        (TEXT_CURSOR_KEYS.has(event.key) && isInTextField(event)) ||
+        (isShortcut && READING_SHORTCUTS.has(event.key.toLowerCase()))
+    )
 }
 
 function blockEditingKeys(event: React.KeyboardEvent): void {

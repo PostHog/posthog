@@ -102,25 +102,29 @@ describe('view-only workflow', () => {
     })
 
     it.each([
-        ['clicks a button', (button: HTMLElement): boolean => fireEvent.click(button)],
-        ['presses Enter on a button', (button: HTMLElement): boolean => fireEvent.keyDown(button, { key: 'Enter' })],
-        ['types into a field', (_: HTMLElement, field: HTMLElement): boolean => fireEvent.keyDown(field, { key: 'a' })],
-        ['pastes into a field', (_: HTMLElement, field: HTMLElement): boolean => fireEvent.paste(field)],
-    ])('stops a viewer who %s inside a step', (_, interact) => {
-        const onSave = jest.fn()
+        ['clicks a button', 'Save as team default', (el: HTMLElement): boolean => fireEvent.click(el)],
+        [
+            'presses Enter on a button',
+            'Save as team default',
+            (el: HTMLElement) => fireEvent.keyDown(el, { key: 'Enter' }),
+        ],
+        ['types into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'a' })],
+        ['pastes into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.paste(el)],
+        ['steps a number field', 'Maximum emails', (el: HTMLElement) => fireEvent.keyDown(el, { key: 'ArrowUp' })],
+    ])('stops a viewer who %s inside a step', (_, label, interact) => {
+        const onEdit = jest.fn()
         renderForViewer(
             <ViewOnlyArea>
-                <button onClick={onSave} onKeyDown={onSave}>
-                    Save as team default
-                </button>
-                <input aria-label="Subject" onKeyDown={onSave} onPaste={onSave} />
+                <button aria-label="Save as team default" onClick={onEdit} onKeyDown={onEdit} />
+                <input aria-label="Subject" onKeyDown={onEdit} onPaste={onEdit} />
+                <input aria-label="Maximum emails" type="number" onKeyDown={onEdit} />
             </ViewOnlyArea>
         )
 
-        const reachedDefault = interact(screen.getByText('Save as team default'), screen.getByLabelText('Subject'))
+        const reachedDefault = interact(screen.getByLabelText(label))
 
         expect(reachedDefault).toBe(false)
-        expect(onSave).not.toHaveBeenCalled()
+        expect(onEdit).not.toHaveBeenCalled()
     })
 
     it.each([
