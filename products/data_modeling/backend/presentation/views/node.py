@@ -9,8 +9,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.pagination import PageNumberPagination
 
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
@@ -257,7 +257,7 @@ class NodeSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class NodePagination(PageNumberPagination):
+class NodePagination(BoundedPageNumberPagination):
     page_size = 1000
 
 
