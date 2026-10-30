@@ -55,6 +55,7 @@ E_MIXED = "e.event IN ('$pageview', '$feature_flag_called')"
 UNION = "posthog.events_with_flag_calls"
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 ONLY = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+UNION_EXPANSION = "FROM flag_evaluations"
 
 
 class _TableCollector(TraversingVisitor):
@@ -281,6 +282,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         union: bool = True,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
+        **modifiers,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
@@ -290,6 +292,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=persons_on_events,
                     useNewEventsSchema=_events_schema_for(mode, new_events_schema),
+                    **modifiers,
                 ),
                 pretty=False,
             ).generate_clickhouse_sql()
@@ -542,6 +545,105 @@ class TestReadFlagCallsWithUnion(BaseTest):
             f"in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull('{SESSION_ID}', 'UUID'))))" in sessions
         )
 
+    @parameterized.expand(
+        [
+            (
+                "session_id_literal_prunes_raw_sessions",
+                f"SELECT session.$session_duration FROM events WHERE {MIXED} AND $session_id IN ('{SESSION_ID}')",
+                PersonsOnEventsMode.DISABLED,
+                {},
+                f"in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull('{SESSION_ID}', 'UUID'))))",
+                None,
+            ),
+            (
+                "session_id_pushdown_selects_the_scans_sessions",
+                f"SELECT session.$session_duration FROM events WHERE {MIXED}",
+                PersonsOnEventsMode.DISABLED,
+                {"sessionIdPushdown": True},
+                "globalIn(raw_sessions.session_id_v7, (SELECT DISTINCT",
+                None,
+            ),
+            (
+                "person_id_pushdown_selects_the_scans_persons",
+                f"SELECT person.properties.mykey FROM events WHERE {MIXED}",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {"personIdPushdown": True},
+                "globalIn(person.id, (SELECT DISTINCT",
+                None,
+            ),
+            (
+                "negated_person_filter_becomes_an_exclusion",
+                f"SELECT count() FROM events WHERE {MIXED} AND person.properties.mykey != 'x'",
+                PersonsOnEventsMode.DISABLED,
+                {"negatedPersonFiltersNotIn": True},
+                "notIn(events__pdi.person_id, (SELECT persons.id",
+                "ifNull(notEquals(events__pdi__person.",
+            ),
+            (
+                "limit_caps_the_scan_before_the_left_join",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} "
+                "LIMIT 10",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {},
+                "LIMIT 10) AS e LEFT JOIN",
+                "WHERE in(e.event",
+            ),
+            (
+                "json_extract_of_a_materialized_key_reads_its_column",
+                f"SELECT JSONExtractString(properties, 'mykey') FROM events WHERE {MIXED}",
+                PersonsOnEventsMode.DISABLED,
+                {},
+                "events.mat_mykey",
+                "events.properties, 'mykey'",
+            ),
+        ]
+    )
+    def test_union_scan_keeps_the_pushdown_that_events_gets(
+        self,
+        _name: str,
+        query: str,
+        persons_on_events: PersonsOnEventsMode,
+        modifiers: dict,
+        pushed: str,
+        not_pushed: str | None,
+    ):
+        self.addCleanup(cleanup_materialized_columns)
+        materialize("events", "mykey")
+        materialize("person", "mykey")
+
+        for union in (False, True):
+            sql = self._sql(query, union=union, persons_on_events=persons_on_events, **modifiers)
+
+            assert (UNION_EXPANSION in sql) == union
+            assert pushed in sql
+            assert not_pushed is None or not_pushed not in sql
+
+    @parameterized.expand(
+        [
+            (
+                "order_by",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} ORDER BY e.timestamp LIMIT 10",
+            ),
+            (
+                "inner_join",
+                f"SELECT e.event, p.id FROM events AS e INNER JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} LIMIT 10",
+            ),
+            (
+                "filter_on_a_joined_table",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND p.id != e.person_id LIMIT 10",
+            ),
+            (
+                "filter_on_a_property",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND e.properties.mykey = 'a' LIMIT 10",
+            ),
+        ]
+    )
+    def test_union_scan_keeps_its_filter_after_the_limit_when_the_limit_would_change_rows(self, _name: str, query: str):
+        sql = self._sql(query, persons_on_events=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
+
+        assert UNION_EXPANSION in sql
+        assert "LIMIT 10) AS e" not in sql
+
     def test_persons_join_runs_one_override_join(self):
         sql = self._sql(
             f"SELECT person_id, person.properties.email FROM events WHERE {MIXED}",
@@ -615,6 +717,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         query: str | ast.SelectQuery,
         mode: FlagEvaluationsMode,
         persons_on_events: PersonsOnEventsMode | None = None,
+        **modifiers,
     ):
         _set_mode(self.organization, mode)
         with _enabled_flags(union=True):
@@ -622,7 +725,9 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
                 modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=persons_on_events, useNewEventsSchema=_events_schema_for(mode, None)
+                    personsOnEventsMode=persons_on_events,
+                    useNewEventsSchema=_events_schema_for(mode, None),
+                    **modifiers,
                 ),
             )
 
@@ -666,6 +771,48 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         else:
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
+
+    @parameterized.expand(
+        [
+            (
+                "person_id_pushdown",
+                f"SELECT distinct_id, event, person.properties.email FROM events WHERE {MIXED} ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "personIdPushdown",
+            ),
+            (
+                "negated_person_filters",
+                f"SELECT distinct_id, event FROM events WHERE {MIXED} AND person.properties.email != 'o@x.com' "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.DISABLED,
+                "negatedPersonFiltersNotIn",
+            ),
+            (
+                "session_id_pushdown",
+                f"SELECT distinct_id, event, session.$session_duration FROM events WHERE {MIXED} "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.DISABLED,
+                "sessionIdPushdown",
+            ),
+            (
+                "limit_before_the_left_join",
+                f"SELECT e.distinct_id, e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id "
+                f"WHERE {E_MIXED} AND e.timestamp >= now() - INTERVAL 120 DAY LIMIT 100",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                "pushDownPredicates",
+            ),
+        ]
+    )
+    def test_pushdown_does_not_change_the_rows(self, _name: str, query: str, poe: PersonsOnEventsMode, modifier: str):
+        self.addCleanup(cleanup_materialized_columns)
+        materialize("person", "email")
+
+        read = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        pushed = self._run(query, read, poe, **{modifier: True}).results
+        flat = self._run(query, read, poe, **{modifier: False}).results
+
+        assert len(pushed) >= 2
+        assert sorted(map(str, pushed)) == sorted(map(str, flat))
 
     def test_prewhere_reads_both_tables(self):
         response = self._run(
