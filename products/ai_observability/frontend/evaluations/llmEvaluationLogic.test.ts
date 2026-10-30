@@ -444,6 +444,20 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('sends an explicit attachments choice so turning it back on is saved', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setIncludeMedia(false)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(
+                expect.objectContaining({ include_media: false })
+            )
+            expect(logic.values.includeMedia).toBe(false)
+
+            logic.actions.setIncludeMedia(true)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(expect.objectContaining({ include_media: true }))
+            expect(logic.values.includeMedia).toBe(true)
+        })
+
         it('records the polarity on the boolean output config', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
@@ -1136,6 +1150,20 @@ return result`,
                 expect(logic.values.trendInsightUrl).toContain('Mean%20score')
                 logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
                 expect(logic.values.isReportableEvaluation).toBe(false)
+            })
+
+            it('charts the negative rate for a sentiment evaluation', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                })
+                expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
             })
 
             it.each([

@@ -2354,10 +2354,16 @@ class TestMaterializationAnalyzerGaps(APIBaseTest):
             f"Rejection reason should mention the scalar-subquery pattern. Got: {reason!r}"
         )
 
-    def test_top_level_variable_does_not_force_group_by_on_non_aggregate_select(self):
+    @parameterized.expand(
+        [
+            ("plain_columns", "distinct_id, event, timestamp"),
+            ("combinator_named_function", "distinct_id, coalesce(nullIf(properties.name, ''), distinct_id) AS label"),
+        ]
+    )
+    def test_top_level_variable_does_not_force_group_by_on_non_aggregate_select(self, _name, select_clause):
         query = {
             "kind": "HogQLQuery",
-            "query": "SELECT distinct_id, event, timestamp FROM events WHERE event = {variables.event_name}",
+            "query": f"SELECT {select_clause} FROM events WHERE event = {{variables.event_name}}",
             "variables": {
                 "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
             },

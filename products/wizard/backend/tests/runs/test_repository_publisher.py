@@ -142,12 +142,12 @@ def test_stage_publishable_changes_replaces_existing_staging(tmp_path: Path) -> 
 
 
 @patch("products.wizard.backend.logic.workers.repository_publisher.GitHubIntegration")
-@patch("products.wizard.backend.logic.workers.repository_publisher.Integration.objects.filter")
+@patch("products.wizard.backend.logic.workers.repository_publisher.IntegrationManager")
 def test_create_signed_commit_strips_head_sha_and_supports_binary_files(
-    filter_integrations: MagicMock,
+    integration_manager: MagicMock,
     github_integration_class: MagicMock,
 ) -> None:
-    filter_integrations.return_value.first.return_value = MagicMock()
+    integration_manager.github.oauth.get_many.return_value = {13: MagicMock()}
     github = github_integration_class.return_value
     github.api_request.side_effect = [
         _graphql_response({"data": {"repository": {"id": "R_1", "ref": None}}}),
