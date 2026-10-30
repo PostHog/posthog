@@ -1192,7 +1192,6 @@
 2 posthog/dags/data_deletion_requests.py
 2 posthog/dags/part_breaker.py
 2 posthog/dags/person_overrides.py
-2 posthog/dags/scripts/extract_reconciliation_results.py
 2 posthog/helpers/email_utils.py
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
@@ -1381,7 +1380,6 @@
 4 products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py
 5 posthog/api/proxy_record_diagnostics.py
 5 posthog/api/services/llm_prompt.py
-5 posthog/dags/person_property_reconciliation.py
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
 5 posthog/temporal/proxy_service/create.py
