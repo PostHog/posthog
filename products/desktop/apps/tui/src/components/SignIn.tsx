@@ -6,6 +6,7 @@ import { TuiAuth } from "../auth";
 const REGIONS: { id: CloudRegion; label: string }[] = [
   { id: "us", label: "US cloud" },
   { id: "eu", label: "EU cloud" },
+  { id: "dev", label: "Local dev" },
 ];
 
 type Step =
