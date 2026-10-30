@@ -66,6 +66,7 @@ class TestLegacyDestinationMigration(BaseTest):
         assert result.created == [plugin_config.id]
         hog_function = self._hog_functions().get()
         assert hog_function.template_id == "plugin-customerio-plugin"
+        assert hog_function.hog_function_template_id == self.template.id
         assert hog_function.enabled is True
         assert hog_function.inputs["customerioSiteId"] == {"value": "site-1"}
 

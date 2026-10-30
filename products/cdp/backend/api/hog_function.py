@@ -1,4 +1,6 @@
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -1230,6 +1232,25 @@ class HogFunctionViewSet(
             span.set_attribute("hog_function.search.result_count", results_len)
             span.set_attribute("hog_function.search.empty", results_len == 0)
         return response
+
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
+        page = super().paginate_queryset(queryset)
+        if self.action == "list" and page is not None:
+            self._attach_templates_without_fk(page)
+        return page
+
+    @staticmethod
+    def _attach_templates_without_fk(functions: Sequence[HogFunction]) -> None:
+        # Set in memory only, so HogFunction.template skips its per-row get_template fallback.
+        by_template_id: dict[str, list[HogFunction]] = defaultdict(list)
+        for fn in functions:
+            if fn.hog_function_template_id is None and fn.template_id:
+                by_template_id[fn.template_id].append(fn)
+        if not by_template_id:
+            return
+        for template_id, template in HogFunctionTemplate.get_latest_templates(by_template_id).items():
+            for fn in by_template_id[template_id]:
+                fn.hog_function_template = template
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
