@@ -71,6 +71,9 @@ class TestReportMonitoringAggregation(BaseTest):
         self.close_tracker = self.enterContext(
             patch("products.signals.backend.tracker_issues.close_tracker_issue_for_report", return_value=True)
         )
+        self.research_dispatch = self.enterContext(
+            patch("products.signals.backend.report_monitoring_research._start_monitoring_research")
+        )
         self.report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, title="Checkout recovery"
         )
@@ -196,6 +199,7 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt.aggregation_state == "failed"
         assert self.attempt.research_requested_at == self.now
         assert self.attempt.assessment_requested_at is None
+        assert self.research_dispatch.call_args.args[0].attempt_id == self.attempt.id
         self.checks[1].refresh_from_db()
         assert self.checks[1].status == "cancelled"
         assert self._aggregate() == MonitoringAggregation.WAITING

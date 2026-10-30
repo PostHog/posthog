@@ -30,6 +30,7 @@ from products.signals.backend.report_monitoring_aggregation import (
     aggregate_monitoring_members,
 )
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_research import MonitoringResearch, schedule_monitoring_research
 
 logger = structlog.get_logger(__name__)
 
@@ -172,6 +173,10 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
                 SignalReport.Status.RESOLVED if decision == MonitoringAggregation.PASSED else SignalReport.Status.CLOSED
             )
             report.save(update_fields=report.transition_to(target))
+            if decision == MonitoringAggregation.FAILED:
+                schedule_monitoring_research(
+                    MonitoringResearch(team_id=team_id, report_id=report.id, attempt_id=attempt.id)
+                )
         if decision != MonitoringAggregation.WAITING and decision != previous:
             SignalReportArtefact.add_log(
                 team_id=team_id,
