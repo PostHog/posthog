@@ -612,7 +612,7 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        it('backpressure throws once a depth refresh sees a full queue, and inserts never wait for that refresh', async () => {
+        it('backpressure throws once a depth refresh sees a full queue, and admits inserts again once it drains', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
             const pool = (smallManager as unknown as { pool: Pool }).pool
@@ -651,6 +651,11 @@ describe('Cyclotron V2', () => {
                     'Cyclotron V2 queue is full (depth limit: 2)'
                 )
                 expect(await totalJobCount()).toBe(4)
+
+                // The queue drains while the cached verdict still says full.
+                await realQuery('DELETE FROM cyclotron_jobs')
+                await smallManager.createJob({ teamId: 1, queueName: QUEUE })
+                expect(await totalJobCount()).toBe(1)
             } finally {
                 querySpy.mockRestore()
                 await smallManager.disconnect()

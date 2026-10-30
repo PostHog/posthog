@@ -774,17 +774,20 @@ export class CyclotronV2Manager {
         }
     }
 
-    // Stale-while-revalidate: an insert never waits for the depth COUNT once a
-    // verdict exists. An expired verdict starts one background refresh and the
-    // insert uses the old verdict. Only the first check of the process waits,
-    // because no verdict exists yet. Admitting inserts without a verdict would
-    // skip the guard after every restart, and restarts often happen while the
-    // queue is backed up.
+    // Stale-while-revalidate for the common case: an expired "not full" verdict
+    // admits the insert and starts one background refresh. An insert waits for
+    // the COUNT only when no verdict exists yet (the first check of the process,
+    // since admitting inserts then would skip the guard after every restart) or
+    // when an expired verdict says full, so an old verdict never refuses an
+    // insert after the queue has drained.
     private async isFull(): Promise<boolean> {
         if (this.depthVerdict === null) {
             return await this.refreshDepthVerdict()
         }
         if (Date.now() >= this.depthVerdictExpiresAt) {
+            if (this.depthVerdict) {
+                return await this.refreshDepthVerdict()
+            }
             void this.refreshDepthVerdict()
         }
         return this.depthVerdict
