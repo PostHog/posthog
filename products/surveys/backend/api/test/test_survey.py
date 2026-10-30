@@ -2803,7 +2803,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": "$survey_last_seen_date",
                             "type": "person",
                             "value": "is_not_set",
                             "operator": "is_not_set",
@@ -2828,7 +2828,7 @@ class TestSurvey(APIBaseTest):
                             "operator": "is_not_set",
                         },
                         {
-                            "key": "$last_seen_survey_date",
+                            "key": "$survey_last_seen_date",
                             "type": "person",
                             "value": "7d",
                             "operator": "is_date_before",
@@ -2922,7 +2922,7 @@ class TestSurvey(APIBaseTest):
         assert len(survey.internal_targeting_flag.filters["groups"]) == 2
 
         second_group = survey.internal_targeting_flag.filters["groups"][1]
-        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$last_seen_survey_date"), None)
+        last_seen_property = next((p for p in second_group["properties"] if p["key"] == "$survey_last_seen_date"), None)
         assert last_seen_property is not None
         assert last_seen_property["value"] == "14d"
         assert last_seen_property["operator"] == "is_date_before"
