@@ -2301,6 +2301,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        if kwargs.get("many") and args:
+            if "context" not in kwargs:
+                kwargs["context"] = self.get_serializer_context()
+            context = kwargs["context"]
+            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+        return super().get_serializer(*args, **kwargs)
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))

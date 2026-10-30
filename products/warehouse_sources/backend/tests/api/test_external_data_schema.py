@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     UNREADABLE_SOURCE_CONFIG_ERROR,
+    ExternalDataSchemaViewset,
     schema_display_status,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -5101,6 +5102,38 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
         assert detail["pending_self_managed_table"] is expected
         assert [row["pending_self_managed_table"] for row in listed] == [expected]
+
+    def test_list_serializer_batches_pinned_table_lookups(self) -> None:
+        source, _ = self._create()
+        schemas = []
+        expected = {}
+        for index in range(3):
+            table = DataWarehouseTable.objects.create(
+                team=self.team, name=f"orders_{index}", format="Parquet", url_pattern="https://example.com/a/*.parquet"
+            )
+            schema = ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=table.name,
+                sync_type_config={
+                    "schema_metadata": {
+                        "self_managed_table": {
+                            "table_id": str(table.pk),
+                            "url_pattern": table.url_pattern,
+                            "format": table.format,
+                        }
+                    }
+                },
+            )
+            schemas.append(schema)
+            expected[str(schema.pk)] = str(table.pk)
+        view = ExternalDataSchemaViewset()
+        view.team_id = self.team.pk
+
+        with self.assertNumQueries(1):
+            rows = view.get_serializer(schemas, many=True, context={"include_columns": False}).data
+
+        assert {row["id"]: row["table_id"] for row in rows} == expected
 
     def test_list_omits_source_summary(self):
         self._create()

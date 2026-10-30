@@ -9,8 +9,11 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.file_uploads import LegacyUpload, UploadLocation
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.source import FileUploadSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
     SupersededUpload,
     delete_source_uploads,
@@ -56,6 +59,54 @@ class TestFileUploadStorage(BaseTest):
 
     def _removed(self) -> list[str]:
         return [call.args[0] for call in self.s3.rm.call_args_list]
+
+    @parameterized.expand(
+        [
+            ("original", False, -1, True),
+            ("replacement_pending", True, -1, False),
+            ("replacement_imported", True, 1, True),
+        ]
+    )
+    def test_manual_sync_refuses_only_an_import_of_the_current_file(
+        self, _name: str, replaced: bool, completed_minutes: int, refused: bool
+    ) -> None:
+        entries = [SupersededUpload(upload=self._upload(OLD_ID), superseded_at=SYNC_STARTED_AT)] if replaced else []
+        source = self._source(self._inputs(CURRENT_ID), *entries)
+        job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.COMPLETED)
+        ExternalDataJob.objects.filter(pk=job.pk).update(
+            created_at=SYNC_STARTED_AT + timedelta(minutes=completed_minutes)
+        )
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.FAILED)
+
+        assert (FileUploadSource().manual_sync_refusal(source) is not None) is refused
+
+    def test_migrated_filename_uses_prefetched_live_schemas_in_creation_order(self) -> None:
+        source = self._source({})
+        for index, (filename, deleted) in enumerate(
+            [("deleted.csv", True), ("first.csv", False), ("second.csv", False)]
+        ):
+            schema = ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name=filename,
+                deleted=deleted,
+                sync_type_config={
+                    "schema_metadata": {
+                        "self_managed_table": {
+                            "table_id": str(source.pk),
+                            "url_pattern": self._upload(OLD_ID, filename).url_pattern,
+                            "format": "CSVWithNames",
+                        }
+                    }
+                },
+            )
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(
+                created_at=SYNC_STARTED_AT + timedelta(minutes=index)
+            )
+        source = ExternalDataSource.objects.prefetch_related("schemas").get(pk=source.pk)
+
+        with self.assertNumQueries(0):
+            assert FileUploadSource().uploaded_file_name(source) == "first.csv"
 
     def test_a_completed_sync_deletes_only_the_uploads_replaced_before_it_started(self) -> None:
         before = SupersededUpload(upload=self._upload(OLD_ID), superseded_at=SYNC_STARTED_AT - timedelta(minutes=1))

@@ -241,9 +241,15 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
         except InvalidUploadError:
             return "This table syncs when you upload a new file for it. Upload the file to import it."
         # A sync of the same file would import and bill the same rows again.
-        if ExternalDataJob.objects.filter(
+        completed_jobs = ExternalDataJob.objects.filter(
             team_id=source_model.team_id, pipeline_id=source_model.pk, status=ExternalDataJob.Status.COMPLETED
-        ).exists():
+        )
+        pending_uploads = superseded_uploads(source_model)
+        if pending_uploads:
+            completed_jobs = completed_jobs.filter(
+                created_at__gte=max(entry.superseded_at for entry in pending_uploads)
+            )
+        if completed_jobs.exists():
             return "This table already imported its file. To refresh the data, use Replace file to upload a new one."
         return None
 
@@ -253,7 +259,11 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
         except (InvalidUploadError, UnreadableSourceInputsError):
             pass
         # A migrated source has no upload id yet. Its table still reads the file it was made from.
-        for schema in source_model.schemas.filter(deleted=False).order_by("created_at"):
+        schemas = sorted(
+            (schema for schema in source_model.schemas.all() if not schema.deleted),
+            key=lambda schema: schema.created_at,
+        )
+        for schema in schemas:
             ref = self_managed_table_ref(schema)
             upload = parse_hosted_upload(source_model.team_id, ref.url_pattern) if ref is not None else None
             if upload is not None:
