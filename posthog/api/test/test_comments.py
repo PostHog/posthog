@@ -2359,8 +2359,15 @@ class TestCommentsTicketAccessControl(APIBaseTest):
 
         assert [result["content"] for result in response.json()["results"]] == ["a private message"]
 
-    @parameterized.expand(TICKET_SCOPE_CASES)
-    def test_viewer_cannot_complete_ticket_task(self, scope: str) -> None:
+    @parameterized.expand(
+        [
+            ("conversations_ticket", "complete"),
+            ("Ticket", "complete"),
+            ("Ticket", "send_to_slack"),
+        ]
+    )
+    @mock.patch("posthog.api.comments.CommentViewSet._slack_mirror_flag_enabled", return_value=True)
+    def test_viewer_cannot_complete_or_send_ticket_task(self, scope: str, action: str, _flag: mock.Mock) -> None:
         AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
         task = Comment.objects.create(
             team=self.team,
@@ -2372,7 +2379,8 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/comments/{task.id}/complete?scope={scope}",
+            f"/api/projects/{self.team.id}/comments/{task.id}/{action}?scope={scope}",
+            {"integration_id": 1, "channel_id": "C1"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         task.refresh_from_db()
