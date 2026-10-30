@@ -3,6 +3,8 @@
 from decimal import Decimal
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 MAX_RECALCULATION_TIMES = 2
 # frontend/src/scenes/settings/environment/ExperimentRecalculationTime.tsx repeats this value, so change both together.
 MIN_RECALCULATION_GAP_HOURS = 6
@@ -26,3 +28,9 @@ class PrecomputeSkipReason(StrEnum):
     COHORT_NOT_CALCULATED = "cohort_not_calculated"
     DATA_WAREHOUSE = "data_warehouse"
     GROUP_AGGREGATION = "group_aggregation"
+
+
+class ExperimentResultConfigurationStatus(LabeledStrEnum):
+    CURRENT = "current", "Current settings"
+    PREVIOUS = "previous", "Earlier settings"
+    UNKNOWN = "unknown", "Settings not recorded"

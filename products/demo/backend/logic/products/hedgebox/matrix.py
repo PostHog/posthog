@@ -1756,7 +1756,7 @@ class HedgeboxMatrix(Matrix):
             )
 
         # Inline metrics need stored fingerprints (normally stamped by the experiment service on
-        # create/launch) — the timeseries endpoint looks results up by them.
+        # create/launch), and the backfill below files the seeded days under the same key.
         calculation_keys = metric_calculation_keys(new_experiment.id, team_id=team.id).inline
         for metric_dict in metrics:
             metric_dict["fingerprint"] = calculation_keys[metric_dict["uuid"]]

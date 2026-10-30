@@ -26,3 +26,15 @@ Precomputation and the query runner do not cancel cooperatively, so the thread c
 Result-write protection must remain independent of cancellation delivery.
 
 See the [workflow architecture](../../products/experiments/backend/temporal/ARCHITECTURE.md) and [Temporal's cancellation contract](https://github.com/temporalio/sdk-python#heartbeating-and-cancellation).
+
+## Settings changes and stored results
+
+An ended experiment keeps its compatible stored result when project settings change. Opening its results page does not request a replacement. The page identifies results from earlier settings and offers explicit recalculation. Legacy results whose full settings were never recorded remain visible with unknown provenance; they are not relabeled as current.
+
+Calculation reuse requires the current calculation key, including statistics, CUPED, test account filters and timezone. Display-key and legacy matches only preserve history. The query runner includes the calculation key in its response-cache payload so dashboard widgets invalidate the same settings as the experiment page.
+
+## Superseded timeseries backfills
+
+A request with the same metric and calculation key reuses the active backfill. A different key cancels the old request and starts a replacement. Each daily write locks the experiment and checks the request status in the same transaction, preventing a superseded worker from overwriting the replacement's days. Queries run outside the transaction.
+
+Until backfills consume a frozen calculation config, each day's runner must match the request's calculation key before executing. Settings drift cancels the request instead of storing a result under settings it did not use.

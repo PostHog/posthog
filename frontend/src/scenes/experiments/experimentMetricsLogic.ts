@@ -309,6 +309,7 @@ export interface experimentMetricsLogicValues {
     }
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
+    resultConfigurationNotice: 'previous' | 'unknown' | null
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -368,6 +369,7 @@ export interface experimentMetricsLogicActions {
 export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
+        resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -522,6 +524,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         ],
     }),
     selectors({
+        resultConfigurationNotice: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): 'previous' | 'unknown' | null => {
+                const statuses = (recalc?.results ?? [])
+                    .filter((result) => result.status === 'completed')
+                    .map((result) => result.configuration_status)
+                return statuses.includes('previous') ? 'previous' : statuses.includes('unknown') ? 'unknown' : null
+            },
+        ],
         // True while a recalculation is being fetched or is still running.
         isRecalculating: [
             (s) => [s.recalculationLoading, s.currentRecalculation, s.recalculationAbandoned],
