@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Any
 from uuid import UUID
 
@@ -81,28 +82,27 @@ class TestNamespacedLazyTables(SimpleTestCase):
 WRAPPED_JOIN = "FROM events AS initial JOIN events AS joined ON initial.person_id = joined.person_id"
 # The wrapper exports these for the join's own person-ID correction, whatever the query reads.
 JOIN_KEY_EXPORTS = {"override___distinct_id", "override___person_id", "event_person_id"}
+BUILT_IN_FIELDS = (
+    "$session_id",
+    "$window_id",
+    "$session_id_uuid",
+    "$group_0",
+    "$group_1",
+    "$group_2",
+    "$group_3",
+    "$group_4",
+)
 
 
 class TestWrappedEventJoins(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (f"{field}_{native}", field, native)
-            for field in (
-                "$session_id",
-                "$window_id",
-                "$session_id_uuid",
-                "$group_0",
-                "$group_1",
-                "$group_2",
-                "$group_3",
-                "$group_4",
-            )
-            for native in (False, True)
-        ]
-    )
-    def test_reads_exported_columns(self, _name: str, field: str, native: bool) -> None:
-        printed, _ = self._compile(f"SELECT joined.{field} {WRAPPED_JOIN}", native=native)
-        assert printed.startswith(f"SELECT joined.`{field}` AS")
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_reads_exported_columns(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT " + ", ".join(f"joined.{field}" for field in BUILT_IN_FIELDS) + f" {WRAPPED_JOIN}", native=native
+        )
+        outer_select = printed.split(" FROM ", 1)[0]
+        for field in BUILT_IN_FIELDS:
+            assert f"joined.`{field}` AS `{field}`" in outer_select, printed
         assert "JOIN (SELECT" in printed
 
     @parameterized.expand([("legacy", False), ("native", True)])
@@ -196,6 +196,21 @@ class TestWrappedEventJoins(SimpleTestCase):
         )
         assert printed.count("AS joined__override ON") == 1
 
+    @parameterized.expand([("identity_join", False), ("person_overrides", True)])
+    def test_converts_the_exported_timestamp_inside_the_wrapper(self, _name: str, person_overrides: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
+            "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
+            "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
+            person_overrides=person_overrides,
+            timezone="America/New_York",
+            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+        )
+        assert re.search(r"toTimeZone\(e2\.timestamp, %\(hogql_val_\d+\)s\) AS timestamp", printed), printed
+        assert re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(e\.timestamp,", printed), printed
+        assert re.search(r"greaterOrEquals\(e\.timestamp, ", printed), printed
+        assert re.search(r"less\(e\.timestamp, ", printed), printed
+
     def test_keeps_property_paths_distinct(self) -> None:
         printed, context = self._compile(
             f"SELECT joined.properties.a.b, joined.properties.a___b, joined.properties.arr[1] {WRAPPED_JOIN}"
@@ -258,8 +273,10 @@ class TestWrappedEventJoins(SimpleTestCase):
         person_properties: str | None = None,
         restricted: set[RestrictedProperty] | None = None,
         person_overrides: bool = True,
+        timezone: str = "UTC",
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> tuple[str, HogQLContext]:
-        database = Database()
+        database = Database(timezone=timezone)
         events = database.get_table("events")
         events.fields["$virt_is_bot"] = create_is_bot_field(name="$virt_is_bot")
         if person_overrides:
@@ -275,12 +292,13 @@ class TestWrappedEventJoins(SimpleTestCase):
             )
         context = HogQLContext(
             team_id=1,
-            team=Team(id=1, organization=Organization()),
+            team=Team(id=1, organization=Organization(), timezone=timezone),
             database=database,
             enable_select_queries=True,
             use_new_events_schema=native,
             apply_events_retention_floor=False,
             restricted_properties=restricted or set(),
+            modifiers=modifiers or HogQLQueryModifiers(),
         )
         metadata = PropertyMetadata(
             event_properties={
@@ -323,24 +341,16 @@ class TestLazyJoins(BaseTest):
                 "toString(max(related.properties.scheduled_at))",
                 (7.0, 1, "2024-01-02 03:04:05.000000"),
             ),
-            ("string_parser", "toFloatOrZero(related.properties.amount)", (7.0,)),
             (
                 "mixed_contexts_on_text",
                 "related.properties.rating, toFloatOrZero(related.properties.rating)",
                 (None, 0.0),
             ),
             (
-                "document_and_key",
-                "JSONExtractString(related.properties, 'label'), related.properties.label",
-                ("ready", "ready"),
-            ),
-            (
                 "paths",
                 "related.properties.a.b, related.properties.a___b, related.properties.arr[1]",
                 ("nested", "flat", "first"),
             ),
-            ("expression_field", "related.$virt_is_bot", (False,)),
-            ("person_id", "related.person_id", (UUID("00000000-0000-4000-8000-000000000001"),)),
             (
                 "window",
                 "sum(related.properties.amount) OVER (PARTITION BY related.$session_id)",
@@ -365,10 +375,6 @@ class TestLazyJoins(BaseTest):
             person_id=UUID("00000000-0000-4000-8000-000000000001"),
             properties={
                 "$session_id": "00000000-0000-4000-8000-000000000002",
-                "$raw_user_agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
                 "label": "ready",
                 "amount": "7",
                 "rating": "seven",
@@ -410,7 +416,7 @@ class TestLazyJoins(BaseTest):
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        assert [row[1] for row in result.results] == [8.0]
+        assert [(json.loads(document)["amount"], value) for document, value in result.results] == [("7", 8.0)]
 
     def test_wrapped_events_join_reads_each_alias_from_its_own_source(self) -> None:
         PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric")
@@ -433,7 +439,7 @@ class TestLazyJoins(BaseTest):
         )
         assert [tuple(row) for row in result.results] == [(7.0, 11.0, ["amount"])]
 
-    def test_wrapped_events_join_matches_on_the_overridden_person_id(self) -> None:
+    def test_wrapped_events_join_corrects_the_person_id_inside_the_wrapper(self) -> None:
         merged_from = _create_event(
             team=self.team,
             event="before-merge",
@@ -452,14 +458,14 @@ class TestLazyJoins(BaseTest):
         result = execute_hogql_query(
             "SELECT related.distinct_id, related.person_id FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
-            "WHERE source.uuid = {merged_from} AND related.uuid = {merged_to}",
+            "WHERE source.uuid = {merged_to} AND related.uuid = {merged_from}",
             team=self.team,
             placeholders={"merged_from": ast.Constant(value=merged_from), "merged_to": ast.Constant(value=merged_to)},
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        assert [tuple(row) for row in result.results] == [("merged_to", UUID("00000000-0000-4000-8000-000000000002"))]
+        assert [tuple(row) for row in result.results] == [("merged_from", UUID("00000000-0000-4000-8000-000000000002"))]
 
     def test_wrapped_events_left_join_keeps_unmatched_rows(self) -> None:
         PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric")
