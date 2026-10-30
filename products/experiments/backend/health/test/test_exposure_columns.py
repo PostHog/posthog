@@ -258,3 +258,23 @@ class TestLoadFiltersWithoutColumn(BaseTest):
 
         assert filters is not None
         self.assertEqual([f"{found.type}:{found.key}{_SOURCE_LABELS[found.source]}" for found in filters], expected)
+
+    def test_a_virtual_property_does_not_take_a_read_that_another_filter_names(self) -> None:
+        self.team.test_account_filters = [_filter("$virt_is_bot", "event")]
+        self.team.save()
+        experiment = self._experiment()
+        experiment.exposure_criteria = {
+            "filterTestAccounts": True,
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$pageview",
+                "properties": [_filter("$lib", "event")],
+            },
+        }
+
+        filters = load_filters_without_column(experiment)
+
+        assert filters is not None
+        self.assertEqual(
+            [f"{found.type}:{found.key}{_SOURCE_LABELS[found.source]}" for found in filters], ["event:$lib"]
+        )

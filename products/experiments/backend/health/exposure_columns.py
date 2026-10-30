@@ -55,6 +55,12 @@ def _reads_all_properties(plan: PropertyAccessPlan, context: HogQLContext) -> bo
     return True
 
 
+def _named_properties(expr: ast.Expr) -> set[str | int]:
+    """The properties that a filter names. A `$virt` property expands to reads of other properties when its type
+    resolves, and the filter names none of those."""
+    return {field.chain[-1] for field in GetFieldsTraverser(expr).fields if len(field.chain) > 1}
+
+
 def _filters_without_column(
     experiment: Experiment, criteria: ExperimentExposureCriteria | None
 ) -> tuple[ExposureFilterWithoutColumn, ...]:
@@ -72,17 +78,14 @@ def _filters_without_column(
         if config
     ]
     filters += [(expr, ExposureFilterSource.TEST_ACCOUNTS) for expr in get_test_accounts_filter(team, criteria)]
-    # A `$virt` property expands to reads of other properties when its type resolves, and no filter names those.
-    named_keys = {
-        field.chain[-1] for expr, _ in filters for field in GetFieldsTraverser(expr).fields if len(field.chain) > 1
-    }
-    if not named_keys:
+    named_by_filter = [_named_properties(expr) for expr, _ in filters]
+    if not any(named_by_filter):
         return ()
     modifiers = create_default_modifiers_for_team(team)
     context = HogQLContext(
         team_id=team.pk,
         team=team,
-        database=Database.create_for_posthog_tables(team, modifiers=modifiers),
+        database=Database.create_for(team=team, modifiers=modifiers),
         enable_select_queries=True,
         modifiers=modifiers,
     )
@@ -96,7 +99,7 @@ def _filters_without_column(
     where = cast(ast.And, resolved.where)
 
     found: dict[ExposureFilterWithoutColumn, None] = {}
-    for expr, (_, source) in zip(where.exprs, filters, strict=True):
+    for expr, (_, source), named_keys in zip(where.exprs, filters, named_by_filter, strict=True):
         for field in GetFieldsTraverser(expr).fields:
             plan = plan_property_access(field, context)
             if plan is None or plan.property_name not in named_keys or plan.property_name == _FLAG_KEY_PROPERTY:

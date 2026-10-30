@@ -344,7 +344,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
-                    self._is_precomputed = True
+                    self._is_precomputed = builder.reads_precomputed_exposures(exposure_job_ids)
                 elif result.capacity_rejected:
                     # ClickHouse refused the build because the pool is full. The direct scan
                     # below would hold a slot for minutes and starve the next builds too, so

@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import uuid4
 
 from posthog.test.base import _create_event, _create_person
 from unittest.mock import patch
@@ -11,6 +12,8 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
     EventsNode,
     ExperimentExposureQuery,
     ExperimentFunnelMetric,
@@ -865,6 +868,58 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.baseline.number_of_samples == 2
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 1
+
+    def test_breakdown_scans_the_events_when_the_exposure_job_is_ready(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase"),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser", type="event")]),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for variant in ("control", "test"):
+            for i in range(3):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                self._create_exposure_event(
+                    distinct_id, feature_flag, variant, datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                    properties={f"$feature/{feature_flag.key}": variant, "$browser": "Chrome"},
+                )
+
+        with (
+            patch.object(
+                ExperimentQueryRunner,
+                "_ensure_exposures_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid4()]),
+            ),
+            patch.object(
+                ExperimentQueryRunner,
+                "_ensure_metric_events_precomputed",
+                return_value=LazyComputationResult(ready=False, job_ids=[]),
+            ),
+        ):
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+                team=self.team,
+            )
+            result = cast(ExperimentQueryResponse, runner.calculate())
+
+        assert result.variant_results is not None
+        assert result.is_precomputed is False
+        assert runner.exposures_path == ExposuresPath.DIRECT_SCAN
 
     @parameterized.expand(
         [
