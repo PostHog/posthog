@@ -297,7 +297,10 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="new static import from a lower frontend layer into a higher one",
         triggers=[
             "frontend/src/*",
+            "frontend/@posthog/*",
             "products/*/frontend/*",
+            "common/*",
+            "packages/*",
             "frontend/bin/layers.mjs",
             "frontend/bin/layer-baseline.txt",
         ],

@@ -152,6 +152,10 @@ a { color: inherit; }
 const DATA = __DATA__
 const { layers, groups, imports, parents } = DATA
 const kib = (bytes) => bytes >= 1048576 ? (bytes / 1048576).toFixed(2) + ' MiB' : Math.round(bytes / 1024) + ' KiB'
+// Folder and file names come from repository paths, so they are untrusted: a crafted directory name
+// must not run script when its report entry is rendered through innerHTML.
+const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ESCAPE_MAP[c])
 const byKey = Object.fromEntries(groups.map((g) => [g.key, g]))
 const state = { eagerOnly: true, search: '', selected: null, sort: 'saved' }
 
@@ -220,7 +224,7 @@ function drawGraph() {
     const dim = state.selected && !related.has(g.key)
     svg += '<g class="node' + (dim ? ' dim' : '') + '" data-key="' + g.key + '"><rect x="' + p.x + '" y="' + p.y + '" width="' + columnWidth + '" height="' + p.h + '" fill="var(--layer-' + g.layer + ')" fill-opacity="0.22"/>' +
       '<rect x="' + p.x + '" y="' + p.y + '" width="4" height="' + p.h + '" fill="var(--layer-' + g.layer + ')"/>' +
-      '<text x="' + (p.x + 10) + '" y="' + (p.y + 13) + '">' + truncate(g.name, 26) + '</text>' +
+      '<text x="' + (p.x + 10) + '" y="' + (p.y + 13) + '">' + esc(truncate(g.name, 26)) + '</text>' +
       '<text class="size" x="' + (p.x + columnWidth - 6) + '" y="' + (p.y + 13) + '" text-anchor="end">' + kib(sizeOf(g)) + '</text></g>'
   }
   svg += '</svg>'
@@ -229,7 +233,7 @@ function drawGraph() {
   container.querySelectorAll('.node').forEach((node) => {
     const g = byKey[node.dataset.key]
     node.addEventListener('click', () => select(g.key))
-    node.addEventListener('mousemove', (event) => showTooltip(event, '<b>' + g.name + '</b><br>' + g.layer + ' layer<br>' + kib(sizeOf(g)) + ' in ' + g.files.filter((f) => !state.eagerOnly || f[2]).length + ' files'))
+    node.addEventListener('mousemove', (event) => showTooltip(event, '<b>' + esc(g.name) + '</b><br>' + g.layer + ' layer<br>' + kib(sizeOf(g)) + ' in ' + g.files.filter((f) => !state.eagerOnly || f[2]).length + ' files'))
     node.addEventListener('mouseleave', hideTooltip)
   })
 }
@@ -261,13 +265,13 @@ function select(key) {
   const into = visibleImports().filter((i) => i.toGroup === key).sort((a, b) => b.saved - a.saved)
   const eagerFiles = g.files.filter((f) => f[2]).sort((a, b) => b[1] - a[1])
   const list = (items, render) => items.length ? '<ul>' + items.map(render).join('') + '</ul>' : '<p class="muted">None.</p>'
-  const importLine = (i) => '<li>' + i.from + ' <span class="muted">-></span> ' + i.to + (i.eager ? ' <span class="muted">(' + (i.saved ? 'cut saves ' + kib(i.saved) : 'other imports keep it eager') + ')</span>' : '') + '</li>'
+  const importLine = (i) => '<li>' + esc(i.from) + ' <span class="muted">-></span> ' + esc(i.to) + (i.eager ? ' <span class="muted">(' + (i.saved ? 'cut saves ' + kib(i.saved) : 'other imports keep it eager') + ')</span>' : '') + '</li>'
   details.innerHTML =
-    '<h2>' + g.name + '</h2><div class="muted">' + g.layer + ' layer, ' + kib(g.eagerBytes) + ' eager of ' + kib(g.bytes) + '</div>' +
+    '<h2>' + esc(g.name) + '</h2><div class="muted">' + g.layer + ' layer, ' + kib(g.eagerBytes) + ' eager of ' + kib(g.bytes) + '</div>' +
     '<h3>Upward imports out (' + out.length + ')</h3>' + list(out, importLine) +
     '<h3>Upward imports in (' + into.length + ')</h3>' + list(into, importLine) +
-    '<h3>Why it is eager</h3>' + (eagerFiles.length ? '<ol>' + chainTo(eagerFiles[0][0]).map((f) => '<li>' + f + '</li>').join('') + '</ol>' : '<p class="muted">Not on the eager path.</p>') +
-    '<h3>Largest files</h3>' + list(g.files.slice().sort((a, b) => b[1] - a[1]).slice(0, 25), (f) => '<li>' + f[0] + ' <span class="muted">' + kib(f[1]) + (f[2] ? ', eager' : '') + '</span></li>')
+    '<h3>Why it is eager</h3>' + (eagerFiles.length ? '<ol>' + chainTo(eagerFiles[0][0]).map((f) => '<li>' + esc(f) + '</li>').join('') + '</ol>' : '<p class="muted">Not on the eager path.</p>') +
+    '<h3>Largest files</h3>' + list(g.files.slice().sort((a, b) => b[1] - a[1]).slice(0, 25), (f) => '<li>' + esc(f[0]) + ' <span class="muted">' + kib(f[1]) + (f[2] ? ', eager' : '') + '</span></li>')
 }
 
 function drawTable() {
@@ -277,25 +281,25 @@ function drawTable() {
   const layer = (groupKey) => groupKey.split('|')[0]
   document.getElementById('table').innerHTML = '<table><thead><tr>' +
     [['from', 'From'], ['to', 'To'], ['fromGroup', 'Layers'], ['saved', 'Cut saves']].map(([k, label]) => '<th data-sort="' + k + '">' + label + '</th>').join('') +
-    '</tr></thead><tbody>' + rows.map((i) => '<tr><td>' + i.from + '</td><td>' + i.to + '</td><td class="layers">' + layer(i.fromGroup) + ' -> ' + layer(i.toGroup) + '</td><td class="num">' + (i.eager ? kib(i.saved) : '-') + '</td></tr>').join('') + '</tbody></table>'
+    '</tr></thead><tbody>' + rows.map((i) => '<tr><td>' + esc(i.from) + '</td><td>' + esc(i.to) + '</td><td class="layers">' + layer(i.fromGroup) + ' -> ' + layer(i.toGroup) + '</td><td class="num">' + (i.eager ? kib(i.saved) : '-') + '</td></tr>').join('') + '</tbody></table>'
   document.querySelectorAll('#table th').forEach((th) => th.addEventListener('click', () => { state.sort = th.dataset.sort; drawTable() }))
 }
 
 function drawOpportunities() {
   const o = DATA.opportunities
   const short = (f) => f.replace('frontend/src/', '')
-  const files = (list) => '<details><summary>' + list.length + '</summary>' + list.map((f) => short(f)).join('<br>') + '</details>'
+  const files = (list) => '<details><summary>' + list.length + '</summary>' + list.map((f) => esc(short(f))).join('<br>') + '</details>'
   const table = (heads, rows) => '<table><thead><tr>' + heads.map((h) => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows.map((r) => '<tr>' + r.map((c, i) => '<td' + (typeof c === 'number' ? ' class="num"' : '') + '>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
   const match = (text) => !state.search || text.includes(state.search)
   document.getElementById('opportunities').innerHTML =
     '<h2>Make a folder lazy</h2><p>A feature or query folder on the eager path, and the bytes saved if every import into it from outside became a dynamic import. Fewest imports for the most bytes first.</p>' +
-    table(['Folder', 'Layer', 'Saves', 'Imports to change'], o.lazyFolders.filter((x) => match(x.folder)).map((x) => [x.folder, x.layer, kib(x.saved), files(x.entries.map(([from, to]) => from + ' -> ' + to))])) +
+    table(['Folder', 'Layer', 'Saves', 'Imports to change'], o.lazyFolders.filter((x) => match(x.folder)).map((x) => [esc(x.folder), x.layer, kib(x.saved), files(x.entries.map(([from, to]) => from + ' -> ' + to))])) +
     '<h2>Move a file down a layer</h2><p>Lower layers import this file, and it imports nothing above the lowest of them. Moving it down clears these baseline entries and adds none.</p>' +
-    table(['File', 'Move', 'Clears', 'Imported from'], o.misplacedFiles.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer + ' -> ' + x.moveTo, x.lowerImporters.length, files(x.lowerImporters)])) +
+    table(['File', 'Move', 'Clears', 'Imported from'], o.misplacedFiles.filter((x) => match(x.file)).map((x) => [esc(short(x.file)), x.layer + ' -> ' + x.moveTo, x.lowerImporters.length, files(x.lowerImporters)])) +
     '<h2>Split a heavy hub</h2><p>A file the shell path imports upward that pulls in far more than its own size. Usually a cheap export sits next to a heavy one.</p>' +
-    table(['File', 'Layer', 'Own size', 'Drags in'], o.heavyHubs.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer, kib(x.bytes), kib(x.saved)])) +
+    table(['File', 'Layer', 'Own size', 'Drags in'], o.heavyHubs.filter((x) => match(x.file)).map((x) => [esc(short(x.file)), x.layer, kib(x.bytes), kib(x.saved)])) +
     '<h2>Kernel leaks</h2><p>Kernel is the bottom layer, so it should import nothing above it. Each target is either kernel code in the wrong place or a kernel file that needs a split.</p>' +
-    table(['Target', 'Layer', 'Kernel importers'], o.kernelLeaks.filter((x) => match(x.file)).map((x) => [short(x.file), x.layer, files(x.importers)]))
+    table(['Target', 'Layer', 'Kernel importers'], o.kernelLeaks.filter((x) => match(x.file)).map((x) => [esc(short(x.file)), x.layer, files(x.importers)]))
 }
 
 function redraw() { drawGraph(); drawTable(); drawOpportunities() }
