@@ -51,6 +51,23 @@ describe('SamplingRulesCache', () => {
         expect(compiled.rules).toEqual([])
     })
 
+    it('waits a cooldown after a failed fetch before it queries again', async () => {
+        const start = Date.now()
+        const now = jest.spyOn(Date, 'now').mockReturnValue(start)
+        query.mockRejectedValueOnce(new Error('statement timeout'))
+        await cache.getCompiledRuleSet(1, 'spans')
+
+        now.mockReturnValue(start + 1_000)
+        await cache.getCompiledRuleSet(1, 'spans')
+        expect(query).toHaveBeenCalledTimes(1)
+
+        now.mockReturnValue(start + 10_000)
+        query.mockResolvedValueOnce({ rows: [row('path', 'path_drop')] })
+        const recovered = await cache.getCompiledRuleSet(1, 'spans')
+        expect(query).toHaveBeenCalledTimes(2)
+        expect(recovered.rules.map((r) => r.id)).toEqual(['path'])
+    })
+
     it('serves the last-known rules when a later refresh throws', async () => {
         query.mockResolvedValueOnce({ rows: [row('path', 'path_drop')] })
         await cache.getCompiledRuleSet(1, 'spans')
