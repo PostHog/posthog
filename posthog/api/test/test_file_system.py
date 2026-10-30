@@ -142,8 +142,8 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
                 ).id,
                 created_by_id=test.user.id,
             ),
-            ref_getter=lambda experiment_id: str(experiment_id),
-            item_id_getter=lambda experiment_id: str(experiment_id),
+            ref_getter=str,
+            item_id_getter=str,
         ),
     ),
     (

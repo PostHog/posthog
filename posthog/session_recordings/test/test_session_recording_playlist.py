@@ -438,8 +438,6 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             name="playlist exposure experiment",
             feature_flag_id=flag.id,
             created_by_id=self.user.id,
-            exposure_criteria={},
-            metrics=[],
         )
         AccessControl.objects.create(
             team=self.team, resource="experiment", resource_id=str(experiment_id), access_level="none"
