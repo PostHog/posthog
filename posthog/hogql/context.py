@@ -175,6 +175,9 @@ class HogQLContext:
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
+    # Per-query result of that transform's `$feature_flag` property-type lookup. The transform runs once for the
+    # query and once for each saved view the query inlines, so this runs the lookup once per query.
+    flag_key_compares_as_string: Optional[bool] = field(default=None, compare=False, repr=False)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.

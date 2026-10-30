@@ -60,6 +60,7 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.functions.with_icon import with_icon
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
+from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     available_fields_suffix,
@@ -69,6 +70,10 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
+)
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    resolve_flag_calls_from_flag_evaluations,
+    swaps_flag_calls,
 )
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -269,59 +274,6 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [scope])
 
 
-class JoinSources:
-    """The `JoinExpr` of the input tree that each resolved `JoinExpr` came from, and the joins that the resolver
-    added itself."""
-
-    def __init__(self) -> None:
-        # Each entry keeps its key node alive, so no other node can take its id.
-        self._sources: dict[int, tuple[ast.JoinExpr, ast.JoinExpr]] = {}
-        self._added: dict[int, ast.JoinExpr] = {}
-
-    def record(self, node: ast.JoinExpr, source: ast.JoinExpr) -> None:
-        """Records that `node`, a resolved join or a copy that the resolver made, came from `source`."""
-        self._sources[id(node)] = (node, self.source_of(source) or source)
-
-    def record_copied_tree(self, copy: ast.AST, source: ast.AST) -> None:
-        """Records that each join in `copy`, a copy of `source`, came from the join at the same place in `source`."""
-        for copied, original in zip(_all_joins(copy), _all_joins(source), strict=True):
-            self.record(copied, original)
-
-    def record_added(self, tree: ast.AST) -> None:
-        """Records that the resolver added each join in `tree`, such as one in a saved view's body."""
-        for join in _all_joins(tree):
-            self._added[id(join)] = join
-
-    def source_of(self, node: ast.JoinExpr) -> ast.JoinExpr | None:
-        entry = self._sources.get(id(node))
-        return entry[1] if entry is not None else None
-
-    def is_added(self, node: ast.JoinExpr) -> bool:
-        """Whether the resolver added the join that `node` came from."""
-        source = self.source_of(node)
-        return source is not None and id(source) in self._added
-
-
-def _all_joins(tree: ast.AST) -> list[ast.JoinExpr]:
-    collector = _JoinExprCollector()
-    collector.visit(tree)
-    return collector.joins
-
-
-class _JoinExprCollector(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.joins: list[ast.JoinExpr] = []
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        self.joins.append(node)
-        super().visit_join_expr(node)
-
-    def visit_field(self, node: ast.Field) -> None:
-        # The inherited visit follows the field's type. A field holds no join.
-        pass
-
-
 ResolverFactory = Callable[
     [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
     "Resolver",
@@ -354,6 +306,23 @@ def resolve_types(
         resolver = resolver_factory(context, dialect, scopes)
     resolver.join_sources = join_sources
     return resolver.visit(node)
+
+
+def swapping_flag_calls_in_views(resolver_factory: ResolverFactory | None) -> ResolverFactory:
+    """A factory whose resolvers run `resolve_flag_calls_from_flag_evaluations` on the body of each saved view they
+    inline. Each resolver is otherwise the one `resolver_factory` builds."""
+
+    def factory(
+        context: HogQLContext, dialect: HogQLDialect, scopes: Optional[list[ast.SelectQueryType]]
+    ) -> "Resolver":
+        if resolver_factory is None:
+            resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+        else:
+            resolver = resolver_factory(context, dialect, scopes)
+        resolver.swap_flag_calls_in_views = True
+        return resolver
+
+    return factory
 
 
 def _select_type_columns(
@@ -505,6 +474,13 @@ class Resolver(CloningVisitor):
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
         self._resolving_saved_views: set[str] = set()
         self._pending_saved_view: str | None = None
+        self.swap_flag_calls_in_views = False
+        # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
+        # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
+        # the resolver visits the same CTE again and builds a new node for it.
+        self._flag_call_view_bodies: dict[
+            tuple[str, frozenset[tuple[str, str]]], ast.SelectQuery | ast.SelectSetQuery
+        ] = {}
         self.context = context
         self.dialect = dialect
         self.join_sources: JoinSources | None = None
@@ -1466,6 +1442,58 @@ class Resolver(CloningVisitor):
             self.join_sources.record_copied_tree(copy, node)
         return copy
 
+    def _swap_flag_calls_in_view_body(
+        self, body: ast.SelectQuery | ast.SelectSetQuery, view_name: str
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        """`body`, unresolved, with each `events` scan of flag calls that the swap accepts reading
+        `posthog.flag_evaluations`. The swap checks the body as a query of its own."""
+        # The enclosing query's CTEs are in scope in the body. The swap reads `FROM events` as the table.
+        if not self.swap_flag_calls_in_views or "events" in self.ctes or not swaps_flag_calls(body, self.context):
+            return body
+        # Each resolve below visits the views that this body reads. Without the cache, each of those views would rerun
+        # its own swap. A chain of views would then cost twice as much at each level.
+        key = (view_name, frozenset((name, cte.expr.to_hogql()) for name, cte in self.ctes.items()))
+        cached = self._flag_call_view_bodies.get(key)
+        if cached is not None:
+            return clone_expr(cached)
+        resolved_from: list[tuple[ast.SelectQuery | ast.SelectSetQuery, ast.SelectQuery | ast.SelectSetQuery]] = []
+
+        def resolve(
+            query: ast.SelectQuery | ast.SelectSetQuery, *, join_sources: JoinSources | None = None
+        ) -> ast.SelectQuery | ast.SelectSetQuery:
+            # The swap catches a resolution error and keeps the original body. A visit that raises leaves its scope
+            # and CTEs on this resolver, so this function restores them.
+            scopes, ctes, view_depth, cte_counter, outer_join_sources = (
+                list(self.scopes),
+                self.ctes,
+                self.current_view_depth,
+                self.cte_counter,
+                self.join_sources,
+            )
+            # This visit skips the join that marks the view as being resolved, so it marks the view itself. Without
+            # the mark, a view that reads itself would start a new swap of its own body at each level.
+            self._resolving_saved_views.add(view_name)
+            self.current_view_depth += 1
+            # The swap's check reads `join_sources` for the joins of this body. A trial tree is not part of the
+            # enclosing query, so the enclosing query's record does not get its joins.
+            self.join_sources = join_sources
+            try:
+                resolved = self.visit(self._copy(query))
+            finally:
+                self._resolving_saved_views.remove(view_name)
+                self.scopes[:] = scopes
+                self.ctes, self.current_view_depth, self.cte_counter = ctes, view_depth, cte_counter
+                self.join_sources = outer_join_sources
+            resolved_from.append((resolved, query))
+            return resolved
+
+        chosen = resolve_flag_calls_from_flag_evaluations(body, self.context, resolve, view_name=view_name)
+        chosen_body = next((query for resolved, query in resolved_from if resolved is chosen), None)
+        if chosen_body is None:
+            raise ImpossibleASTError("resolve_flag_calls_from_flag_evaluations must return a tree that resolve built")
+        self._flag_call_view_bodies[key] = chosen_body
+        return clone_expr(chosen_body)
+
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
@@ -1567,8 +1595,9 @@ class Resolver(CloningVisitor):
                     )
                 view_query = str(database_table.query)
                 self._compilation_budget.expand_view(view_query)
-                node.table = parse_select(view_query)
-                _mark_view_body(node.table, database_table.name)
+                view_body = parse_select(view_query)
+                _mark_view_body(view_body, database_table.name)
+                node.table = self._swap_flag_calls_in_view_body(view_body, database_table.name)
                 if self.join_sources is not None:
                     self.join_sources.record_added(node.table)
                 node.alias = table_alias or database_table.name
