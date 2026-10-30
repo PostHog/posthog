@@ -8,13 +8,15 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.api.pagination import select_page
+from posthog.paging import Page, PageRequest
+
 from products.wizard.backend.facade.config import WIZARD_RUN_DEADLINE
 from products.wizard.backend.facade.contracts import (
     ListWizardRunsInput,
     WizardProgram,
     WizardRunCreationResult,
     WizardRunDTO,
-    WizardRunPage,
     WizardRunTaskDTO,
     WizardWorkspace,
 )
@@ -178,15 +180,15 @@ def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
     return record_to_run(run)
 
 
-def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
     runs = WizardRun.objects.for_team(params.team_id).select_related("created_by").order_by("-created_at")
     if params.statuses:
         runs = runs.filter(status__in=params.statuses)
     if params.created_after is not None:
         runs = runs.filter(created_at__gt=params.created_after)
-    page = runs[params.offset : params.offset + params.limit]
+    rows = select_page(runs, page)
     results: list[WizardRunDTO] = []
-    for run in page:
+    for run in rows.results:
         try:
             results.append(record_to_run(run))
         except ValueError:
@@ -195,7 +197,7 @@ def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
                 team_id=params.team_id,
                 run_id=str(run.id),
             )
-    return WizardRunPage(results=tuple(results), count=runs.count())
+    return Page(results=results, count=rows.count)
 
 
 def set_run_status(

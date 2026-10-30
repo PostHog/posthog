@@ -188,6 +188,10 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(results[0]["started_at"], "2026-05-19T19:00:00Z")
         self.assertEqual(results[1]["started_at"], "2026-05-19T09:00:00Z")
 
+        second_page = self.client.get(self._url() + "?limit=1&offset=1").json()
+        self.assertEqual(second_page["count"], 2)
+        self.assertEqual([row["started_at"] for row in second_page["results"]], ["2026-05-19T09:00:00Z"])
+
     def test_list_filters_by_workflow_and_skill(self):
         self.client.post(
             self._url(),
