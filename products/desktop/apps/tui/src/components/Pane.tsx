@@ -7,6 +7,7 @@ import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
 import type { LocalSession } from "../local";
+import { type Picker, renderPicker } from "../picker";
 import {
   type CloudRuns,
   deliveryFailure,
@@ -126,6 +127,7 @@ export function Pane({
   focused,
   notice: paneNotice,
   reopening,
+  repoPicker,
 }: {
   title: string;
   paneTaskId: string | null;
@@ -170,6 +172,8 @@ export function Pane({
   notice: string | null;
   // A reply is bringing this chat's stopped run back.
   reopening: boolean;
+  // The pane's open /repo picker, drawn in place of the composer.
+  repoPicker: Picker | null;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -309,11 +313,13 @@ export function Pane({
   const sheetLines =
     width <= 0
       ? []
-      : modal
-        ? renderSheet(modal.sheet, modal.index, width).map(shade)
-        : offerOpen
-          ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
-          : [];
+      : repoPicker
+        ? renderPicker(repoPicker, width).map(shade)
+        : modal
+          ? renderSheet(modal.sheet, modal.index, width).map(shade)
+          : offerOpen
+            ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
+            : [];
   // The row stays when empty, so a notice never moves the chat. It ends flush right, like the usage on the rule below.
   const noticeLines =
     paneNotice && width > 1
@@ -321,7 +327,7 @@ export function Pane({
           shade(`${" ".repeat(width - visibleWidth(line))}${blue(line)}`),
         )
       : [" "];
-  const showsComposer = !modal || Boolean(modal.submitText);
+  const showsComposer = !repoPicker && (!modal || Boolean(modal.submitText));
   const bottomLines = [
     ...noticeLines,
     ...sheetLines,

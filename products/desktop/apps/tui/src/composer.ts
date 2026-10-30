@@ -71,6 +71,10 @@ export const SLASH_COMMANDS = [
   { name: "search", description: "Search your tasks" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },
+  {
+    name: "repo",
+    description: "Pick the repositories new cloud chats in this pane clone",
+  },
   { name: "cloud", description: "Run new chats in this pane in the cloud" },
   { name: "login", description: "Sign in to PostHog" },
   { name: "logout", description: "Sign out and clear your workspaces" },

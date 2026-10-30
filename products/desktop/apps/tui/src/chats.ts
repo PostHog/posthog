@@ -36,6 +36,9 @@ export function currentRepository(cwd?: string): string | null {
   }
 }
 
+// How many repositories each GitHub connection returns per search.
+const REPOSITORY_PAGE = 30;
+
 // What the command endpoint answers when a message is sent into a run that has ended.
 const RUN_ENDED =
   /Failed to queue user message|Task run workflow has ended|No active sandbox/;
@@ -63,12 +66,19 @@ export class PiChats {
     private readonly agentRestarted?: AgentRestarted,
   ) {}
 
-  async start(prompt: string, images: SentImage[] = []): Promise<Task> {
+  // `repositories` are the ones the sandbox clones; by default, the repository of the folder the TUI started in.
+  async start(
+    prompt: string,
+    images: SentImage[] = [],
+    repositories: string[] = this.repository ? [this.repository] : [],
+  ): Promise<Task> {
     const task = await this.api.createTask({
       description: prompt,
-      repository: this.repository ?? undefined,
+      repository: repositories[0],
       runtime: "pi",
-    });
+      // The API takes every repository to clone; the client's type does not list the field yet.
+      ...(repositories.length > 0 ? { repositories } : {}),
+    } as Parameters<PostHogAPIClient["createTask"]>[0]);
     const run = await this.api.createTaskRun(task.id, {
       environment: "cloud",
       mode: "interactive",
@@ -84,6 +94,54 @@ export class PiChats {
     });
     return started.latest_run ? started : { ...started, latest_run: run };
   }
+
+  // The GitHub repositories the team's integrations and the user's own GitHub connections can clone, matching `query`.
+  async searchRepositories(query: string): Promise<string[]> {
+    this.integrations ??= Promise.all([
+      this.api
+        .getIntegrations()
+        .then((all) =>
+          (all as { id: number; kind: string }[]).filter(
+            (integration) => integration.kind === "github",
+          ),
+        ),
+      this.api.getGithubUserIntegrations(),
+    ]).catch((error: unknown) => {
+      this.integrations = null;
+      throw error;
+    });
+    const [team, user] = await this.integrations;
+    const pages = await Promise.allSettled([
+      ...team.map((integration) =>
+        this.api.getGithubRepositoriesPage(
+          integration.id,
+          0,
+          REPOSITORY_PAGE,
+          query || undefined,
+        ),
+      ),
+      ...user.map((integration) =>
+        this.api.getGithubUserRepositoriesPage(
+          integration.installation_id,
+          0,
+          REPOSITORY_PAGE,
+          query || undefined,
+        ),
+      ),
+    ]);
+    const found = pages.flatMap((page) =>
+      page.status === "fulfilled" ? page.value.repositories : [],
+    );
+    if (found.length === 0) {
+      const failed = pages.find((page) => page.status === "rejected");
+      if (failed) throw failed.reason;
+    }
+    return [...new Set(found)];
+  }
+
+  private integrations: Promise<
+    [{ id: number }[], { installation_id: string }[]]
+  > | null = null;
 
   // A local chat's task row: the server names it from the first message, and the chat runs on this machine with no run.
   createLocal(prompt: string, repository = this.repository): Promise<Task> {
