@@ -442,20 +442,6 @@ export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowA
     return ['function_email'].includes(action.type)
 }
 
-export const isClassifyAction = (action: HogFlowAction): boolean => {
-    return action.type === 'function' && action.config.template_id === 'template-posthog-classify'
-}
-
-const AGENT_STEP_TEMPLATE_IDS = [
-    'template-posthog-create-task',
-    'template-posthog-run-scout',
-    'template-posthog-replay-vision',
-]
-
-export const isAgentStepAction = (action: HogFlowAction): boolean => {
-    return action.type === 'function' && AGENT_STEP_TEMPLATE_IDS.includes(action.config.template_id)
-}
-
 export const isPushAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_push' }> => {
     return ['function_push'].includes(action.type)
 }

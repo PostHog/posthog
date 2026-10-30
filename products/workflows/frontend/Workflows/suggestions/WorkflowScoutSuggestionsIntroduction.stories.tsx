@@ -11,7 +11,7 @@ const meta: Meta<typeof WorkflowScoutSuggestionsIntroduction> = {
 export default meta
 
 const Template: StoryFn<typeof WorkflowScoutSuggestionsIntroduction> = ({ enabled }) => (
-    <div className="@container/main-content max-w-200">
+    <div className="@container/main-content w-200">
         <WorkflowScoutSuggestionsIntroduction
             enabled={enabled}
             toggle={<LemonSwitch bordered label="Suggest improvements" checked={enabled} onChange={() => {}} />}
