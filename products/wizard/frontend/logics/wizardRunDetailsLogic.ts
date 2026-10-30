@@ -10,11 +10,11 @@ import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { wizardRunsPartialUpdate, wizardRunsRetrieve } from './generated/api'
-import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from './generated/api.schemas'
-import { wizardRunEventProperties } from './wizardAnalytics'
-import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from './wizardApi'
-import { wizardRunDiffCanRender, wizardRunIsActive } from './wizardRunDisplay'
+import { wizardRunsPartialUpdate, wizardRunsRetrieve } from '../generated/api'
+import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
+import { wizardRunEventProperties } from '../lib/wizardAnalytics'
+import { loadWizardRunArtifactContent, loadWizardRunArtifacts } from '../lib/wizardApi'
+import { wizardRunDiffCanRender, wizardRunIsActive } from '../lib/wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
 const RUN_DETAIL_POLL_INTERVAL_MS = 10_000

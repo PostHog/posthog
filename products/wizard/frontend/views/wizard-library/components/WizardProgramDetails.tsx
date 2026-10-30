@@ -19,8 +19,8 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import type { RunEnvironmentEnumApi, WizardProgramApi } from '../generated/api.schemas'
-import { WIZARD_LOCAL_RUNS_VISIBLE } from '../wizardRunDisplay'
+import type { RunEnvironmentEnumApi, WizardProgramApi } from '../../../generated/api.schemas'
+import { WIZARD_LOCAL_RUNS_VISIBLE } from '../../../lib/wizardRunDisplay'
 import { WizardCommand } from './WizardCommand'
 import { WizardRepositoryPicker } from './WizardRepositoryPicker'
 

@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
-import type { WizardRunApi } from '../generated/api.schemas'
-import { wizardRunDetailsLogic } from '../wizardRunDetailsLogic'
+import type { WizardRunApi } from '../../generated/api.schemas'
+import { wizardRunDetailsLogic } from '../../logics/wizardRunDetailsLogic'
+import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { WizardRunDetailsDialog } from './WizardRunDetailsDialog'
-import { wizardRunSyncLogic } from './wizardRunSyncLogic'
 
 export function WizardRunSceneSyncDetailsDialog({
     projectId,

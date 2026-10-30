@@ -11,9 +11,9 @@ import { projectLogic } from 'scenes/projectLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { wizardRegistryList, wizardRunsCreate } from './generated/api'
-import type { WizardProgramApi, WizardRunApi } from './generated/api.schemas'
-import { WizardRunsEmptyState } from './runs/WizardRunsEmptyState'
+import { WizardRunsEmptyState } from '../components/run/WizardRunsEmptyState'
+import { wizardRegistryList, wizardRunsCreate } from '../generated/api'
+import type { WizardProgramApi, WizardRunApi } from '../generated/api.schemas'
 import { wizardLibraryLogic } from './wizardLibraryLogic'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 
@@ -21,7 +21,7 @@ jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn(),
 }))
 
-jest.mock('./generated/api', () => ({
+jest.mock('../generated/api', () => ({
     wizardRegistryList: jest.fn(),
     wizardRunsCreate: jest.fn(),
     wizardRunsList: jest.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),

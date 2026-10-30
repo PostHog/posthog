@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { IconArrowLeft, IconCopy, IconFolder, IconGithub, IconRefresh, IconStopFilled } from '@posthog/icons'
@@ -18,13 +19,14 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { userLogic } from 'scenes/userLogic'
 
-import type {
-    WizardRunApi,
-    WizardRunArtifactApi,
-    WizardRunGitDiffArtifactApi,
-    WizardRunTaskApi,
-} from '../generated/api.schemas'
+import { WizardRunDetailsArtifacts } from '../../components/run-details/WizardRunDetailsArtifacts'
+import { WizardRunDiffStats } from '../../components/run-diff/WizardRunDiffStats'
+import { WizardRunEnvironmentTag } from '../../components/run-tags/WizardRunEnvironmentTag'
+import { WizardRunStatusTag } from '../../components/run-tags/WizardRunStatusTag'
+import { WizardRunProgress } from '../../components/run/WizardRunProgress'
+import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
 import {
     WIZARD_LOCAL_RUNS_VISIBLE,
     wizardGithubRepositoryUrl,
@@ -33,15 +35,11 @@ import {
     wizardRunIsActive,
     wizardRunTerminalLabel,
     wizardWorkspaceLabel,
-} from '../wizardRunDisplay'
-import { WizardRunDetailsArtifacts } from './WizardRunDetailsArtifacts'
-import { WizardRunDiffStats } from './WizardRunDiffStats'
-import { WizardRunEnvironmentTag } from './WizardRunEnvironmentTag'
-import { WizardRunProgress } from './WizardRunProgress'
-import { WizardRunStatusTag } from './WizardRunStatusTag'
+} from '../../lib/wizardRunDisplay'
+import { wizardRunDetailsLogic } from '../../logics/wizardRunDetailsLogic'
 
 const WizardRunDiffViewer = lazyWithRetry(() =>
-    import('./WizardRunDiffViewer').then((module) => ({ default: module.WizardRunDiffViewer }))
+    import('../../components/run-diff/WizardRunDiffViewer').then((module) => ({ default: module.WizardRunDiffViewer }))
 )
 
 function LoadingRows(): JSX.Element {
@@ -75,57 +73,56 @@ function RetryItem({
     )
 }
 
-export function WizardRunDetailsDrawer({
-    run,
-    tasks = [],
-    artifacts,
-    artifactsError,
-    artifactsLoading,
-    currentUserId,
-    detailsError,
-    refreshing,
-    cancelling,
-    diffArtifactId,
-    diffContent,
-    diffError,
-    diffLoading,
-    onClose,
-    onCloseDiff,
-    onOpenDiff,
-    onArtifactClick,
-    onRefresh,
-    onCopyRunId,
-    onCancel,
+export function WizardRunDetailsDialog({
     onRunAgain,
+    onClose,
+    tasks = [],
 }: {
-    run: WizardRunApi | null
-    tasks?: readonly WizardRunTaskApi[]
-    artifacts: WizardRunArtifactApi[]
-    artifactsError: string | null
-    artifactsLoading: boolean
-    currentUserId: number | null
-    detailsError: string | null
-    refreshing: boolean
-    cancelling: boolean
-    diffArtifactId: string | null
-    diffContent: string | null
-    diffError: string | null
-    diffLoading: boolean
-    onClose: () => void
-    onCloseDiff: () => void
-    onOpenDiff: (artifact: WizardRunGitDiffArtifactApi) => void
-    onRefresh: () => void
-    onArtifactClick: (artifact: WizardRunArtifactApi, source: 'button' | 'artifacts_section') => void
-    onCopyRunId: (runId: string, location: 'bottom_button' | 'run_id_label') => void
-    onCancel: (run: WizardRunApi) => void
     onRunAgain?: (run: WizardRunApi) => void
+    onClose?: () => void
+    tasks?: readonly WizardRunTaskApi[]
 }): JSX.Element {
+    const { user } = useValues(userLogic)
+    const {
+        cancelRunRequestLoading,
+        runArtifactsError,
+        runDetailsError,
+        runDetailsLoading,
+        runDiffError,
+        runDiffLoading,
+        selectedRun: run,
+        selectedRunArtifacts: artifacts,
+        selectedRunArtifactsInitialLoading: artifactsLoading,
+        selectedRunDiffArtifactId: diffArtifactId,
+        selectedRunDiffContent: diffContent,
+    } = useValues(wizardRunDetailsLogic)
+    const { artifactClicked, cancelRun, closeRunDiff, copyRunId, openRunDiff, refreshSelectedRun, selectRun } =
+        useActions(wizardRunDetailsLogic)
+
+    const artifactsError = runArtifactsError
+    const currentUserId = user?.id ?? null
+    const detailsError = runDetailsError
+    const refreshing = runDetailsLoading
+    const cancelling = cancelRunRequestLoading
+    const diffError = runDiffError
+    const diffLoading = runDiffLoading
+    const onCloseDiff = closeRunDiff
+    const onOpenDiff = openRunDiff
+    const onArtifactClick = artifactClicked
+    const onRefresh = refreshSelectedRun
+    const onCopyRunId = copyRunId
+    const onCancel = cancelRun
+    const handleClose = (): void => {
+        selectRun(null)
+        onClose?.()
+    }
+
     const pullRequest = artifacts.find((artifact) => artifact.artifact_type === 'pull_request')
     const gitDiff = artifacts.find((artifact) => artifact.artifact_type === 'git_diff')
     const selectedDiff = gitDiff?.id === diffArtifactId ? gitDiff : null
 
     return (
-        <Dialog open={!!run} onOpenChange={(open) => !open && onClose()}>
+        <Dialog open={!!run} onOpenChange={(open) => !open && handleClose()}>
             <DialogContent size={selectedDiff ? 'wide' : undefined} className={selectedDiff ? 'max-w-6xl' : 'max-w-xl'}>
                 <DialogHeader className="pr-8">
                     <DialogTitle className="flex items-center justify-between gap-2">
