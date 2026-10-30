@@ -264,7 +264,7 @@ class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
     @parameterized.expand(
         [
             ("acknowledged", True, None, None),
-            ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException),
+            ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException),  # type: ignore[attr-defined]
             ("unacknowledged", False, None, TimeoutError),
         ]
     )

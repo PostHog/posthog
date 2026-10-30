@@ -37,7 +37,7 @@ def test_reports_one_ai_event_record_for_each_generated_event(create_event: Magi
     "error, raises",
     [
         (RuntimeError("write failed"), True),
-        (KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT)), False),
+        (KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT)), False),  # type: ignore[attr-defined]
         (TimeoutError("no acknowledgement"), False),
     ],
 )
