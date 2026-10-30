@@ -5468,6 +5468,31 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         content = json.loads(artefacts[0].content)
         assert content == {"old_summary": "Original summary", "new_summary": "New summary"}
 
+    def test_redacting_edit_does_not_expose_credential_through_artefacts_api(self):
+        token = "ghp_" + "Fake0Token" * 4
+        report = self._create_report()
+        report.summary = f"Run with token {token} to reproduce."
+        report.save(update_fields=["summary"])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+            content=json.dumps({"old_summary": f"Legacy {token}", "new_summary": "Legacy edit"}),
+        )
+
+        response = self.client.patch(
+            self._url(str(report.id)), data={"summary": "Run with token [redacted token]."}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        stored = [a.content for a in self._artefacts(report, SignalReportArtefact.ArtefactType.SUMMARY_CHANGE)]
+        assert len(stored) == 2
+        assert token not in stored[1]
+        listed = self.client.get(self._artefacts_url(str(report.id)))
+        assert listed.status_code == status.HTTP_200_OK
+        assert token not in listed.content.decode()
+        assert "Run with token [redacted] to reproduce." in listed.content.decode()
+
     def test_update_both_records_one_artefact_per_field(self):
         report = self._create_report()
         self.client.patch(

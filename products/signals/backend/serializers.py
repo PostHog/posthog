@@ -35,6 +35,7 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
@@ -3068,6 +3069,15 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 scout_display_names=scout_display_names,
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
+
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+        } and isinstance(parsed, dict):
+            # Rows written before the write path redacted credentials can still hold one.
+            return {
+                key: redact_credentials(value) if isinstance(value, str) else value for key, value in parsed.items()
+            }
 
         if obj.type in {
             SignalReportArtefact.ArtefactType.CHECK_RESULT,

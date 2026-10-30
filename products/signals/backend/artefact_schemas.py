@@ -28,6 +28,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
 from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
@@ -817,6 +818,12 @@ class TitleChange(BaseModel):
             raise ValueError("must not be empty or whitespace-only")
         return v
 
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_title", "new_title")
+    @classmethod
+    def redact_title_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
+
 
 class SummaryChange(BaseModel):
     """Content schema for a `summary_change` artefact: a record of an edit to the report's summary
@@ -838,6 +845,12 @@ class SummaryChange(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_summary", "new_summary")
+    @classmethod
+    def redact_summary_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
 
 
 class RelatedTo(BaseModel):
