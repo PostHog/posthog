@@ -53,6 +53,14 @@ describe('report claim', () => {
             confirmed: takeover,
         },
         {
+            case: "held by a teammate's agent without a responsible user",
+            current: { ...assignee('agent', 'user-2'), responsible_user: null },
+            claimable: false,
+            claimant: assignee('agent', 'user-2').user,
+            request: { takeover: false },
+            confirmed: takeover,
+        },
+        {
             case: 'held by a task',
             current: assignee('task', 'user-2'),
             claimable: true,

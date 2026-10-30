@@ -24,18 +24,12 @@ export function reportClaimant(report: Pick<SignalReport, 'assignee'>): _UserApi
     return assignee?.kind === 'user' ? assignee.user : null
 }
 
-/** The person behind a user claim or an MCP agent claim. A task claim has none. */
-export function reportClaimHolder(report: Pick<SignalReport, 'assignee'>): _UserApi | null {
-    const assignee = report.assignee
-    return assignee?.kind === 'user' ? assignee.user : assignee?.kind === 'agent' ? assignee.responsible_user : null
-}
-
 /** The other person who holds the claim, directly or through their agent, or null. */
 export function teammateClaimHolder(
     report: Pick<SignalReport, 'assignee'>,
     currentUserUuid: string | null
 ): _UserApi | null {
-    const holder = reportClaimHolder(report)
+    const holder = reportClaimant(report)
     return holder && holder.uuid !== currentUserUuid ? holder : null
 }
 
