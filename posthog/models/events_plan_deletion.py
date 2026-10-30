@@ -1,6 +1,8 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import models
 
 from dateutil.relativedelta import relativedelta
@@ -31,6 +33,15 @@ class TeamEventsPlanDeletion(models.Model):
 class PlanDeletionState:
     months: int
     next_deletion_on: date
+
+
+def cleanup_timezone() -> str:
+    return "Europe/Paris" if settings.CLOUD_DEPLOYMENT == "EU" else "America/Los_Angeles"
+
+
+def cleanup_date() -> date:
+    """Today where the cleanup schedule runs, so that a pass date in a notice is the local day its deletes start."""
+    return datetime.now(ZoneInfo(cleanup_timezone())).date()
 
 
 def _next_pass(today: date) -> date:
@@ -73,4 +84,5 @@ def next_plan_deletion_on(team: Team) -> date | None:
     setting = effective_events_retention(team_ids=[team.id])
     if setting and setting[0].months <= team.event_retention_months:
         return None
-    return TeamEventsPlanDeletion.objects.filter(team_id=team.id).values_list("next_deletion_on", flat=True).first()
+    row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
+    return with_plan(row.state, team.event_retention_months, cleanup_date()).next_deletion_on if row else None

@@ -3154,12 +3154,14 @@ def send_events_deletion_notice(organization_id: str, team_ids: list[int], delet
     if not teams or not recipients:
         raise EventsDeletionNoticeNotSent(f"no projects or admins to notify in organization {organization_id}")
 
-    window = _retention_window_label(min(team.event_retention_months for team in teams))
-    # The key names the listed projects. A rerun that lists other projects of the organization on the same day then
-    # sends its own notice, and the delivery check does not pass on an earlier notice that named other projects.
+    window_months = min(team.event_retention_months for team in teams)
+    window = _retention_window_label(window_months)
+    # The key names the window and the listed projects. A same-day rerun after a downgrade, or one that lists other
+    # projects, then sends its own notice, and the delivery check does not pass on an earlier notice that said less.
     projects_digest = hashlib.sha256(",".join(str(team.id) for team in sorted(teams, key=lambda t: t.id)).encode())
     campaign_key = (
-        f"events_deletion_scheduled_{organization_id}_{deletion_on:%Y-%m-%d}_{projects_digest.hexdigest()[:12]}"
+        f"events_deletion_scheduled_{organization_id}_{deletion_on:%Y-%m-%d}_{window_months}m_"
+        f"{projects_digest.hexdigest()[:12]}"
     )
     message = EmailMessage(
         campaign_key=campaign_key,

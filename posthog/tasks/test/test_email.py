@@ -197,21 +197,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Mobile app" in message.html_body
         assert "Default Project" not in message.html_body
 
-    def test_events_deletion_notice_dedupes_only_a_repeat_of_the_same_projects(
+    def test_events_deletion_notice_dedupes_only_a_repeat_of_the_same_projects_and_window(
         self, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        web = Team.objects.create(organization=self.organization, name="Web app", event_retention_months=12)
-        mobile = Team.objects.create(organization=self.organization, name="Mobile app", event_retention_months=12)
+        web = Team.objects.create(organization=self.organization, name="Web app", event_retention_months=24)
+        mobile = Team.objects.create(organization=self.organization, name="Mobile app", event_retention_months=24)
 
         for team_ids in ([web.id, mobile.id], [mobile.id, web.id], [mobile.id]):
             send_events_deletion_notice(str(self.organization.id), team_ids, dt.date(2027, 2, 3))
+        Team.objects.filter(id__in=[web.id, mobile.id]).update(event_retention_months=12)
+        send_events_deletion_notice(str(self.organization.id), [web.id, mobile.id], dt.date(2027, 2, 3))
 
-        first, repeat, other_projects = (message.campaign_key for message in mocked_email_messages)
+        first, repeat, other_projects, shorter_window = (message.campaign_key for message in mocked_email_messages)
         assert repeat == first
         assert other_projects != first
+        assert shorter_window != first
 
     @parameterized.expand([("email_disabled", False), ("provider_accepts_nothing", True)])
     def test_events_deletion_notice_raises_when_nothing_is_sent(

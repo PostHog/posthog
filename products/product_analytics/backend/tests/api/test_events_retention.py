@@ -82,20 +82,27 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("admitted", 12, None, "2027-02-03"),
-            ("longest_plan", 84, None, None),
-            ("setting_deletes_first", 12, 12, None),
-            ("setting_above_plan_after_downgrade", 12, 24, "2027-02-03"),
+            ("admitted", 12, 12, None, "2026-11-03"),
+            ("longest_plan", 12, 84, None, None),
+            ("setting_deletes_first", 12, 12, 12, None),
+            ("setting_above_plan_after_downgrade", 12, 12, 24, "2026-11-03"),
+            ("downgrade_before_the_next_cleanup", 24, 12, None, "2026-12-22"),
         ]
     )
+    @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_reports_the_next_plan_deletion(
-        self, _name: str, plan_months: int, setting_months: int | None, next_deletion_on: str | None
+        self,
+        _name: str,
+        stored_months: int,
+        plan_months: int,
+        setting_months: int | None,
+        next_deletion_on: str | None,
     ) -> None:
         self.team.event_retention_months = plan_months
         self.team.save()
         if setting_months is not None:
             TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=setting_months)
-        TeamEventsPlanDeletion.objects.create(team=self.team, months=12, next_deletion_on=date(2027, 2, 3))
+        TeamEventsPlanDeletion.objects.create(team=self.team, months=stored_months, next_deletion_on=date(2026, 11, 3))
 
         response = self.client.get(self.url())
 

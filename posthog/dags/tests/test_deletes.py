@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import cast
@@ -36,7 +37,6 @@ from posthog.dags.deletes import (
     _count_unswept_rows,
     _delete_predicate_params,
     _watermark_holders,
-    cleanup_date,
     cleanup_old_events_by_partition,
     delete_events,
     delete_team_product_documents_job,
@@ -57,7 +57,7 @@ from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
-from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion, cleanup_date
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -862,19 +862,43 @@ def test_update_plan_deletions_admits_at_most_the_cap(send_notice: Mock, cluster
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "cleanup_config,months_left,pass_completed",
+    [
+        pytest.param(lambda other: {}, {11: 4}, True, id="every_team"),
+        pytest.param(lambda other: {"team_ids": [other.id]}, {20: 2, 13: 3, 11: 4}, False, id="another_team"),
+        pytest.param(lambda other: {"partitions": [_partition(_mid_month(13))]}, {20: 2, 11: 4}, False, id="one_month"),
+    ],
+)
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
 @patch("posthog.dags.deletes.send_events_deletion_notice")
-def test_plan_deletion_pass_deletes_everything_past_the_plan(send_notice: Mock, cluster: ClickhouseCluster):
-    team = Team.objects.create(
-        organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=12
-    )
+def test_plan_deletion_pass_deletes_past_the_plan_and_moves_only_a_completed_pass(
+    send_notice: Mock,
+    cluster: ClickhouseCluster,
+    cleanup_config: Callable[[Team], dict],
+    months_left: dict[int, int],
+    pass_completed: bool,
+):
+    organization = Organization.objects.create(name="Due")
+    team = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
+    other = Team.objects.create(organization=organization, name="Other", event_retention_months=12)
     TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=cleanup_date())
-    _insert_events(cluster, _events(team.id, _mid_month(13), 0, 3) + _events(team.id, _mid_month(11), 100, 4))
+    _insert_events(
+        cluster,
+        _events(team.id, _mid_month(20), 0, 2)
+        + _events(team.id, _mid_month(13), 100, 3)
+        + _events(team.id, _mid_month(11), 200, 4),
+    )
 
-    monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
+    monthly_retention_events_cleanup_job.execute_in_process(
+        run_config={"ops": {"plan_old_events_cleanup": {"config": cleanup_config(other)}}},
+        resources={"cluster": cluster},
+    )
 
-    assert _count_by_team_and_partition(cluster, [team.id]) == {(team.id, _partition(_mid_month(11))): 4}
-    assert _plan_state(team) == (12, _in_three_months())
+    assert _count_by_team_and_partition(cluster, [team.id]) == {
+        (team.id, _partition(_mid_month(months))): events for months, events in months_left.items()
+    }
+    assert _plan_state(team) == (12, _in_three_months() if pass_completed else cleanup_date())
     send_notice.assert_not_called()
 
 
