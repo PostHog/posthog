@@ -857,8 +857,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/planhat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/platform_sh.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plausible/plausible.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plausible/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plivo/plivo.py
