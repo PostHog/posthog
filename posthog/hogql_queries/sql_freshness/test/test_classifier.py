@@ -282,6 +282,12 @@ class TestClassify(BaseTest):
                 FreshnessReason.UNSUPPORTED_FIELD,
             ),
             (
+                "cohort_membership",
+                "select count() from events where timestamp < '2026-10-01' and timestamp >= '2026-09-01' "
+                "and person_id not in cohort 1",
+                FreshnessReason.FOREIGN_SOURCE,
+            ),
+            (
                 "timezone_on_a_non_literal",
                 "select count() from events where timestamp < toDateTime(now(), 'America/Los_Angeles') "
                 "and timestamp >= '2026-01-01'",

@@ -218,6 +218,7 @@ class _QueryScan(TraversingVisitor):
         self.selects: list[ast.SelectQuery] = []
         self.clock_calls: set[int] = set()
         self.unsupported_field = False
+        self.reads_cohort = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
@@ -226,6 +227,11 @@ class _QueryScan(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         if not isinstance(node.type, ast.BaseTableType) and not _is_supported_field_type(node.type):
             self.unsupported_field = True
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.reads_cohort = True
+        super().visit_compare_operation(node)
 
     def visit_call(self, node: ast.Call) -> None:
         if clock_name(node) is not None:
@@ -464,7 +470,7 @@ def extract_facts(
         relative_inputs=relative_inputs,
         unsupported_field=scan.unsupported_field,
         join=has_join,
-        foreign_source=foreign_source,
+        foreign_source=foreign_source or scan.reads_cohort,
         unbounded_select=unbounded_select,
         unsupported_bound=unsupported_bound,
         clock_outside_bounds=bool(scan.clock_calls - evaluator.consumed_clock_calls),
