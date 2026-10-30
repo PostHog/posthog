@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.organization_offboarding import OrganizationOffboarding
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
@@ -71,6 +72,15 @@ class TestOrganizationOffboarding(APIBaseTest):
             f"/project/{second_team.pk}/dashboard/{owned.pk}",
             f"/project/{self.team.pk}/dashboard/{shared.pk}",
         }
+
+    def test_preview_does_not_load_deferred_insight_queries(self) -> None:
+        for index in range(3):
+            insight = Insight.objects.create(team=self.team, created_by=self.departing, name=f"Insight {index}")
+            SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        membership = OrganizationMembership.objects.get(user=self.departing, organization=self.organization)
+        with self.assertNumQueries(6):
+            resources = OrganizationOffboarding(membership).resources()
+        assert len(resources) == 3
 
     def test_removal_preserves_all_dashboard_tokens_and_other_members_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
