@@ -373,6 +373,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
                 "team_id": 1,
                 "evaluation_config": {
                     "prompt": "Check the response.",
+                    "reasoning_level": "high",
                     **({"judge_method": judge_method} if judge_method else {}),
                 },
             },
@@ -381,6 +382,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             allows_na=False,
         )
     complete.assert_called_once()
+    assert complete.call_args.args[0].reasoning_level == "high"
     decide.assert_not_called()
     native_decide.assert_not_called()
     assert result["verdict"] is True

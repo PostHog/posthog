@@ -268,6 +268,7 @@ def _stored_window_entries(
     team_id: int,
     generation: int,
     window_days: int,
+    start: datetime,
     scanner_ids: Sequence[Any],
     categories: Sequence[str],
     experiment_ids: Collection[int],
@@ -279,6 +280,8 @@ def _stored_window_entries(
         .filter(
             generation=generation,
             window_days=window_days,
+            # A build ranked before this load's window moved on can hold rows that have since left it.
+            created_at__gte=start,
             scanner_id__in=list(scanner_ids),
             category__in=[CATEGORY_CODES[category] for category in categories],
             experiment_id__in=[0, *experiment_ids],
@@ -413,6 +416,7 @@ def select_embedding_picks(
             team_id,
             window.generation,
             window.window_days,
+            window.start,
             scanner_ids,
             categories,
             experiment_ids,
@@ -426,21 +430,22 @@ def select_embedding_picks(
         window_values = _cap_feed_groups(window_rows(fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR), cap)
     if not window_values:
         return []
-    # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
+    # The entries already carry each row's experiment scope, so this skips the snapshot JSON the row-gate reads; the
+    # endpoint still gates the rows of the page it serves.
     rows = cast(
         list[dict[str, Any]],
         list(
-            accessible_observations(
-                access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
-            )
+            ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
             .annotate(feed_viewed=viewed)
-            .values("id", "scanner_id", "session_id", "created_at", "feed_viewed")
+            .values("id", "session_id", "feed_viewed")
         ),
     )
     roots = {entry["group_root"] for entry in window_values.values()}
     reach = _group_reach(team_id, window, roots, scanner_ids, categories, experiment_ids)
     for row in rows:
         entry = window_values[row["id"]]
+        row["scanner_id"] = entry["scanner_id"]
+        row["created_at"] = entry["created_at"]
         group = reach.get(str(entry["group_root"]), GroupReach(sessions=1, people=1))
         row["watch_category"] = CATEGORY_NAMES[entry["category"]]
         row["watch_percentile"] = entry["percentile"]

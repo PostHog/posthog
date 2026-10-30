@@ -21,20 +21,11 @@ from products.product_analytics.backend.facade.contracts import InsightDashboard
 
 from ...facade import contracts
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
-from ...feature_flags import FRECENCY_RANKING, RECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
 from ..highlight_types import Context, Found, Source
 
-ROUTINE_WINDOW_DAYS = 28
-DAILY_ROUTINE_DAYS = 8
-WARMUP_ROUTINE_DAYS = 2
-WARMUP_HISTORY_DAYS = 14
-VIEW_DAYS_RECORDED_SINCE = date(2026, 10, 16)
-WEEKLY_ROUTINE_WEEKS = 3
-ROUTINE_CANDIDATES = 6
-ROUTINE_TILES = 2
 FRECENCY_HALF_LIFE_DAYS = 14
 FRECENCY_LOOKBACK_DAYS = VIEW_DAYS_KEPT
 FRECENCY_CANDIDATES = 8
@@ -57,54 +48,7 @@ class ViewedItem:
 
 def find(context: Context) -> Found:
     pinned = context.pinned
-    budget = PULSE_CANDIDATES - len(pinned)
-    ranking = pulse_ranking(context.user, context.team)
-    if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
-        return Found(pulse=tuple(_frecent_metrics(context, ranking, pinned, budget)))
-    metrics: list[contracts.HighlightMetric] = []
-    for item in _routine_insights(context):
-        if len(metrics) >= min(ROUTINE_TILES, budget):
-            break
-        if f"insight:{item.ref}" in pinned:
-            continue
-        metric = context.guard(f"routine {item.ref}", partial(insight_metric, context, item.ref, viewed=item), None)
-        if metric is not None:
-            metrics.append(metric)
-    return Found(pulse=tuple(metrics))
-
-
-def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:
-    recent = {day for day in view_days if today - timedelta(days=ROUTINE_WINDOW_DAYS) < day <= today}
-    needed = WARMUP_ROUTINE_DAYS if warming_up else DAILY_ROUTINE_DAYS
-    daily = sum(1 for day in recent if day > today - timedelta(days=14)) >= needed
-    weekly = len({day.isocalendar()[:2] for day in recent}) >= WEEKLY_ROUTINE_WEEKS
-    return len(recent) if daily or weekly else 0
-
-
-def is_warming_up(today: date) -> bool:
-    """Whether view days have been recorded for too short a time for the daily rule."""
-    return (today - VIEW_DAYS_RECORDED_SINCE).days < WARMUP_HISTORY_DAYS
-
-
-def _routine_insights(context: Context) -> list[ViewedItem]:
-    views = FileSystemViewLog.objects.filter(
-        team=context.team,
-        user=context.user,
-        type="insight",
-        viewed_at__gte=timezone.now() - timedelta(days=ROUTINE_WINDOW_DAYS),
-    ).values_list("ref", "view_days", "viewed_at")
-    warming_up = is_warming_up(context.today)
-    ranked = sorted(
-        (
-            (routine_days(days or [], context.today, warming_up), viewed_at, ref, frozenset(days or []))
-            for ref, days, viewed_at in views
-        ),
-        key=lambda row: row[:3],
-        reverse=True,
-    )
-    return [ViewedItem(kind="insight", ref=ref, days=view_days) for days, _at, ref, view_days in ranked if days][
-        :ROUTINE_CANDIDATES
-    ]
+    return Found(pulse=tuple(_frecent_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
 
 
 def frecency(view_days: Collection[date], today: date) -> float:
@@ -112,15 +56,13 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _frecent_metrics(
-    context: Context, ranking: str, excluded: Collection[str], budget: int
-) -> list[contracts.HighlightMetric]:
+def _frecent_metrics(context: Context, excluded: Collection[str], budget: int) -> list[contracts.HighlightMetric]:
     if budget <= 0:
         return []
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[tuple[ViewedItem, contracts.HighlightMetric | None]] = []
     available: set[str] = set()
-    for item in _candidates(context, _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]):
+    for item in _candidates(context, _frecent_views(context)[:FRECENCY_CANDIDATES]):
         shown = frozenset([*excluded, *available])
         metric = context.guard(
             f"frecent {item.kind} {item.ref}",
@@ -157,7 +99,7 @@ def _candidates(context: Context, own: list[ViewedItem]) -> Iterator[ViewedItem]
         yield ViewedItem(kind="insight", ref=ref, days=frozenset(), popular=True)
 
 
-def _frecent_views(context: Context, ranking: str) -> list[ViewedItem]:
+def _frecent_views(context: Context) -> list[ViewedItem]:
     views = FileSystemViewLog.objects.filter(
         team=context.team,
         user=context.user,
@@ -170,10 +112,7 @@ def _frecent_views(context: Context, ranking: str) -> list[ViewedItem]:
         for kind, ref, days, viewed_at in views
     ]
     scored = [(frecency(item.days, context.today), max(item.days), item) for item in items]
-    if ranking == RECENCY_RANKING:
-        scored.sort(key=lambda row: (row[1], row[0]), reverse=True)
-    else:
-        scored.sort(key=lambda row: row[:2], reverse=True)
+    scored.sort(key=lambda row: row[:2], reverse=True)
     return [item for score, _last, item in scored if score > 0]
 
 

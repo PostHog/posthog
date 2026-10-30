@@ -1666,6 +1666,22 @@ export interface TraceNodeDetailApi {
     event: TraceNodeEventApi | null
 }
 
+export interface TracePullRequestApi {
+    /** The owner of the pull request's repository. */
+    repoOwner: string
+    /** The name of the pull request's repository. */
+    repoName: string
+    /** The pull request number. */
+    number: number
+    /** The pull request title, or null when the synced data has none. */
+    title: string | null
+}
+
+export interface TracePullRequestLookupApi {
+    /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+    pullRequest: TracePullRequestApi | null
+}
+
 export interface TraceSearchMatchApi {
     /** A step whose stored data contains the query. The root's id is the trace id. */
     nodeId: string
@@ -2347,6 +2363,11 @@ export type EvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
@@ -2676,6 +2697,11 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
       }
     | {
           /**
@@ -5739,6 +5765,13 @@ export type AiObservabilityTracesFeedbackRetrieveParams = {
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

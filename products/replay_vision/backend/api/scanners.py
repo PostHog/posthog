@@ -140,6 +140,7 @@ from products.replay_vision.backend.scanner_access import (
     is_experiment_accessible,
     readable_observation_scanner_ids,
     scanner_experiment_scope_q,
+    scanners_for_reading_observations,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -2474,9 +2475,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
         if params.get("scanner_type"):
             typed_ids = set(
-                ReplayScanner.objects.filter(
-                    team_id=self.team_id, id__in=allowed_ids, scanner_type=params["scanner_type"]
-                ).values_list("id", flat=True)
+                scanners_for_reading_observations(self.team_id)
+                .filter(id__in=allowed_ids, scanner_type=params["scanner_type"])
+                .values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in typed_ids]
         viewer_id = cast(User, request.user).id

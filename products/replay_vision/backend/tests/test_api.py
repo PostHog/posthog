@@ -4943,6 +4943,20 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         assert "late-top" not in sessions(datetime.fromisoformat(first["as_of"]))
         assert "late-top" in sessions(later + timedelta(seconds=1))
 
+    def test_a_build_older_than_the_load_drops_rows_that_left_the_window(self) -> None:
+        scanner = self._create_scanner(name="m")
+        for index in range(6):
+            self._ranked_observation(scanner, f"leaving-{index}", 1430 + index, "failure", 0.9 - index / 100)
+            self._ranked_observation(scanner, f"staying-{index}", 60 + index, "failure", 0.5 - index / 100)
+        built = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "20"}).json()
+        assert any(item["observation"]["session_id"].startswith("leaving") for item in built["results"])
+
+        with time_machine.travel(timezone.now() + timedelta(hours=1), tick=False):
+            response = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "20"}).json()
+
+        sessions = [item["observation"]["session_id"] for item in response["results"]]
+        assert sessions and not any(session.startswith("leaving") for session in sessions)
+
     def test_an_embedding_pick_counts_its_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")
         oldest = self._ranked_observation(scanner, "oldest-failure", 500, "failure", 0.9)
@@ -5069,6 +5083,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         summarizer = self._create_scanner(
             name="sum", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
         )
+        inline_monitor = self._create_scanner(name="one-off", origin=ScannerOrigin.INLINE, inline_key="one-off")
         self._succeeded_observation(monitor, "in-window", 60, self._monitor_result("no"))
         old = self._succeeded_observation(monitor, "too-old", 1, self._monitor_result("yes"))
         ReplayObservation.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=10))
@@ -5082,13 +5097,15 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             },
         )
 
+        self._succeeded_observation(inline_monitor, "inline", 90, self._monitor_result("no"))
+
         resp = self.client.get(self.feed_url)
         sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
-        self.assertEqual(sessions, ["summary", "in-window"])
+        self.assertEqual(sessions, ["summary", "in-window", "inline"])
 
         resp = self.client.get(f"{self.feed_url}?date_from=-30d&scanner_type=monitor")
         sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
-        self.assertEqual(sessions, ["in-window", "too-old"])
+        self.assertEqual(sessions, ["in-window", "inline", "too-old"])
 
         resp = self.client.get(f"{self.feed_url}?limit=1")
         self.assertEqual(len(resp.json()["results"]), 1)
@@ -5228,6 +5245,28 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             resp = self.client.get(self.feed_url)
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
+        )
+
+    def test_restricted_picks_never_take_a_page_slot(self) -> None:
+        experiment = create_experiment(self.team, "restricted-picks-flag")
+        restricted = self._create_scanner(name="restricted", experiment_targeting={"experiment_id": experiment.id})
+        open_scanner = self._create_scanner(name="open")
+        for index in range(10):
+            obs = self._succeeded_observation(restricted, f"restricted-{index}", index, self._monitor_result("yes"))
+            set_rank(obs, category="failure", contrast=index / 10, group=None)
+            obs = self._succeeded_observation(open_scanner, f"open-{index}", index, self._monitor_result("yes"))
+            set_rank(obs, category="struggle", contrast=index / 10, group=None)
+        restricted.experiment_targeting = None
+        restricted.save()
+
+        # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            resp = self.client.get(self.feed_url, {"limit": 2})
+        self.assertEqual(
+            sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-8", "open-9"]
         )
 
     def test_a_later_page_drops_rows_the_viewer_lost_access_to_after_the_first(self) -> None:
