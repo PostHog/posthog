@@ -3,12 +3,14 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlaidEndpointConfig:
     name: str
     primary_keys: list[str]
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_key: str | None = None
+    should_sync_default: bool = True
+    description: str | None = None
 
 
 # One PostHog source connects one Plaid Item (the access token the user
@@ -36,6 +38,10 @@ PLAID_ENDPOINTS: dict[str, PlaidEndpointConfig] = {
     "investment_transactions": PlaidEndpointConfig(
         name="investment_transactions",
         primary_keys=["investment_transaction_id"],
+        # Investments at Link only adds the Holdings subscription; the first
+        # /investments/transactions/get call adds the separately billed Transactions one.
+        should_sync_default=False,
+        description="Syncing this table starts Plaid's Investments Transactions subscription for the Item if it does not have one yet.",
         incremental_fields=[
             {
                 "label": "date",
@@ -62,6 +68,12 @@ PLAID_ENDPOINTS: dict[str, PlaidEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(PLAID_ENDPOINTS.keys())
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in PLAID_ENDPOINTS.items()}
+
+DESCRIPTIONS: dict[str, str] = {
+    name: config.description for name, config in PLAID_ENDPOINTS.items() if config.description
+}
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in PLAID_ENDPOINTS.items() if config.incremental_fields

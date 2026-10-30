@@ -152,6 +152,9 @@ def get_rows(
             error_code = _error_code(response)
             if error_code in NO_PRODUCT_DATA_ERROR_CODES:
                 raise PlaidNoProductDataError(error_code)
+            # Returned while Plaid still extracts the Item's investment history.
+            if error_code == "PRODUCT_NOT_READY":
+                raise PlaidRetryableError(f"Plaid product not ready yet: url={url}")
 
         if not response.ok:
             logger.error(f"Plaid API error: status={response.status_code}, body={response.text}, url={url}")

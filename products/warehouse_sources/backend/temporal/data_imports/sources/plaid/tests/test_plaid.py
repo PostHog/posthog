@@ -192,6 +192,25 @@ class TestGetRowsProductGatedEndpoints:
         assert result.raised is None
         assert result.rows == [holding]
 
+    def test_retries_product_not_ready(self) -> None:
+        result = _driver().run(
+            "investment_transactions",
+            [
+                _item(billed_products=["investments"]),
+                ScriptedResponse(status=400, json={"error_type": "ITEM_ERROR", "error_code": "PRODUCT_NOT_READY"}),
+                ScriptedResponse(
+                    json={
+                        "investment_transactions": [{"investment_transaction_id": "t1", "date": "2024-01-01"}],
+                        "total_investment_transactions": 1,
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["investment_transaction_id"] for row in result.rows] == ["t1"]
+        assert result.paths == ["/item/get", "/investments/transactions/get", "/investments/transactions/get"]
+
     def test_liabilities_flattened_with_type(self) -> None:
         result = _driver().run(
             "liabilities",
