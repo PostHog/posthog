@@ -130,7 +130,7 @@ env:
     PY_DEPS_SYNC_TIMEOUT: 270s
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     # Fetch mode audit: posthog/test/fetch_mode_audit.py. One of peers or log.
-    DJANGO_FETCH_MODE_AUDIT: log
+    DJANGO_FETCH_MODE_AUDIT: peers
     DJANGO_FETCH_MODE_AUDIT_DIR: ${{ github.workspace }}/fetch-mode-audit
     COMPOSE_PROJECT_NAME: posthog
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
