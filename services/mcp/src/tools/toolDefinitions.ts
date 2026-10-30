@@ -202,8 +202,7 @@ export interface ToolFilterOptions {
     /**
      * Project IDs the token is restricted to (`scoped_teams` on the API key).
      * When set, the backend 403s every route that names no project, so we drop
-     * tools that need `organization:*` scopes or call such a route. They would
-     * fail anyway.
+     * tools that need `organization:*` scopes or call such a route.
      */
     scopedTeams?: number[] | undefined
     /** Org's plan entitlements (`available_product_features` keys). Undefined when unresolved. */
@@ -290,11 +289,7 @@ export function toolPassesEntitlementGate(
     return availableFeatures.includes(definition.feature_entitlement)
 }
 
-/**
- * Whether a tool calls a route under an organization that names no project. The backend refuses
- * those routes for a project-scoped token. The projects collection is not one of them, because
- * its routes take the project from the URL or from the user's current project.
- */
+// The projects collection is exempt, because its routes take the project from the URL or the user's current project.
 function callsOrganizationRoute(definition: ToolDefinition): boolean {
     return (definition.api_operations ?? []).some((operation) => {
         const path = operation.split(' ')[1] ?? ''

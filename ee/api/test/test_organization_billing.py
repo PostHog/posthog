@@ -460,7 +460,6 @@ USAGE_STATUS: dict[str, Any] = {
     ],
 }
 
-# Billing's project status: the same items without the limit.
 PROJECT_USAGE_STATUS: dict[str, Any] = {
     **USAGE_STATUS,
     "products": [
@@ -1035,8 +1034,6 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     )
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_reads_the_period_without_the_subscription(self, credential, mock_get):
-        # Billing refuses the subscription to a token that names projects, so the project usage reads
-        # its period from the project status, which every credential that covers the project may read.
         mock_get.side_effect = [_response(PROJECT_USAGE_STATUS), _response(SERIES)]
         response = self.client.get(self._project_url("usage/"), **self._credential(credential))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -1099,8 +1096,6 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     @parameterized.expand([("session",), ("organization_oauth_token",), ("personal_key_for_this_project",)])
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_status_has_no_limit_for_any_credential(self, credential, mock_get):
-        # The route sets the shape: an organization-wide credential on the project route also reads the
-        # status without the limit, and reads the limit on the organization route.
         mock_get.return_value = _response(PROJECT_USAGE_STATUS)
         response = self.client.get(self._project_url("usage/status/"), **self._credential(credential))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)

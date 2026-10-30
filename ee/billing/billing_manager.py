@@ -941,8 +941,7 @@ class BillingManager:
         return self._organization_get(organization, grants, "usage/status/")
 
     def get_project_usage_status(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        # The usage status for the project routes, without the limit. A paid product's limit is the organization's
-        # spend limit in units, so billing returns it only on usage/status/ and only to a whole-organization token.
+        # A paid product's limit is the organization's spend limit in units, so the project routes never get it.
         return self._organization_get(organization, grants, "project/usage/status/")
 
     def get_organization_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
