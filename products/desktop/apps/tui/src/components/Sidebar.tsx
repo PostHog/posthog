@@ -24,17 +24,25 @@ const INDICATOR_COLORS: Record<Exclude<Indicator, "working">, string> = {
 };
 
 // A square marks a chat that runs on this machine, a dot one that runs in the cloud.
+// A working chat and one done but unread (PostHog orange) keep full strength in a dimmed sidebar.
 export function IndicatorGlyph({
   indicator,
   local,
+  dimmed = false,
 }: {
   indicator: Indicator | null;
   local: boolean;
+  dimmed?: boolean;
 }): ReactElement {
-  // In PostHog blue, so a working chat stands out even in a dimmed sidebar on a dark background.
-  if (indicator === "working") return <Spinner color={posthogBlue()} />;
+  // The terminal's own text colour, so the spinner is white on a dark theme and black on a light one.
+  if (indicator === "working") return <Spinner color="" />;
   return indicator ? (
-    <Text color={INDICATOR_COLORS[indicator]}>{local ? "■" : "●"}</Text>
+    <Text
+      color={INDICATOR_COLORS[indicator]}
+      dimColor={dimmed && indicator !== "waiting"}
+    >
+      {local ? "■" : "●"}
+    </Text>
   ) : (
     <Text> </Text>
   );
@@ -43,9 +51,11 @@ export function IndicatorGlyph({
 function Row({
   row,
   selected,
+  dimmed,
 }: {
   row: SidebarRow;
   selected: boolean;
+  dimmed: boolean;
 }): ReactElement {
   switch (row.kind) {
     case "heading":
@@ -89,11 +99,15 @@ function Row({
                 <IndicatorGlyph
                   indicator={row.indicator}
                   local={row.local}
+                  dimmed={dimmed}
                 />{" "}
               </>
             )
           )}
-          <Text backgroundColor={selected ? selectionBackground() : undefined}>
+          <Text
+            dimColor={dimmed}
+            backgroundColor={selected ? selectionBackground() : undefined}
+          >
             {row.title}
           </Text>
         </Text>
@@ -126,9 +140,11 @@ function Row({
 function NarrowRow({
   row,
   selected,
+  dimmed,
 }: {
   row: SidebarRow;
   selected: boolean;
+  dimmed: boolean;
 }): ReactElement {
   switch (row.kind) {
     case "heading":
@@ -162,7 +178,11 @@ function NarrowRow({
             {row.taskId === null ? (
               <Text dimColor>•</Text>
             ) : (
-              <IndicatorGlyph indicator={row.indicator} local={row.local} />
+              <IndicatorGlyph
+                indicator={row.indicator}
+                local={row.local}
+                dimmed={dimmed}
+              />
             )}
           </Text>
         </Text>
@@ -231,11 +251,20 @@ export function Sidebar({
           key={rowKey(row, index)}
           marginBottom={row.kind === "heading" ? HEADER_GAP : 0}
         >
-          <Text dimColor={!focused} wrap="truncate-end">
+          {/* A task row dims part by part, so its live dot can stay at full strength. */}
+          <Text dimColor={!focused && row.kind !== "task"} wrap="truncate-end">
             {narrow ? (
-              <NarrowRow row={row} selected={highlighted(row, index)} />
+              <NarrowRow
+                row={row}
+                selected={highlighted(row, index)}
+                dimmed={!focused}
+              />
             ) : (
-              <Row row={row} selected={highlighted(row, index)} />
+              <Row
+                row={row}
+                selected={highlighted(row, index)}
+                dimmed={!focused}
+              />
             )}
           </Text>
         </Box>

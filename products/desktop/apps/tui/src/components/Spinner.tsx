@@ -8,6 +8,7 @@ export function Spinner({
   color = "gray",
 }: {
   label?: string;
+  // An empty colour draws in the terminal's own text colour.
   color?: string;
 }): ReactElement {
   const { frame } = useAnimation({ interval: 80 });
