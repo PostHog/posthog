@@ -224,6 +224,23 @@ class TestFetchCimdMetadata(SimpleTestCase):
         self.assertIn("not a public internet address", str(ctx.exception))
         self.assertNotIn("10.0.0.5", str(ctx.exception))
 
+    # Whoever calls /authorize picks the URL PostHog fetches, so errors must not read back the response.
+    @parameterized.expand(
+        [
+            ("client_id_value", _make_metadata(client_id="https://secret-value.example.com/x.json"), 200),
+            ("auth_method_value", _make_metadata(token_endpoint_auth_method="secret-value"), 200),
+            ("status_code", None, 418),
+            ("redirect_status", None, 307),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_errors_do_not_echo_the_fetched_response(self, _name, metadata, status_code, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(metadata, status_code=status_code)
+        with self.assertRaises((CIMDValidationError, CIMDFetchError)) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertNotIn("secret-value", str(ctx.exception))
+        self.assertNotIn(str(status_code), str(ctx.exception))
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_client_id_mismatch(self, mock_get, _url_mock):
         metadata = _make_metadata(client_id="https://wrong.example.com/other.json")
@@ -274,7 +291,7 @@ class TestFetchCimdMetadata(SimpleTestCase):
         mock_get.return_value = _mock_response(status_code=404)
         with self.assertRaises(CIMDFetchError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
-        self.assertIn("404", str(ctx.exception))
+        self.assertIn("did not return HTTP 200", str(ctx.exception))
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_timeout(self, mock_get, _url_mock):
@@ -290,7 +307,8 @@ class TestFetchCimdMetadata(SimpleTestCase):
         mock_get.return_value = _mock_response(_make_metadata(token_endpoint_auth_method=auth_method))
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
-        self.assertIn(auth_method, str(ctx.exception))
+        self.assertNotIn(auth_method, str(ctx.exception))
+        self.assertIn("token_endpoint_auth_method must be", str(ctx.exception))
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_internal_jwks_uri_is_refused_without_naming_its_address(self, mock_get, _url_mock):
@@ -1676,7 +1694,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         metadata = _make_metadata(com_posthog={"scopes": ["openid"], "optional_scopes": ["insight:read"]})
         mock_get.return_value = _mock_response(metadata, headers={})
 
-        with self.assertRaisesRegex(CIMDValidationError, "Metadata document was rejected: scopes: .*resource scope"):
+        with self.assertRaisesRegex(CIMDValidationError, "optional_scopes requires at least one resource scope"):
             fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
         self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
@@ -1730,7 +1748,7 @@ class TestResolveScopes(SimpleTestCase):
     def test_all_non_grantable_raises(self) -> None:
         with self.assertRaises(CIMDValidationError) as ctx:
             _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})
-        self.assertIn("llm_gateway:read, not_a_real_scope:write", str(ctx.exception))
+        self.assertNotIn("llm_gateway:read", str(ctx.exception))
 
     def test_oidc_only_is_a_sign_in_only_ceiling(self) -> None:
         self.assertEqual(

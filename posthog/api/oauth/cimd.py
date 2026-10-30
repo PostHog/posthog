@@ -320,11 +320,9 @@ def fetch_client_json_document(
 
     try:
         if response.is_redirect or response.is_permanent_redirect:
-            raise CIMDFetchError(
-                f"{what} endpoint returned redirect (HTTP {response.status_code}), redirects are not allowed"
-            )
+            raise CIMDFetchError(f"{what} endpoint returned a redirect, and redirects are not allowed")
         if response.status_code != 200:
-            raise CIMDFetchError(f"{what} endpoint returned HTTP {response.status_code}")
+            raise CIMDFetchError(f"{what} endpoint did not return HTTP 200")
 
         # Early reject if Content-Length exceeds limit
         content_length = response.headers.get("Content-Length")
@@ -357,7 +355,7 @@ def fetch_client_json_document(
     try:
         parsed = json.loads(body)
     except Exception as e:
-        raise CIMDValidationError(f"Invalid JSON in {what}: {e}") from e
+        raise CIMDValidationError(f"{what} is not valid JSON") from e
 
     if not isinstance(parsed, dict):
         raise CIMDValidationError(f"{what} must be a JSON object")
@@ -378,7 +376,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
 
     # client_id MUST match the URL (simple string comparison per spec)
     if metadata.get("client_id") != url:
-        raise CIMDValidationError(f"client_id in metadata ({metadata.get('client_id')!r}) does not match URL ({url!r})")
+        raise CIMDValidationError("client_id in the metadata document does not match the URL it was fetched from")
 
     # redirect_uris required
     redirect_uris = metadata.get("redirect_uris")
@@ -399,7 +397,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     # itself, so nothing secret has to be delivered out of band.
     auth_method = metadata.get("token_endpoint_auth_method", "none")
     if auth_method not in CIMD_SUPPORTED_AUTH_METHODS:
-        raise CIMDValidationError(f"CIMD clients cannot use token_endpoint_auth_method '{auth_method}'")
+        raise CIMDValidationError("token_endpoint_auth_method must be 'none' or 'private_key_jwt' for a CIMD client")
 
     jwks_uri = metadata.get("jwks_uri")
     if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
@@ -551,18 +549,11 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     filtered = filter_self_registered_ceiling(raw_scopes)
     if raw_scopes and not filtered:
         raise CIMDValidationError(
-            f"com.posthog.scopes has no scope a CIMD client can be granted ({_describe_declared(raw_scopes)}). "
+            "com.posthog.scopes has no scope a CIMD client can be granted. "
             f"Use scopes from scopes_supported in the authorization server metadata, list only "
             f"{', '.join(OIDC_SCOPES)} for a sign-in-only client, or remove the field to use the default scope set"
         )
     return filtered
-
-
-def _describe_declared(values: list) -> str:
-    """Echo partner-declared values back in an error, bounded so a hostile document can't inflate it."""
-    shown = [str(value)[:64] for value in values[:10]]
-    more = f", and {len(values) - 10} more" if len(values) > 10 else ""
-    return ", ".join(shown) + more
 
 
 def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -671,6 +662,10 @@ def _create_cimd_application(
     verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes and not any(":" in scope for scope in resolved_scopes or []):
+        raise CIMDValidationError(
+            "com.posthog.optional_scopes requires at least one resource scope in com.posthog.scopes"
+        )
 
     client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
@@ -957,7 +952,10 @@ def fetch_and_upsert_cimd_application(
                 _register_partner_if_declared(app, metadata, register_provisioning=register_provisioning)
                 return app
             if isinstance(e, ValidationError):
-                raise CIMDValidationError(f"Metadata document was rejected: {_describe_validation_error(e)}") from e
+                # Field names only: the messages can echo document values, and whoever calls
+                # /authorize chooses which URL PostHog fetches.
+                fields = sorted(getattr(e, "message_dict", {}) or {"document": []})
+                raise CIMDValidationError(f"Metadata document was rejected: invalid {', '.join(fields)}") from e
             raise
     finally:
         cache.delete(fetch_lock)

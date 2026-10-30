@@ -77,6 +77,13 @@ class TestValidateCimdClientName(TestCase):
             ("middle_lowercase", "acme posthog sync"),
             ("split_by_space", "Acme Post Hog"),
             ("split_by_punctuation", "Acme Post-Hog"),
+            ("cyrillic_o", "P\u043estHog Analytics"),
+            ("greek_omicron_and_cyrillic_es", "Po\u0455tH\u03bfg"),
+            ("cyrillic_capitals", "\u0420OST\u041dOG"),
+            ("digit_zero", "P0stHog"),
+            ("accented", "P\u00f6stH\u00f6g"),
+            ("full_width", "\uff30\uff4f\uff53\uff54\uff28\uff4f\uff47"),
+            ("zero_width_space", "Post\u200bHog"),
             ("blocked_word", "Acme Trusted Client"),
         ]
     )
