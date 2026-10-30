@@ -150,7 +150,8 @@ export function processRuntime(): Runtime {
         },
         prompts: clackPrompts(),
         skipTlsVerification: () => {
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+            // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
         loadApiTools: async () => {
             try {
