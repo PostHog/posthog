@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
 import { useInterval } from 'lib/hooks/useInterval'
-import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
@@ -28,31 +27,28 @@ export function WizardInstallSync({
     const [now, setNow] = useState(Date.now)
     useInterval(() => setNow(Date.now()), run && wizardRunIsActive(run) ? 1000 : null)
 
+    if (!run) {
+        return <>{children}</>
+    }
+
     return (
         <div className="@container/wizard-install">
-            <div
-                className={cn(
-                    'grid grid-cols-1 items-start gap-6',
-                    run && '@min-[44rem]/wizard-install:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'
-                )}
-            >
-                <div className="min-w-0 space-y-8" data-attr="wizard-install-instructions">
+            <div className="grid grid-cols-1 items-start gap-6 @min-[44rem]/wizard-install:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="min-w-0 space-y-6" data-attr="wizard-install-instructions">
                     {children}
                 </div>
-                {run && (
-                    <div className="min-w-0">
-                        <WizardInstallSyncView
-                            run={run}
-                            tasks={tasksByRunId[run.id] ?? []}
-                            artifacts={artifactsByRunId[run.id] ?? []}
-                            loading={runDataLoading[run.id] ?? true}
-                            error={runDataErrors[run.id] ?? null}
-                            onRetry={() => loadRunData(run, { force: true })}
-                            onArtifactClick={clickArtifact}
-                            now={now}
-                        />
-                    </div>
-                )}
+                <div className="min-w-0">
+                    <WizardInstallSyncView
+                        run={run}
+                        tasks={tasksByRunId[run.id] ?? []}
+                        artifacts={artifactsByRunId[run.id] ?? []}
+                        loading={runDataLoading[run.id] ?? true}
+                        error={runDataErrors[run.id] ?? null}
+                        onRetry={() => loadRunData(run, { force: true })}
+                        onArtifactClick={clickArtifact}
+                        now={now}
+                    />
+                </div>
             </div>
         </div>
     )
