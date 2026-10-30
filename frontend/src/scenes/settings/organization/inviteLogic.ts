@@ -6,12 +6,12 @@ import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAu
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { pluralize } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AccessControlLevel, OrganizationInviteType, OrganizationMemberType, UserType } from '~/types'
 
 import type { PreflightStatus } from '../../../types'

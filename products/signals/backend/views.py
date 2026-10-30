@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
@@ -19,7 +20,6 @@ from django.db.models import (
     Count,
     Exists,
     F,
-    FloatField,
     Func,
     IntegerField,
     JSONField,
@@ -78,7 +78,12 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+)
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -153,21 +158,24 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
+from products.signals.backend.personal_ranking.serve import BuildThrottledError, serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
-from products.signals.backend.ranking.access import can_view_inbox_ranking
+from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
     InboxRanker,
+    latest_ranking_value,
     resolve_recommended_ranker,
     score_decile,
 )
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
+from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
@@ -242,6 +250,8 @@ from products.signals.backend.scout_harness.trial_access import trial_state_erro
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PersonalRankingQuerySerializer,
+    PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
@@ -283,6 +293,7 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
     ReportSignalMeta,
@@ -1724,6 +1735,60 @@ class SignalReportViewSet(
         )
 
     @validated_request(
+        query_serializer=PersonalRankingQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=PersonalRankingSerializer),
+            404: OpenApiResponse(description="Personal ranking is not available to the caller."),
+            429: OpenApiResponse(description="The build limit is reached and no stored list exists yet."),
+        },
+        summary="Get your personal ranked inbox",
+        description=(
+            "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
+            "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
+            "A current stored list returns at once. Otherwise the request builds a new list, which can take 30 "
+            "seconds or more. Only the user the list is about can read it."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["task:read"], pagination_class=None)
+    def for_me(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = request.user
+        # A list describes one person, so only that person's own credentials can read it.
+        if (
+            is_service_auth(request)
+            or not isinstance(user, User)
+            or trial_store_for_request(request, self.team_id) is not None
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            raise NotFound()
+        query = request.validated_query_data
+        started = time.monotonic()
+        try:
+            served = serve_personal_ranking(
+                self.team, user, limit=query.get("limit"), refresh=query["refresh"], focus=query.get("focus")
+            )
+        except BuildThrottledError as error:
+            raise exceptions.Throttled(wait=error.retry_after)
+        report_user_action(
+            user,
+            "personal inbox ranking read",
+            properties={
+                "via_mcp": is_mcp_request(request),
+                "status": served.status,
+                "cached": served.cached,
+                "stale": served.stale,
+                "personalized": served.personalized,
+                "fallback_reason": served.fallback_reason,
+                "refresh": query["refresh"],
+                "has_focus": bool(query.get("focus")),
+                "result_count": len(served.results),
+                "duration_ms": round((time.monotonic() - started) * 1000),
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(PersonalRankingSerializer(personal_ranking_payload(served)).data)
+
+    @validated_request(
         query_serializer=SignalReportFilterQuerySerializer,
         responses={200: SignalReportSectionCountsSerializer},
         parameters=_SECTION_COUNTS_PARAMETERS,
@@ -2449,7 +2514,7 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            latest_score = self._latest_ranking_value(head, "scores")
+            latest_score = latest_ranking_value(head, "scores")
             if self._inbox_ranker is not None:
                 queryset = queryset.annotate(
                     **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
@@ -2461,57 +2526,6 @@ class SignalReportViewSet(
     @staticmethod
     def _ranking_decile_annotation(score_annotation: str) -> str:
         return f"{score_annotation}_decile"
-
-    @staticmethod
-    def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
-        # The served model's value for one head from the latest ranking_score artefact, as
-        # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
-        # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
-        # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
-        # unscored rather than older-scored. A stale score (the report was edited after the text it
-        # scored) also reads as NULL.
-        content = Cast(F("content"), output_field=JSONField())
-        served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
-        return Subquery(
-            annotate_stale_score(
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-                ).order_by("-created_at")
-            )
-            .annotate(
-                _score=Case(
-                    When(
-                        content__startswith="{",
-                        then=Func(
-                            content,
-                            Value("results"),
-                            served_key,
-                            Value(key),
-                            Value(head),
-                            function="jsonb_extract_path",
-                            output_field=JSONField(),
-                        ),
-                    ),
-                    default=Value(None),
-                    output_field=JSONField(),
-                ),
-            )
-            .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
-            .annotate(
-                _score_value=Case(
-                    When(
-                        _score_type="number",
-                        _score_is_stale=False,
-                        then=Cast(F("_score"), output_field=FloatField()),
-                    ),
-                    default=Value(None),
-                    output_field=FloatField(),
-                )
-            )
-            .values("_score_value")[:1],
-            output_field=FloatField(),
-        )
 
     def _apply_signal_report_ranking_filters(self, queryset):
         # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
@@ -2526,7 +2540,7 @@ class SignalReportViewSet(
                 continue
             for outcome, minimum in minimums.items():
                 head = MODEL_HEAD_BY_OUTCOME[outcome]
-                queryset = queryset.filter(GreaterThanOrEqual(self._latest_ranking_value(head, key), minimum))
+                queryset = queryset.filter(GreaterThanOrEqual(latest_ranking_value(head, key), minimum))
         return queryset
 
     def _parse_ranking_minimums(self, param: str) -> dict[str, float]:

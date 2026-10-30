@@ -30,6 +30,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -453,6 +454,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
         # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
         METRICS_IMPORT = "metrics_import", "Metrics Import"
+        # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
+        KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -906,7 +909,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["startup_requested_at"] = startup_requested_at.isoformat()
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             carry_config_snapshot = (
-                task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
+                task.origin_product in (Task.OriginProduct.WORKFLOW, Task.OriginProduct.KNOWLEDGE_WRITER)
+                and "config_snapshot" not in state
             )
             if state.get("sandbox_template") is None:
                 # A null is "no choice", the same as an absent key, so it must not block the carry.
@@ -1325,12 +1329,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
+            github_integration = next(
+                (
+                    row
+                    for row in IntegrationManager.github.oauth.list(team.id)
+                    if row.errors != ERROR_TOKEN_REFRESH_FAILED
+                    and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+                ),
+                None,
             )
+        github_integration_id = github_integration.id if github_integration is not None else None
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1338,7 +1346,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             created_by=created_by,
             repository=repository,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             runtime=runtime,
         )
         authorship_mode = (
@@ -1407,7 +1415,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             profile=profile_key,
             client_provenance=client_provenance,
             created_by=created_by,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             github_user_integration=github_user_integration,
             repository=repository,
             repositories=resolved_repositories,
