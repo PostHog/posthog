@@ -20,23 +20,50 @@ function eventCounts(): [string, number, number][] {
     return rows
 }
 
-function pageCounts(): [string, number, number][] {
-    const rows: [string, number, number][] = []
-    for (let daysAgo = 1; daysAgo <= 14; daysAgo++) {
-        const thisWeek = daysAgo <= 7
-        rows.push(['/pricing', daysAgo, thisWeek ? 900 + daysAgo * 20 : 520])
-        rows.push(['/docs', daysAgo, 2000 + (daysAgo % 2) * 50])
+function scoutReport(id: string, scoutName: string, createdAt: string, title: string, summary: string): object {
+    return {
+        id,
+        title,
+        summary,
+        summary_lead: summary,
+        scout_name: scoutName,
+        created_at: createdAt,
+        updated_at: createdAt,
+        status: 'ready',
+        charts: [],
+        source_products: ['signals_scout'],
     }
-    return rows
 }
+
+const SCOUT_REPORTS = [
+    scoutReport(
+        'report-replay',
+        'signals-scout-session-replay',
+        '2026-09-27T16:00:00Z',
+        'People get stuck on the billing form',
+        'Nine people clicked a disabled Save button on the billing form more than five times this week.\n\n**Evidence**\n\n- The button waits for a valid postcode.'
+    ),
+    scoutReport(
+        'report-experiment',
+        'signals-scout-experiments',
+        '2026-09-26T09:00:00Z',
+        'Onboarding checklist experiment has a winner',
+        'The onboarding checklist experiment reached significance: the test variant activates 12% more new projects than control.'
+    ),
+    scoutReport(
+        'report-ci',
+        'signals-scout-ci-health',
+        '2026-09-27T10:00:00Z',
+        'fix(ci): A billing test is flaky',
+        'A billing test failed three times on master this week.'
+    ),
+]
 
 async function queryHandler({ request }: { request: Request }): Promise<[number, unknown]> {
     const body = (await request.json()) as { query?: { tags?: { name?: string } } }
     switch (body.query?.tags?.name) {
         case 'today_feed_event_counts':
             return [200, { results: eventCounts() }]
-        case 'today_feed_page_counts':
-            return [200, { results: pageCounts() }]
         case 'today_feed_rage_session':
             return [
                 200,
@@ -61,28 +88,11 @@ const meta: Meta = {
                     has_more: false,
                     as_of: '2026-09-28T18:30:00Z',
                 },
-                '/api/projects/:team_id/insights/': {
-                    count: 1,
+                '/api/projects/:team_id/signals/reports/': {
+                    count: SCOUT_REPORTS.length,
                     next: null,
                     previous: null,
-                    results: [
-                        {
-                            id: 501,
-                            short_id: 'feed0001',
-                            name: 'Weekly signups by plan',
-                            derived_name: null,
-                            description: 'Signups each week, split by the plan people pick.',
-                            created_at: '2026-09-26T10:12:00Z',
-                            created_by: {
-                                id: 7,
-                                uuid: 'user-grace',
-                                distinct_id: 'user-grace',
-                                first_name: 'Grace',
-                                last_name: 'Hopper',
-                                email: 'grace@example.com',
-                            },
-                        },
-                    ],
+                    results: SCOUT_REPORTS,
                 },
                 'https://us.i.posthog.com/api/early_access_features': {
                     earlyAccessFeatures: [

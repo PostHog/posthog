@@ -88,7 +88,7 @@ function TodayFeedContent(): JSX.Element {
                         Feed
                     </Heading>
                     <Text size="xs" variant="muted">
-                        Changes in your data, sessions worth watching and new things to try.
+                        What your scouts found, sessions worth watching and new things to try.
                     </Text>
                 </header>
                 {!feedReady ? (
@@ -101,8 +101,8 @@ function TodayFeedContent(): JSX.Element {
                             </EmptyMedia>
                             <EmptyTitle>Nothing to show yet</EmptyTitle>
                             <EmptyDescription>
-                                Posts show up here when your events change, when a session is worth watching, or when
-                                your team saves something new.
+                                Posts show up here when a scout finds something, when your events change, or when a
+                                session is worth watching.
                             </EmptyDescription>
                         </EmptyHeader>
                     </Empty>

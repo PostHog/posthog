@@ -6,6 +6,8 @@ import { Button, Text } from '@posthog/quill'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { ReportChartCard } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+
 import { TodayFeedAvatar } from './TodayFeedAvatar'
 import { TodayFeedCard } from './TodayFeedCard'
 import { TodayFeedChart } from './TodayFeedChart'
@@ -15,7 +17,7 @@ import { TodayFeedReplay } from './TodayFeedReplay'
 
 export function TodayFeedPost({ post, position }: { post: TodayFeedPostType; position: number }): JSX.Element {
     const { likedKeys, enrolledFlagKeys } = useValues(todayFeedLogic)
-    const { postOpened, postHidden, postLiked, postEnrolled } = useActions(todayFeedLogic)
+    const { postOpened, postHidden, postLiked, postEnrolled, postPlayed } = useActions(todayFeedLogic)
     const liked = !!likedKeys[post.key]
     const open = (): void => postOpened(post, position)
     const { media } = post
@@ -59,8 +61,17 @@ export function TodayFeedPost({ post, position }: { post: TodayFeedPostType; pos
                         to={post.to}
                         onOpen={open}
                     />
+                ) : media?.type === 'report-chart' ? (
+                    <ReportChartCard chart={media.chart} />
                 ) : media?.type === 'replay' ? (
-                    <TodayFeedReplay page={media.page} caption={media.caption} to={post.to} onOpen={open} />
+                    <TodayFeedReplay
+                        sessionId={media.sessionId}
+                        page={media.page}
+                        caption={media.caption}
+                        to={post.to}
+                        onPlay={() => postPlayed(post, position)}
+                        onOpen={open}
+                    />
                 ) : media?.type === 'card' ? (
                     <TodayFeedCard
                         title={media.title}

@@ -1,4 +1,14 @@
-import { IconGlobe, IconRewindPlay, IconTrends } from '@posthog/icons'
+import {
+    IconBell,
+    IconFlask,
+    IconGlobe,
+    IconMessage,
+    IconPiggyBank,
+    IconRewindPlay,
+    IconSparkles,
+    IconToggle,
+    IconTrends,
+} from '@posthog/icons'
 import { Avatar, AvatarFallback } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
@@ -9,6 +19,12 @@ const PRODUCT_AVATARS: Record<string, { color: string; glyph: JSX.Element }> = {
     product_analytics: { color: 'var(--color-product-product-analytics-light)', glyph: <IconTrends /> },
     web_analytics: { color: 'var(--color-product-web-analytics-light)', glyph: <IconGlobe /> },
     session_replay: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
+    alerts: { color: 'var(--color-product-alerts-light)', glyph: <IconBell /> },
+    experiments: { color: 'var(--color-product-experiments-light)', glyph: <IconFlask /> },
+    feature_flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
+    surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
+    revenue_analytics: { color: 'var(--color-product-revenue-analytics-light)', glyph: <IconPiggyBank /> },
+    ai_observability: { color: 'var(--color-product-llm-analytics-light)', glyph: <IconSparkles /> },
 }
 
 function initials(name: string): string {
