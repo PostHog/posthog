@@ -440,14 +440,24 @@ function startFailure(error: unknown): Error {
     return new HogError('upload_failed', `PostHog didn't start the upload: ${describe(error)}`)
 }
 
+// Like posthog-cli's thread pool: after the first failure no new item starts, and the call returns
+// that failure once the items in flight are done.
 async function runWithConcurrency<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
     let next = 0
+    let failure: { error: unknown } | undefined
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        while (next < items.length) {
-            await work(items[next++]!)
+        while (failure === undefined && next < items.length) {
+            try {
+                await work(items[next++]!)
+            } catch (error) {
+                failure ??= { error }
+            }
         }
     })
     await Promise.all(workers)
+    if (failure !== undefined) {
+        throw failure.error
+    }
 }
 
 export { ApiFailure }
