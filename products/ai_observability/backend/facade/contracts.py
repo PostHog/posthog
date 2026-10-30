@@ -211,13 +211,84 @@ class TraceFeedbackText(Contract):
     timestamp: datetime
 
 
+class TraceSurvey(Contract):
+    id: str
+    name: str | None = Field(description="Null when the survey no longer exists.")
+
+
+class TraceThumbsAnswer(Contract):
+    kind: Literal["thumbs"]
+    question: str
+    up: bool
+
+
+class TraceRatingAnswer(Contract):
+    kind: Literal["rating"]
+    question: str
+    value: str
+    scale: int | None
+    lower_label: str | None
+    upper_label: str | None
+
+
+class TraceChoiceAnswer(Contract):
+    kind: Literal["choice"]
+    question: str
+    choices: list[str]
+
+
+class TraceTextAnswer(Contract):
+    kind: Literal["text"]
+    question: str
+    text: str
+
+
+TraceSurveyAnswer = Annotated[
+    TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer, Field(discriminator="kind")
+]
+
+
+class TraceSurveyResponse(Contract):
+    kind: Literal["survey"]
+    id: str
+    node_id: str = Field(
+        description="The tree node the response targets: the trace id, as a survey response covers the whole trace."
+    )
+    timestamp: datetime
+    survey: TraceSurvey
+    answers: list[TraceSurveyAnswer]
+    complete: bool = Field(description="False when the user left the survey before its end.")
+    unavailable: Literal["survey_not_found", "no_questions"] | None = Field(
+        description="Why the answers cannot be shown: the survey was deleted, or it has no questions."
+    )
+
+
+class TraceUnansweredSurvey(Contract):
+    survey: TraceSurvey
+    timestamp: datetime = Field(description="When the survey was first shown.")
+
+
+TraceSurveyResponsesStatus = Literal["ok", "failed", "not_permitted"]
+
+
+TraceFeedbackResponse = Annotated[TraceFeedbackText | TraceSurveyResponse, Field(discriminator="kind")]
+
+
 class TraceFeedbackSummary(Contract):
     total: int = Field(description="Scores plus responses.")
+    thumbs_up: int = Field(description="Thumbs up answers to 2-point survey rating questions.")
+    thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
-    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
+    unanswered: list[TraceUnansweredSurvey] = Field(
+        description="Surveys shown with the trace and not answered, oldest first."
+    )
+    survey_responses_status: TraceSurveyResponsesStatus = Field(
+        description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
+    )
     summary: TraceFeedbackSummary
 
 
@@ -429,7 +500,9 @@ class PassRateOverviewEntry(Contract):
 
 
 class PassRateOverview(Contract):
-    entries: list[PassRateOverviewEntry] = Field(description="Enabled pass rate evaluations, lowest rate first.")
+    entries: list[PassRateOverviewEntry] = Field(
+        description="Pass rate evaluations with results in the period, paused ones included, lowest rate first."
+    )
     median: float | None = Field(description="Median of the per-evaluation pass rates without low evidence.")
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
@@ -469,7 +542,9 @@ class EvaluationsOverview(OverviewPeriodFields):
         "bucket can start before `start`."
     )
     evaluations: list[EvaluationResult]
-    totals: OverviewTotals = Field(description="Totals over the enabled evaluations.")
+    totals: OverviewTotals = Field(
+        description="Totals over every evaluation's results in the period, paused ones included."
+    )
     pass_rate_overview: PassRateOverview
 
 

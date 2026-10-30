@@ -591,6 +591,8 @@ depends_on = [
     "products.cdp",
     # Facade only: the trace view links a trace's git branch to its pull request.
     "products.engineering_analytics",
+    # Trace feedback reads trace-linked survey responses through the surveys facade.
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -706,6 +708,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.alerts",
+    "products.alerts_platform",
     "products.dashboards",
     "products.error_tracking",
     "products.exports",
@@ -1745,6 +1749,13 @@ expose = [
     "backend\\.llm.*",
     "backend\\.markdown_outline.*",
     "backend\\.models.*",
+    "backend\\.offline_evaluation_billing.get_offline_evaluation_usage",
+    "backend\\.offline_evaluation_service.OfflineEvaluationIngestionService",
+    "backend\\.offline_evaluation_service.OfflineExperimentService",
+    "backend\\.offline_evaluation_types.ExperimentSubmission",
+    "backend\\.offline_evaluation_types.ItemSubmission",
+    "backend\\.offline_evaluation_types.ResultSubmission",
+    "backend\\.offline_evaluation_types.UploadSubmission",
     "backend\\.prompt_references.*",
     "backend\\.queries.*",
     "backend\\.summarization.*",

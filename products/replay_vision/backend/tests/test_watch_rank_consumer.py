@@ -24,6 +24,7 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
@@ -136,6 +137,9 @@ class TestWatchRankConsumer(BaseTest):
 
         if outcome == "missing":
             return
+        assert ReplayObservationRank.objects.for_team(self.team.id).filter(observation_id=observation.id).exists() == (
+            outcome == "ranked"
+        )
         observation.refresh_from_db()
         if expected_rank is None:
             assert observation.watch_rank is None

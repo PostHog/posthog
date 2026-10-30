@@ -1,10 +1,16 @@
 """Exported enums and constants for experiments."""
 
+from decimal import Decimal
 from enum import StrEnum
 
 MAX_RECALCULATION_TIMES = 2
 # frontend/src/scenes/settings/environment/ExperimentRecalculationTime.tsx repeats this value, so change both together.
 MIN_RECALCULATION_GAP_HOURS = 6
+
+# The frequentist engine derives alpha as 1 - confidence level, so anything outside (0, 1) is meaningless. The setting
+# stores two decimal places, so these bounds are that open range.
+MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
+MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
 
 class PrecomputeSkipReason(StrEnum):

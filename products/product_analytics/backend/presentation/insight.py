@@ -1,5 +1,6 @@
 import json
 import builtins
+import dataclasses
 from collections import defaultdict
 from collections.abc import Sequence
 from copy import deepcopy
@@ -86,6 +87,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_querie
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
+from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -120,6 +122,8 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    InsightExplainBurstThrottle,
+    InsightExplainDailyThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -195,6 +199,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataChecksStatus,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
+from products.product_analytics.backend.presentation.insight_explain import ChartCause, ExplainFacts, explain_chart
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -555,6 +560,16 @@ class _InsightResultWarnings(RootModel):
     root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
 
 
+RESOLVED_DATE_RANGE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "date_from": {"type": "string", "format": "date-time"},
+        "date_to": {"type": "string", "format": "date-time"},
+    },
+}
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -606,7 +621,6 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
-    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     action_names = serializers.SerializerMethodField(
         read_only=True,
         help_text="The name of each action the insight's series reference, keyed by action id. A series saved without "
@@ -668,6 +682,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "resolved_compare_date_range",
             "action_names",
             "query_scan",
             "warnings",
@@ -1117,22 +1132,32 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "date_from": {"type": "string", "format": "date-time"},
-                "date_to": {"type": "string", "format": "date-time"},
-            },
-        }
-    )
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
     def get_action_names(self, insight: Insight):
         return self.insight_result(insight).action_names
+
+    resolved_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The period that this insight's query covered, with both ends resolved to timestamps."
+            " Null when the insight has no result yet or its query type does not report the range."
+        ),
+    )
+    resolved_compare_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The earlier period that this insight's query compared against, with both ends resolved to timestamps."
+            " Null when comparison is off, when the insight has no result yet, or when its query type does not report the range."
+        ),
+    )
+
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
+    def get_resolved_compare_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_compare_date_range
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_query_scan(self, insight: Insight):
@@ -1323,23 +1348,11 @@ class InsightSerializer(InsightBasicSerializer):
                     # An entry cached before responses carried `action_names` lacks the field, and this shortcut
                     # skips the runner that fills it on a cache hit.
                     action_names = get_response_action_names(insight.team, upgrade(deepcopy(insight.query)))
-                return InsightResult(
-                    result=cached_response.get("results"),
-                    has_more=cached_response.get("hasMore"),
-                    columns=cached_response.get("columns"),
-                    last_refresh=cached_response.get("last_refresh"),
+                return dataclasses.replace(
+                    InsightResult.from_response_dict(cached_response),
                     cache_key=expected_cache_key,
                     is_cached=True,
-                    timezone=cached_response.get("timezone"),
-                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
-                    cache_target_age=cached_response.get("cache_target_age"),
-                    timings=cached_response.get("timings"),
-                    query_status=cached_response.get("query_status"),
-                    hogql=cached_response.get("hogql"),
-                    types=cached_response.get("types"),
                     action_names=action_names,
-                    query_scan=cached_response.get("query_scan"),
-                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1636,6 +1649,84 @@ class InsightViewedRequestSerializer(serializers.Serializer):
         help_text=(
             f"Insight IDs that were just viewed by the current user. At most {INSIGHT_VIEWED_MAX_IDS} ids per request."
         ),
+    )
+
+
+INSIGHT_EXPLAIN_MAX_CHAPTERS = 8
+INSIGHT_EXPLAIN_MAX_FINDINGS = 6
+
+
+class InsightExplainChapterFactsSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        max_length=64, help_text="Identifier of the chapter. The response returns the chapter under the same one."
+    )
+    title = serializers.CharField(
+        max_length=200, help_text="What the chapter is about, for example 'A peak on October 2'."
+    )
+    summary = serializers.CharField(
+        max_length=600,
+        help_text="The computed facts of the chapter in one or two sentences, with their numbers and dates.",
+    )
+    evidence = serializers.ListField(
+        child=serializers.CharField(max_length=600),
+        required=False,
+        default=list,
+        max_length=INSIGHT_EXPLAIN_MAX_FINDINGS,
+        help_text=(
+            "Findings about the cause of the chapter, one sentence each. "
+            f"Empty when nothing was found. At most {INSIGHT_EXPLAIN_MAX_FINDINGS}."
+        ),
+    )
+
+
+class InsightExplainRequestSerializer(serializers.Serializer):
+    series_label = serializers.CharField(max_length=200, help_text="Name of the series that the explanation follows.")
+    insight_name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Name of the insight. Blank for an insight that has no name yet.",
+    )
+    overview = serializers.CharField(
+        max_length=600,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="The computed facts of the whole chart, such as its typical level, its range and how it ends.",
+    )
+    chapters = serializers.ListField(
+        child=InsightExplainChapterFactsSerializer(),
+        max_length=INSIGHT_EXPLAIN_MAX_CHAPTERS,
+        help_text=(
+            f"The chapters of the explanation in reading order. At most {INSIGHT_EXPLAIN_MAX_CHAPTERS}. "
+            "Empty when nothing stands out on the chart."
+        ),
+    )
+
+
+class InsightExplainChapterSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Identifier of the chapter, as it was sent.")
+    cause = serializers.ChoiceField(
+        choices=ChartCause.choices,
+        help_text=(
+            "What most likely caused the chapter: outside traffic, a real change in usage, one person or a test "
+            "account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts."
+        ),
+    )
+    confidence = serializers.FloatField(help_text="How sure the model is of the cause, from 0 to 1.")
+
+
+class InsightExplainUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The decision model is not available right now. Try again in a moment."
+    default_code = "insight_explain_unavailable"
+
+
+class InsightExplainSerializer(serializers.Serializer):
+    chapters = InsightExplainChapterSerializer(
+        many=True,
+        help_text="The likely cause of each chapter the model answered, in the order they were sent.",
     )
 
 
@@ -2102,13 +2193,15 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to the AI metadata endpoint."""
+        """Apply LLM-specific throttles to the endpoints that call a model."""
         if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
                 AIObservabilitySummarizationDailyThrottle(),
             ]
+        if self.action == "explain":
+            return [InsightExplainBurstThrottle(), InsightExplainDailyThrottle()]
         return super().get_throttles()
 
     def _validate_ai_feature_access(self) -> None:
@@ -2620,6 +2713,36 @@ When set, the specified dashboard's filters and date range override will be appl
             raise APIException("Failed to generate insight metadata. Please try again.")
 
         return Response({"name": metadata.name, "description": metadata.description})
+
+    @validated_request(
+        request_serializer=InsightExplainRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InsightExplainSerializer, description="The explanation of the chart."),
+            503: OpenApiResponse(description="The decision model failed or timed out."),
+        },
+        description=(
+            "Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it "
+            "computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a "
+            "confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. "
+            "Without a decision model on the instance, the list is empty. "
+            "The organization must approve AI data processing."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
+    def explain(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._validate_ai_feature_access()
+
+        try:
+            causes = explain_chart(ExplainFacts.model_validate(request.validated_data), team_id=self.team.pk)
+        except SystemOneNotConfigured:
+            causes = []
+        except SystemOneRequestFailed as error:
+            # The page shows its own text without the causes, so a slow or failed model is a "not now", not an error.
+            logger.warning("insight_explain_unavailable", team_id=self.team.pk, reason=type(error).__name__)
+            raise InsightExplainUnavailable() from error
+
+        chapters = [{"id": c.id, "cause": c.cause.value, "confidence": c.confidence} for c in causes]
+        return Response(InsightExplainSerializer({"chapters": chapters}).data)
 
     # ******************************************
     # /projects/:id/insights/viewed

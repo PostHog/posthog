@@ -23,10 +23,10 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.clickhouse_property_resolution import (
     MAX_MATERIALIZED_LIKE_PATTERN_LENGTH,
-    _is_json_verbatim,
     clickhouse_property_resolution,
 )
 from posthog.hogql.transforms.property_types import PropertySwapper
+from posthog.hogql.utils import is_json_verbatim
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -53,7 +53,7 @@ class TestJSONVerbatimValues(SimpleTestCase):
     @example("plain_value-1")
     @hypothesis_settings(max_examples=100, deadline=None)
     def test_accepted_values_survive_json_encoding(self, value: str) -> None:
-        if not _is_json_verbatim(value):
+        if not is_json_verbatim(value):
             return
         assert value in json.dumps({"key": value})
         assert value in json.dumps({"key": value}, ensure_ascii=False)

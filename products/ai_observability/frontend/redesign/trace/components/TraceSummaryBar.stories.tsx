@@ -28,7 +28,11 @@ export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-sessi
 export const WithClusters: Story = { ...wide, args: { clusters: FIXTURE_CLUSTERS_CHIP } }
 export const Narrow: Story = { args: { clusters: FIXTURE_CLUSTERS_CHIP }, decorators: [withWidth(420)] }
 export const WithFeedback: Story = {
-    args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
+    args: { feedback: { chip: { total: 6, thumbsUp: 0, thumbsDown: 0 }, onClick: () => {} } },
+    decorators: [withWidth(420)],
+}
+export const WithThumbsFeedback: Story = {
+    args: { feedback: { chip: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} } },
     decorators: [withWidth(420)],
 }
 

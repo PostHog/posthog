@@ -610,7 +610,9 @@ export const signupLogic = kea<signupLogicType>([
     listeners(({ actions, values }) => ({
         precheckSignupEmail: async ({ email }, breakpoint) => {
             actions.setPasskeyError(null)
-            actions.setSignupPanelAuthManualErrors({})
+            // Reset rather than `setSignupPanelAuthManualErrors({})`: kea-forms turns error display on with
+            // any manual errors call, so the empty password field would open with a red error
+            actions.resetSignupPanelAuth()
             let precheckResponse: SignupEmailPrecheckResponse
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.

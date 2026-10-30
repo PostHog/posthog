@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from products.review_hog.backend.automatic_reviews import AuthoredPRReview
-from products.review_hog.backend.label_reviews import LabelReview
+from products.review_hog.backend.stamphog_handoff import StamphogHandoff
 
 
 @shared_task(
@@ -50,26 +50,20 @@ def process_authored_pr_event(
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
-    name="products.review_hog.backend.tasks.process_label_event",
+    name="products.review_hog.backend.tasks.process_stamphog_handoff",
 )
-def process_label_event(
+def process_stamphog_handoff(
     *,
-    installation_id: str,
     repository: str,
-    github_repo_id: int | None,
     pr_number: int,
+    head_sha: str,
     author_login: str,
     head_branch: str,
-    labeler_login: str,
-    labeled_by_bot: bool,
 ) -> None:
-    LabelReview(
-        installation_id=installation_id,
+    StamphogHandoff(
         repository=repository,
-        github_repo_id=github_repo_id,
         pr_number=pr_number,
+        head_sha=head_sha,
         author_login=author_login,
         head_branch=head_branch,
-        labeler_login=labeler_login,
-        labeled_by_bot=labeled_by_bot,
     ).start()
