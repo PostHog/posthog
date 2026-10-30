@@ -2036,6 +2036,7 @@
                     from_asterisk: False
                     start: 7
                     type: {
+                      as_json: False
                       chain: [
                         "$exception_issue_id"
                       ]
@@ -3105,6 +3106,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -8352,6 +8354,7 @@
                       from_asterisk: False
                       start: 7
                       type: {
+                        as_json: False
                         chain: [
                           "$exception_issue_id"
                         ]
@@ -9000,6 +9003,7 @@
                           from_asterisk: False
                           start: 7
                           type: {
+                            as_json: False
                             chain: [
                               "$exception_issue_id"
                             ]
@@ -10300,6 +10304,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
@@ -11987,6 +11992,7 @@
                 from_asterisk: False
                 start: 7
                 type: {
+                  as_json: False
                   chain: [
                     "$exception_issue_id"
                   ]
