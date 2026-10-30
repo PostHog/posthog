@@ -3805,8 +3805,8 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
-            - name: Verify new snapshots for flakiness
-              # Only in UPDATE mode - CHECK mode doesn't update snapshots
+            - name: Prepare snapshot patch
+              id: snapshot-patch
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               # The reruns must write the same schema mode's snapshot file as the main
@@ -3814,39 +3814,36 @@ jobs:
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
-                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
-                  .github/scripts/verify-new-snapshots.sh
-
-            - name: Generate snapshot patch
-              # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
-              shell: bash
-              env:
-                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-              run: |
-                  mkdir -p /tmp/patches
-                  # Stage any new/modified .ambr files so they appear in git diff
-                  git add -N '*.ambr' || true
                   # Each schema leg may only ship its own snapshot files. A leg still
                   # *claims* the other schema mode's snapshot names without writing them,
                   # so syrupy deletes them from the working tree as unused; scoping the
                   # patch keeps those deletions out of the committed diff.
-                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                  if [[ "$CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" == "true" ]]; then
                     ambr_pathspec=('*.new_events_schema.ambr')
                   else
                     ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
                   fi
+                  if [[ -z "$(git ls-files --others --exclude-standard -- "${ambr_pathspec[@]}")" ]] && git diff --quiet -- "${ambr_pathspec[@]}"; then
+                    echo "No snapshot changes"
+                    exit 0
+                  fi
+
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
+                  .github/scripts/verify-new-snapshots.sh
+                  mkdir -p /tmp/patches
+                  # Stage any new/modified .ambr files so they appear in git diff
+                  git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
                     git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "No snapshot changes to patch"
                   fi
 
             - name: Upload snapshot patch
-              # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-patch.outputs.changed == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
