@@ -1378,3 +1378,10 @@ export const PosthogSupportTicketsListStatus = {
     OnHold: 'on_hold',
     Resolved: 'resolved',
 } as const
+
+export type PosthogSupportTicketsRetrieveParams = {
+    /**
+     * Only return messages sent after this time. When `has_more` is true, pass the `created_at` of the last message to read the next page.
+     */
+    after?: string
+}

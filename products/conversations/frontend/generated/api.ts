@@ -33,6 +33,7 @@ import type {
     PostHogSupportTicketDetailApi,
     PostHogSupportTicketListApi,
     PosthogSupportTicketsListParams,
+    PosthogSupportTicketsRetrieveParams,
     SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
@@ -713,8 +714,8 @@ export const posthogSupportTicketsList = async (
     projectId: string,
     params?: PosthogSupportTicketsListParams,
     options?: RequestInit
-): Promise<PostHogSupportTicketListApi[]> => {
-    return apiMutator<PostHogSupportTicketListApi[]>(getPosthogSupportTicketsListUrl(projectId, params), {
+): Promise<PostHogSupportTicketListApi> => {
+    return apiMutator<PostHogSupportTicketListApi>(getPosthogSupportTicketsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -741,8 +742,24 @@ export const posthogSupportTicketsCreate = async (
     })
 }
 
-export const getPosthogSupportTicketsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/posthog_support/tickets/${id}/`
+export const getPosthogSupportTicketsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: PosthogSupportTicketsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/posthog_support/tickets/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/posthog_support/tickets/${id}/`
 }
 
 /**
@@ -752,9 +769,10 @@ export const getPosthogSupportTicketsRetrieveUrl = (projectId: string, id: strin
 export const posthogSupportTicketsRetrieve = async (
     projectId: string,
     id: string,
+    params?: PosthogSupportTicketsRetrieveParams,
     options?: RequestInit
 ): Promise<PostHogSupportTicketDetailApi> => {
-    return apiMutator<PostHogSupportTicketDetailApi>(getPosthogSupportTicketsRetrieveUrl(projectId, id), {
+    return apiMutator<PostHogSupportTicketDetailApi>(getPosthogSupportTicketsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

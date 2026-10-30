@@ -140862,6 +140862,13 @@ export namespace Schemas {
       Resolved: 'resolved',
     } as const;
 
+    export type PosthogSupportTicketsRetrieveParams = {
+    /**
+     * Only return messages sent after this time. When `has_more` is true, pass the `created_at` of the last message to read the next page.
+     */
+    after?: string;
+    };
+
     export type PrecomputeDebugStateParams = {
     /**
      * Maximum number of hash groups to return (1–200).

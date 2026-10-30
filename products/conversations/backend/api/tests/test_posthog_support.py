@@ -171,8 +171,10 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
         listed = self._call("get", self.url).json()
         own = self._call("get", f"{self.url}{own_ticket_id}/")
         other = self._call("get", f"{self.url}{other_ticket.id}/")
+        not_a_uuid = self._call("get", f"{self.url}{'-' * 36}/")
 
         assert [ticket["id"] for ticket in listed["results"]] == [own_ticket_id]
         assert own.status_code == status.HTTP_200_OK
         assert own.json()["messages"][0]["author_type"] == "customer"
         assert other.status_code == status.HTTP_404_NOT_FOUND
+        assert not_a_uuid.status_code == status.HTTP_404_NOT_FOUND

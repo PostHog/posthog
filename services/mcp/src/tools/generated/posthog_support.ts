@@ -57,11 +57,14 @@ const posthogSupportTicketCreate = (): ToolBase<
 
 const PosthogSupportTicketGetSchema = () => {
     const PosthogSupportTicketsRetrieveParams = orvalSchemas.PosthogSupportTicketsRetrieveParams()
-    return PosthogSupportTicketsRetrieveParams.omit({ project_id: true }).extend({
-        id: PosthogSupportTicketsRetrieveParams.shape['id'].describe(
-            'Ticket ID from posthog-support-tickets-list or from posthog-support-ticket-create.'
-        ),
-    })
+    const PosthogSupportTicketsRetrieveQueryParams = orvalSchemas.PosthogSupportTicketsRetrieveQueryParams()
+    return PosthogSupportTicketsRetrieveParams.omit({ project_id: true })
+        .extend(PosthogSupportTicketsRetrieveQueryParams.shape)
+        .extend({
+            id: PosthogSupportTicketsRetrieveParams.shape['id'].describe(
+                'Ticket ID from posthog-support-tickets-list or from posthog-support-ticket-create.'
+            ),
+        })
 }
 
 const posthogSupportTicketGet = (): ToolBase<
@@ -75,6 +78,9 @@ const posthogSupportTicketGet = (): ToolBase<
         const result = await context.api.request<Schemas.PostHogSupportTicketDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/tickets/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                after: params.after,
+            },
         })
         return result
     },
@@ -87,13 +93,13 @@ const PosthogSupportTicketsListSchema = () => {
 
 const posthogSupportTicketsList = (): ToolBase<
     ReturnType<typeof PosthogSupportTicketsListSchema>,
-    Schemas.PostHogSupportTicketList[]
+    Schemas.PostHogSupportTicketList
 > => ({
     name: 'posthog-support-tickets-list',
     schema: PosthogSupportTicketsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportTicketsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PostHogSupportTicketList[]>({
+        const result = await context.api.request<Schemas.PostHogSupportTicketList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/tickets/`,
             query: {

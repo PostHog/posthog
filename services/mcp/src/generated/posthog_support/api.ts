@@ -132,7 +132,9 @@ export const PosthogSupportTicketsCreateBody = () => zod.object({
  * Read the status and the messages of one of the signed-in user's tickets with PostHog support. Internal notes of the support team are not included.
  * @summary Read a PostHog support ticket
  */
-export const posthogSupportTicketsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]{36}$')
+export const posthogSupportTicketsRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
 
 export const PosthogSupportTicketsRetrieveParams = () => zod.object({
     id: zod.string().regex(posthogSupportTicketsRetrievePathIdRegExp),
@@ -140,5 +142,14 @@ export const PosthogSupportTicketsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const PosthogSupportTicketsRetrieveQueryParams = () => zod.object({
+    after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Only return messages sent after this time. When `has_more` is true, pass the `created_at` of the last message to read the next page.'
         ),
 })
