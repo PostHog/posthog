@@ -70,9 +70,9 @@ class NoticeRow implements Component {
     if (this.notice.tone === "error") {
       return [` \u001b[31m${this.notice.text}\u001b[39m`];
     }
-    if (this.notice.tone === "done") return [DIM(` ✻ ${this.notice.text}`)];
+    if (this.notice.tone === "done") return [DIM(` ※ ${this.notice.text}`)];
     const detail = this.notice.detail ? ` ${this.notice.detail}` : "";
-    return [`${DIM(" ✻")} ${shimmer(this.notice.text)}${DIM(detail)}`];
+    return [`${DIM(" ※")} ${shimmer(this.notice.text)}${DIM(detail)}`];
   }
 
   invalidate(): void {}
