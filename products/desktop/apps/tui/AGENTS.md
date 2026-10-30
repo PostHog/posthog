@@ -32,6 +32,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | --- | --- |
 | `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to `~/.config/posthog-tui/layout.json` |
+| `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |
@@ -74,4 +75,3 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - Before a run exists, `/` lists only the built-in commands. The plan is bundled skills and the repo's `.claude/skills` from disk, then user skills with the desktop's upload step.
 - A local chat has a task row but no run, and its conversation lives only in its pi session file on this machine. The server hears nothing about local activity, so the sidebar sorts local chats by their session file's last change.
 - The desktop app keeps its own local pi session files, so a TUI local chat opened there shows no conversation, and the reverse.
-- Divider corners do not join. Box borders cannot place junctions; drawing dividers from the computed sizes would.

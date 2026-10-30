@@ -3,7 +3,8 @@ import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
 import { Spinner } from "./Spinner";
 
-export const SIDEBAR_WIDTH = 32;
+// The chat area draws the sidebar's right edge, so its lines can join it.
+export const SIDEBAR_WIDTH = 31;
 
 // Blank rows under the header; clicks on the sidebar skip them.
 export const HEADER_GAP = 1;
@@ -139,12 +140,6 @@ export function Sidebar({
       width={SIDEBAR_WIDTH}
       flexShrink={0}
       flexDirection="column"
-      borderStyle="single"
-      borderColor="gray"
-      borderDimColor
-      borderTop={false}
-      borderBottom={false}
-      borderLeft={false}
       paddingX={1}
       overflow="hidden"
     >

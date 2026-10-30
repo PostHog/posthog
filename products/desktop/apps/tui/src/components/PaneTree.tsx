@@ -1,80 +1,111 @@
-import { Box, type DOMElement } from "ink";
+import { Box, type DOMElement, Text } from "ink";
 import type { ReactElement } from "react";
-import { type LayoutNode, type PaneNode, paneIds, splitSizes } from "../layout";
+import { type Cell, splitCells } from "../dividers";
+import { type PaneNode, paneIds } from "../layout";
 
-type Divider = "left" | "top" | null;
+export type Glyph = (x: number, y: number) => string;
 
-// A split draws one line between neighbours: left of each column after the first, above each row after the first.
-function dividerProps(divider: Divider) {
-  return divider
-    ? {
-        borderStyle: "single" as const,
-        borderColor: "gray",
-        borderDimColor: true,
-        borderTop: divider === "top",
-        borderLeft: divider === "left",
-        borderRight: false,
-        borderBottom: false,
-      }
-    : {};
+// One column of divider glyphs, drawn from the chat area's joined lines.
+export function DividerColumn({
+  x,
+  y,
+  height,
+  glyph,
+}: {
+  x: number;
+  y: number;
+  height: number;
+  glyph: Glyph;
+}): ReactElement {
+  const rows = Array.from({ length: height }, (_, row) => glyph(x, y + row));
+  return (
+    <Box width={1} height={height} flexShrink={0}>
+      <Text color="gray" dimColor>
+        {rows.join("\n")}
+      </Text>
+    </Box>
+  );
 }
 
-// Lays out a workspace's splits and draws each pane in its cell.
-// Splits get whole-cell sizes worked out here; flex layout rounds half cells and leaves gaps.
-export function PaneTree({
-  node,
-  divider = null,
+function DividerRow({
+  x,
+  y,
   width,
-  height,
+  glyph,
+}: {
+  x: number;
+  y: number;
+  width: number;
+  glyph: Glyph;
+}): ReactElement {
+  const columns = Array.from({ length: width }, (_, column) =>
+    glyph(x + column, y),
+  );
+  return (
+    <Text color="gray" dimColor wrap="truncate-end">
+      {columns.join("")}
+    </Text>
+  );
+}
+
+// Lays out a workspace's splits and draws each pane in its cell, with the dividers between them.
+export function PaneTree({
+  cell,
+  glyph,
   renderPane,
   onPaneBox,
 }: {
-  node: LayoutNode;
-  divider?: Divider;
-  width: number;
-  height: number;
+  cell: Cell;
+  glyph: Glyph;
   renderPane: (pane: PaneNode) => ReactElement;
   onPaneBox: (paneId: string, element: DOMElement | null) => void;
 }): ReactElement {
-  if (node.kind === "pane") {
-    return (
+  const { node, divider, x, y, width, height } = cell;
+  const content =
+    node.kind === "pane" ? (
       <Box
-        ref={(element) => onPaneBox(node.id, element)}
-        width={width}
-        height={height}
+        width={width - (divider === "left" ? 1 : 0)}
+        height={height - (divider === "top" ? 1 : 0)}
         flexDirection="column"
-        {...dividerProps(divider)}
       >
         {renderPane(node)}
       </Box>
+    ) : (
+      <Box flexDirection={node.direction} flexGrow={1}>
+        {splitCells(cell).map((child) => (
+          <PaneTree
+            key={
+              child.node.kind === "pane"
+                ? child.node.id
+                : paneIds(child.node).join()
+            }
+            cell={child}
+            glyph={glyph}
+            renderPane={renderPane}
+            onPaneBox={onPaneBox}
+          />
+        ))}
+      </Box>
     );
-  }
-  const across = node.direction === "row";
-  // This split's own divider takes a row or column before its children share the rest.
-  const innerWidth = width - (divider === "left" ? 1 : 0);
-  const innerHeight = height - (divider === "top" ? 1 : 0);
-  const sizes = splitSizes(
-    across ? innerWidth : innerHeight,
-    node.children.length,
-  );
   return (
     <Box
-      flexDirection={node.direction}
+      ref={
+        node.kind === "pane"
+          ? (element) => onPaneBox(node.id, element)
+          : undefined
+      }
       width={width}
       height={height}
-      {...dividerProps(divider)}
+      flexShrink={0}
+      flexDirection={divider === "left" ? "row" : "column"}
     >
-      {node.children.map((child, index) => (
-        <PaneTree
-          key={child.kind === "pane" ? child.id : paneIds(child).join()}
-          node={child}
-          divider={index === 0 ? null : across ? "left" : "top"}
-          width={across ? sizes[index] : innerWidth}
-          height={across ? innerHeight : sizes[index]}
-          renderPane={renderPane}
-          onPaneBox={onPaneBox}
-        />
-      ))}
+      {divider === "left" && (
+        <DividerColumn x={x} y={y} height={height} glyph={glyph} />
+      )}
+      {divider === "top" && (
+        <DividerRow x={x} y={y} width={width} glyph={glyph} />
+      )}
+      {content}
     </Box>
   );
 }
