@@ -101,6 +101,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.signals.backend.facade.billing import TeamSignalsCredits
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -5185,8 +5186,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         org_ids = [str(org_a.id), str(org_b.id)]
 
         with patch(
-            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
-            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+            "posthog.tasks.usage_report.signals_billing_credits_by_team",
+            return_value=[
+                TeamSignalsCredits(team_id=team_a1.id, credits=1500),
+                TeamSignalsCredits(team_id=team_a2.id, credits=1500),
+                TeamSignalsCredits(team_id=team_b.id, credits=1500),
+            ],
         ) as signals_credits:
             totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
 

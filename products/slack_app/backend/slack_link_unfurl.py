@@ -54,8 +54,7 @@ from products.feature_flags.backend.facade.filters import condition_rollout_perc
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
-from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -1158,11 +1157,7 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
 
 
 def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    report = (
-        SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
-        if _uuid(ref)
-        else None
-    )
+    report = get_report_card(team_id=ctx.team.pk, report_id=ref) if _uuid(ref) else None
     if not report:
         return "not_found"
     if not may_read_reports(user=ctx.user, team=ctx.team):

@@ -38,8 +38,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
-from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.facade.llm import call_llm
+from products.signals.backend.facade.taxonomy import SignalSourceProduct, SignalSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -175,10 +175,12 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
     """
 
     def _is_eval_report_source_enabled() -> Team | None:
-        if not SignalSourceConfig.is_source_enabled(
+        from products.signals.backend.facade.api import is_signal_source_enabled
+
+        if not is_signal_source_enabled(
             inputs.team_id,
-            SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            SignalSourceConfig.SourceType.EVALUATION_REPORT,
+            SignalSourceProduct.LLM_ANALYTICS,
+            SignalSourceType.EVALUATION_REPORT,
         ):
             return None
         # Inbox copies cannot enforce the source's property or evaluation permissions.

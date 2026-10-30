@@ -14,7 +14,7 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, H
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS, ensure_registry_loaded
 
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 if TYPE_CHECKING:
     from django.db.models import Model
