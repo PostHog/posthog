@@ -34,6 +34,10 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.events_subquery_pushdown import (
+    apply_events_subquery_pushdown,
+    events_subquery_pushdown_enabled,
+)
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -329,6 +333,12 @@ def prepare_ast_for_printing(
     # detection, before property resolution reads the modifier.
     if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    # Before projection pruning, so a `properties` blob the outer query stops reading can be pruned from the
+    # subquery, and before the lazy-join pass, so the subquery is still a bare events scan.
+    if dialect == "clickhouse" and events_subquery_pushdown_enabled(context.modifiers):
+        with context.timings.measure("events_subquery_pushdown"):
+            node = apply_events_subquery_pushdown(node, context)
 
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
