@@ -13,8 +13,10 @@ const fetchStreamedMock = fetchStreamed as jest.MockedFunction<typeof fetchStrea
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
 const GIF = Buffer.from('GIF89a-and-then-some')
+const WOFF2 = Buffer.from('wOF2-and-then-some')
 
 const OPTIONS: ImageFetchOptions = {
+    asset: 'image',
     maxBytes: 1000,
     timeoutMs: 5000,
     maxRedirects: 3,
@@ -153,16 +155,20 @@ describe('HttpImageFetcher', () => {
     })
 
     it.each([
-        ['a type that is not an image', 'text/html', PNG, 'not_image'],
-        ['an SVG, which the store validates as a document', 'image/svg+xml', PNG, 'ok'],
-        ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
-        ['the AVIF format', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
-        ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
-        ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
-    ])('handles %s', async (_name, contentType, bytes, outcome) => {
+        ['a type that is not an image', 'image', 'text/html', PNG, 'not_image'],
+        ['an SVG, which the store validates as a document', 'image', 'image/svg+xml', PNG, 'ok'],
+        ['the BMP format', 'image', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['the AVIF format', 'image', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
+        ['a payload that is not the declared format', 'image', 'image/gif', PNG, 'ok'],
+        ['a payload of the wrong raster format', 'image', 'image/png', GIF, 'ok'],
+        ['a generic binary type for an image', 'image', 'application/octet-stream', PNG, 'not_image'],
+        ['a generic binary type for a font', 'font', 'application/octet-stream', WOFF2, 'ok'],
+        ['a legacy font type', 'font', 'application/x-font-woff', WOFF2, 'ok'],
+        ['an image where a font is expected', 'font', 'image/png', PNG, 'not_image'],
+    ] as const)('handles %s', async (_name, asset, contentType, bytes, outcome) => {
         fetchStreamedMock.mockResolvedValue(image(bytes, contentType))
 
-        const result = await fetcher().fetch('https://cdn.example.com/a', OPTIONS)
+        const result = await fetcher().fetch('https://cdn.example.com/a', { ...OPTIONS, asset })
 
         expect(result).toMatchObject({ outcome })
     })

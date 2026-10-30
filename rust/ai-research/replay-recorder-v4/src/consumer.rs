@@ -404,6 +404,7 @@ pub struct Settings {
     pub session_state_max_bytes: usize,
     /// The main topic, when the main lane moves its force-overflow messages to the overflow topic.
     pub redirecting_topic: Option<String>,
+    pub font_urls_enabled: bool,
 }
 
 /// What the consume loop reads besides Kafka.
@@ -690,11 +691,14 @@ async fn flush_steps(
         .collect();
     // Before anything is stored, so a restart after a failed flush reads it again from where this process started.
     with_heartbeat(handle, consumer.commit_starts(true)).await;
-    let blocks = with_heartbeat(
+    let mut blocks = with_heartbeat(
         handle,
         inspectors.inspect(batch, settings.flush_concurrency),
     )
     .await;
+    if !settings.font_urls_enabled {
+        blocks.iter_mut().for_each(Block::keep_font_urls_raw);
+    }
     report(&blocks);
     if let Some(writer) = writer {
         let mut blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
@@ -839,6 +843,7 @@ mod tests {
                 stats: BlockStats::default(),
                 moments: Vec::new(),
                 image_urls: Vec::new(),
+                font_urls: Vec::new(),
                 remote_urls: Vec::new(),
                 url_limit: None,
                 srcsets: Vec::new(),

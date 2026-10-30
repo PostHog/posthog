@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
-use replay_core_v4::inspect::dom::{Srcset, UrlLimit};
+use replay_core_v4::inspect::dom::{RemoteKind, RemoteUrl, Srcset, UrlLimit};
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::cv::{Expansion, MESSAGE_DECODE_BUDGET};
@@ -92,8 +92,11 @@ pub struct Block {
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced.
     pub image_urls: Vec<String>,
-    /// Every remote URL in an image slot of the block, which the writer replaces with its reference.
-    pub remote_urls: Vec<String>,
+    /// Remote font files the block's stylesheets referenced, of families the renderer does not ship.
+    pub font_urls: Vec<String>,
+    /// Every remote URL in an image slot or an `@font-face` rule of the block, which the writer replaces with its
+    /// reference.
+    pub remote_urls: Vec<RemoteUrl>,
     /// Set when the inspector stopped short of naming every remote URL, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
@@ -102,6 +105,14 @@ pub struct Block {
     pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
     pub captured_at_ms: Option<i64>,
+}
+
+impl Block {
+    pub fn keep_font_urls_raw(&mut self) {
+        self.font_urls.clear();
+        self.remote_urls
+            .retain(|remote| remote.kind == RemoteKind::Image);
+    }
 }
 
 /// The decoded `cv` strings one flush keeps, on top of the decoded payloads that the flush size counts.
@@ -510,6 +521,7 @@ fn inspect_session(
                 stats: inspected.stats,
                 moments: inspected.moments,
                 image_urls: inspected.image_urls,
+                font_urls: inspected.font_urls,
                 remote_urls: inspected.remote_urls,
                 url_limit: inspected.url_limit,
                 srcsets: inspected.srcsets,

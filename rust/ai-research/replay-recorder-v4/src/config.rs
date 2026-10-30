@@ -120,7 +120,13 @@ pub struct Config {
     #[envconfig(from = "AI_RESEARCH_V4_IMAGES_BUCKET", default = "")]
     pub images_bucket: String,
 
-    /// Where remote image URLs go for the v4 image fetcher.
+    /// On, the recorder replaces each `@font-face` URL with a `fonturl:v4` reference and sends a fetch job for it. Turn
+    /// it on only after the image fetcher reads font references and may write `fonts/url/`: an older fetcher sends a
+    /// whole record that holds a font job to its dead-letter topic, with the image jobs in that record.
+    #[envconfig(from = "AI_RESEARCH_V4_FONT_URLS_ENABLED", default = "false")]
+    pub font_urls_enabled: bool,
+
+    /// Where remote image and font URLs go for the v4 image fetcher.
     #[envconfig(
         from = "AI_RESEARCH_V4_IMAGE_FETCH_TOPIC",
         default = "ai_research_v4_image_fetch"

@@ -362,7 +362,7 @@ pub fn is_remote(url: &str) -> bool {
     }
 }
 
-/// The media types the image fetcher stores, the `ALLOWED_CONTENT_TYPES` of `image-fetch-v4/image-fetcher.ts`.
+/// The media types the image fetcher stores, the `SUPPORTED_IMAGE_MEDIA_TYPES` of `image-fetch-v4/image-transport.ts`.
 pub const FETCHED_IMAGE_TYPES: [&str; 5] = [
     "image/png",
     "image/jpeg",

@@ -1,12 +1,40 @@
-//! Remote image URLs in CSS, found with the rules of v3 `css.rs`: the `url()` and the best `image-set()` candidate in the
-//! value of a property that shows an image. Custom properties and other properties do not count.
+//! Remote URLs in CSS. Image URLs are found with the rules of v3 `css.rs`: the `url()` and the best `image-set()`
+//! candidate in the value of a property that shows an image. Custom properties and other properties do not count. Font
+//! URLs are the `url()`s in the `src` descriptor of an `@font-face` rule.
 
-/// Calls `found` with each image URL candidate in `css`: a `style` attribute, `<style>` text or `_cssText`, which v3
-/// reads the same way.
-pub fn image_urls(css: &str, found: &mut impl FnMut(&str)) {
-    for (start, end, collect) in declaration_value_ranges(css) {
-        if collect {
-            value_urls(&css[start..end], found);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CssUrl<'a> {
+    Image(&'a str),
+    /// A `src` URL of an `@font-face` rule, with the raw value of that rule's `font-family` descriptor.
+    Font {
+        url: &'a str,
+        family: Option<&'a str>,
+    },
+}
+
+/// Calls `found` with each URL candidate in `css`: a `style` attribute, `<style>` text or `_cssText`, which v3 reads
+/// the same way for images.
+pub fn urls(css: &str, found: &mut impl FnMut(CssUrl<'_>)) {
+    let declarations = declarations(css);
+    let mut families: Vec<Option<&str>> = Vec::new();
+    for declaration in &declarations {
+        if let DeclarationKind::FontFamily(face) = declaration.kind {
+            if families.len() <= face {
+                families.resize(face + 1, None);
+            }
+            // As in any declaration block, the last `font-family` of the rule wins.
+            families[face] = Some(&css[declaration.start..declaration.end]);
+        }
+    }
+    for declaration in &declarations {
+        let value = &css[declaration.start..declaration.end];
+        match declaration.kind {
+            DeclarationKind::Image => value_urls(value, &mut |url| found(CssUrl::Image(url))),
+            DeclarationKind::FontSrc(face) => {
+                let family = families.get(face).copied().flatten();
+                value_urls(value, &mut |url| found(CssUrl::Font { url, family }));
+            }
+            DeclarationKind::Custom | DeclarationKind::FontFamily(_) => {}
         }
     }
 }
@@ -17,15 +45,33 @@ pub fn declaration_image_urls(property: &str, value: &str, found: &mut impl FnMu
     }
 }
 
-/// The value ranges of the declarations in `css`, and whether each is an image property.
-fn declaration_value_ranges(css: &str) -> Vec<(usize, usize, bool)> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeclarationKind {
+    Image,
+    /// A custom property. Its value is skipped, so that a colon in it does not start a declaration.
+    Custom,
+    FontSrc(usize),
+    FontFamily(usize),
+}
+
+struct Declaration {
+    start: usize,
+    end: usize,
+    kind: DeclarationKind,
+}
+
+/// The value ranges of the declarations in `css` that hold a URL to report or text to skip.
+fn declarations(css: &str) -> Vec<Declaration> {
     let bytes = css.as_bytes();
-    let mut ranges: Vec<(usize, usize, bool)> = Vec::new();
+    let mut ranges: Vec<Declaration> = Vec::new();
     // Where the text of the current declaration starts, after the whitespace that leads it.
     let mut segment_start: Option<usize> = None;
     let mut brace_depth = 0usize;
     let mut paren_depth = 0usize;
     let mut bracket_depth = 0usize;
+    // The brace depth inside the `@font-face` rule the scan is in, and that rule's index.
+    let mut font_face: Option<(usize, usize)> = None;
+    let mut font_faces = 0usize;
     let mut position = 0;
     while position < bytes.len() {
         if segment_start.is_none() && !bytes[position].is_ascii_whitespace() {
@@ -50,9 +96,18 @@ fn declaration_value_ranges(css: &str) -> Vec<(usize, usize, bool)> {
             b']' => bracket_depth = bracket_depth.saturating_sub(1),
             b'{' if paren_depth == 0 && bracket_depth == 0 => {
                 brace_depth += 1;
+                if font_face.is_none()
+                    && is_font_face_prelude(&css[segment_start.unwrap_or(position)..position])
+                {
+                    font_face = Some((brace_depth, font_faces));
+                    font_faces += 1;
+                }
                 segment_start = None;
             }
             b'}' if paren_depth == 0 && bracket_depth == 0 => {
+                if font_face.is_some_and(|(depth, _)| depth == brace_depth) {
+                    font_face = None;
+                }
                 brace_depth = brace_depth.saturating_sub(1);
                 segment_start = None;
             }
@@ -60,17 +115,22 @@ fn declaration_value_ranges(css: &str) -> Vec<(usize, usize, bool)> {
             // A colon in a custom property value, as in `--link: https://…`, is not a new declaration.
             b':' if paren_depth == 0
                 && bracket_depth == 0
-                && ranges.last().is_none_or(|previous| position >= previous.1) =>
+                && ranges
+                    .last()
+                    .is_none_or(|previous| position >= previous.end) =>
             {
                 // Each colon trims only the whitespace before it, so a long selector list stays linear.
                 let property = css[segment_start.unwrap_or(position)..position].trim_end();
-                let image = is_image_property(property);
-                if image || property.starts_with("--") {
-                    ranges.push((
-                        position + 1,
-                        declaration_end(bytes, position + 1, brace_depth),
-                        image,
-                    ));
+                let kind = match font_face {
+                    Some((depth, face)) if depth == brace_depth => font_descriptor(property, face),
+                    _ => style_property(property),
+                };
+                if let Some(kind) = kind {
+                    ranges.push(Declaration {
+                        start: position + 1,
+                        end: declaration_end(bytes, position + 1, brace_depth),
+                        kind,
+                    });
                 }
             }
             _ => {}
@@ -78,6 +138,38 @@ fn declaration_value_ranges(css: &str) -> Vec<(usize, usize, bool)> {
         position += 1;
     }
     ranges
+}
+
+fn style_property(property: &str) -> Option<DeclarationKind> {
+    if is_image_property(property) {
+        Some(DeclarationKind::Image)
+    } else {
+        property
+            .starts_with("--")
+            .then_some(DeclarationKind::Custom)
+    }
+}
+
+fn font_descriptor(descriptor: &str, face: usize) -> Option<DeclarationKind> {
+    if descriptor.eq_ignore_ascii_case("src") {
+        Some(DeclarationKind::FontSrc(face))
+    } else if descriptor.eq_ignore_ascii_case("font-family") {
+        Some(DeclarationKind::FontFamily(face))
+    } else {
+        None
+    }
+}
+
+/// A comment can come before the at-keyword, so only the end of the prelude is compared.
+fn is_font_face_prelude(prelude: &str) -> bool {
+    const AT_KEYWORD: &[u8] = b"@font-face";
+    let bytes = prelude.trim_end().as_bytes();
+    let Some(start) = bytes.len().checked_sub(AT_KEYWORD.len()) else {
+        return false;
+    };
+    bytes[start..].eq_ignore_ascii_case(AT_KEYWORD)
+        && (start == 0
+            || !matches!(bytes[start - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
 }
 
 fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
@@ -406,13 +498,45 @@ fn starts_with(bytes: &[u8], start: usize, needle: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    fn found(css: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        urls(css, &mut |url| {
+            found.push(match url {
+                CssUrl::Image(url) => format!("image {url}"),
+                CssUrl::Font { url, family } => format!("font {url} {family:?}"),
+            })
+        });
+        found
+    }
+
     #[test]
     fn reads_past_escapes_outside_strings() {
         // Tailwind escapes brackets, parentheses and quotes in its arbitrary value class names.
         let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}";
-        let mut found = Vec::new();
-        image_urls(css, &mut |url| found.push(url.to_owned()));
-        assert_eq!(found, ["/hero.png", "https://cdn.example.com/a.png"]);
+        assert_eq!(
+            found(css),
+            ["image /hero.png", "image https://cdn.example.com/a.png"]
+        );
+    }
+
+    #[test]
+    fn reports_each_font_face_src_url_with_its_rules_family() {
+        let css = concat!(
+            "/* fonts */@FONT-FACE{font-family:'Brand Sans';src:url(https://cdn.example.com/brand.woff2) format('woff2'),local(Arial),url(\"https://cdn.example.com/brand.woff\")}",
+            "@media print{@font-face{src:url(https://cdn.example.com/print.woff2);font-family:Print}}",
+            "@font-face{src:url(https://cdn.example.com/nameless.woff2)}",
+            ".a{font-family:Inter;src:url(https://cdn.example.com/not-a-face.woff2);background:url(https://cdn.example.com/a.png)}",
+        );
+        assert_eq!(
+            found(css),
+            [
+                "font https://cdn.example.com/brand.woff2 Some(\"'Brand Sans'\")",
+                "font https://cdn.example.com/brand.woff Some(\"'Brand Sans'\")",
+                "font https://cdn.example.com/print.woff2 Some(\"Print\")",
+                "font https://cdn.example.com/nameless.woff2 None",
+                "image https://cdn.example.com/a.png",
+            ]
+        );
     }
 
     #[test]
@@ -421,8 +545,6 @@ mod tests {
             "{} a:hover {{ background: url(https://cdn.example.com/a.png) }}",
             "a:hover, b:focus-visible,\n".repeat(50_000)
         );
-        let mut found = Vec::new();
-        image_urls(&css, &mut |url| found.push(url.to_owned()));
-        assert_eq!(found, ["https://cdn.example.com/a.png"]);
+        assert_eq!(found(&css), ["image https://cdn.example.com/a.png"]);
     }
 }

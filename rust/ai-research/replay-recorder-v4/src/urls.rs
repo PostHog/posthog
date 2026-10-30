@@ -1,11 +1,12 @@
-//! Fetch jobs for the remote images a flush's blocks referenced, in the v3 fetch topic's job shape.
+//! Fetch jobs for the remote images and fonts a flush's blocks referenced, in the v3 fetch topic's job shape. Both go to
+//! one topic keyed by registrable domain, so fonts share the image jobs' partitions and politeness limits.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use metrics::counter;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
-use replay_core_v4::refs::{image_url_ref, reference_hash};
+use replay_core_v4::refs::{reference_hash, url_ref, UrlAsset};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{
     is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
@@ -22,8 +23,8 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// How many redirects a job may follow, as in v3.
 const REMAINING_HOPS: u32 = 10;
 
-/// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in the stats paired with it. `already_sent` names references this process sent today.
+/// Builds one job per new remote image or font URL, grouped by registrable domain, the topic's key. Counts each block's
+/// image URLs in the stats paired with it. `already_sent` names references this process sent today.
 pub fn fetch_jobs<'b>(
     blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,
@@ -45,13 +46,17 @@ pub fn fetch_jobs<'b>(
             continue;
         };
         let url_key = image_url_key(team_key);
-        for raw in &block.image_urls {
+        let images = block.image_urls.iter().map(|url| (url, UrlAsset::Image));
+        let fonts = block.font_urls.iter().map(|url| (url, UrlAsset::Font));
+        for (raw, asset) in images.chain(fonts) {
             let Ok((url, reference)) =
-                url_reference(raw, block.session.team_id, key_month, &url_key)
+                url_reference(raw, asset, block.session.team_id, key_month, &url_key)
             else {
                 continue;
             };
-            stats.image_urls += 1;
+            if asset == UrlAsset::Image {
+                stats.image_urls += 1;
+            }
             if already_sent(&reference) || !seen.insert(reference.clone()) {
                 continue;
             }
@@ -71,10 +76,11 @@ pub fn fetch_jobs<'b>(
     jobs
 }
 
-/// The reference of a remote image URL, the same in the fetch job and in the stored block, or why the policy declines
-/// the URL. `url_key` is the team's URL key for `key_month`.
+/// The reference of a remote image or font URL, the same in the fetch job and in the stored block, or why the policy
+/// declines the URL. `url_key` is the team's URL key for `key_month`.
 pub fn url_reference(
     raw: &str,
+    asset: UrlAsset,
     team_id: i64,
     key_month: &str,
     url_key: &[u8; 32],
@@ -89,7 +95,8 @@ pub fn url_reference(
     if is_tracking_beacon(&url.host, &path) {
         return Err(Decline::TrackingBeacon);
     }
-    let reference = image_url_ref(
+    let reference = url_ref(
+        asset,
         team_id,
         key_month,
         &reference_hash(url_key, url.dedup.as_bytes()),
@@ -205,6 +212,7 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
+            font_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
@@ -231,7 +239,7 @@ mod tests {
                 .dedup
                 .as_bytes(),
         );
-        let sent = image_url_ref(7, "2026-10", &sent_hash);
+        let sent = url_ref(UrlAsset::Image, 7, "2026-10", &sent_hash);
 
         let jobs = fetch_jobs(
             [(&block, &mut stats)],

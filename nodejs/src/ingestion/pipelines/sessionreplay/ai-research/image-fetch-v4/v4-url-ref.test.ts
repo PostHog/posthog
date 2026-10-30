@@ -5,9 +5,12 @@ import { parseV4UrlRef } from './v4-url-ref'
 describe('parseV4UrlRef', () => {
     const hash = 'a'.repeat(22)
 
-    it('parses a month-scoped v4 URL ref that no v2 or v3 reader takes', () => {
-        const ref = `imageurl:v4:7:2026-10:${hash}`
-        expect(parseV4UrlRef(ref)).toEqual({ teamId: 7, keyMonth: '2026-10', hash })
+    it.each([
+        ['imageurl', 'image'],
+        ['fonturl', 'font'],
+    ])('parses a month-scoped v4 %s ref that no v2 or v3 reader takes', (prefix, asset) => {
+        const ref = `${prefix}:v4:7:2026-10:${hash}`
+        expect(parseV4UrlRef(ref)).toEqual({ asset, teamId: 7, keyMonth: '2026-10', hash })
         expect(parseImageRef(ref)).toBeNull()
     })
 
@@ -17,6 +20,7 @@ describe('parseV4UrlRef', () => {
         ['a month that does not exist', `imageurl:v4:7:2026-13:${hash}`],
         ['a day-scoped ref', `imageurl:v4:7:2026-10-15:${hash}`],
         ['a team id of zero', `imageurl:v4:0:2026-10:${hash}`],
+        ['a bundled font marker, which names no URL', 'fonturl:v4:bundled:open-sans'],
     ])('refuses %s', (_name, ref) => {
         expect(parseV4UrlRef(ref)).toBeNull()
     })

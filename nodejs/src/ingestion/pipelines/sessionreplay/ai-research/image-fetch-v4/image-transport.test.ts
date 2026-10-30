@@ -4,6 +4,7 @@ import {
     MAX_UNCOMPRESSED_IMAGE_BYTES,
     SUPPORTED_IMAGE_MEDIA_TYPES,
     imageBytesMatchMediaType,
+    prepareFetchedFont,
     prepareFetchedImage,
 } from './image-transport'
 
@@ -142,5 +143,34 @@ describe('image transport', () => {
         ['an AVIF content-type', AVIF_HEADER, 'image/avif', 'unsupported_content_type'],
     ] as const)('labels %s', async (_case, bytes, contentType, reason) => {
         await expect(prepareFetchedImage(bytes, contentType, undefined)).rejects.toMatchObject({ reason })
+    })
+
+    it.each([
+        ['WOFF2', Buffer.from('wOF2body'), 'font/woff2', null],
+        [
+            'TrueType with a generic binary type',
+            Buffer.from([0x00, 0x01, 0x00, 0x00, 0x00]),
+            'binary/octet-stream',
+            null,
+        ],
+        ['OpenType', Buffer.from('OTTObody'), 'font/otf', null],
+        [
+            'an HTML error page with a generic binary type',
+            Buffer.from('<html>'),
+            'application/octet-stream',
+            'content_type_mismatch',
+        ],
+        [
+            'an Embedded OpenType font',
+            Buffer.from('\x00\x00\x01\x00LP', 'binary'),
+            'application/vnd.ms-fontobject',
+            'unsupported_content_type',
+        ],
+        ['a font with a text type', Buffer.from('wOF2body'), 'text/plain', 'unsupported_content_type'],
+    ] as const)('takes or refuses %s as a font', async (_case, bytes, contentType, reason) => {
+        const prepared = prepareFetchedFont(gzipSync(bytes), contentType, 'gzip')
+        await (reason === null
+            ? expect(prepared).resolves.toEqual(bytes)
+            : expect(prepared).rejects.toMatchObject({ reason }))
     })
 })
