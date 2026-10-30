@@ -1,12 +1,10 @@
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
-from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
@@ -15,9 +13,6 @@ from products.alerts.backend.facade import organization_offboarding as alerts
 from products.subscriptions.backend.facade import api as subscriptions
 
 if TYPE_CHECKING:
-    from posthog.models.user import User
-
-    from products.dashboards.backend.models.dashboard import Dashboard
     from products.notebooks.backend.models import Notebook
     from products.product_analytics.backend.models.insight import Insight
 
@@ -44,9 +39,7 @@ class OrganizationOffboarding:
         self.organization_id = str(membership.organization_id)
         self.user_id = membership.user_id
 
-    def _public_resources(
-        self, resource_kind: PublicResourceKind, *, include_deleted: bool = False
-    ) -> list[OffboardingResource]:
+    def _public_resources(self, resource_kind: PublicResourceKind) -> list[OffboardingResource]:
         kind = resource_kind.kind
         related_to_member = Q(shared_by_id=self.user_id)
         if kind != "recording":
@@ -81,9 +74,8 @@ class OrganizationOffboarding:
             )
             .order_by("-created_at")
         )
-        if not include_deleted:
-            # nosemgrep: orm-field-injection -- kind comes from the fixed PUBLIC_RESOURCE_KINDS registry
-            configurations = configurations.exclude(**{f"{kind}__deleted": True})
+        # nosemgrep: orm-field-injection -- kind comes from the fixed PUBLIC_RESOURCE_KINDS registry
+        configurations = configurations.exclude(**{f"{kind}__deleted": True})
         resources: dict[str, OffboardingResource] = {}
         for configuration in configurations.iterator(chunk_size=200):
             resource = cast(models.Model, getattr(configuration, kind))
@@ -115,61 +107,8 @@ class OrganizationOffboarding:
             )
         return list(resources.values())
 
-    def resources(self, *, include_deleted: bool = False) -> list[OffboardingResource]:
-        resources = [
-            resource
-            for kind in PUBLIC_RESOURCE_KINDS
-            for resource in self._public_resources(kind, include_deleted=include_deleted)
-        ]
+    def resources(self) -> list[OffboardingResource]:
+        resources = [resource for kind in PUBLIC_RESOURCE_KINDS for resource in self._public_resources(kind)]
         resources.extend(alerts.list_member_offboarding_resources(self.organization_id, self.user_id))
         resources.extend(subscriptions.list_member_offboarding_resources(self.organization_id, self.user_id))
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
-
-    def remove(self, keep: set[str], *, actor: "User", was_impersonated: bool = False) -> None:
-        if self.membership.level == OrganizationMembership.Level.OWNER:
-            raise ValidationError("Cannot leave the organization as its owner!")
-        with transaction.atomic():
-            for resource in self.resources(include_deleted=True):
-                if resource.kind in {kind.kind for kind in PUBLIC_RESOURCE_KINDS} and resource.id not in keep:
-                    resource_id = resource.id.split(":", 3)[3]
-                    configurations = SharingConfiguration.objects.filter(
-                        team_id=resource.team_id, **{f"{resource.kind}_id": resource_id}
-                    )
-                    field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
-                    resource_model = cast(type[models.Model], field.related_model)
-                    # Cleanup includes soft-deleted objects hidden by the default manager.
-                    locked_resource = resource_model._base_manager.select_for_update().get(
-                        **{field.target_field.name: resource_id, "team_id": resource.team_id}
-                    )
-                    changed = configurations.filter(enabled=True).update(enabled=False)
-                    if changed:
-                        scope = {
-                            "dashboard": "Dashboard",
-                            "insight": "Insight",
-                            "notebook": "Notebook",
-                            "recording": "SessionRecording",
-                        }[resource.kind]
-                        short_id = getattr(locked_resource, "short_id", None)
-                        log_activity(
-                            organization_id=self.membership.organization_id,
-                            team_id=resource.team_id,
-                            user=actor,
-                            was_impersonated=was_impersonated,
-                            item_id=short_id if resource.kind == "notebook" else resource_id,
-                            scope=scope,
-                            activity="sharing disabled",
-                            detail=Detail(
-                                name=resource.name,
-                                short_id=str(short_id) if short_id else None,
-                                changes=[
-                                    Change(type=scope, action="changed", field="sharing", before=True, after=False)
-                                ],
-                            ),
-                        )
-                    if resource.kind == "dashboard":
-                        dashboard = cast("Dashboard", locked_resource)
-                        dashboard.is_shared = False
-                        dashboard.save(update_fields=["is_shared"])
-            alerts.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
-            subscriptions.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
-            self.membership.user.leave(organization=self.membership.organization)

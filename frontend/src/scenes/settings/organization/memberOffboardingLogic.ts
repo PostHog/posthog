@@ -17,7 +17,7 @@ import {
 import { OrganizationMemberType } from '~/types'
 
 import { alertsPartialUpdate } from 'products/alerts/frontend/generated/api'
-import { membersOffboardCreate, membersOffboardingRetrieve } from 'products/platform_features/frontend/generated/api'
+import { membersDestroy, membersOffboardingPreviewRetrieve } from 'products/platform_features/frontend/generated/api'
 import type { MemberOffboardingResourceApi } from 'products/platform_features/frontend/generated/api.schemas'
 import { subscriptionsPartialUpdate } from 'products/subscriptions/frontend/generated/api'
 
@@ -201,7 +201,7 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                 if (!member) {
                     return null
                 }
-                const resources = await membersOffboardingRetrieve(
+                const resources = await membersOffboardingPreviewRetrieve(
                     values.currentOrganization?.id ?? '@current',
                     member.user.uuid
                 )
@@ -280,7 +280,7 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                     return false
                 }
                 const member = values.member
-                await membersOffboardCreate(values.currentOrganization?.id ?? '@current', member.user.uuid)
+                await membersDestroy(values.currentOrganization?.id ?? '@current', member.user.uuid)
                 lemonToast.success(`Removed ${fullNameOrEmail(member.user)} from organization`)
                 actions.close()
                 actions.postRemoveMember(member.user.uuid)

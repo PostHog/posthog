@@ -31,10 +31,3 @@ class SubscriptionOffboarding:
             .filter(created_by_id=self.user_id, enabled=True)
             .select_related("team")
         ]
-
-    def disable(self, keep: set[str]) -> None:
-        subscriptions = self._subscriptions()
-        for subscription in subscriptions.filter(created_by_id=self.user_id, enabled=True):
-            if f"subscription:{subscription.pk}" not in keep:
-                subscription.enabled = False
-                subscription.save(update_fields=["enabled"])

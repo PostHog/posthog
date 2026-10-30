@@ -361,34 +361,22 @@ export const membersGithubLoginRetrieve = async (
     })
 }
 
-export const getMembersOffboardCreateUrl = (organizationId: string, userUuid: string) => {
-    return `/api/organizations/${organizationId}/members/${userUuid}/offboard/`
+export const getMembersOffboardingPreviewRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding_preview/`
 }
 
-export const membersOffboardCreate = async (
-    organizationId: string,
-    userUuid: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMembersOffboardCreateUrl(organizationId, userUuid), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getMembersOffboardingRetrieveUrl = (organizationId: string, userUuid: string) => {
-    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding/`
-}
-
-export const membersOffboardingRetrieve = async (
+export const membersOffboardingPreviewRetrieve = async (
     organizationId: string,
     userUuid: string,
     options?: RequestInit
 ): Promise<MemberOffboardingResourceApi[]> => {
-    return apiMutator<MemberOffboardingResourceApi[]>(getMembersOffboardingRetrieveUrl(organizationId, userUuid), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<MemberOffboardingResourceApi[]>(
+        getMembersOffboardingPreviewRetrieveUrl(organizationId, userUuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {

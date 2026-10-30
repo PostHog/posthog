@@ -96,7 +96,7 @@ const meta: Meta<typeof MemberOffboardingModal> = {
                 '/api/projects/:project/:kind/:resource/sharing/': () => [204, null],
             },
             get: {
-                '/api/organizations/:organizationId/members/:userUuid/offboarding/': resources,
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_preview/': resources,
                 '/api/organizations/:organizationId/members/:userUuid/scoped_api_keys/': { has_keys: false, keys: [] },
             },
         }),
@@ -116,7 +116,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const ReviewResources: Story = {}
 export const NoResources: Story = {
-    decorators: [mswDecorator({ get: { '/api/organizations/:organizationId/members/:userUuid/offboarding/': [] } })],
+    decorators: [
+        mswDecorator({ get: { '/api/organizations/:organizationId/members/:userUuid/offboarding_preview/': [] } }),
+    ],
     play: async () => {
         const logic = memberOffboardingLogic.build()
         logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)

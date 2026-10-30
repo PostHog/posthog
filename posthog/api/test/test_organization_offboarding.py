@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from django.utils import timezone
 
@@ -56,7 +56,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         SharingConfiguration.objects.create(
             team=self.team, dashboard=expired, enabled=True, expires_at=timezone.now() - timedelta(seconds=1)
         )
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert {(item["name"], item["team_id"]) for item in response.json()} == {
             ("Product overview", second_team.pk),
@@ -72,7 +72,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             f"/project/{self.team.pk}/dashboard/{shared.pk}",
         }
 
-    def test_legacy_removal_disables_all_dashboard_tokens_and_preserves_other_members_links(self) -> None:
+    def test_removal_preserves_all_dashboard_tokens_and_other_members_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
         shares = [SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)]
         shares.append(
@@ -87,10 +87,10 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert not OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
         for share in shares:
             share.refresh_from_db()
-            assert not share.enabled
+            assert share.enabled
         dashboard.refresh_from_db()
         other_share.refresh_from_db()
-        assert not dashboard.is_shared
+        assert dashboard.is_shared
         assert other_share.enabled
 
     def test_admin_can_disable_selected_dashboards(self) -> None:
@@ -107,7 +107,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert OrganizationMembership.objects.filter(user=self.departing, organization=self.organization).exists()
         disabled_share.refresh_from_db()
         assert not disabled_share.enabled
-        response = self.client.post(self.url + "offboard/", {}, format="json")
+        response = self.client.delete(self.url)
         assert response.status_code == 204
         kept_share.refresh_from_db()
         disabled_share.refresh_from_db()
@@ -118,7 +118,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
         dashboard = Dashboard.objects.create(team=other_team, created_by=self.departing)
         share = SharingConfiguration.objects.create(team=other_team, dashboard=dashboard, enabled=True)
-        assert self.client.get(self.url + "offboarding/").json() == []
+        assert self.client.get(self.url + "offboarding_preview/").json() == []
         assert self.client.delete(self.url).status_code == 204
         share.refresh_from_db()
         assert share.enabled
@@ -126,17 +126,14 @@ class TestOrganizationOffboarding(APIBaseTest):
     def test_member_cannot_review_or_remove_another_member(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        assert self.client.get(self.url + "offboarding/").status_code == 403
-        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 403
+        assert self.client.get(self.url + "offboarding_preview/").status_code == 403
+        assert self.client.delete(self.url).status_code == 403
 
-    @parameterized.expand([("delete",), ("post",)])
-    def test_self_removal_preserves_public_links(self, method: str) -> None:
+    def test_self_removal_preserves_public_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, is_shared=True)
         share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         url = f"/api/organizations/@current/members/{self.user.uuid}/"
-        response = (
-            self.client.delete(url) if method == "delete" else self.client.post(url + "offboard/", {}, format="json")
-        )
+        response = self.client.delete(url)
         assert response.status_code == 204
         share.refresh_from_db()
         dashboard.refresh_from_db()
@@ -166,7 +163,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert rotated.shared_by_id == self.departing.pk
         ActivityLog.objects.filter(team_id=self.team.pk, user=self.departing).delete()
         self.client.force_login(self.user)
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [f"public_link:{kind}:{self.team.pk}:{resource.pk}"]
 
@@ -194,7 +191,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         SharingConfiguration.objects.create(team=self.team, insight=deleted, enabled=True)
         other = Notebook.objects.create(team=self.team, created_by=self.user)
         unrelated_share = SharingConfiguration.objects.create(team=self.team, notebook=other, enabled=True)
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         review = {item["kind"]: item for item in response.json()}
         assert set(review) == {"insight", "notebook", "recording"}
@@ -206,7 +203,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert review["recording"]["url"] == f"/project/{self.team.pk}/replay/{recording.session_id}"
         grace_share.password_required = False
         grace_share.save(update_fields=["password_required"])
-        review = {item["kind"]: item for item in self.client.get(self.url + "offboarding/").json()}
+        review = {item["kind"]: item for item in self.client.get(self.url + "offboarding_preview/").json()}
         assert not review["notebook"]["password_required"]
         for kind, path in (("notebook", "notebooks"), ("recording", "session_recordings")):
             response = self.client.patch(
@@ -215,7 +212,7 @@ class TestOrganizationOffboarding(APIBaseTest):
                 format="json",
             )
             assert response.status_code == 200
-        response = self.client.post(self.url + "offboard/", {}, format="json")
+        response = self.client.delete(self.url)
         assert response.status_code == 204
         insight_share.refresh_from_db()
         assert insight_share.enabled
@@ -238,26 +235,21 @@ class TestOrganizationOffboarding(APIBaseTest):
             start_date=timezone.now(),
         )
 
-    @parameterized.expand([("delete",), ("post",)])
-    def test_removal_disables_only_created_subscriptions(self, method: str) -> None:
+    def test_preview_lists_created_subscriptions_and_removal_preserves_them(self) -> None:
         own = self.subscription(creator=self.departing, recipients="other@example.com")
         others = self.subscription(creator=self.user, recipients="other@example.com")
         recipient = self.subscription(creator=self.user, recipients="DEPARTING@example.com,other@example.com")
         only_recipient = self.subscription(creator=self.user, recipients=self.departing.email)
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [f"subscription:{own.pk}"]
         assert response.json()[0]["url"] == f"/project/{self.team.pk}/subscriptions/{own.pk}"
         assert response.json()[0]["created_at"] is not None
-        response = (
-            self.client.delete(self.url)
-            if method == "delete"
-            else self.client.post(self.url + "offboard/", {}, format="json")
-        )
+        response = self.client.delete(self.url)
         assert response.status_code == 204
         for subscription in (own, others, recipient, only_recipient):
             subscription.refresh_from_db()
-        assert own.enabled == (method == "post")
+        assert own.enabled
         assert others.enabled
         assert recipient.enabled and recipient.target_value == "DEPARTING@example.com,other@example.com"
         assert only_recipient.enabled and only_recipient.target_value == self.departing.email
@@ -275,7 +267,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription = self.subscription(creator=self.departing, recipients=target_value)
         subscription.target_type = target_type
         subscription.save(update_fields=["target_type"])
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert response.json()[0]["destination_type"] == target_type
         assert response.json()[0]["destination"] == expected
@@ -301,7 +293,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription = self.subscription(creator=self.departing, recipients=self.departing.email)
         subscription.team = other_team
         subscription.save(update_fields=["team"])
-        assert self.client.get(self.url + "offboarding/").json() == []
+        assert self.client.get(self.url + "offboarding_preview/").json() == []
         assert self.client.delete(self.url).status_code == 204
         subscription.refresh_from_db()
         assert subscription.enabled
@@ -311,7 +303,7 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
         subscription.prompt = "Summarize weekly product usage"
         subscription.save(update_fields=["prompt"])
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [f"subscription:{subscription.pk}"]
 
@@ -339,7 +331,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             team=self.team, insight=insight, created_by=self.user, name="Other"
         )
         kept.subscribed_users.add(self.user)
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert {item["id"] for item in response.json()} == {f"alert:{kept.pk}", f"alert:{disabled.pk}"}
         assert all(item["kind"] == "alert" for item in response.json())
@@ -354,56 +346,6 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert not disabled.enabled
         assert unrelated.enabled
         assert kept.subscribed_users.filter(pk=self.user.pk).exists()
-
-    @patch("products.alerts.backend.platform_ownership.write_moved_alert_edit")
-    def test_platform_owned_alert_disables_its_platform_copy(self, write_moved_alert_edit: MagicMock) -> None:
-        insight = Insight.objects.create(team=self.team, created_by=self.departing)
-        alert = AlertConfiguration.objects.create(
-            team=self.team, insight=insight, created_by=self.departing, owner="platform"
-        )
-        response = self.client.delete(self.url)
-        assert response.status_code == 204
-        alert.refresh_from_db()
-        assert not alert.enabled
-        write_moved_alert_edit.assert_called_once_with(team_id=self.team.pk, alert_id=alert.pk, snooze_changed=False)
-
-    @parameterized.expand([("dashboard",), ("insight",), ("notebook",), ("recording",)])
-    def test_removal_revokes_hidden_soft_deleted_resources(self, kind: str) -> None:
-        models: dict[str, type[Dashboard] | type[Insight] | type[Notebook] | type[SessionRecording]] = {
-            "dashboard": Dashboard,
-            "insight": Insight,
-            "notebook": Notebook,
-            "recording": SessionRecording,
-        }
-        resource = models[kind].objects.create(
-            team=self.team, deleted=True, **({"session_id": "deleted-recording"} if kind == "recording" else {})
-        )
-        share = SharingConfiguration.objects.create(
-            team=self.team, **{kind: resource}, enabled=True, shared_by=self.departing
-        )
-        assert self.client.get(self.url + "offboarding/").json() == []
-        assert self.client.delete(self.url).status_code == 204
-        resource.deleted = False
-        resource.save(update_fields=["deleted"])
-        share.refresh_from_db()
-        assert not share.enabled
-        scope = {
-            "dashboard": "Dashboard",
-            "insight": "Insight",
-            "notebook": "Notebook",
-            "recording": "SessionRecording",
-        }[kind]
-        item_id = (
-            resource.short_id
-            if isinstance(resource, Notebook)
-            else resource.session_id
-            if isinstance(resource, SessionRecording)
-            else str(resource.pk)
-        )
-        log = ActivityLog.objects.get(team_id=self.team.pk, scope=scope, item_id=item_id, activity="sharing disabled")
-        assert log.user_id == self.user.pk
-        assert log.detail is not None
-        assert log.detail["changes"][0]["after"] is False
 
     def test_self_leave_skips_resource_review_and_preserves_links_in_all_projects(self) -> None:
         self.organization.available_product_features = [
@@ -423,35 +365,22 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription.save(update_fields=["team"])
         insight = Insight.objects.create(team=hidden_team, created_by=self.departing)
         alert = AlertConfiguration.objects.create(team=hidden_team, insight=insight, created_by=self.departing)
-        assert len(self.client.get(self.url + "offboarding/").json()) == 4
+        assert len(self.client.get(self.url + "offboarding_preview/").json()) == 4
         self.client.force_login(self.departing)
-        response = self.client.get(self.url + "offboarding/")
+        response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert response.json() == []
-        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert self.client.delete(self.url).status_code == 204
         assert SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).count() == 2
         subscription.refresh_from_db()
         alert.refresh_from_db()
         assert subscription.enabled
         assert alert.enabled
 
-    @patch("products.alerts.backend.logic.organization_offboarding.disable_configurations")
-    def test_parallel_alert_copy_cleanup_waits_for_commit(self, disable_configurations: MagicMock) -> None:
-        insight = Insight.objects.create(team=self.team, created_by=self.departing)
-        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, created_by=self.departing)
-        with self.captureOnCommitCallbacks(execute=True):
-            assert self.client.delete(self.url).status_code == 204
-            alert.refresh_from_db()
-            assert not alert.enabled
-            disable_configurations.assert_not_called()
-        disable_configurations.assert_called_once_with(
-            "insight", team_id=self.team.pk, legacy_configuration_ids=[alert.pk]
-        )
-
     def test_confirming_removal_preserves_current_sharing(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
         share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert self.client.delete(self.url).status_code == 204
         share.refresh_from_db()
         assert share.enabled
 
@@ -522,7 +451,7 @@ class TestOrganizationOffboarding(APIBaseTest):
             assert subscription.enabled == enabled
             assert alert.enabled == enabled
             assert self.organization.members.filter(pk=self.departing.pk).exists()
-        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert self.client.delete(self.url).status_code == 204
         subscription.refresh_from_db()
         alert.refresh_from_db()
         assert subscription.enabled and alert.enabled
