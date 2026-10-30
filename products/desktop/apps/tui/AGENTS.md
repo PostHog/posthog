@@ -22,8 +22,9 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
 In the app: Ctrl+\\ splits side by side and Ctrl+Shift+\\ (Ctrl+|) stacks, Cmd works in place of Ctrl, and legacy terminals send both as Ctrl+\\; Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+B (or Cmd+B, since tmux keeps Ctrl+B) narrows the sidebar to its logo, saved between runs, Ctrl+K (or Cmd+K) searches tasks, Ctrl+R reloads all code, Ctrl+Q quits.
-Slash commands: `/model`, `/effort`, `/compact [focus]`, `/new`, `/clear` (local chats), `/rename`, `/rename-workspace`, `/search`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands. `/rename` and `/rename-workspace` with no name put the current one in the composer to edit.
+Slash commands: `/model`, `/effort`, `/compact [focus]`, `/new`, `/repo`, `/clear` (local chats), `/rename`, `/rename-workspace`, `/search`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands. `/rename` and `/rename-workspace` with no name put the current one in the composer to edit.
 `/new` in a split pane makes that pane a new chat. Anywhere else, `/new` and Ctrl+N clear the main view.
+`/repo` opens a searchable multi-select of the GitHub repositories the team's and the user's GitHub connections reach (type to search, Space ticks, Enter saves). Each pane keeps its own pick for new cloud chats, saved between runs; a pane that never picked uses the repository of the folder the TUI started in.
 `/local` and `/cloud` switch the current pane and set where new chats in other panes run, saved between runs.
 `!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 
@@ -33,7 +34,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 
 | Module | Owns |
 | --- | --- |
-| `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown |
+| `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown. A load that fails shows its error, keeps the process (and its local agents) alive, and loads again after the next save |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
@@ -50,6 +51,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `chatView.ts`, `composer.ts` | pi-tui components rendered into panes: messages, scroll, editor, suggestions |
 | `links.ts`, `openUrl.ts` | The web link under a clicked chat cell (OSC 8 or written out), opened in the browser; other schemes never open, and only a sent image the TUI saved opens as a file |
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
+| `picker.ts`, `hooks/useRepoPicker.ts` | A searchable multi-select drawn in place of the composer, and `/repo` on it: per-pane picks in `prefs.json`, searches through `PiChats.searchRepositories` |
 | `prompts.ts` | A local agent's dialogs and MCP permission requests, shown on the sheet and answered through the pi extension response |
 | `status.ts` | The PR and status chips in the pane header |
 | `usage.ts` | The agent's background shells and monitors (its `background-shells` status), the context donut, and the task cost at the right end of the composer's top rule |
@@ -59,7 +61,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `selection.ts`, `clipboard.ts`, `highlight.ts` | Click or drag: a press and release on one cell clicks (in the composer it places the cursor), and a drag selects chat or composer text and copies it on release |
 | `images.ts` | Images for any chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker. A sent image is saved under `~/.config/posthog-tui/images/` by a hash of its bytes, and its row under the message opens it. A cloud run gets them uploaded as artifacts (`ImageUploads` in `chats.ts`, the desktop app's `CloudArtifactService`), and its sandbox hands them to pi as image data |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
-| `errors.ts` | `messageOf`, the text of a caught error for a notice |
+| `errors.ts`, `components/ErrorBoundary.tsx` | `messageOf` for notices, `LOG_PATH` and `logError`; the boundary that shows a render error in place of the app instead of ending the process |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
 | `hooks/` | App state, one hook per concern: notices (a chat's notice wraps, right-aligned, in a row kept above its composer, and falls back to the sidebar while no pane shows the chat; app-wide ones stay in the sidebar), work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
 
@@ -74,6 +76,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - **`MouseInput` sits between the terminal and Ink.** It strips mouse reports and hands raw keys to the app, which splits them with pi's `StdinBuffer`. App keys (`isAppKey`) go to Ink handlers, and everything else goes to the focused composer or an open sheet.
 - **pi components pad for a full screen.** `ChatView` trims their blank edges, strips OSC 133 marks, and spaces blocks itself.
 - **A dropped file arrives as a paste of its path, with no position.** Ghostty reports the pointer a few milliseconds before the paste, so `paneAtDrop` sends the path to the pane under it. Terminals with kitty's OSC 72 drag-and-drop protocol report the drop point itself; the TUI does not use it yet.
+- **An agent editing the TUI from inside it reloads the app it runs in, mid-edit.** Every saved file hot-reloads, and a local agent's session lives in that process. Write each step so the app still loads and renders: add a module or export before the code that imports it, and make a callee accept a new argument before its caller passes it (and the reverse when removing). A step that broke this ended the session before `ErrorBoundary` and the `cli.mjs` recovery; now it shows an error screen until the next good save.
 - **The engine stops watching a run once it ends.** A run brought back with `resume_in_cloud` keeps its id, so the pane's watch never re-subscribes. `CloudRuns.agentRestarted` watches it again, and a newer copy of the same run in `fresh` wins over the work list (`findTask` compares `updated_at`).
 - **The backend fails a cloud run whose pi turn ends with `stopReason: "error"`, and destroys its sandbox.** An Esc can cut off a model request that then reports an error. The agent's translator ends such a turn as cancelled (`translatePiConversation.ts`); a cloud sandbox only gets that fix with a new `@posthog/agent` release.
 - **Local agents live in a global map keyed by task id**, so they survive hot reloads. In tests, give each local chat its own task id, or a later test gets an earlier test's agent.
