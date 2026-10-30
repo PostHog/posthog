@@ -12,7 +12,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     FLAG_EVALUATIONS_COMPLETE_DAYS,
+    EventsScan,
     can_read_flag_evaluations,
+    filter_conjuncts,
 )
 
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
@@ -24,6 +26,12 @@ IN_COVERAGE = COVERAGE_START + timedelta(days=30)
 FLAG_CALLED = "event = '$feature_flag_called'"
 FLAG_KEY = "properties.$feature_flag = 'my-flag'"
 BOUND = "timestamp >= now() - INTERVAL 7 DAY"
+OR_OF_AND_BRANCHES = (
+    "((properties.$feature_flag = 'a' AND distinct_id = 'x') OR (properties.$feature_flag = 'b' AND distinct_id = 'y'))"
+)
+OR_CALL_OF_AND_CALLS = (
+    "or(and(properties.$feature_flag = 'a', distinct_id = 'x'), and(properties.$feature_flag = 'b', distinct_id = 'y'))"
+)
 
 
 def _text(instant: datetime) -> str:
@@ -79,6 +87,19 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             select, datetime.now(UTC), ZoneInfo(timezone), only_in_flag_evaluations=only_in_flag_evaluations
         )
 
+    @parameterized.expand(
+        [
+            ("or_of_and_branches", _where(FLAG_CALLED, OR_OF_AND_BRANCHES)),
+            ("or_call_of_and_calls", _where(FLAG_CALLED, OR_CALL_OF_AND_CALLS)),
+        ]
+    )
+    def test_flag_keys_cover_every_branch_of_an_or(self, _name: str, query: str):
+        select = parse_select(query)
+        assert isinstance(select, ast.SelectQuery)
+        scan = EventsScan.of(select, lambda: True)
+        assert scan is not None
+        assert scan.flag_keys(filter_conjuncts(select)) == ["a", "b"]
+
     def test_complete_days_leave_out_the_day_the_ttl_may_have_dropped(self):
         assert FLAG_EVALUATIONS_COMPLETE_DAYS < FLAG_EVALUATIONS_TTL_DAYS
 
@@ -92,6 +113,19 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _where(
                     "((event = '$feature_flag_called' AND properties.$feature_flag = 'a') "
                     "OR (event = '$feature_flag_called' AND properties.$feature_flag = 'b'))",
+                    BOUND,
+                ),
+            ),
+            ("or_of_flag_keys_with_other_conditions", _where(FLAG_CALLED, OR_OF_AND_BRANCHES, BOUND)),
+            (
+                "or_call_of_flag_keys",
+                _where(FLAG_CALLED, "or(properties.$feature_flag = 'a', properties.$feature_flag = 'b')", BOUND),
+            ),
+            (
+                "or_call_of_pinned_branches_with_their_own_flag_keys",
+                _where(
+                    "or(and(event = '$feature_flag_called', properties.$feature_flag = 'a'), "
+                    "and(event = '$feature_flag_called', properties.$feature_flag = 'b'))",
                     BOUND,
                 ),
             ),

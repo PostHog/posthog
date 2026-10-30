@@ -46686,6 +46686,7 @@ export namespace Schemas {
      * * `Numeric` - Numeric
      * * `Boolean` - Boolean
      * * `Object` - Object
+     * * `Array` - Array
      */
     export type SchemaPropertyTypeEnum = typeof SchemaPropertyTypeEnum[keyof typeof SchemaPropertyTypeEnum];
 
@@ -46696,6 +46697,7 @@ export namespace Schemas {
       Numeric: 'Numeric',
       Boolean: 'Boolean',
       Object: 'Object',
+      Array: 'Array',
     } as const;
 
     export interface SchemaPropertyGroupProperty {
@@ -75608,7 +75610,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -75665,7 +75667,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -75752,7 +75754,7 @@ export namespace Schemas {
        * * `expired` - Expired */
       payload_state: PayloadStateEnum;
       /**
-         * Payload retention deadline; cleanup is not yet enabled.
+         * Payload expires 30 days after first acceptance; deletion runs hourly.
          * @nullable
          */
       payload_expires_at: string | null;
@@ -107954,6 +107956,17 @@ export namespace Schemas {
     export interface SavedQueryResume {
       /** False when the query's materialization was not suspended. */
       resumed: boolean;
+    }
+
+    /**
+     * Body of the `resume` action.
+     */
+    export interface SavedQueryResumeRequest {
+      /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
     }
 
     /**
