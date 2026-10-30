@@ -21,6 +21,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 
 In the app: Ctrl+S and Ctrl+Shift+S (or Ctrl+\\) split, Ctrl+C twice closes a chat, Ctrl+N starts a new chat, Ctrl+R reloads all code, Ctrl+Q quits.
 Slash commands: `/model`, `/new`, `/local`, `/cloud`, `/login`, `/logout`, plus the live run's own commands.
+`/local` and `/cloud` switch the current pane and set where new chats in other panes run, saved between runs.
 `!` in an empty composer enters shell mode (orange `!` prompt and rule; Backspace on an empty command leaves it). Enter runs the command where the chat's agent runs (this machine or the sandbox), through pi's `bash` RPC, and adds its output to the agent's context.
 
 ## Where things live
@@ -31,6 +32,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | --- | --- |
 | `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to `~/.config/posthog-tui/layout.json` |
+| `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices |

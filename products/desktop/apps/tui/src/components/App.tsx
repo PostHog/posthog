@@ -52,6 +52,7 @@ import {
   type Wheel,
 } from "../mouse";
 import { openUrl } from "../openUrl";
+import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 import { promptId, promptReply, promptSheet, takesText } from "../prompts";
 import type { CloudRuns } from "../runs";
 import { Gesture } from "../selection";
@@ -181,8 +182,13 @@ export function App({
           ? (localSessions.get(taskId)?.control ?? cloudControl(taskId, runId))
           : cloudControl(taskId, runId)
     : undefined;
-  // Where a pane's next new chat runs; /local and /cloud switch it.
-  const [modes, setModes] = useState<Map<string, "local" | "cloud">>(new Map());
+  // Where a pane's next new chat runs; /local and /cloud switch it, and the last switch is the default for other panes.
+  const [modes, setModes] = useState<Map<string, ChatPlace>>(new Map());
+  const [defaultPlace, setDefaultPlace] = useState<ChatPlace>(
+    () => loadPrefs().newChatPlace,
+  );
+  const placeFor = (paneId: string): ChatPlace =>
+    modes.get(paneId) ?? defaultPlace;
   const { exit } = useApp();
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [page, setPage] = useState<WorkPage>({
@@ -667,10 +673,12 @@ export function App({
     if (slash?.command === "local" || slash?.command === "cloud") {
       const mode = slash.command;
       setModes((current) => new Map(current).set(paneId, mode));
+      setDefaultPlace(mode);
+      savePrefs({ newChatPlace: mode });
       flashNotice(
         mode === "local"
-          ? `New chats here run on this machine, in ${process.cwd()}`
-          : "New chats here run in the cloud",
+          ? `New chats run on this machine, in ${process.cwd()}`
+          : "New chats run in the cloud",
       );
       return;
     }
@@ -715,7 +723,7 @@ export function App({
       return;
     }
     // A local chat starts with its task row, so it is never only on this machine; without one, the message stays in the composer.
-    if (!pane?.taskId && modes.get(paneId) === "local") {
+    if (!pane?.taskId && placeFor(paneId) === "local") {
       chats.createLocal(text).then(
         (task) => {
           setFresh((tasks) => new Map(tasks).set(task.id, task));
@@ -1179,7 +1187,7 @@ export function App({
               isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined
             }
             isLocalPane={isLocal(node.taskId)}
-            newChatPlace={modes.get(node.id) ?? "cloud"}
+            newChatPlace={placeFor(node.id)}
             chat={chatFor(`${node.id}:${node.taskId}`)}
             composer={composerFor(node.id)}
             pending={pending.get(node.id) ?? null}
@@ -1204,9 +1212,7 @@ export function App({
                 ? statusChips(
                     undefined,
                     newChatRepository,
-                    isLocal(node.taskId)
-                      ? "local"
-                      : (modes.get(node.id) ?? "cloud"),
+                    isLocal(node.taskId) ? "local" : placeFor(node.id),
                   )
                 : taskOf(node.taskId)
                   ? statusChips(taskOf(node.taskId), newChatRepository)
