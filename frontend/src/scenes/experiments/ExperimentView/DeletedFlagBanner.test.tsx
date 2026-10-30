@@ -48,7 +48,7 @@ const deletion = {
     activity: 'deleted',
     scope: 'FeatureFlag',
     item_id: String(FLAG_ID),
-    user: { first_name: 'Tue', email: 'tue@example.com' },
+    user: { first_name: 'Max', last_name: 'Smith', email: 'max@example.com' },
     created_at: dayjs().subtract(3, 'day').toISOString(),
     is_system: false,
     was_impersonated: false,
@@ -106,11 +106,34 @@ describe('DeletedFlagBanner', () => {
         logic.unmount()
     })
 
-    it('names who deleted the flag, and through which client', async () => {
+    it.each([
+        { who: 'a member by full name', entry: {}, name: 'Max Smith' },
+        {
+            who: 'support while impersonating',
+            entry: { was_impersonated: true },
+            name: 'PostHog Support (as Max Smith)',
+        },
+        { who: 'the system', entry: { is_system: true, user: null }, name: 'PostHog' },
+    ])('names $who as the activity log does', async ({ entry, name }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team/feature_flags/:id/activity': {
+                    results: [{ ...deletion, ...entry }],
+                    next: null,
+                    previous: null,
+                    total_count: 1,
+                },
+            },
+        })
         renderBanner(draftExperiment())
 
-        expect(await screen.findByText(/Tue deleted/)).toBeInTheDocument()
-        expect(screen.getByText(/via MCP/)).toBeInTheDocument()
+        expect(await screen.findByText((text) => text.startsWith(`${name} deleted`))).toBeInTheDocument()
+    })
+
+    it('links the flag, and names the client that deleted it', async () => {
+        renderBanner(draftExperiment())
+
+        expect(await screen.findByText(/via MCP/)).toBeInTheDocument()
         expect(screen.getByText('checkout-flag').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining(`/feature-flags/${FLAG_ID}`)

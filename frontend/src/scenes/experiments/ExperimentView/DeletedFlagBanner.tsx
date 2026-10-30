@@ -59,7 +59,7 @@ function DeletedFlagBannerContent({
                 <strong>This experiment's feature flag is deleted</strong>
             </div>
             <div>
-                {flagDeletion?.actor ? (
+                {flagDeletion ? (
                     <>
                         {flagDeletion.actor} deleted {flagLink} <TZLabel time={flagDeletion.deletedAt} />
                         {flagDeletion.client ? ` via ${activityClientLabel(flagDeletion.client)}` : ''}.

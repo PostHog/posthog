@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Experiment, FeatureFlagBasicType, FeatureFlagType } from '~/types'
@@ -18,8 +19,8 @@ export interface DeletedFlagBannerLogicProps {
 }
 
 export interface FlagDeletion {
-    /** The person who deleted the flag. Null when the system did it. */
-    actor: string | null
+    /** Who deleted the flag, named as the activity log names them. */
+    actor: string
     deletedAt: string
     /** The API client that sent the delete, for example `mcp`. */
     client: string | null
@@ -55,14 +56,14 @@ export interface deletedFlagBannerLogicActions {
     }
     loadFlagDeletionSuccess: (
         flagDeletion: {
-            actor: string | null
+            actor: string
             client: string | null
             deletedAt: string
         } | null,
         payload?: any
     ) => {
         flagDeletion: {
-            actor: string | null
+            actor: string
             client: string | null
             deletedAt: string
         } | null
@@ -97,11 +98,6 @@ export type deletedFlagBannerLogicType = MakeLogicType<
     deletedFlagBannerLogicMeta
 >
 
-function actorName(user: Record<string, unknown> | null): string | null {
-    const name = user?.first_name || user?.email
-    return typeof name === 'string' && name ? name : null
-}
-
 export const deletedFlagBannerLogic = kea<deletedFlagBannerLogicType>([
     props({} as DeletedFlagBannerLogicProps),
     key((props) => props.flagId),
@@ -125,7 +121,8 @@ export const deletedFlagBannerLogic = kea<deletedFlagBannerLogicType>([
                         const deletion = activity.results.find((entry) => entry.activity === 'deleted')
                         return deletion
                             ? {
-                                  actor: actorName(deletion.user),
+                                  // The generated type leaves `user` untyped. The payload is the one `ActivityLogItem` describes.
+                                  actor: userNameForLogItem(deletion as unknown as ActivityLogItem),
                                   deletedAt: deletion.created_at,
                                   client: deletion.client,
                               }
