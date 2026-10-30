@@ -5,9 +5,10 @@
             "inputs": [
                 "backend/facade/**",
                 "backend/presentation/**",
+                "backend/routes.py",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
-                "backend/models.py",
+                "backend/models/**",
                 "backend/migrations/**"
             ],
             "outputs": [],

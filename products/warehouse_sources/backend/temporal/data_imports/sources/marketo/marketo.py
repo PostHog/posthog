@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.se
     ASSET_MAX_RETURN,
     BULK_WINDOW_DAYS,
     MARKETO_ENDPOINTS,
+    PROGRAM_MEMBER_WINDOW_DAYS,
     REST_BATCH_SIZE,
     MarketoEndpointConfig,
 )
@@ -40,6 +41,10 @@ BULK_CHUNK_ROWS = 2000
 # Bulk lead exports name every column explicitly; keep the request body bounded on instances
 # with thousands of custom fields.
 MAX_LEAD_EXPORT_FIELDS = 300
+# Program member queries send the field list in a GET query string, which Marketo caps at 8KB.
+MAX_PROGRAM_MEMBER_FIELDS = 100
+# Requested even when describe omits them: they carry the key, the partition and the cursor.
+PROGRAM_MEMBER_REQUIRED_FIELDS = ("leadId", "programId", "membershipDate", "updatedAt")
 
 DEFAULT_BULK_LOOKBACK_DAYS = 365
 
@@ -66,17 +71,30 @@ class MarketoAuthError(MarketoAPIError):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MarketoResumeConfig:
     """Cursor for whichever transport the endpoint uses.
 
-    Only one of the three is populated per endpoint; they are kept on one dataclass because the
-    resume manager stores a single dataclass type per source.
+    Top-level endpoints populate one of the first three. Fan-out endpoints set `parent_id` to the
+    parent the cursor is in, plus `next_page_token` and `window_start` for the position in it. With
+    neither, that parent is finished.
+    They are kept on one dataclass because the resume manager stores a single dataclass type per
+    source.
     """
 
     next_page_token: Optional[str] = None
     offset: Optional[int] = None
     window_start: Optional[str] = None
+    parent_id: Optional[int] = None
+    # Program members only: the end of the run's updatedAt range. A resumed run keeps it, so the
+    # programs it skips and the programs it still reads cover the same range.
+    query_end: Optional[str] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class FanOutParent:
+    id: int
+    created_at: Optional[datetime]
 
 
 def build_base_url(munchkin_id: str) -> str:
@@ -121,6 +139,13 @@ def parse_datetime(value: Any) -> Optional[datetime]:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def parse_marketo_datetime(value: Any) -> Optional[datetime]:
+    """Parse a timestamp from either API. Asset timestamps add an offset after the ``Z``."""
+    if isinstance(value, str):
+        value = re.sub(r"Z([+-]\d{4})$", r"\1", value.strip())
+    return parse_datetime(value)
 
 
 def raise_for_marketo_errors(body: Mapping[str, Any]) -> None:
@@ -467,6 +492,187 @@ def _asset_offset_rows(
         resumable_source_manager.save_state(MarketoResumeConfig(offset=offset))
 
 
+def _has_more_pages(body: Mapping[str, Any]) -> bool:
+    """A page token means more pages unless the response says otherwise; some responses omit ``moreResult``."""
+    return bool(body.get("nextPageToken")) and body.get("moreResult") is not False
+
+
+def _fan_out_parents(
+    client: MarketoClient,
+    parent: MarketoEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
+) -> list[FanOutParent]:
+    """List every parent, ordered by id so a resumed run can skip the parents it finished."""
+    parents: list[FanOutParent] = []
+    offset = 0
+    next_token: Optional[str] = None
+    while True:
+        params: dict[str, Any] = dict(parent.extra_params)
+        if parent.transport == "asset_offset":
+            params.update(offset=offset, maxReturn=ASSET_MAX_RETURN)
+        else:
+            params["batchSize"] = REST_BATCH_SIZE
+            if next_token:
+                params["nextPageToken"] = next_token
+
+        body = client.request_json("GET", parent.path, params=params)
+        rows = body.get("result") or []
+        for row in rows:
+            if row.get("id") is not None:
+                parents.append(FanOutParent(id=int(row["id"]), created_at=parse_marketo_datetime(row.get("createdAt"))))
+        # Listing parents yields nothing, so the committed cursor still covers every row.
+        resumable_source_manager.safe_point()
+
+        if parent.transport == "asset_offset":
+            if len(rows) < ASSET_MAX_RETURN:
+                break
+            offset += len(rows)
+        else:
+            if not _has_more_pages(body):
+                break
+            next_token = body.get("nextPageToken")
+
+    return sorted(parents, key=lambda item: item.id)
+
+
+def _list_member_rows(
+    client: MarketoClient,
+    config: MarketoEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
+    resume: Optional[MarketoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None and config.parent_key is not None
+    parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
+
+    for parent in parents:
+        next_token: Optional[str] = None
+        if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
+            if parent.id < resume.parent_id or not resume.next_page_token:
+                continue
+            next_token = resume.next_page_token
+        path = config.path.format(parent_id=parent.id)
+
+        while True:
+            params: dict[str, Any] = {"batchSize": REST_BATCH_SIZE}
+            if next_token:
+                params["nextPageToken"] = next_token
+            body = client.request_json("GET", path, params=params)
+            rows = [{**row, config.parent_key: parent.id} for row in body.get("result") or []]
+
+            more = _has_more_pages(body)
+            next_token = body.get("nextPageToken") if more else None
+            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, next_page_token=next_token))
+
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            if not more:
+                break
+
+
+def _program_member_fields(client: MarketoClient) -> list[str]:
+    body = client.request_json("GET", "/rest/v1/programs/members/describe.json")
+    names = list(PROGRAM_MEMBER_REQUIRED_FIELDS)
+    for description in body.get("result") or []:
+        for entry in description.get("fields") or []:
+            name = entry.get("name")
+            if name and name not in names:
+                names.append(name)
+    return names[:MAX_PROGRAM_MEMBER_FIELDS]
+
+
+def _in_window(row: Mapping[str, Any], window_start: datetime, window_end: datetime, is_last: bool) -> bool:
+    """Keep each member in exactly one window.
+
+    Marketo doesn't document whether ``endAt`` is inclusive, so a member updated on a boundary
+    could come back from two adjacent windows. Treat every window but the last as half-open.
+    """
+    updated_at = parse_marketo_datetime(row.get("updatedAt"))
+    if updated_at is None:
+        return True
+    if updated_at < window_start:
+        return False
+    return is_last or updated_at < window_end
+
+
+def _program_member_rows(
+    client: MarketoClient,
+    config: MarketoEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
+    resume: Optional[MarketoResumeConfig],
+    start: datetime,
+    end: datetime,
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None and config.parent_key is not None
+    if resume is not None and resume.query_end is not None:
+        end = parse_datetime(resume.query_end) or end
+    query_end = format_datetime(end)
+    parents = _fan_out_parents(client, MARKETO_ENDPOINTS[config.parent], resumable_source_manager)
+    fields = ",".join(_program_member_fields(client))
+
+    for parent in parents:
+        # No member of a program can change before the program exists.
+        parent_start = max(start, parent.created_at) if parent.created_at is not None else start
+        next_token: Optional[str] = None
+        if resume is not None and resume.parent_id is not None and parent.id <= resume.parent_id:
+            resumed_window = parse_datetime(resume.window_start)
+            if parent.id < resume.parent_id or resumed_window is None:
+                continue
+            parent_start = resumed_window
+            next_token = resume.next_page_token
+        path = config.path.format(parent_id=parent.id)
+
+        windows = bulk_windows(parent_start, end, PROGRAM_MEMBER_WINDOW_DAYS)
+        if not windows:
+            resumable_source_manager.save_state(MarketoResumeConfig(parent_id=parent.id, query_end=query_end))
+            resumable_source_manager.safe_point()
+            continue
+
+        for index, (window_start, window_end) in enumerate(windows):
+            is_last = index == len(windows) - 1
+            while True:
+                params: dict[str, Any] = {
+                    "filterType": "updatedAt",
+                    "startAt": format_datetime(window_start),
+                    "endAt": format_datetime(window_end),
+                    "fields": fields,
+                    "batchSize": REST_BATCH_SIZE,
+                }
+                if next_token:
+                    params["nextPageToken"] = next_token
+                body = client.request_json("GET", path, params=params)
+                rows = [
+                    {**row, config.parent_key: parent.id}
+                    for row in body.get("result") or []
+                    if _in_window(row, window_start, window_end, is_last)
+                ]
+
+                more = _has_more_pages(body)
+                next_token = body.get("nextPageToken") if more else None
+                if more:
+                    state = MarketoResumeConfig(
+                        parent_id=parent.id,
+                        window_start=format_datetime(window_start),
+                        next_page_token=next_token,
+                        query_end=query_end,
+                    )
+                elif is_last:
+                    state = MarketoResumeConfig(parent_id=parent.id, query_end=query_end)
+                else:
+                    state = MarketoResumeConfig(
+                        parent_id=parent.id, window_start=format_datetime(window_end), query_end=query_end
+                    )
+                resumable_source_manager.save_state(state)
+
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+                if not more:
+                    break
+
+
 def _resume_state(
     resumable_source_manager: ResumableSourceManager[MarketoResumeConfig],
 ) -> Optional[MarketoResumeConfig]:
@@ -517,6 +723,11 @@ def get_rows(
     if config.transport == "bulk":
         start = resolve_bulk_start(resume, should_use_incremental_field, db_incremental_field_last_value, start_date)
         yield from _bulk_rows(client, config, start, datetime.now(UTC), resumable_source_manager, logger)
+    elif config.transport == "program_members":
+        start = resolve_bulk_start(None, should_use_incremental_field, db_incremental_field_last_value, start_date)
+        yield from _program_member_rows(client, config, resumable_source_manager, resume, start, datetime.now(UTC))
+    elif config.transport == "list_members":
+        yield from _list_member_rows(client, config, resumable_source_manager, resume)
     elif config.transport == "asset_offset":
         start_offset = resume.offset if resume is not None and resume.offset is not None else 0
         yield from _asset_offset_rows(client, config, resumable_source_manager, start_offset)
@@ -557,5 +768,6 @@ def marketo_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # Fan-out rows arrive one parent at a time, so they are not one ordered series.
+        sort_mode=None if config.parent else "asc",
     )

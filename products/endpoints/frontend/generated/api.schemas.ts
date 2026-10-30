@@ -130,7 +130,7 @@ export interface EndpointResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
@@ -287,7 +287,7 @@ export interface EndpointVersionResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
@@ -489,64 +489,6 @@ export interface MaterializationPreviewResponseApi {
     range_pairs: MaterializationPreviewRangePairApi[]
     /** Aggregate expressions and how to re-aggregate them. */
     aggregates: MaterializationPreviewAggregateApi[]
-}
-
-/**
- * Request body for the AI materialization-fix suggestion action.
- */
-export interface EndpointMaterializationSuggestionRequestApi {
-    /**
-     * Endpoint version to suggest a fix for. Defaults to the latest version.
-     * @nullable
-     */
-    version?: number | null
-}
-
-/**
- * * `ok` - ok
- * * `cannot_fix` - cannot_fix
- * * `invalid` - invalid
- * * `model_error` - model_error
- */
-export type SuggestionStatusEnumApi = (typeof SuggestionStatusEnumApi)[keyof typeof SuggestionStatusEnumApi]
-
-export const SuggestionStatusEnumApi = {
-    Ok: 'ok',
-    CannotFix: 'cannot_fix',
-    Invalid: 'invalid',
-    ModelError: 'model_error',
-} as const
-
-/**
- * AI-suggested query rewrite that would make the endpoint materializable.
- */
-export interface EndpointMaterializationSuggestionApi {
-    /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
-     *
-     * * `ok` - ok
-     * * `cannot_fix` - cannot_fix
-     * * `invalid` - invalid
-     * * `model_error` - model_error */
-    suggestion_status: SuggestionStatusEnumApi
-    /**
-     * The complete rewritten SQL query, or null when no rewrite was produced.
-     * @nullable
-     */
-    suggested_query: string | null
-    /**
-     * User-facing explanation of what was changed and why, or why no fix exists.
-     * @nullable
-     */
-    explanation: string | null
-    /** How many suggest→validate rounds were used. */
-    attempts: number
-    /**
-     * Last validation failure when the suggestion did not pass the checks.
-     * @nullable
-     */
-    error: string | null
-    /** The materialization blocker that triggered the suggestion. */
-    original_reason: string
 }
 
 /**
@@ -1052,7 +994,6 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariableApi[] | null
@@ -1234,16 +1175,6 @@ export interface QueryStatusApi {
 
 export interface QueryStatusResponseApi {
     query_status: QueryStatusApi
-}
-
-/**
- * The live materialization rules, for agents that want to rewrite a rejected query themselves.
- */
-export interface EndpointMaterializationConditionsApi {
-    /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
-    conditions_source: string
-    /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
-    rewrite_contract: string
 }
 
 export type EndpointsListParams = {

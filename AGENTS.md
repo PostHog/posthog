@@ -98,6 +98,17 @@ GitHub's native stacked PRs are enabled here. Use the `gh stack` CLI and `/stack
 Keep stacks shallow and merge the base before extending: restacking force-pushes every branch, and a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs with it.
 Never `gh stack merge` — it lands the chain through GitHub's API, outside the queue.
 
+### The CI report
+
+Every PR gets a `🤖 CI report` comment.
+Its warn-only sections, such as eager graph budgets, bundle size, complexity and duplication, never fail a check, so a green PR can still carry open warnings.
+
+- **An agent reads the CI report after every push, and before it calls a PR ready.** Run `gh pr view <number> --comments`. A section that is not ✅ is an open finding.
+- **An agent considers each open finding.** It fixes the finding in its own diff, states in the PR body why the finding does not apply, or escalates to a person when it cannot decide. A positive "Δ vs base" counts against the PR even when the base branch already shows the warning.
+- **An agent never silences a finding.** Do not raise a budget, add an ignore, or drop a check. A budget goes up only in a reviewed PR that needs the bytes.
+
+These rules bind agents. A person reads the same report and decides for themselves.
+
 ### Merging PRs
 
 All merges into `master` go through the Trunk merge queue.
@@ -172,7 +183,7 @@ Each rule is tagged with what catches a violation.
 
 - **Keep entrypoints thin.** `[review]` The runtime calls the entrypoint first: a DRF view, a management command `handle()`, a Celery task body, an HTTP handler, a Rust `main()`, a React component. An entrypoint reads the input, connects the dependencies, and formats the output. All other logic goes in a function the entrypoint calls, so a test can call it directly. If the area already has a place for that logic, use it rather than making a new one.
 - **A product under `products/` is scaffolded, not hand-rolled.** `[lint: hogli product:lint --all]` Create one with `hogli product:bootstrap <name>`, because the scaffold emits a product that is isolated from its first commit. See "New products must be isolated" in [products/README.md](products/README.md) for the isolation rules, and [products/architecture.md](products/architecture.md) for facade and contract design.
-- **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/` and `cli/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
+- **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/`, `cli/` and `hog/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
 
 ### Tenancy and scoping
 
@@ -314,12 +325,14 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
 - `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
+- `/verifying-changes` — choosing how to confirm a change works before reporting it done, or before starting Storybook, the dev stack, or a Playwright run to check your own work
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/profiling-slow-api-endpoints` — an endpoint, list, picker, or scene is slow, a p95 latency number needs explaining, or a Postgres query plan needs checking against production rather than a local database
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- `/building-the-toolbar`: any change under `frontend/src/toolbar/`, floating toolbar or extension. Build and check both, and keep them in sync
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support

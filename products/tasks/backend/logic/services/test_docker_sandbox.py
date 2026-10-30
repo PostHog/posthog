@@ -16,13 +16,18 @@ from products.tasks.backend.logic.services import sandbox as sandbox_module
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AgentServerPreflight,
 )
 from products.tasks.backend.logic.services.docker_sandbox import (
     DockerSandbox,
     _base_dockerfile_path,
     _pinned_agent_version,
 )
-from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
+from products.tasks.backend.logic.services.local_skills import (
+    ENV_DISABLE_BUNDLED_SKILLS,
+    ENV_EVAL_SKILLS_MANIFEST,
+    ENV_LOCAL_SKILLS_HOST_PATH,
+)
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -659,6 +664,38 @@ class TestDockerSandboxUnit:
         assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_create_mounts_local_skills_for_all_agent_discovery_paths(
+        self, mock_run: MagicMock, tmp_path: Path, strict: bool
+    ) -> None:
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+        skill_dir = tmp_path / "example-skill"
+        skill_dir.mkdir()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    ENV_LOCAL_SKILLS_HOST_PATH: str(tmp_path),
+                    **(
+                        {ENV_EVAL_SKILLS_MANIFEST: "manifest.json", "POSTHOG_DESKTOP_SKILLS": "local"} if strict else {}
+                    ),
+                },
+            ),
+            patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"),
+        ):
+            DockerSandbox.create(SandboxConfig(name="test-sandbox"))
+
+        docker_args = mock_run.call_args_list[-1][0][0]
+        for discovery_path in (
+            "/scripts/plugins/posthog/skills",
+            "/root/.claude/skills",
+            "/root/.agents/skills",
+        ):
+            expected = f"{tmp_path}:{discovery_path}:ro" if strict else f"{skill_dir}:{discovery_path}/example-skill:ro"
+            assert expected in docker_args
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_create_skips_local_skill_mounts_when_bundled_skills_disabled(self, mock_run, tmp_path) -> None:
         mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
         skill_dir = tmp_path / "sample-skill"
@@ -699,6 +736,23 @@ class TestDockerSandboxUnit:
             index for index, command in enumerate(commands) if "./node_modules/.bin/agent-server" in command
         )
         assert clear_index < launch_index
+
+    def test_start_agent_server_rejects_unverified_skills_before_reusing_a_server(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        with (
+            patch.object(sandbox, "_validate_agent_server_launch"),
+            patch.object(
+                sandbox,
+                "_agent_server_preflight",
+                return_value=AgentServerPreflight(reused=True, capabilities=frozenset()),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.agent_server_launcher.verify_eval_skills",
+                side_effect=RuntimeError("Snapshot mismatch"),
+            ),
+            pytest.raises(RuntimeError, match="Snapshot mismatch"),
+        ):
+            sandbox.start_agent_server(None, "task", "run")
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

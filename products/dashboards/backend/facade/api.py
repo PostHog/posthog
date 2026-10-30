@@ -13,6 +13,7 @@ response they become.
 
 import re
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
@@ -47,6 +48,10 @@ class DashboardNotEditable(Exception):
     def __init__(self, dashboard_id: int) -> None:
         super().__init__(str(dashboard_id))
         self.dashboard_id = dashboard_id
+
+
+class DashboardNotViewable(Exception):
+    """The requester may not view this dashboard."""
 
 
 class CannotAddToDashboard(DashboardNotEditable):
@@ -209,6 +214,57 @@ def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict
     for insight_id, dashboard_id, name in rows:
         refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
     return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
+
+
+def insight_ids_on_dashboards_accessed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    """Insights with a live tile on a live dashboard of these teams that someone opened since the given time.
+
+    One query. Any access counts: the app, the API, a shared link, or an embed.
+    """
+    if not team_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id__in=team_ids, dashboard__last_accessed_at__gte=since, insight_id__isnull=False
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
+def dashboard_exists(dashboard_id: int) -> bool:
+    """Whether a live dashboard has this id, in any team.
+
+    A request field that names a dashboard checks this first, and the team check follows.
+    """
+    # The caller compares the dashboard's team with its own right after this lookup.
+    # nosemgrep: idor-lookup-without-team
+    return Dashboard.objects.filter(pk=dashboard_id).exists()
+
+
+def viewable_dashboard_id(*, team_id: int, dashboard_id: int, user_access_control: UserAccessControl) -> int:
+    """The id of a live dashboard of this team that the user may view.
+
+    Raises `DashboardNotFound` when the team has no live dashboard with this id, and
+    `DashboardNotViewable` when object-level access rules hide it from the user.
+    """
+    dashboard = Dashboard.objects.filter(team_id=team_id, pk=dashboard_id).first()
+    if dashboard is None:
+        raise DashboardNotFound(str(dashboard_id))
+    if not user_access_control.check_access_level_for_object(dashboard, "viewer"):
+        raise DashboardNotViewable(str(dashboard_id))
+    return dashboard.id
+
+
+def live_tile_insight_ids(dashboard_id: int) -> list[int]:
+    """Ids of the insights on this dashboard's live tiles, leaving out deleted insights."""
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    return list(
+        DashboardTile.objects.filter(
+            dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
+        ).values_list("insight_id", flat=True)
+    )
 
 
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
@@ -495,15 +551,18 @@ __all__ = [
     "CannotRemoveFromDashboard",
     "DashboardNotEditable",
     "DashboardNotFound",
+    "DashboardNotViewable",
     "DashboardRef",
     "DashboardTileBasicSerializer",
     "InsightTilePlacement",
     "MembershipChange",
     "active_tile_count",
+    "dashboard_exists",
     "dashboard_refs",
     "hide_tiles_for_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",
+    "live_tile_insight_ids",
     "plan_insight_tile_placement",
     "restore_tiles_for_insights",
     "tile_for_insight_on_dashboard",
@@ -512,4 +571,5 @@ __all__ = [
     "tile_permissions_prefetch",
     "unknown_dashboard_ids",
     "update_insight_dashboard_membership",
+    "viewable_dashboard_id",
 ]

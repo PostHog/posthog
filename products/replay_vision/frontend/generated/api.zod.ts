@@ -446,7 +446,7 @@ export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
     .object({
@@ -464,7 +464,7 @@ export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
                 'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
             ),
     })
-    .describe('Why the calling user marked an observation not useful in What to watch.')
+    .describe('Why the calling user marked an observation not useful in the Highlights feed.')
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
@@ -486,8 +486,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod
@@ -1037,7 +1037,7 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1055,7 +1055,7 @@ export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */
                 'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
             ),
     })
-    .describe('Why the calling user marked an observation not useful in What to watch.')
+    .describe('Why the calling user marked an observation not useful in the Highlights feed.')
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
@@ -1474,6 +1474,26 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
 /**
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
+ */
+export const visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax = 100
+
+export const VisionScannersHighlightFeedImpressionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        feed_load_id: zod
+            .uuid()
+            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
+        observation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax)
+            .describe(
+                'Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/highlight_feed_impressions\/.')
+
+/**
  * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
@@ -1540,43 +1560,3 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
     )
-
-/**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
-
-export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
-
-export const visionScannersSuggestTagsCreateBodyTagsMax = 200
-
-export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
-export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
-
-export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
-    .object({
-        prompt: zod
-            .string()
-            .max(visionScannersSuggestTagsCreateBodyPromptMax)
-            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
-        tags: zod
-            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
-            .max(visionScannersSuggestTagsCreateBodyTagsMax)
-            .optional()
-            .describe('The categories already configured, so suggestions never duplicate one the user has.'),
-        multi_label: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
-            .describe('Whether the classifier assigns multiple tags per session.'),
-        allow_freeform_tags: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
-            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
-        scanner_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')

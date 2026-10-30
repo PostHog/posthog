@@ -32,7 +32,13 @@ export function ScoreDefinitionActions({
                     'data-attr': 'llma-scorer-edit-config',
                 },
                 ...(showHistory
-                    ? [{ label: 'Offline history', to: urls.aiObservabilityOfflineScorerHistory(definition.id) }]
+                    ? [
+                          {
+                              label: 'Offline history',
+                              to: urls.aiObservabilityOfflineScorerHistory(definition.id),
+                              'data-attr': 'llma-scorer-offline-history',
+                          },
+                      ]
                     : []),
                 {
                     label: 'Duplicate',
@@ -53,6 +59,7 @@ export function ScoreDefinitionActions({
                 icon={<IconEllipsis />}
                 size="small"
                 aria-label={`Actions for ${definition.name}`}
+                data-attr="llma-scorer-actions"
                 loading={archiving}
             />
         </LemonMenu>

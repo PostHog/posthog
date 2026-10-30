@@ -25,6 +25,7 @@ import {
 import { HomeTabExplore } from './HomeTabExplore'
 import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
 import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
+import { HomeTabReloadButton } from './HomeTabReloadButton'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
@@ -76,7 +77,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         {dashboardActions}
                     </div>
                 </div>
-                <div className="home-tab-date-controls grid w-full min-w-0 grid-cols-2 gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap">
+                <div className="home-tab-date-controls grid w-full min-w-0 grid-cols-[1fr_1fr_auto] gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap">
                     <div className="min-w-0 [&_.LemonButton]:w-full @min-[48rem]/home-overview:[&_.LemonButton]:w-auto">
                         <DateFilter
                             showCustom
@@ -101,6 +102,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             allowCustomComparison={false}
                         />
                     </div>
+                    <HomeTabReloadButton />
                 </div>
             </div>
 

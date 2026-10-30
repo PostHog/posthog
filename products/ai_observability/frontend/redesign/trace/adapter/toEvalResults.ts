@@ -2,30 +2,12 @@ import { urls } from 'scenes/urls'
 
 import type { TraceEvaluationResultApi, TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalResult, EvalTarget } from '../types'
+import { nodeLabels } from './toTraceTree'
 
 export interface EvalResultsContext {
     /** Every node of the trace, root first, to name what each result targets. */
     tree: TraceNodeApi[]
     viewedNodeId: string
-}
-
-function flatten(nodes: TraceNodeApi[]): TraceNodeApi[] {
-    return nodes.flatMap((node) => [node, ...flatten(node.children)])
-}
-
-// Two steps can share a name, such as two calls to the same model, so repeated names get their position.
-function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
-    const nodes = flatten(tree)
-    const totals = new Map<string, number>()
-    nodes.forEach((node) => totals.set(node.name, (totals.get(node.name) ?? 0) + 1))
-    const seen = new Map<string, number>()
-    return new Map(
-        nodes.map((node) => {
-            const position = (seen.get(node.name) ?? 0) + 1
-            seen.set(node.name, position)
-            return [node.id, (totals.get(node.name) ?? 0) > 1 ? `${node.name} #${position}` : node.name]
-        })
-    )
 }
 
 function targetOf(

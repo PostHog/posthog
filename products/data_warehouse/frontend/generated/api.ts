@@ -84,8 +84,10 @@ import type {
     SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryResumeRequestApi,
     SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
+    SavedQueryRunResponseApi,
     TableApi,
     UploadedFileApi,
     ViewLinkApi,
@@ -1871,11 +1873,14 @@ export const getWarehouseSavedQueriesResumeCreateUrl = (projectId: string, id: s
 export const warehouseSavedQueriesResumeCreate = async (
     projectId: string,
     id: string,
+    savedQueryResumeRequestApi?: SavedQueryResumeRequestApi,
     options?: RequestInit
 ): Promise<SavedQueryResumeApi> => {
     return apiMutator<SavedQueryResumeApi>(getWarehouseSavedQueriesResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(savedQueryResumeRequestApi),
     })
 }
 
@@ -1916,8 +1921,8 @@ export const warehouseSavedQueriesRunCreate = async (
     id: string,
     savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<SavedQueryRunResponseApi> => {
+    return apiMutator<SavedQueryRunResponseApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -40,6 +41,12 @@ export const manifest: ProductManifest = {
             href: urls.models(),
             searchKeywords: ['materialized views', 'materialization', 'data modeling', 'sql views', 'saved queries'],
             searchTabs: [
+                {
+                    name: 'Usage',
+                    href: urls.models('usage'),
+                    flag: FEATURE_FLAGS.DATA_MODELING_USAGE,
+                    searchKeywords: ['bytes read', 'cpu', 'materialization'],
+                },
                 { name: 'Lineage', href: urls.models('lineage'), searchKeywords: ['dag', 'dependencies'] },
                 {
                     name: 'Data quality',

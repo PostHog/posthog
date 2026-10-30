@@ -68,7 +68,10 @@ class TestHookdeckSource:
         assert schema.supports_incremental is True
         # Hookdeck restates rows as retries land, so a re-read window is merged, never appended.
         assert schema.supports_append is False
-        assert schema.default_incremental_lookback_seconds == 24 * 60 * 60
+        assert (
+            schema.default_incremental_lookback_seconds == HOOKDECK_ENDPOINTS[name].default_incremental_lookback_seconds
+        )
+        assert schema.default_incremental_lookback_seconds
         assert {f["field"] for f in schema.incremental_fields} == {
             f["field"] for f in HOOKDECK_ENDPOINTS[name].incremental_fields
         }

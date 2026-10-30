@@ -23,13 +23,17 @@ from databricks.sdk.core import (
 )
 from structlog.types import FilteringBoundLogger
 
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
     run_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    log_connection_open,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import BacktickIdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
@@ -169,9 +173,9 @@ def clean_databricks_host(host: str) -> str:
     """Normalize a pasted workspace URL down to the bare hostname the connector expects."""
     host = host.strip()
     for prefix in ("https://", "http://"):
-        if host.startswith(prefix):
+        if host.lower().startswith(prefix):
             host = host[len(prefix) :]
-    return host.rstrip("/")
+    return host.rstrip("/").lower()
 
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
@@ -220,6 +224,11 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
         (multi-schema import) leaves the session schema unset.
         """
         host = clean_databricks_host(config.host)
+        # The SDK and connector send requests to URLs the server returns, so the server must be one
+        # Databricks runs. `validate_credentials` checks this too, but scheduled syncs never call it.
+        if not is_databricks_workspace_host(host):
+            raise HostNotAllowedError(NOT_A_DATABRICKS_HOST_MESSAGE)
+
         auth_connect_args: dict[str, Any] = {}
 
         if config.auth_type.selection == "service_principal":
@@ -232,6 +241,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
                         host=f"https://{host}",
                         client_id=client_id,
                         client_secret=client_secret,
+                        auth_type="oauth-m2m",
                     )
                 )
 
@@ -248,6 +258,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
             # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
             schema=normalize_namespace(config.schema),
             user_agent_entry="PostHog",
+            enable_telemetry=False,
             **auth_connect_args,
         )
         try:

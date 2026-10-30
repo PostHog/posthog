@@ -9,6 +9,7 @@ export type NotebookComponentRunHandler = {
     /** Waiting behind another cell. It counts as running for the prompt, as Jupyter shows In [*]. */
     isQueued?: boolean
     executionCount?: number | null
+    hasError?: boolean
     interrupt?: () => void
 }
 
@@ -24,6 +25,7 @@ export function usePublishNotebookComponentRunHandler(handler: NotebookComponent
     const isRunning = handler?.isRunning ?? false
     const isQueued = handler?.isQueued ?? false
     const executionCount = handler?.executionCount ?? null
+    const hasError = handler?.hasError ?? false
     const interrupt = handler?.interrupt
 
     useEffect(() => {
@@ -31,8 +33,10 @@ export function usePublishNotebookComponentRunHandler(handler: NotebookComponent
             return
         }
 
-        publishRunHandler(run ? { run, disabledReason, isRunning, isQueued, executionCount, interrupt } : null)
+        publishRunHandler(
+            run ? { run, disabledReason, isRunning, isQueued, executionCount, hasError, interrupt } : null
+        )
 
         return () => publishRunHandler(null)
-    }, [publishRunHandler, run, disabledReason, isRunning, isQueued, executionCount, interrupt])
+    }, [publishRunHandler, run, disabledReason, isRunning, isQueued, executionCount, hasError, interrupt])
 }

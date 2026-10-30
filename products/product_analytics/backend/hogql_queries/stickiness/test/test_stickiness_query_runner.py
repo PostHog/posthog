@@ -55,7 +55,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -1641,6 +1641,29 @@ class TestStickinessSeriesCustomNames(BaseTest):
 
         assert patched_response.results == expected_results
         assert was_modified is expect_modified
+
+    def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
+        action = Action.objects.create(team=self.team, name="Signed up")
+        query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
+        cached_rows = [
+            {"label": "$pageview", "data": [3], "action": {"order": 0, "name": "$pageview"}},
+            {"label": "Signed up", "data": [1], "action": {"order": 1, "name": "Signed up"}},
+        ]
+        # An older runner cached rows without a top-level `order` and a response without `action_names`.
+        with patch.object(
+            StickinessQueryRunner, "calculate", return_value=StickinessQueryResponse(results=cached_rows)
+        ):
+            StickinessQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+
+        response = StickinessQueryRunner(query=query, team=self.team).run(
+            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+        )
+
+        assert isinstance(response, CachedStickinessQueryResponse)
+        assert [row["order"] for row in response.results] == [0, 1]
+        assert response.action_names == {str(action.id): "Signed up"}
 
 
 class TestStickinessSeriesFanOut(BaseTest):

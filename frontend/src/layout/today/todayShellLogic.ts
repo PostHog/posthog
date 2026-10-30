@@ -10,15 +10,14 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-
-import { TODAY_PANES } from './todayRailItems'
 
 export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
 
@@ -46,9 +45,22 @@ export function clampSidebarWidth(width: number | null): number {
     )
 }
 
+/** The task composer runs on the sandbox, so the legacy view starts a chat on `/ai` instead. */
+export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
+    return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
+}
+
+/** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
+const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
+    home: () => urls.projectHomepage(),
+    spaces: todayNewChatUrl,
+    analytics: () => urls.analyticsList(),
+    settings: () => urls.settings('project'),
+}
+
 /** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
 export function railPaneHref(pane: TodayRailPane, effectivePhaiView: PhaiViewMode): string | undefined {
-    return TODAY_PANES[pane].home?.(effectivePhaiView)
+    return RAIL_PANE_HOMES[pane]?.(effectivePhaiView)
 }
 
 const PHONE_PAGE_LIMIT = 50

@@ -37,6 +37,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
+from products.tasks.backend.logic.services.local_skills import verify_eval_skills
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.memory_watchdog import (
     MEMORY_WATCHDOG_MISSING_MARKER,
@@ -60,6 +61,7 @@ from products.tasks.backend.logic.services.sandbox import (
     health_check_timeout_seconds,
     wait_for_health_check,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -340,7 +342,6 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
@@ -366,7 +367,6 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
             pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
@@ -649,6 +649,13 @@ class AgentServerLaunchMixin(SandboxBase):
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
+            try:
+                raise_startup_failure(launch_result.stdout, self.id)
+            except AgentServerStartupError as error:
+                error.context.update(start_and_health_ms=start_and_health_ms)
+                if wait_for_health and health_duration_ms is not None:
+                    error.context.update(health_poll_ms=health_duration_ms)
+                raise
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
                 credential_error = self._credential_unavailable_error(
@@ -715,12 +722,12 @@ class AgentServerLaunchMixin(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -733,8 +740,12 @@ class AgentServerLaunchMixin(SandboxBase):
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
         preflight = self._agent_server_preflight(allowed_domains)
+        verify_eval_skills(self)
         if preflight.reused:
             return 0 if wait_for_health else None
+
+        if before_launch:
+            before_launch()
 
         repo_path: str | None = None
         if repository:
@@ -802,7 +813,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
-                peer_messaging=peer_messaging,
                 pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,

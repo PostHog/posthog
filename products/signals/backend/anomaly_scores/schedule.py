@@ -18,7 +18,7 @@ from temporalio.client import (
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.signals.backend.anomaly_scores.tick import TICK_WORKFLOW_NAME, AnomalyScoringTickInput
+from products.signals.backend.anomaly_scores.tick import TICK_TIMEOUT, TICK_WORKFLOW_NAME, AnomalyScoringTickInput
 
 ANOMALY_SCORING_TICK_SCHEDULE_ID = "anomaly-scoring-tick-schedule"
 ANOMALY_SCORING_TICK_INTERVAL = timedelta(minutes=5)
@@ -37,7 +37,7 @@ async def create_anomaly_scoring_tick_schedule(client: Client) -> None:
             asdict(AnomalyScoringTickInput()),
             id=ANOMALY_SCORING_TICK_SCHEDULE_ID,
             task_queue=settings.SELF_DRIVING_TASK_QUEUE,
-            execution_timeout=ANOMALY_SCORING_TICK_INTERVAL,
+            execution_timeout=TICK_TIMEOUT,
         ),
         spec=ScheduleSpec(
             intervals=[

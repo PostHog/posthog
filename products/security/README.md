@@ -29,7 +29,9 @@ This product pulls them, decides them in-process, and answers the hub's question
   `is_signup_risk_exempt` lets a signup skip the WorkOS Radar verdict.
 - Every check fails open.
   A decision that raises refuses nobody, keeps the email code and the Radar verdict, and counts `posthog_security_access_decision_errors_total`.
-- The AI gateway credential sweep (`posthog/tasks/wizard_blocklist.py`) revokes credentials for a block rule only while `ai_gateway` is enforced.
+- The AI gateway credential sweep (`posthog/tasks/wizard_blocklist.py`) runs every 10 minutes and revokes the gateway credentials that a blocked identity already holds.
+  It does nothing while `ai_gateway` is not enforced.
+  Access rules are the only source of AI gateway blocks.
 - To drop the emailed login code for every account during an email outage, add an `everyone` rule with scope `email_code` at the hub.
   Give it an expiry. The Redis switch it replaces capped itself at 7 days; a rule without `expiresAt` stays in force until somebody revokes it.
   It applies on the next pull plus the memo window, so allow about 6 minutes.

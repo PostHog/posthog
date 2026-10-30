@@ -5,9 +5,16 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
 from products.experiments.backend.health.context import HealthContext, MetricEvents
+from products.experiments.backend.health.skips import (
+    NOT_AFTER_END,
+    NOT_ON_ARCHIVED,
+    CheckSkip,
+    not_applicable,
+    not_checked,
+)
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING_CONTEXT
 
 Severity = ExperimentHealthFindingSeverity
@@ -35,15 +42,25 @@ class TestMetricEventNotIngested(TestCase):
             ),
             ("only_a_secondary_metric", _context(SIGNUPS, received={"signup": False}), Severity.INFO),
             ("received", _context(REVENUE, received={"purchase": True}), None),
-            ("a_name_without_a_definition_is_left_out", _context(REVENUE, received={}), None),
-            ("ended", _context(REVENUE, received={"purchase": False}, **ENDED), None),
-            ("archived", _context(REVENUE, received={"purchase": False}, archived=True), None),
+            (
+                "a_name_without_a_definition_is_left_out",
+                _context(REVENUE, received={}),
+                not_checked("Couldn't check because PostHog keeps no record of these event names"),
+            ),
+            ("ended", _context(REVENUE, received={"purchase": False}, **ENDED), not_applicable(NOT_AFTER_END)),
+            (
+                "archived",
+                _context(REVENUE, received={"purchase": False}, archived=True),
+                not_applicable(NOT_ON_ARCHIVED),
+            ),
         ]
     )
-    def test_severity_follows_the_state(self, _name: str, ctx: HealthContext, expected: Severity | None) -> None:
-        finding = metric_event_not_ingested(ctx)
+    def test_severity_follows_the_state(
+        self, _name: str, ctx: HealthContext, expected: Severity | CheckSkip | None
+    ) -> None:
+        outcome = metric_event_not_ingested(ctx)
 
-        self.assertEqual(finding.severity if finding else None, expected)
+        self.assertEqual(outcome.severity if isinstance(outcome, ExperimentHealthFinding) else outcome, expected)
 
     def test_names_each_metric_and_its_missing_events(self) -> None:
         funnel = MetricEvents(name="Checkout", role="primary", events=("cart", "pay", "view"))
@@ -51,7 +68,7 @@ class TestMetricEventNotIngested(TestCase):
 
         finding = metric_event_not_ingested(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.title, "2 metrics use events this project hasn't received")
         self.assertEqual(
             dict(finding.evidence),

@@ -570,7 +570,7 @@ pub struct Config {
     pub checkpoint_max_upload_buffers: usize,
 
     /// Retries per S3 operation before giving up.
-    #[envconfig(default = "3")]
+    #[envconfig(default = "10")]
     pub checkpoint_s3_max_retries: usize,
 
     /// Total timeout for one S3 operation including retries (secs).
@@ -613,13 +613,6 @@ pub struct Config {
     /// Average rate one upload may read from the store's disk (bytes per second).
     #[envconfig(default = "67108864")]
     pub checkpoint_upload_max_bytes_per_sec: u64,
-
-    /// Budget for the final checkpoint on a graceful stop, from the drain to the end of its upload
-    /// (secs). Past it the upload is cancelled, but an S3 request in flight runs to its end, so the
-    /// checkpoint component's shutdown window is the hard limit. An upload stopped before its
-    /// `metadata.json` leaves the last finished upload the newest restorable one.
-    #[envconfig(default = "45")]
-    pub checkpoint_final_upload_timeout_secs: u64,
 }
 
 /// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
@@ -828,7 +821,6 @@ impl Config {
             local_checkpoint_max_staleness: self.checkpoint_local_max_staleness(),
             full_upload_interval: Duration::from_secs(self.checkpoint_full_upload_interval_secs),
             upload_max_bytes_per_sec: self.checkpoint_upload_max_bytes_per_sec,
-            final_upload_timeout: Duration::from_secs(self.checkpoint_final_upload_timeout_secs),
         }
     }
 
@@ -951,7 +943,7 @@ impl Config {
             !self.checkpoint_s3_bucket.is_empty(),
             "CHECKPOINT_ENABLED requires CHECKPOINT_S3_BUCKET.",
         );
-        let knobs: [(&str, u64); 14] = [
+        let knobs: [(&str, u64); 13] = [
             ("CHECKPOINT_INTERVAL_MS", self.checkpoint_interval_ms),
             (
                 "CHECKPOINT_S3_UPLOAD_INTERVAL_MS",
@@ -996,10 +988,6 @@ impl Config {
             (
                 "CHECKPOINT_IMPORT_TIMEOUT_SECS",
                 self.checkpoint_import_timeout_secs,
-            ),
-            (
-                "CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS",
-                self.checkpoint_final_upload_timeout_secs,
             ),
             (
                 "CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC",
@@ -1367,7 +1355,7 @@ mod tests {
             checkpoint_max_concurrent_uploads: 40,
             checkpoint_max_concurrent_downloads: 40,
             checkpoint_max_upload_buffers: 40,
-            checkpoint_s3_max_retries: 3,
+            checkpoint_s3_max_retries: 10,
             checkpoint_s3_operation_timeout_secs: 120,
             checkpoint_s3_attempt_timeout_secs: 20,
             checkpoint_local_max_staleness_secs: 7200,
@@ -1376,7 +1364,6 @@ mod tests {
             checkpoint_import_timeout_secs: 7200,
             checkpoint_full_upload_interval_secs: 86_400,
             checkpoint_upload_max_bytes_per_sec: 64 * 1024 * 1024,
-            checkpoint_final_upload_timeout_secs: 45,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
@@ -2102,7 +2089,7 @@ mod tests {
         enabled().validate_startup().unwrap();
 
         type Misconfigure = fn(&mut Config);
-        let cases: [(&str, Misconfigure, &str); 10] = [
+        let cases: [(&str, Misconfigure, &str); 9] = [
             (
                 "no bucket",
                 |c| c.checkpoint_s3_bucket.clear(),
@@ -2112,11 +2099,6 @@ mod tests {
                 "a zero interval",
                 |c| c.checkpoint_interval_ms = 0,
                 "CHECKPOINT_INTERVAL_MS",
-            ),
-            (
-                "a zero final upload budget",
-                |c| c.checkpoint_final_upload_timeout_secs = 0,
-                "CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS",
             ),
             (
                 "a relative checkpoint dir",
@@ -2252,7 +2234,6 @@ mod tests {
         config.checkpoint_import_timeout_secs = 90;
         config.checkpoint_full_upload_interval_secs = 3601;
         config.checkpoint_upload_max_bytes_per_sec = 1024;
-        config.checkpoint_final_upload_timeout_secs = 12;
 
         let durability = config.durability_config();
         assert_eq!(durability.local_checkpoint_dir, "/data/ckpt");
@@ -2283,7 +2264,6 @@ mod tests {
         );
         assert_eq!(durability.full_upload_interval, Duration::from_secs(3601));
         assert_eq!(durability.upload_max_bytes_per_sec, 1024);
-        assert_eq!(durability.final_upload_timeout, Duration::from_secs(12));
     }
 
     #[test]

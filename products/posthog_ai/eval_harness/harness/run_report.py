@@ -39,4 +39,8 @@ class RunReport(BaseModel):
     duration_seconds: float
     revision: str | None = None
     worktree_dirty: bool | None = None
+    skills_sha256: str | None = None
+    skills_manifest_path: str | None = None
+    skills_source_sha256: str | None = None
+    skills_archive_path: str | None = None
     experiments: dict[str, ExperimentReport] = Field(default_factory=dict)

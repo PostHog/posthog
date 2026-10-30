@@ -25,6 +25,8 @@ class HeyReachFanoutConfig:
     # since the API does not echo the parent id back.
     body_param: str
     parent_body: dict[str, Any] = field(default_factory=dict)
+    # Column for the injected parent id, when it is not `body_param`.
+    row_column: str | None = None
 
 
 @frozen
@@ -42,6 +44,7 @@ class HeyReachEndpointConfig:
     stats_window_days: int | None = None
     # The endpoint pages with `pageNumber`/`pageSize` in the body instead of `offset`/`limit`.
     page_number_pagination: bool = False
+    should_sync_default: bool = True
 
 
 ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
@@ -116,6 +119,22 @@ ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
         daily_stats=True,
         # Rows grow with campaigns x days, so the full history doesn't fit one response.
         stats_window_days=30,
+    ),
+    "campaign_stats_by_sender": HeyReachEndpointConfig(
+        name="campaign_stats_by_sender",
+        path="/stats/GetOverallStatsByCampaign",
+        primary_keys=["date", "campaignId", "linkedInAccountId"],
+        partition_key="date",
+        daily_stats=True,
+        stats_window_days=30,
+        # The stats filters take lists of sender ids, so each sender gets its own `accountIds: [id]` walk.
+        fanout=HeyReachFanoutConfig(
+            parent="linkedin_accounts",
+            body_param="accountIds",
+            row_column="linkedInAccountId",
+        ),
+        # One full window walk per sender account multiplies the requests of `campaign_stats`, so it is opt-in.
+        should_sync_default=False,
     ),
     "sender_network": HeyReachEndpointConfig(
         name="sender_network",

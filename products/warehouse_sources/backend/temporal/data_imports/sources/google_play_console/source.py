@@ -101,6 +101,28 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return set(self.get_retry_exhausted_errors())
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The Reporting API answers its own outages with a 500 "Internal error encountered" on every
+        # metric set at once, which clears without any change on the customer's side. Left unmapped,
+        # the job keeps the raw status and a URL that names the customer's app.
+        # It also answers an outage with a bare 503 "Service Unavailable" on the same endpoints, with
+        # no response body to match on, so it needs its own entry alongside the 500 case. Without it,
+        # the activity's classifier (import_data_sync.py) treats the 503 as an unclassified failure
+        # and reports it to error tracking on every attempt instead of retrying quietly.
+        return {
+            "500 Server Error": (
+                "Google Play's reporting API had an internal error, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+            "503 Server Error": (
+                "Google Play's reporting API was unavailable, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

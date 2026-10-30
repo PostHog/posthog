@@ -7,7 +7,7 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qu
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { todayNewChatUrl } from './todayRailItems'
+import { todayNewChatUrl } from './todayShellLogic'
 
 export function TodayNewChatButton(): JSX.Element {
     const { location, searchParams } = useValues(router)

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.db import models
@@ -66,8 +67,18 @@ class DeletionRunLog(models.Model):
         indexes = [models.Index(fields=["job", "status", "-started_at"], name="deletion_run_log_latest")]
 
     @classmethod
-    def record(cls, dagster_run_id: str, job: DeletionRunJob, parent_run_id: str | None, **fields: Any) -> None:
-        """Create the run's row on its first write and update it on every later one."""
+    def record(
+        cls,
+        dagster_run_id: str,
+        job: DeletionRunJob,
+        parent_run_id: str | None,
+        started_at: datetime | None = None,
+        **fields: Any,
+    ) -> None:
+        """Create the run's row on its first write and update it on every later one.
+
+        started_at is only used when this write creates the row, because the first write can come from any step.
+        """
         inherited = (
             cls.objects.filter(dagster_run_id=parent_run_id).values(*cls.INHERITED_FIELDS).first()
             if parent_run_id
@@ -76,5 +87,11 @@ class DeletionRunLog(models.Model):
         cls.objects.update_or_create(
             dagster_run_id=dagster_run_id,
             defaults={"job": job, **fields},
-            create_defaults={**(inherited or {}), "job": job, "parent_run_id": parent_run_id, **fields},
+            create_defaults={
+                **(inherited or {}),
+                "job": job,
+                "parent_run_id": parent_run_id,
+                "started_at": started_at or timezone.now(),
+                **fields,
+            },
         )

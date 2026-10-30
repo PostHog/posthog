@@ -1,12 +1,14 @@
-import { LogicWrapper, MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import {
     OverviewMetricConfiguration,
     OverviewMetricGroup,
     OverviewMetricGroupConfiguration,
     defaultOverviewMetricConfiguration,
+    hiddenOverviewMetricGroups,
 } from './overviewMetricConfiguration'
 
 export interface OverviewMetricsLogicProps {
@@ -30,6 +32,7 @@ export interface overviewMetricsLogicActions {
         configuration: Partial<OverviewMetricGroupConfiguration>
     }
     resetDraft: () => void
+    reportDashboardControlUsed: (section: string, control: string, value?: boolean | string) => void
     setGroupCollapsed: (
         group: OverviewMetricGroup,
         collapsed: boolean
@@ -47,6 +50,7 @@ export const overviewMetricsLogic: LogicWrapper<overviewMetricsLogicType> = kea<
     key(({ viewKey }) => viewKey),
     // The path is the storage key for saved metric preferences.
     path((key) => ['products', 'marketingAnalytics', 'overviewMetricsLogic', key]),
+    connect(() => ({ actions: [marketingAnalyticsLogic, ['reportDashboardControlUsed']] })),
     actions({
         configureMetrics: (configuration: OverviewMetricConfiguration) => ({ configuration }),
         closeConfiguration: () => ({}),
@@ -81,5 +85,14 @@ export const overviewMetricsLogic: LogicWrapper<overviewMetricsLogicType> = kea<
                     state ? { ...state, [group]: { ...state[group], ...configuration } } : state,
             },
         ],
+    })),
+    listeners(({ actions }) => ({
+        applyConfiguration: ({ configuration }) => {
+            actions.reportDashboardControlUsed(
+                'overview',
+                'metric_configuration_applied',
+                hiddenOverviewMetricGroups(configuration)
+            )
+        },
     })),
 ])

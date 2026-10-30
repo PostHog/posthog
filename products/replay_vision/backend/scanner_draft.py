@@ -27,9 +27,7 @@ from django.db import connections
 from django.db.models import Q
 
 import structlog
-import posthoganalytics
 from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse, ThinkingConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.schema import RecordingsQuery
@@ -50,6 +48,7 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.replay import targetable_experiments
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -1534,18 +1533,11 @@ def _generate(
     distinct_id: str,
     thinking_budget: int | None = None,
 ) -> _LlmDraft:
-    api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
     try:
-        client = genai.Client(
-            api_key=api_key,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
+        models = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS)
     except Exception as e:
-        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # A missing gateway config raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
         raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(
@@ -1557,7 +1549,7 @@ def _generate(
     )
 
     def call_model() -> GenerateContentResponse:
-        return client.models.generate_content(
+        return models.generate_content(
             model=_DRAFT_MODEL,
             contents=user_content,
             config=config,
@@ -1570,7 +1562,6 @@ def _generate(
                 "team_id": team_id,
                 "thinking_budget": thinking_budget,
             },
-            posthog_groups={"project": str(team_id)},
         )
 
     started = time.monotonic()

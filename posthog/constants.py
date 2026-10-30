@@ -11,6 +11,8 @@ POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 # it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
 AI_EVENT_NAME_PREFIX = "$ai_"
 
+MCP_EVENT_NAME_PREFIX = "$mcp_"
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
@@ -53,6 +55,7 @@ class AvailableFeature(StrEnum):
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     MEMBER_GOVERNANCE = "member_governance"
+    SSF = "ssf"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
@@ -62,6 +65,7 @@ class AvailableFeature(StrEnum):
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
+    PERSONAL_API_KEYS = "personal_api_keys"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -69,13 +73,10 @@ TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
-TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
-TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
 TRENDS_DONUT = "ActionsDonut"
 TRENDS_PROPORTION_BAR = "ActionsProportionBar"
-TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
@@ -99,38 +100,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
 NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_METRIC, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
 
 # CONSTANTS
-INSIGHT_TRENDS = "TRENDS"
-INSIGHT_STICKINESS = "STICKINESS"
-INSIGHT_LIFECYCLE = "LIFECYCLE"
 INSIGHT_FUNNELS = "FUNNELS"
-INSIGHT_PATHS = "PATHS"
-INSIGHT_RETENTION = "RETENTION"
-
-INSIGHT_TO_DISPLAY = {
-    INSIGHT_TRENDS: TRENDS_LINEAR,
-    INSIGHT_STICKINESS: TRENDS_LINEAR,
-    INSIGHT_LIFECYCLE: TRENDS_LINEAR,
-    INSIGHT_FUNNELS: TRENDS_FUNNEL,
-    INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_TABLE,
-    # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
-    "SESSIONS": TRENDS_LINEAR,
-}
-
-DISPLAY_TYPES = Literal[
-    "ActionsLineGraph",
-    "ActionsLineGraphCumulative",
-    "ActionsTable",
-    "ActionsPie",
-    "ActionsDonut",
-    "ActionsProportionBar",
-    "ActionsBar",
-    "ActionsBarValue",
-    "WorldMap",
-    "BoldNumber",
-    "Metric",
-    "CalendarHeatmap",
-]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
     "PathsViz",
@@ -148,9 +118,6 @@ CUSTOM_EVENT = "custom_event"
 HOGQL = "hogql"
 
 
-DATE_FROM = "date_from"
-DATE_TO = "date_to"
-EXPLICIT_DATE = "explicit_date"
 ENTITIES = "entities"
 ACTIONS = "actions"
 EVENTS = "events"
@@ -159,21 +126,13 @@ EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
 INTERVAL = "interval"
-DISPLAY = "display"
 SHOWN_AS = "shown_as"
 CLIENT_QUERY_ID = "client_query_id"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
-BREAKDOWN_TYPE = "breakdown_type"
-BREAKDOWN_GROUP_TYPE_INDEX = "breakdown_group_type_index"
 COMPARE = "compare"
 COMPARE_TO = "compare_to"
 INSIGHT = "insight"
 SESSION = "session"
-BREAKDOWN = "breakdown"
-BREAKDOWNS = "breakdowns"
-BREAKDOWN_ATTRIBUTION_TYPE = "breakdown_attribution_type"
-BREAKDOWN_ATTRIBUTION_VALUE = "breakdown_attribution_value"
-BREAKDOWN_LIMIT = "breakdown_limit"
 FROM_DASHBOARD = "from_dashboard"
 PATH_TYPE = "path_type"
 RETENTION_TYPE = "retention_type"
@@ -216,9 +175,6 @@ PATH_EDGE_LIMIT = "edge_limit"
 PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
 PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
-BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
-BREAKDOWN_HIDE_OTHER_AGGREGATION = "breakdown_hide_other_aggregation"
-BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
 SAMPLING_FACTOR = "sampling_factor"
 
 
@@ -348,7 +304,12 @@ LOGIN_METHODS = [
     {
         "key": "google-oauth2",
         "display": "Google OAuth",
-        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": [
+            "google-oauth2",
+            "posthog.api.sso.CustomGoogleOAuth2",
+            "ee.api.authentication.CustomGoogleOAuth2",
+        ],
     },
     {
         "key": "github",
@@ -363,7 +324,8 @@ LOGIN_METHODS = [
     {
         "key": "saml",
         "display": "SAML",
-        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": ["saml", "posthog.api.sso.MultitenantSAMLAuth", "ee.api.authentication.MultitenantSAMLAuth"],
     },
     {
         "key": "oidc",

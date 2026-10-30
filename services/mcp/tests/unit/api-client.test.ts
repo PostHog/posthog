@@ -790,5 +790,17 @@ describe('ApiClient', () => {
                 expect(await pending).toMatchObject({ timedOut: true })
             }
         )
+
+        it('ends a request at its own shorter deadline', async () => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            const pending = client
+                .request({ method: 'GET', path: '/api/projects/17/integrations/', timeoutMs: 10 * 1000 })
+                .catch((error) => error)
+
+            await vi.advanceTimersByTimeAsync(10 * 1000)
+
+            expect(await pending).toMatchObject({ timedOut: true })
+        })
     })
 })

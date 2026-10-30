@@ -14,7 +14,12 @@ runs:
           env:
               JEST_ARTIFACTS: ${{ inputs.artifacts }}
               REPORT: ${{ runner.temp }}/jest-test-speed-report.html
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --html "$REPORT"
+              TIMINGS: ${{ runner.temp }}/jest-test-timings.json
+          run: |
+              # The parser can return without writing a report, so never reuse stale input.
+              : > "$TIMINGS"
+              "${UV:-uv}" run --script .github/scripts/report_test_timings.py --runner=jest --timings "$TIMINGS" "$JEST_ARTIFACTS"
+              bin/report-jest-timings --timings "$TIMINGS" --html "$REPORT"
         - name: Upload browser report
           id: report
           uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
@@ -26,8 +31,8 @@ runs:
         - name: Write timing summary
           shell: bash
           env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
+              TIMINGS: ${{ runner.temp }}/jest-test-timings.json
               REPORT_URL: ${{ steps.report.outputs.artifact-url }}
           run: |
-              bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-overview >> "$GITHUB_STEP_SUMMARY"
+              bin/report-jest-timings --timings "$TIMINGS" --markdown-overview >> "$GITHUB_STEP_SUMMARY"
               printf '\n[Open the full interactive Jest timing report](%s)\n' "$REPORT_URL" >> "$GITHUB_STEP_SUMMARY"

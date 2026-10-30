@@ -371,6 +371,14 @@ export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCap
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax = 1000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2826,7 +2834,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.'
                     ),
                 email_utm_params: zod
                     .object({
@@ -2918,6 +2926,20 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .optional()
                     .describe(
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                    ),
+                blocked_hosts: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                    ),
+                blocked_ips: zod
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax)
+                    .optional()
+                    .describe(
+                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
                     ),
             })
             .optional(),
@@ -3223,6 +3245,14 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionSc
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5693,7 +5723,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.'
                     ),
                 email_utm_params: zod
                     .object({
@@ -5785,6 +5815,26 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                    ),
+                blocked_hosts: zod
+                    .array(
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax)
+                    .optional()
+                    .describe(
+                        'Domains to block from feature flag requests (\/flags and \/decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.'
+                    ),
+                blocked_ips: zod
+                    .array(
+                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax)
+                    )
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax)
+                    .optional()
+                    .describe(
+                        'IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (\/flags and \/decide), up to 100. Ranges can be \/8 or narrower for IPv4 and \/16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.'
                     ),
             })
             .optional(),

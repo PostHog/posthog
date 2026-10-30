@@ -56,7 +56,7 @@ class PendingClose:
     team_id: int
     source_kind: str
     configuration_id: UUID
-    legacy_configuration_id: UUID | None
+    destination_alert_id: UUID
     rows: tuple[PlatformAlertEventRow, ...]
 
 
@@ -90,7 +90,7 @@ def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: 
         team_id=configuration.team_id,
         source_kind=configuration.source_kind,
         configuration_id=configuration.id,
-        legacy_configuration_id=configuration.legacy_configuration_id,
+        destination_alert_id=configuration.destination_alert_id,
         rows=rows,
     )
 
@@ -129,7 +129,7 @@ def _announce(pending: PendingClose, *, inline: bool) -> None:
 
 def _resolve_delivery(pending: PendingClose) -> AlertDeliveryRequest | None:
     spec = source_configs.spec(SourceKind(pending.source_kind))
-    if spec is None or spec.incident_event_ids is None or pending.legacy_configuration_id is None:
+    if spec is None or spec.incident_event_ids is None:
         return None
     grouping_keys = [row.grouping_key for row in pending.rows]
     return AlertDeliveryRequest(
@@ -137,13 +137,13 @@ def _resolve_delivery(pending: PendingClose) -> AlertDeliveryRequest | None:
         team_id=pending.team_id,
         configuration_id=str(pending.configuration_id),
         evaluation_key=pending.rows[0].evaluation_key,
-        # The id the source's destinations are matched on, as on every check's delivery.
-        destination_alert_id=str(pending.legacy_configuration_id),
+        # The id the alert's destinations are matched on, as on every check's delivery.
+        destination_alert_id=str(pending.destination_alert_id),
         event_ids_by_kind={},
         incident_actions=dict.fromkeys(grouping_keys, IncidentAction.RESOLVE),
         sends_messages=False,
         event_ids_by_incident_action=dict(spec.incident_event_ids),
-        source_alert_url=spec.alert_url(pending.team_id, pending.legacy_configuration_id) if spec.alert_url else None,
+        source_alert_url=spec.alert_url(pending.team_id, pending.destination_alert_id) if spec.alert_url else None,
         owned_by_platform=True,
         parts=parts_for(len(grouping_keys)),
     )

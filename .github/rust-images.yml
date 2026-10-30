@@ -154,6 +154,11 @@
   dockerfile: ./rust/Dockerfile
   project: lvsrh6c64c
 
+# Records the v4 AI research replay dataset (products/ai_training/docs/replay-data.md).
+- image: replay-recorder-v4
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
 - image: personhog-test-harness
   dockerfile: ./rust/Dockerfile
   project: 6tl5lmb8l8

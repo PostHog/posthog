@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Partition};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
@@ -28,8 +28,7 @@ use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
-/// A task that does not answer within this is wedged; the debug API then
-/// falls back to the totals the task last published.
+/// A task that does not answer within this is taken as wedged.
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
@@ -216,9 +215,13 @@ impl StateMachineDriver {
         SnapshotSender(self.inputs.clone())
     }
 
-    pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
+    pub(super) fn submit(
+        &self,
+        accumulator: Accumulator,
+        generations: &HashMap<Partition, u64>,
+    ) -> u64 {
         let assignment_epoch = self.assignment_epoch.current();
-        let runs = KeyRun::from_groups(accumulator.into_groups());
+        let runs = KeyRun::from_groups(accumulator.into_groups(), generations);
         let unkeyed: usize = runs
             .iter()
             .filter(|run| run.messages.first().is_some_and(|m| m.key.is_none()))
@@ -332,7 +335,6 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 )
             }
             Event::Response(request, Err(failure)) => {
-                // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
                     FailureCause::Busy
                 } else {
@@ -708,7 +710,6 @@ mod tests {
         }
     }
 
-    /// Lets the batcher task handle everything queued for it.
     async fn settle() {
         for _ in 0..8 {
             tokio::task::yield_now().await;

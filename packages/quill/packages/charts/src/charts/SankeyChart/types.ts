@@ -54,7 +54,7 @@ export interface SankeyChartConfig {
          *  anchors it to the hovered node's right edge or the ribbon's midpoint. */
         placement?: 'follow-data' | 'top' | 'cursor'
     }
-    /** Per-side margin overrides. Should be referentially stable. Column headers add their room to
+    /** Per-side margin overrides. Column headers add their room to
      *  the top margin, and `outside` labels to the right margin, on top of an override. */
     margins?: Partial<ChartMargins>
 }
@@ -62,7 +62,8 @@ export interface SankeyChartConfig {
 export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     nodes: SankeyNodeInput<NodeMeta>[]
     links: SankeyLinkInput<LinkMeta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: SankeyChartConfig
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void

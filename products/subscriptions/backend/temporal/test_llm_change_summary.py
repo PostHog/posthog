@@ -1,3 +1,4 @@
+import json
 import base64
 from types import SimpleNamespace
 
@@ -446,6 +447,14 @@ class TestChangeSummaryPromptInjectionDefences:
 
 
 def _mock_openai_response(content: str = "", prompt_tokens: int = 0, completion_tokens: int = 0):
+    if content and not content.startswith("{"):
+        content = json.dumps(
+            {
+                "findings": [
+                    {"items": [{"kind": "text", "text": line.removeprefix("- ")}]} for line in content.splitlines()
+                ]
+            }
+        )
     choice = MagicMock()
     choice.message.content = content
 
@@ -463,7 +472,6 @@ class TestGenerateChangeSummary:
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_truncated_structured_summary_retries_with_more_tokens(self, mock_get_client: MagicMock) -> None:
         client = mock_get_client.return_value
-        client.with_options.return_value = client
         truncated = _mock_openai_response('{"findings":[', 100, 1500)
         truncated.choices[0].finish_reason = "length"
         complete = _mock_openai_response(
@@ -481,10 +489,7 @@ class TestGenerateChangeSummary:
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_returns_content_with_correct_params(self, slack_formatting, mock_get_client):
         mock_client = mock_get_client.return_value
-        mock_client.with_options.return_value = mock_client
-        content = "- Pageviews increased by 50%\n- Signups stable"
-        if slack_formatting:
-            content = '{"findings":[{"items":[{"kind":"name","text":"Pageviews"},{"kind":"text","text":" increased by "},{"kind":"value","text":"50%"},{"kind":"text","text":" on "},{"kind":"time","text":"Tuesday"}]}]}'
+        content = '{"findings":[{"items":[{"kind":"name","text":"Pageviews"},{"kind":"text","text":" increased by "},{"kind":"value","text":"50%"},{"kind":"text","text":" on "},{"kind":"time","text":"Tuesday"}]}]}'
         mock_client.chat.completions.create.return_value = _mock_openai_response(content, 100, 20)
 
         previous = [_make_state(1, "Pageviews", "avg 100/day")]
@@ -496,9 +501,15 @@ class TestGenerateChangeSummary:
         mock_client.chat.completions.create.assert_called_once()
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs.kwargs["temperature"] == 0.3
-        assert call_kwargs.kwargs["max_tokens"] == (1500 if slack_formatting else 500)
+        assert call_kwargs.kwargs["max_tokens"] == 1500
         system_prompt = call_kwargs.kwargs["messages"][0]["content"]
-        assert ("Format this delivery for Slack" in system_prompt) is slack_formatting
+        assert "Format this delivery for Slack" not in system_prompt
+        assert "remove filler, stock phrases, inflated claims, and duplicate observations" in system_prompt
+        generate_change_summary(previous, current, team=None, slack_formatting=not slack_formatting)
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"] == call_kwargs.kwargs["messages"]
+        assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
+        if not slack_formatting:
+            assert result == "- **Pageviews** increased by **50%** on _Tuesday_"
         if slack_formatting:
             assert result == "• *Pageviews* increased by *50%* on _Tuesday_"
             assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
@@ -514,11 +525,9 @@ class TestGenerateChangeSummary:
                 elif isinstance(node, list):
                     pending.extend(node)
             assert "Use kind=value for each measured" in system_prompt
-            assert "<u>underline</u>" in system_prompt
-            assert "Do not apply every style to every bullet" in system_prompt
             user_prompt = call_kwargs.kwargs["messages"][1]["content"]
             assert "Do not use markdown formatting" not in user_prompt
-            assert "Start each bullet with •" in user_prompt
+            assert "Start each bullet with •" not in user_prompt
 
     @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
@@ -743,7 +752,7 @@ class TestGenerateChangeSummary:
         usage.prompt_tokens_details = usage_details
         usage.completion_tokens_details = usage_details
         choice = MagicMock()
-        choice.message.content = "- ok"
+        choice.message.content = json.dumps({"findings": [{"items": [{"kind": "text", "text": "ok"}]}]})
         choice.message.tool_calls = None
         choice.finish_reason = "stop"
         fake_response = MagicMock()

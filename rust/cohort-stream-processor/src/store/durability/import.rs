@@ -5,7 +5,6 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::manifest::{ManifestError, OffsetManifest, MANIFEST_FILENAME};
@@ -96,11 +95,7 @@ impl CheckpointImporter {
             .iter()
             .map(|file| file.remote_filepath.clone())
             .collect();
-        // Without a token, the files left after a failed one would all still download.
-        let siblings = CancellationToken::new();
-        let download = self
-            .downloader
-            .download_files_cancellable(&keys, stage, Some(&siblings));
+        let download = self.downloader.download_files(&keys, stage);
         let result = match tokio::time::timeout(self.import_timeout, download).await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(ImportError::Download(err)),

@@ -117,6 +117,86 @@ class TestDimensionEndpoints:
         assert result.requests[0].body is None
 
 
+class TestSearches:
+    def test_cursor_rides_in_the_query_string_until_exhausted(self) -> None:
+        result = _driver().run(
+            "searches",
+            [
+                _mentions_page([{"searchId": "s1"}], next_cursor="c1"),
+                _mentions_page([{"searchId": "s2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"searchId": "s1"}, {"searchId": "s2"}]
+        assert [request.method for request in result.requests] == ["GET", "GET"]
+        assert [request.path for request in result.requests] == ["/api/v2/search", "/api/v2/search"]
+        assert result.requests[0].query == {"limit": (str(PAGE_SIZE),)}
+        assert result.requests[1].query == {"limit": (str(PAGE_SIZE),), "cursor": ("c1",)}
+        assert result.requests[1].body is None
+
+
+class TestFanOut:
+    def test_search_results_fetch_each_search_and_carry_its_id(self) -> None:
+        result = _driver().run(
+            "search_results",
+            [
+                _mentions_page([{"searchId": "s1"}], next_cursor="c1"),
+                ScriptedResponse(json={"searchId": "s1", "mentions": [{"sourceId": "reddit_1"}]}),
+                _mentions_page([{"searchId": "s2"}]),
+                ScriptedResponse(json={"searchId": "s2", "mentions": [{"sourceId": "reddit_1"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"sourceId": "reddit_1", "searchId": "s1"},
+            {"sourceId": "reddit_1", "searchId": "s2"},
+        ]
+        assert [request.path for request in result.requests] == [
+            "/api/v2/search",
+            "/api/v2/search/s1",
+            "/api/v2/search",
+            "/api/v2/search/s2",
+        ]
+        assert result.requests[2].query["cursor"] == ("c1",)
+        # The single-search endpoint takes no page size.
+        assert result.requests[1].query == {}
+
+    def test_search_results_resume_skips_completed_searches(self) -> None:
+        searches = _mentions_page([{"searchId": "s1"}, {"searchId": "s2"}])
+        first = _driver().run(
+            "search_results",
+            [
+                searches,
+                ScriptedResponse(json={"mentions": [{"sourceId": "reddit_1"}]}),
+                ScriptedResponse(json={"mentions": [{"sourceId": "reddit_2"}]}),
+            ],
+        )
+        after_first_search = first.saved_states[0]
+        assert after_first_search.fanout_state is not None
+
+        resumed = _driver().run(
+            "search_results",
+            [searches, ScriptedResponse(json={"mentions": [{"sourceId": "reddit_2"}]})],
+            resume_state=after_first_search,
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"sourceId": "reddit_2", "searchId": "s2"}]
+        assert [request.path for request in resumed.requests] == ["/api/v2/search", "/api/v2/search/s2"]
+
+
+class TestUsage:
+    def test_the_response_object_is_one_row(self) -> None:
+        usage = {"plan": "Pro_v3", "mentions": {"count": 5, "limit": 100, "resetAt": None}}
+        result = _driver().run("usage", [ScriptedResponse(json=usage)])
+
+        assert result.raised is None
+        assert result.rows == [usage]
+        assert result.requests[0].path == "/api/v2/org/usage"
+
+
 class TestHttpErrors:
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_auth_failures_raise_a_matchable_error(self, status_code: int) -> None:

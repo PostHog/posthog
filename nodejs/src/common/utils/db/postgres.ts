@@ -64,6 +64,11 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
     'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
+    // A hot standby cancels a read when WAL replay conflicts with it.
+    // Some servers capitalize the first word of the message, so the entry holds only the words that every variant shares.
+    // Servers report the conflict as SQLSTATE 40001 or 57014.
+    // Both codes also cover other failures, so the list matches this phrase instead of a code.
+    'conflict with recovery',
 ]
 
 export function isTransientPgError(err: unknown): boolean {

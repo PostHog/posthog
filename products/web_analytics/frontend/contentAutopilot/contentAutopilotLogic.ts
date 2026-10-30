@@ -24,7 +24,7 @@ import { ContentAutopilotPageTarget, opportunitiesNeedRefresh, pageToUpdate, pro
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 
 export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
-export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts'
+export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts' | 'prompts'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>

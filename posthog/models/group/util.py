@@ -235,95 +235,88 @@ def list_groups(
 ) -> ListGroupsResult:
     """List groups for the public groups API, served from ClickHouse.
 
-    Filtering, full-text search, ``created_at`` ordering and keyset pagination all run against the
-    deduped ``groups`` table, so this never reads the persons Postgres database; results are
-    eventually consistent. ``search`` matches a substring of the raw properties JSON or the group
-    key exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
+    Filtering, full-text search, ``created_at`` ordering and keyset pagination all run against
+    ``raw_groups``, so this never reads the persons Postgres database; results are eventually
+    consistent. ``search`` matches a substring of the latest raw properties JSON or the group key
+    exactly (case-insensitive), preserving the previous endpoint's semantics. The keyset cursor
     breaks ``created_at`` ties on ``group_key`` (unique within a team and type).
+
+    Dedup runs in two phases, so memory does not grow with the group type's total property volume.
+    The first phase picks the page's keys and aggregates only ``created_at`` and the search match
+    flag per key. The second phase reads the latest properties for those keys only. A single dedup
+    over the ``groups`` table holds the latest properties of every group of the type in memory,
+    because the search, cursor and ordering can only apply after the dedup. That runs out of memory
+    on large projects.
     """
     from posthog.hogql import ast  # noqa: PLC0415 — keep HogQL off this widely-imported module's import path
+    from posthog.hogql.database.schema.groups import select_from_groups_table  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     from posthog.models.team import Team  # noqa: PLC0415
 
     team = Team.objects.get(pk=team_id)
 
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            left=ast.Field(chain=["index"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=group_type_index),
-        )
-    ]
-
+    # Row-level filters on the group identity hold for every version of a group, so they can apply
+    # before the dedup.
+    key_filter: ast.Expr = ast.Constant(value=True)
     if group_key_contains:
-        where_exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.ILike,
-                left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
-                right=ast.Constant(value=f"%{_escape_clickhouse_like(group_key_contains)}%"),
-            )
+        key_filter = parse_expr(
+            "toString(key) ILIKE {pattern}",
+            placeholders={"pattern": ast.Constant(value=f"%{_escape_clickhouse_like(group_key_contains)}%")},
         )
 
+    # Filters on versioned columns must see only the latest version, so they apply after the dedup.
+    having_exprs: list[ast.Expr] = []
     if search:
-        where_exprs.append(
-            ast.Or(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=["properties"])]),
-                        right=ast.Constant(value=f"%{_escape_clickhouse_like(search)}%"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Call(name="lower", args=[ast.Call(name="toString", args=[ast.Field(chain=["key"])])]),
-                        right=ast.Call(name="lower", args=[ast.Constant(value=search)]),
-                    ),
-                ]
+        having_exprs.append(
+            parse_expr(
+                "argMax(toString(properties) ILIKE {pattern}, updated_at) OR lower(toString(key)) = lower({search})",
+                placeholders={
+                    "pattern": ast.Constant(value=f"%{_escape_clickhouse_like(search)}%"),
+                    "search": ast.Constant(value=search),
+                },
             )
         )
-
     if cursor_created_at_us > 0:
         cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_us / 1_000_000, tz=datetime.UTC)
-        where_exprs.append(
-            ast.Or(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt,
-                        left=ast.Field(chain=["created_at"]),
-                        right=ast.Constant(value=cursor_dt),
-                    ),
-                    ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["created_at"]),
-                                right=ast.Constant(value=cursor_dt),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Lt,
-                                left=ast.Field(chain=["key"]),
-                                right=ast.Constant(value=cursor_group_key),
-                            ),
-                        ]
-                    ),
-                ]
+        having_exprs.append(
+            parse_expr(
+                "argMax(created_at, updated_at) < {cursor_dt}"
+                " OR (argMax(created_at, updated_at) = {cursor_dt} AND key < {cursor_group_key})",
+                placeholders={
+                    "cursor_dt": ast.Constant(value=cursor_dt),
+                    "cursor_group_key": ast.Constant(value=cursor_group_key),
+                },
             )
         )
 
-    query = ast.SelectQuery(
-        select=[
-            ast.Field(chain=["key"]),
-            ast.Field(chain=["created_at"]),
-            ast.Field(chain=["properties"]),
-        ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
-        where=ast.And(exprs=where_exprs),
-        order_by=[
-            ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["key"]), order="DESC"),
-        ],
-        limit=ast.Constant(value=limit + 1),
+    page_keys = parse_select(
+        """
+        SELECT index, key
+        FROM raw_groups
+        WHERE index = {group_type_index} AND {key_filter}
+        GROUP BY index, key
+        HAVING {having}
+        ORDER BY argMax(created_at, updated_at) DESC, key DESC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "group_type_index": ast.Constant(value=group_type_index),
+            "key_filter": key_filter,
+            "having": ast.And(exprs=having_exprs) if having_exprs else ast.Constant(value=True),
+            "limit": ast.Constant(value=limit + 1),
+        },
+    )
+    # Without its own LIMIT, the executor's default row limit can drop the extra row that sets has_more.
+    query = parse_select(
+        "SELECT key, created_at, properties FROM {latest_groups} ORDER BY created_at DESC, key DESC LIMIT {limit}",
+        placeholders={
+            "latest_groups": select_from_groups_table(
+                {"created_at": ["created_at"], "properties": ["properties"]}, keys=page_keys
+            ),
+            "limit": ast.Constant(value=limit + 1),
+        },
     )
 
     response = execute_hogql_query(query, team=team, query_type="groups_list")

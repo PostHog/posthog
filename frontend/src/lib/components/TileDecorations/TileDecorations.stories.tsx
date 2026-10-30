@@ -84,7 +84,7 @@ export const WinnerWithGroupTitle: Story = {
         dashboardMocks(
             buildDashboard(
                 { 1: { badge: 'winner', group_key: 'launch' }, 2: { group_key: 'launch' } },
-                { group_titles: { launch: 'Launch metrics' } }
+                { groups: { launch: { title: 'Launch metrics' } } }
             )
         ),
     ],

@@ -38,8 +38,8 @@ use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, St
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_coordination::types::{
-    AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
-    RegisteredRouter, RouterFreezeAck,
+    AssignmentStatus, HandoffPhase, HandoffState, LeaderInfo, PartitionAssignment, PodStatus,
+    RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
 
 /// Write a handoff record directly, bypassing the coordinator — gives the
@@ -293,6 +293,84 @@ async fn coordinator_abdicates_and_recampaigns_when_election_lease_revoked() {
         .expect("coordinator must exit promptly on cancellation")
         .expect("coordinator task must not panic")
         .expect("graceful cancellation must exit cleanly after an abdication cycle");
+}
+
+/// A leader must abdicate when its election key is deleted or taken under
+/// another lease. With one candidate, a new lease on the key proves it did.
+#[tokio::test]
+async fn a_coordinator_whose_election_key_is_lost_abdicates() {
+    for replace in [false, true] {
+        let (store, prefix) = test_store_with_prefix("coordinator-key-lost").await;
+        let key = format!("{prefix}coordinator/leader");
+        let cancel = CancellationToken::new();
+        let handle = start_coordinator_named(
+            Arc::clone(&store),
+            "key-lost-coordinator-0",
+            60,
+            Arc::new(StickyBalancedStrategy),
+            cancel.clone(),
+        );
+
+        let check_store = Arc::clone(&store);
+        wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+            let store = Arc::clone(&check_store);
+            async move { store.get_leader().await.ok().flatten().is_some() }
+        })
+        .await;
+        let first = store.get_leader().await.unwrap().unwrap();
+
+        let mut client = etcd_client::Client::connect([ETCD_ENDPOINT], None)
+            .await
+            .unwrap();
+        let intruder = if replace {
+            let lease = client.lease_grant(60, None).await.unwrap().id();
+            let value = serde_json::to_vec(&LeaderInfo {
+                holder: "intruder".to_string(),
+                lease_id: lease,
+            })
+            .unwrap();
+            client
+                .put(
+                    key.as_str(),
+                    value,
+                    Some(etcd_client::PutOptions::new().with_lease(lease)),
+                )
+                .await
+                .unwrap();
+            Some(lease)
+        } else {
+            client.delete(key.as_str(), None).await.unwrap();
+            None
+        };
+        if let Some(lease) = intruder {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            client.lease_revoke(lease).await.unwrap();
+        }
+
+        let check_store = Arc::clone(&store);
+        let first_lease = first.lease_id;
+        wait_for_condition(Duration::from_secs(10), POLL_INTERVAL, || {
+            let store = Arc::clone(&check_store);
+            async move {
+                store
+                    .get_leader()
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some_and(|leader| {
+                        leader.holder == "key-lost-coordinator-0" && leader.lease_id != first_lease
+                    })
+            }
+        })
+        .await;
+
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(10), handle)
+            .await
+            .expect("coordinator must exit promptly on cancellation")
+            .expect("coordinator task must not panic")
+            .expect("graceful cancellation must exit cleanly after an abdication");
+    }
 }
 
 // ============================================================
@@ -3687,6 +3765,52 @@ async fn a_deleted_registration_starts_a_new_session() {
                 .unwrap_or(false);
             registered && authority.is_valid()
         }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A router whose registration is deleted under a live lease must register again.
+#[tokio::test]
+async fn a_router_whose_registration_is_deleted_registers_again() {
+    let (store, prefix) = test_store_with_prefix("router-registration-lost").await;
+    let cancel = CancellationToken::new();
+    let _router = start_router_with_lease_ttl(
+        Arc::clone(&store),
+        "registration-lost-router",
+        60,
+        cancel.clone(),
+    );
+
+    let registered = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_routers()
+            .await
+            .map(|routers| {
+                routers
+                    .iter()
+                    .any(|r| r.router_name == "registration-lost-router")
+            })
+            .unwrap_or(false)
+    };
+    let check = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        registered(Arc::clone(&check))
+    })
+    .await;
+
+    let mut client = etcd_client::Client::connect([ETCD_ENDPOINT], None)
+        .await
+        .unwrap();
+    client
+        .delete(format!("{prefix}routers/registration-lost-router"), None)
+        .await
+        .unwrap();
+
+    let check = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+        registered(Arc::clone(&check))
     })
     .await;
 

@@ -62,5 +62,6 @@ describe('DashboardFilterBar', () => {
 
         expect(screen.getByText('Service')).toBeInTheDocument()
         expect(!!document.querySelector('[data-attr="dashboard-metric-variables-edit"]')).toBe(editable)
+        expect(!!document.querySelector('[data-attr="dashboard-metric-variables-add"]')).toBe(editable)
     })
 })

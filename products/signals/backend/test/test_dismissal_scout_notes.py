@@ -190,6 +190,18 @@ class TestDismissalScoutNotes(APIBaseTest):
 
         assert self._notes() == []
 
+    def test_wrong_assignee_dismissal_forwards_without_prose(self) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        self._dismiss(report, dismissal_reason="wrong_assignee")
+
+        note = self._notes()[0]
+        assert note.skill_name == SCOUT_SKILL
+        assert "wrong_assignee" in note.content
+        assert "The note left with it" not in note.content
+
     @parameterized.expand(
         [
             ("with_correction", {"corrected_repository": "acme/right"}, True),

@@ -165,6 +165,11 @@ pub struct Config {
     #[envconfig(from = "PERSONHOG_ETCD_PREFIX", default = "/personhog/")]
     pub personhog_etcd_prefix: String,
 
+    /// Versioned S3 bucket that keeps a copy of `config/changelog` after
+    /// every change; empty disables backups and restore.
+    #[envconfig(from = "CHANGELOG_BACKUP_BUCKET", default = "")]
+    pub changelog_backup_bucket: String,
+
     /// The personhog changelog's Kafka cluster; unset means `KAFKA_HOSTS`.
     #[envconfig(from = "PERSONHOG_KAFKA_HOSTS")]
     pub personhog_kafka_hosts: Option<String>,

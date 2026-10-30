@@ -20,14 +20,21 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Metric',
         },
+        DataCatalogNewMetric: {
+            import: () => import('./frontend/DataCatalogNewMetricScene'),
+            projectBased: true,
+            name: 'New metric',
+        },
     },
     routes: {
         '/data-catalog': ['DataCatalog', 'dataCatalog'],
         '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
+        '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
     },
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+        dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
         dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
             `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     },

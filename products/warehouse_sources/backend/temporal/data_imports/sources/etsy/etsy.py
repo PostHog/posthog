@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.setti
     LISTING_STATES,
     EtsyBatchLookup,
     EtsyEndpointConfig,
+    EtsyFanOut,
 )
 
 ETSY_API_BASE = "https://api.etsy.com/v3/application"
@@ -455,6 +456,33 @@ def _batch_lookup_pages(
             manager.safe_point()
 
 
+def _fan_out_pages(
+    client: EtsyClient,
+    fan_out: EtsyFanOut,
+    shop_id: str,
+    parent_pages: Iterator[list[dict[str, Any]]],
+    manager: ResumableSourceManager[EtsyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    for parent_rows in parent_pages:
+        for parent_row in parent_rows:
+            parent_id = parent_row.get(fan_out.id_field)
+            if parent_id is None:
+                continue
+            try:
+                body = client.request(f"/shops/{shop_id}{fan_out.path.format(id=parent_id)}")
+            except HTTPError as error:
+                # A listing deleted after the parent page was read is gone, not a failed sync.
+                if error.response is None or error.response.status_code != 404:
+                    raise
+                body = {}
+            rows = [{**row, fan_out.id_field: parent_id} for row in body.get("results") or [] if isinstance(row, dict)]
+            if rows:
+                yield rows
+            else:
+                # Many listings carry no properties, and each one still costs a request.
+                manager.safe_point()
+
+
 def _paged_rows(
     client: EtsyClient,
     shop_id: str,
@@ -517,6 +545,21 @@ def get_rows(
         rows = _rows_from_results(client.request(path).get("results") or [], config)
         if rows:
             yield rows
+    elif config.fan_out is not None:
+        parent = ETSY_ENDPOINTS[config.fan_out.parent]
+        parent_pages = _paged_rows(
+            client,
+            resolved_shop_id,
+            f"/shops/{resolved_shop_id}{parent.path}",
+            parent,
+            resumable_source_manager,
+            resume,
+            logger,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        yield from _fan_out_pages(client, config.fan_out, resolved_shop_id, parent_pages, resumable_source_manager)
     elif config.batch_lookup is not None:
         parent = ETSY_ENDPOINTS[config.batch_lookup.parent]
         # The set of rows already yielded does not survive to a resumed attempt, and a resumed full

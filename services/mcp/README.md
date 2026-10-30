@@ -414,6 +414,8 @@ Startup waits up to 45 seconds for Redis to become ready, including connection r
 
 Each MCP transport session keeps its own active organization and project, including connections without a `project_id` or `organization_id` pin. An unpinned session starts from the user's active organization and project, within the credential's allowed scope. Later website changes and switches in other MCP sessions do not change that selection. `switch-project` and `switch-organization` update only the calling session; switching to another organization clears the previous project.
 
+`switch-project` requires a positive integer `projectId`. It also accepts `project_id` and `new_project_id` as aliases. If several are supplied, `projectId` takes precedence, followed by `project_id`.
+
 Clients without an MCP session ID use the SDK's `conversation_id` instead. Echo the handle returned by the first tool call on subsequent calls. A switch without a carried session or conversation handle returns an error and a new handle; retry with that handle to apply the switch. Conversation state is bound to the credential and stored separately from transport sessions. Calls without either identity start from the connection's pin or default selection. If your client cannot retain conversation handles, pin the project or organization in the connection URL.
 
 Legacy JSON-RPC batches restore each call's conversation handle independently. The wrapper's `sessionId` query parameter is an analytics hint and does not replace a conversation handle; wrapper-only calls still receive a new handle from the SDK.

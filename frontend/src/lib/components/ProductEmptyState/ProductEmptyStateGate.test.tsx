@@ -84,10 +84,10 @@ describe('ProductEmptyStateGate', () => {
             const setup = productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS })
             setup.actions.setDetectedStatus('loading')
             setup.actions.setDetectedStatus(status)
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: true })
             const { rerender } = render(
                 <ProductEmptyStateGate
-                    emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+                    emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP }}
                 >
                     <div>the real scene</div>
                 </ProductEmptyStateGate>
@@ -102,7 +102,7 @@ describe('ProductEmptyStateGate', () => {
             expect(setup.values.skipped).toBe(false)
             act(() =>
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: true,
                 })
             )
             rerender(
@@ -118,7 +118,7 @@ describe('ProductEmptyStateGate', () => {
         productSetupStatusLogic({ productKey: ProductKey.EXPERIMENTS }).actions.setDetectedStatus('needs-setup')
         render(
             <ProductEmptyStateGate
-                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP }}
             >
                 <div>the real scene</div>
             </ProductEmptyStateGate>
@@ -126,9 +126,7 @@ describe('ProductEmptyStateGate', () => {
         expect(noopStatusLogic.findMounted()).toBeNull()
         expect(screen.queryByText('Set up experiments')).toBeNull()
         expect(screen.queryByText('the real scene')).toBeNull()
-        act(() =>
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
-        )
+        act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: true }))
         expect(screen.getByText('the real scene')).not.toBeNull()
         expect(noopStatusLogic.findMounted()).toBeNull()
     })
@@ -143,12 +141,12 @@ describe('ProductEmptyStateGate', () => {
         ['?empty_state=0', false],
         ['', false],
     ])('renders the setup screen for %s: %s', (search, expectedForced) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: true })
         router.actions.push(`/experiments${search}`)
 
         render(
             <ProductEmptyStateGate
-                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD }}
+                emptyState={{ ...emptyState, bypassFeatureFlag: FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP }}
             >
                 <div>the real scene</div>
             </ProductEmptyStateGate>

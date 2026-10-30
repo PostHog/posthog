@@ -2845,6 +2845,11 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.hasThreadItems).toBe(false)
             expect(logic.values.bootstrapLoading).toBe(false)
+            expect(api.tasks.runs.getLogPage).toHaveBeenCalledWith(
+                'task-1',
+                'run-1',
+                expect.objectContaining({ view: 'thread' })
+            )
         })
 
         it('stores bootstrap errors for inline task-run error UI', async () => {
@@ -2938,11 +2943,21 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(true)
         })
 
-        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+        it.each([
+            ['a mode change', { sessionUpdate: 'current_mode_update', currentModeId: 'auto' }],
+            [
+                'an empty message chunk',
+                { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: '' } },
+            ],
+            [
+                'an empty thought chunk',
+                { sessionUpdate: 'agent_thought_chunk', messageId: 't1', content: { type: 'text', text: '' } },
+            ],
+        ])('stays off after turn_complete on %s, which does not mean the agent is generating', (_case, update) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
 
-            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            logic.actions.ingestAcpFrame(sessionUpdate(update))
             expect(logic.values.isThinking).toEqual(false)
         })
 
@@ -3665,6 +3680,33 @@ describe('runStreamLogic', () => {
                 []
             )
             expect(recovered.entries.map(({ entry }) => entry)).toEqual(entries.map(({ entry }) => entry))
+        })
+
+        it('recognizes a legacy tool update whose history copy has the tool response reduced', async () => {
+            const toolEvent = jest.fn()
+            toolStreamEventsLogic.actions.registerToolListener('reduced-history', { tools: '*', onEvent: toolEvent })
+            const call = sessionUpdate({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tool-1',
+                title: 'Run',
+                status: 'pending',
+            })
+            const update = (toolResponse?: Record<string, unknown>): StoredLogEntry =>
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'tool-1',
+                    status: 'completed',
+                    _meta: { claudeCode: { toolName: 'Bash', ...(toolResponse ? { toolResponse } : {}) } },
+                })
+            jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([call, update()] as any)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            await MockStream.latest().emitMessage(call, 'log-0')
+            await MockStream.latest().emitMessage(update({ stdout: 'output', stderr: '' }), 'log-1')
+            await flushPromises()
+
+            expect(toolEvent.mock.calls.map(([event]) => event.phase)).toEqual([])
         })
 
         it.each([false, true])(

@@ -22,7 +22,7 @@ import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
+import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -55,6 +55,7 @@ export interface LogsViewerProps {
     defaultSparklineCollapsed?: boolean
     // A panel embedded under other keyboard controls leaves focus where it is.
     autoFocusSearch?: boolean
+    keyboardShortcutsEnabled?: boolean
 }
 
 export function LogsViewer({
@@ -68,6 +69,7 @@ export function LogsViewer({
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
     autoFocusSearch = true,
+    keyboardShortcutsEnabled = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -84,6 +86,7 @@ export function LogsViewer({
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
                                         autoFocusSearch={autoFocusSearch}
+                                        keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -108,11 +111,13 @@ function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
     autoFocusSearch,
+    keyboardShortcutsEnabled,
     scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
     autoFocusSearch: boolean
+    keyboardShortcutsEnabled: boolean
     scope: LogsViewerScope
 }): JSX.Element {
     const {
@@ -139,7 +144,7 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
-    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
@@ -197,7 +202,7 @@ function LogsViewerContent({
 
     // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
     useEffect(() => {
-        if (!isFocused || wrapBody || isTraceDialogOpen) {
+        if (!keyboardShortcutsEnabled || !isFocused || wrapBody || isTraceDialogOpen) {
             return
         }
 
@@ -228,7 +233,7 @@ function LogsViewerContent({
             window.removeEventListener('keyup', handleKeyUp)
             stopScrolling()
         }
-    }, [isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
+    }, [keyboardShortcutsEnabled, isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -251,8 +256,8 @@ function LogsViewerContent({
     )
 
     // The trace dialog opens over the viewer, so the viewer's keys stop while it is open.
-    const listKeysEnabled = keyboardNavEnabled && !isTraceDialogOpen
-    const focusedListKeysEnabled = isFocused && !isTraceDialogOpen
+    const listKeysEnabled = keyboardShortcutsEnabled && keyboardNavEnabled && !isTraceDialogOpen
+    const focusedListKeysEnabled = keyboardShortcutsEnabled && isFocused && !isTraceDialogOpen
 
     useKeyboardHotkeys(
         {
@@ -307,6 +312,7 @@ function LogsViewerContent({
             },
         },
         [
+            keyboardShortcutsEnabled,
             isFocused,
             keyboardNavEnabled,
             isTraceDialogOpen,

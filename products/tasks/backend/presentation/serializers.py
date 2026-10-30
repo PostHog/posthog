@@ -20,7 +20,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.user_integration import UserIntegration
 from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
@@ -798,8 +798,8 @@ class TaskWriteSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
-    github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
@@ -815,7 +815,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
     # importing this module never touches the signals model.
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
@@ -940,7 +940,7 @@ class TaskWriteSerializer(serializers.Serializer):
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Channel this task is owned by (the channel it was kicked off in).",
@@ -950,10 +950,10 @@ class TaskWriteSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         # SignalReport is scoped to the request team by the field; bind its queryset lazily so
         # importing this module never touches the signals model at import time.
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
+        channel_field = cast(serializers.PrimaryKeyRelatedField, self.fields["channel"])
+        channel_field.queryset = tasks_facade.channel_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_channel(self, value):
         request = self.context.get("request")
@@ -970,12 +970,6 @@ class TaskWriteSerializer(serializers.Serializer):
             self.context["team"].id, value.id, user_id
         ):
             raise serializers.ValidationError("Space not found")
-        return value
-
-    def validate_github_integration(self, value):
-        """Validate that the GitHub integration belongs to the same team"""
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
         return value
 
     def validate_github_user_integration(self, value):
@@ -1019,6 +1013,8 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
             # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
             tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+            # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
+            tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -2044,31 +2040,6 @@ class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
 
 
-class TaskRunPeerSerializer(serializers.Serializer):
-    """One peer agent run visible to the requesting run (agent peer messaging)."""
-
-    run_id = serializers.CharField(help_text="The peer run's id — the address send_agent_message targets.")
-    task_id = serializers.CharField(help_text="Id of the peer run's parent task.")
-    task_title = serializers.CharField(help_text="Title of the peer run's parent task.")
-    created_by_email = serializers.CharField(
-        allow_null=True, help_text="Email of the user whose task the peer run belongs to."
-    )
-    runtime = serializers.CharField(help_text="Agent runtime of the peer run's task (e.g. 'pi').")
-    model = serializers.CharField(allow_null=True, help_text="Model the peer run was started with, when recorded.")
-    repository = serializers.CharField(
-        allow_null=True, help_text="Repository the peer run works on, or null for repo-less (channel-mode) runs."
-    )
-    stage = serializers.CharField(allow_null=True, help_text="Current stage of the peer run (e.g. 'build').")
-    status = serializers.CharField(help_text="Run status: 'in_progress' or 'queued' (only these are listed).")
-    sendable = serializers.BooleanField(
-        help_text=(
-            "Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is "
-            "listed but its workflow may not exist yet. Never infer sendability from status labels."
-        )
-    )
-    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
-
-
 class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
     analysis_task_id = serializers.UUIDField(help_text="Id of the analysis task to navigate to.")
     created = serializers.BooleanField(
@@ -2198,48 +2169,6 @@ def _contains_whole_term(text: str, term: str) -> bool:
 
 class TaskRunAnalysisActivityResponseSerializer(serializers.Serializer):
     activity_index = serializers.IntegerField(help_text="Zero-based position of the stored activity on the run.")
-
-
-class TaskRunPeersResponseSerializer(serializers.Serializer):
-    peers = TaskRunPeerSerializer(
-        many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
-    )
-
-
-class TaskRunPeerMessageRequestSerializer(serializers.Serializer):
-    content = serializers.CharField(
-        max_length=16_000,
-        help_text=(
-            "Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed "
-            "provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files."
-        ),
-    )
-    artifact_ids = serializers.ListField(
-        child=serializers.CharField(max_length=128),
-        required=False,
-        default=list,
-        max_length=10,
-        help_text=(
-            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the "
-            "target run's own artifact storage; the receiver gets an immutable snapshot."
-        ),
-    )
-
-
-class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
-    result = serializers.ChoiceField(
-        choices=["accepted", "target_finished", "rejected"],
-        help_text=(
-            "Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), "
-            "'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid)."
-        ),
-    )
-    detail = serializers.CharField(help_text="Human-readable explanation of the result.")
-    message_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Id of the recorded peer message, when one was created for this send.",
-    )
 
 
 TASK_SUMMARIES_MAX_IDS = 5000
@@ -2702,8 +2631,8 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="Team GitHub integration used for repositories linked to this channel.",
@@ -2733,11 +2662,6 @@ class ChannelUpdateSerializer(serializers.Serializer):
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):
             raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
-        return value
-
-    def validate_github_integration(self, value):
-        if value is not None and value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("GitHub integration must belong to this project")
         return value
 
     def validate_repositories(self, value: list[str]) -> list[str]:
@@ -3448,8 +3372,24 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
 
 
+class TaskRunLogsView(models.TextChoices):
+    FULL = "full", "full"
+    THREAD = "thread", "thread"
+
+
 class TaskRunLogsQuerySerializer(serializers.Serializer):
     """Query parameters for reading part of a task run log"""
+
+    view = serializers.ChoiceField(
+        choices=TaskRunLogsView.choices,
+        default=TaskRunLogsView.FULL,
+        required=False,
+        help_text=(
+            "'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in "
+            "_meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that "
+            "render the conversation. It applies to the full log and to every slice."
+        ),
+    )
 
     tail_bytes = serializers.IntegerField(
         required=False,
@@ -4197,7 +4137,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         default=None,
         allow_null=True,
@@ -4209,9 +4149,8 @@ class WarmTaskRequestSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:

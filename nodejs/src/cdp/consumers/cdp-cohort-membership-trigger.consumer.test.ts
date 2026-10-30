@@ -15,6 +15,7 @@ import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import { CdpCohortMembershipTriggerConsumer } from './cdp-cohort-membership-trigger.consumer'
+import { counterParseError } from './metrics'
 
 describe('CdpCohortMembershipTriggerConsumer', () => {
     let processor: CdpCohortMembershipTriggerConsumer
@@ -134,6 +135,23 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
 
         await expect(processor._parseKafkaBatch([createKafkaMessage(change)])).rejects.toThrow('conflict with recovery')
+    })
+
+    it('skips a change with an out-of-range team_id as a parse error and keeps the rest of the batch', async () => {
+        // The dropped-changes alert counts parse errors. It does not count a skip with any other reason.
+        const invalidTeamIdErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const before = await invalidTeamIdErrors()
+
+        const globals = await processor._parseKafkaBatch([
+            createKafkaMessage({ ...change, team_id: 3_000_000_000 }),
+            createKafkaMessage(change),
+        ])
+
+        expect(globals).toHaveLength(1)
+        expect(await invalidTeamIdErrors()).toBe(before + 1)
     })
 
     it("loads a team's workflows once per batch, however many changes the batch holds for it", async () => {

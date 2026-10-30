@@ -79,6 +79,8 @@ class HarnessOptions:
     comparison_dir: Path | None = None
     results_file: Path | None = None
     check_only: bool = False
+    skill_snapshot_report: Path | None = None
+    skill_snapshot_output_dir: Path | None = None
 
 
 def _default_case_timeout() -> int:
@@ -121,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where sandboxes run (default: docker). 'modal' exposes this host via Tailscale Funnel so remote sandboxes can reach it.",
     )
     parser.add_argument("--eval", dest="case_filter", default=None, help="Only run cases whose name contains this.")
+    parser.add_argument("--skill-snapshot-output-dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-model",
         default=None,
@@ -216,6 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--comparison-dir", type=Path, help="New directory for comparison reports.")
     parser.add_argument("--results-file", type=Path, help="Save a machine-readable run report to this path.")
     parser.add_argument(
+        "--skill-snapshot-report",
+        type=Path,
+        help="Reuse a saved skill snapshot after checking that its branch skill sources match this checkout.",
+    )
+    parser.add_argument(
         "--check",
         dest="check_only",
         action="store_true",
@@ -270,6 +278,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
             ("--rebuild-sandbox-image", args.rebuild_sandbox_image),
+            ("--skill-snapshot-report", args.skill_snapshot_report is not None),
         )
         if is_set
     )
@@ -332,4 +341,6 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         comparison_dir=args.comparison_dir,
         results_file=args.results_file,
         check_only=args.check_only,
+        skill_snapshot_report=args.skill_snapshot_report,
+        skill_snapshot_output_dir=args.skill_snapshot_output_dir,
     )

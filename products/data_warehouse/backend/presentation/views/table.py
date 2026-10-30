@@ -1,12 +1,21 @@
 import re
 import uuid
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db.models import QuerySet
+from django.db.models.manager import BaseManager
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -28,12 +37,14 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.permissions import is_service_auth
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -42,7 +53,9 @@ from products.warehouse_sources.backend.facade.api import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    denied_table_ids,
     hosted_upload_s3_path,
+    pending_source_ids_for_tables,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -58,6 +71,7 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
+    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -107,6 +121,27 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
     EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
+
+
+SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
+    "You can't create self-managed tables when managed object storage sources are enabled. "
+    "Add {provider} as a source instead."
+)
+
+MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
+    ("r2.cloudflarestorage.com", "Cloudflare R2"),
+    ("amazonaws.com", "Amazon S3"),
+    ("googleapis.com", "Google Cloud Storage"),
+    ("blob.core.windows.net", "Azure Blob Storage"),
+)
+
+
+def _managed_source_name_for_url(url_pattern: str | None) -> str:
+    host = (urlparse(url_pattern or "").hostname or "").lower()
+    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
+        if host == suffix or host.endswith(f".{suffix}"):
+            return name
+    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -246,6 +281,22 @@ class CredentialSerializer(serializers.ModelSerializer):
         }
 
 
+class TableListSerializer(serializers.ListSerializer):
+    """Resolves the pending source of every table in the page with one query."""
+
+    def to_representation(self, data):
+        tables = list(data.all() if isinstance(data, BaseManager) else data)
+        unsourced = [table for table in tables if table.external_data_source_id is None]
+        if unsourced:
+            team_ids = {table.team_id for table in unsourced}
+            cache = self.context.setdefault("pending_source_ids", {})
+            for team_id in team_ids:
+                ids = [table.id for table in unsourced if table.team_id == team_id]
+                found = pending_source_ids_for_tables(team_id, ids)
+                cache.update({table_id: found.get(table_id) for table_id in ids})
+        return super().to_representation(tables)
+
+
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
@@ -257,6 +308,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    pending_source_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The managed source that will import this self-managed table on its first sync, if one is linked.",
+    )
     options = serializers.DictField(
         required=False,
         default=dict,
@@ -293,9 +348,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "options",
             "user_access_level",
         ]
+        list_serializer_class = TableListSerializer
         read_only_fields = [
             "id",
             "created_by",
@@ -305,6 +362,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "user_access_level",
         ]
         extra_kwargs = {
@@ -369,6 +427,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_pending_source_id(self, table: DataWarehouseTable) -> uuid.UUID | None:
+        if table.external_data_source_id is not None:
+            return None
+        cache = self.context.get("pending_source_ids")
+        if cache is not None and table.id in cache:
+            return cache[table.id]
+        return pending_source_ids_for_tables(table.team_id, [table.id]).get(table.id)
+
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
@@ -423,6 +490,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             table.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(table, "created")
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
@@ -576,6 +644,24 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_columns",
+                bool,
+                description="Include table columns. Disable for lightweight table existence or name lookups.",
+                default=True,
+            ),
+            OpenApiParameter(
+                "pending_source",
+                bool,
+                description="Only return self-managed tables that a managed source will import on its first sync.",
+                default=False,
+            ),
+        ]
+    )
+)
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -600,13 +686,41 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return context
 
     def safely_get_queryset(self, queryset):
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
             .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
+        if self.action == "list" and self.request.query_params.get("pending_source", "").lower() == "true":
+            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id))).select_related(
+                "credential"
+            )
+        return queryset
+
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        queryset = super()._filter_queryset_by_access_level(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # Without resource access the generic filter already keeps only explicit grants and the
+        # reader's own tables, and a rule on a source cannot override either.
+        if not self.user_access_control.has_resource_access("warehouse_table"):
+            return queryset
+        # The generic filter reads rules on tables only. A table also resolves through its source,
+        # so a rule that denies the source must hide its tables from the list too.
+        return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Checked before the serializer runs, so a blocked request never reaches URL validation.
+        if object_storage_sources_enabled(self.team_id):
+            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
+            raise serializers.ValidationError(
+                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
+                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
+                )
+            )
+        return super().create(request, *args, **kwargs)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
@@ -624,6 +738,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        log_table_activity(instance, "deleted")
         _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -631,6 +746,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def perform_update(self, serializer):
         instance = serializer.instance
         validated_data = serializer.validated_data
+        before = snapshot_table(instance)
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
@@ -654,8 +770,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             credential.save()
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
+        was_history_table = instance.is_history_table
+        had_ph_history_naming = instance.has_ph_history_naming
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        # The sync owns these markers, and an `options` edit through this API must not drop them.
+        if was_history_table:
+            instance.mark_as_history_table(ph_naming=had_ph_history_naming)
 
         if (
             instance._is_csv_format()
@@ -671,6 +792,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             instance.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(instance, "updated", before=before, credential_changed=bool(credential_data))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -685,6 +807,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
+        before = snapshot_table(table)
         columns = table.columns or {}
         column_keys = list(columns.keys())
         for key in updates.keys():
@@ -720,6 +843,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.columns = columns
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -738,6 +862,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
+        before = snapshot_table(table)
 
         # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
         # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
@@ -746,6 +871,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -922,6 +1048,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         )
 
         table.save()
+        log_table_activity(table, "created")
         if file_upload_sources_enabled(self.team_id):
             # The table reads the file in place until the source's first sync imports it.
             create_file_upload_source(self.team_id, table.pk, upload, read_settings)
@@ -1112,6 +1239,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return self._replace_file_from_legacy_upload(table, file, safe_filename, file_format)
 
         created_table = table is None
+        before = snapshot_table(table) if table is not None else None
 
         # Create the table record
         try:
@@ -1169,6 +1297,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 # the URL above is always scoped to this team's own managed/ prefix, never taken
                 # verbatim from request input the way the PATCH endpoint's url_pattern field is.
                 table.save(internally_computed_url_pattern=True)
+                # A re-upload replaces the data even when no metadata changes, so it is always logged.
+                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
 
                 # Validate columns in background
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))

@@ -21,13 +21,13 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
@@ -43,13 +43,16 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
+    SignalReport,
     SignalReportCheck,
+    SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
@@ -72,7 +75,10 @@ from products.signals.backend.scout_harness.precheck import (
 )
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
-from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
+from products.signals.backend.scout_harness.slack_delivery import (
+    MAX_SCOUT_SLACK_DM_TARGETS,
+    find_project_slack_integration,
+)
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tool_catalogue import SCOUT_RUN_CONTEXT_TOOLS, get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tools.checks import MAX_CHECK_EXPLANATION_LENGTH
@@ -185,6 +191,10 @@ class RunMetadataField(serializers.DictField):
         data = super().to_representation(value)
         if isinstance(data, dict):
             data.pop("structured_output_schema", None)
+            if not self.context.get("may_read_reports", False) and (
+                data.get("triggered_by") in ("check", "monitoring") or data.get("check_id") is not None
+            ):
+                data.pop("run_note", None)
         return data
 
 
@@ -721,6 +731,52 @@ class LighthouseAuditResponseSerializer(serializers.Serializer):
     )
     audits_remaining = serializers.IntegerField(
         help_text=f"How many audits this run may still spend. Each run gets {MAX_AUDITS_PER_RUN}."
+    )
+
+
+class SubmitMonitoringResultRequestSerializer(serializers.Serializer):
+    evidence_status = serializers.ChoiceField(
+        choices=SignalReportMonitoringResult.EvidenceStatus.choices,
+        help_text="Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.",
+    )
+    evidence_reason = serializers.CharField(
+        min_length=1,
+        max_length=2000,
+        help_text="Explain why the evidence supports this qualification. Must not be blank.",
+    )
+    expectation_matches = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.",
+    )
+    explanation = serializers.CharField(
+        min_length=1,
+        max_length=16000,
+        help_text="Explain the conclusion using evidence from the assignment's fixed window.",
+    )
+    evidence_refs = serializers.ListField(
+        child=serializers.CharField(min_length=1),
+        max_length=50,
+        help_text="Evidence references supporting the conclusion, or an empty list when none are available.",
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        try:
+            MonitoringScoutResult.model_validate(self.initial_data)
+        except PydanticValidationError as error:
+            details: dict[str, list[str]] = {}
+            for issue in error.errors(include_url=False):
+                field = str(issue["loc"][0]) if issue["loc"] else "non_field_errors"
+                details.setdefault(field, []).append(issue["msg"])
+            raise serializers.ValidationError(details) from error
+        return attrs
+
+
+class SubmitMonitoringResultResponseSerializer(serializers.Serializer):
+    accepted = serializers.BooleanField(help_text="True when the result is stored, including an identical retry.")
+    result_id = serializers.UUIDField(help_text="The immutable Monitoring result's identifier.")
+    outcome = serializers.ChoiceField(
+        choices=SignalReportCheck.Outcome.choices,
+        help_text="The recorded verdict; this does not change the report's status.",
     )
 
 
@@ -1693,6 +1749,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "every report must be in this project."
         ),
     )
+    tags = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            f"Optional slug tags that group the report with related ones, at most {SignalReport.MAX_TAGS}. "
+            "Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, "
+            "`tracking-gap`), not the specific entity. Reuse a slug the project already uses before you "
+            "coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or "
+            f"longer than {SignalReport.MAX_TAG_LENGTH} characters after normalization is rejected."
+        ),
+    )
     idempotency_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1880,6 +1948,18 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "Links of the same kind must stay acyclic and every report must be in this project."
         ),
     )
+    tags = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=serializers.CharField(),
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            f"The report's full set of slug tags, at most {SignalReport.MAX_TAGS}. Replaces the report's "
+            "tags rather than adding to them, so send every tag you want kept. Omit the field (or send "
+            "null) to leave them untouched, and send an empty list to remove them. Reuse a slug the "
+            "project already uses before you coin a new one."
+        ),
+    )
     supersedes_implementation = serializers.BooleanField(
         required=False,
         help_text=(
@@ -2007,6 +2087,14 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    tags_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many tags the report now carries, or null if the edit left them as they were "
+            "(the field omitted, or a re-send of what was already stored). 0 means the edit removed "
+            "the report's tags."
         ),
     )
     is_content_revision = serializers.BooleanField(
@@ -2373,6 +2461,16 @@ class ReviewerCorrectionEntrySerializer(serializers.Serializer):
     )
     after = serializers.ListField(
         child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    removal_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.",
+    )
+    removal_reason_reviewers = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="The removed identities that `removal_reason` applies to.",
     )
     at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
 
@@ -3013,12 +3111,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         raise RuntimeError("Scout config output destination validation requires project_id in its context")
 
     integration_id = slack["integration_id"]
-    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team__project_id=project_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).first()
+    integration = find_project_slack_integration(integration_id=integration_id, project_id=project_id)
     if integration is None:
         raise serializers.ValidationError(
             {"slack": {"integration_id": "No Slack integration with this ID exists on this project."}}

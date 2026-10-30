@@ -30,7 +30,7 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_publisher
+from posthog.api.sharing_publish_gate import denied_resources_in_share
 from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -74,7 +74,7 @@ from products.dashboards.backend.access import dashboard_access_method, record_d
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
-from products.exports.backend.facade.api import export_limit_context
+from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -559,11 +559,11 @@ class SharingConfigurationViewSet(
             # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
-            if blocked_names:
-                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    f"Can't enable sharing: you don't have access to {denied_names}, "
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 
@@ -1168,6 +1168,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
+            if (
+                is_export_render
+                and isinstance(resource, ExportedAsset)
+                and resource.export_context
+                and resource.export_context.get("reference_lines")
+            ):
+                insight_data["query"] = query_with_reference_lines(
+                    insight_data.get("query") or {}, resource.export_context["reference_lines"]
+                )
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
             exported_data.update({"cohorts": _collect_cohorts_for_sharing([resource.insight], resource.team)})

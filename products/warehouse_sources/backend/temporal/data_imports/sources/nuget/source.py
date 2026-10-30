@@ -59,6 +59,7 @@ The public NuGet V3 API allows anonymous read access, so no API key is needed. E
                 [
                     SourceFieldInputConfig(
                         name="package_ids",
+                        sync_setting=True,
                         label="Package IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

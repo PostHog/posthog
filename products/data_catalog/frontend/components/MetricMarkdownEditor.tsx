@@ -13,7 +13,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { METRIC_MARKDOWN_MAX_LENGTH } from '../common'
 import { CatalogReferencePickerModal } from './CatalogReferencePickerModal'
-import { METRIC_MARKDOWN_EXTENSIONS, metricMarkdownConverter } from './metricMarkdown'
+import { METRIC_MARKDOWN_EXTENSIONS, metricMarkdownConverter, MetricMarkdownPaste } from './metricMarkdown'
 import {
     CatalogReferenceKind,
     CatalogReferencePickerHost,
@@ -49,6 +49,7 @@ export function MetricMarkdownEditor({ value, onChange }: MetricMarkdownEditorPr
     // Built once per mount: the slash extension captures the host ref, which stays stable.
     const [editorExtensions] = useState<Extensions>(() => [
         ...METRIC_MARKDOWN_EXTENSIONS,
+        MetricMarkdownPaste,
         Placeholder.configure({
             placeholder: 'Describe how to calculate this metric, step by step. Type / for commands',
         }),

@@ -46,6 +46,7 @@ pub enum TargetKind {
     Leader,
     Router,
     Writer,
+    Identity,
     /// The coordination store itself. Deliberately not part of the
     /// random-draw target pool: only the dedicated `EtcdBounce`
     /// scenario may touch it, under its own quorum guard.
@@ -58,6 +59,7 @@ impl TargetKind {
             TargetKind::Leader => "leader",
             TargetKind::Router => "router",
             TargetKind::Writer => "writer",
+            TargetKind::Identity => "identity",
             TargetKind::Etcd => "etcd",
         }
     }
