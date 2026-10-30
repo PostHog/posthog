@@ -34,7 +34,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
-from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.resolver import MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS, ResolutionError, Resolver, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
@@ -748,9 +748,107 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_table_field(self):
+        self.assertEqual(
+            self._print_hogql("with timestamp as ts select ts from events"),
+            "WITH timestamp AS ts SELECT ts FROM events LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql("with toStartOfDay(timestamp) as day select day, count() from events group by day"),
+            "WITH toStartOfDay(timestamp) AS day SELECT day, count() FROM events GROUP BY day LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(timestamp) as day select event from events join persons on toStartOfDay(persons.created_at) = day"
+            ),
+            "WITH toStartOfDay(timestamp) AS day SELECT event FROM events JOIN persons ON equals(toStartOfDay(persons.created_at), day) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(persons.created_at) as pday select event from events join persons on toStartOfDay(timestamp) = pday"
+            ),
+            "WITH toStartOfDay(persons.created_at) AS pday SELECT event FROM events JOIN persons ON equals(toStartOfDay(timestamp), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_not_in_scope_raises(self):
         with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+            resolve_types(
+                self._select("with no_such_column as alias select alias from events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: no_such_column", str(e.exception))
+
+    def test_ctes_column_alias_forward_join_reference_raises(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    "with persons.created_at as pdate select e.event from events e join numbers(1) n on n.number = 0 and toDate(pdate) = today() join persons on e.distinct_id = persons.id"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: pdate", str(e.exception))
+
+    def test_ctes_speculative_resolution_attempt_cap_on_joins(self):
+        attempts: dict[str, int] = {}
+        orig_try = Resolver._try_resolve_scalar_cte
+
+        def mock_try(resolver_self, cte):
+            attempts[cte.name] = attempts.get(cte.name, 0) + 1
+            return orig_try(resolver_self, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", mock_try):
+            # A scalar CTE not referenced in join constraints is never speculatively attempted during joins
+            self._print_hogql(
+                """
+                with toStartOfDay(timestamp) as day
+                select day
+                from events e
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on 1=1
+                join numbers(1) n3 on 1=1
+                join numbers(1) n4 on 1=1
+                join numbers(1) n5 on 1=1
+                """
+            )
+            # Exactly 1 eager attempt before FROM; zero speculative attempts during the 5 joins
+            self.assertEqual(attempts.get("day"), 1)
+
+            # A scalar CTE in join constraints is capped at MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS during joins
+            attempts.clear()
+            with self.assertRaises(QueryError) as e:
+                resolve_types(
+                    self._select(
+                        """
+                        with non_existent_table.col as bad_alias
+                        select 1
+                        from events e
+                        join numbers(1) n1 on 1=1 and bad_alias = 1
+                        join numbers(1) n2 on 1=1 and bad_alias = 1
+                        join numbers(1) n3 on 1=1 and bad_alias = 1
+                        join numbers(1) n4 on 1=1 and bad_alias = 1
+                        join numbers(1) n5 on 1=1 and bad_alias = 1
+                        """
+                    ),
+                    self.context,
+                    dialect="clickhouse",
+                )
+            self.assertIn("Unable to resolve field: bad_alias", str(e.exception))
+            # 1 eager attempt before FROM + at most MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS during joins = 4
+            self.assertEqual(
+                attempts.get("bad_alias"),
+                1 + MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS,
+            )
 
     def test_ctes_subqueries(self):
         self.assertEqual(
