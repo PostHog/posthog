@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "focus": {
-            "description": "Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.",
+            "description": "Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.",
             "maxLength": 2000,
             "type": "string"
         },
@@ -14,8 +14,15 @@
         },
         "refresh": {
             "default": false,
-            "description": "Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.",
+            "description": "Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.",
             "type": "boolean"
+        },
+        "wait_seconds": {
+            "default": 0,
+            "description": "When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.",
+            "maximum": 30,
+            "minimum": 0,
+            "type": "number"
         }
     },
     "type": "object"
