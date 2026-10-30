@@ -23478,8 +23478,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.532.0:
-    resolution: {integrity: sha512-P17NO2e+ieutWsoush94w7eXURH7myHJsyLP3M76uMTbCV22UOsYqs6C46mqWTMtUyjiPV5rf/RecktVOcg0mA==}
+  unlayer-types@1.531.0:
+    resolution: {integrity: sha512-Th7aPCkmDrHQt1tOQ/bIj7nKhh2ak5Ju/DI8e/PpHSCRqTi2lm589JYc76KJP6CnR1oB0CRk3ozq+6FJ0sSN0g==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -44220,7 +44220,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.532.0
+      unlayer-types: 1.531.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -46578,7 +46578,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.532.0: {}
+  unlayer-types@1.531.0: {}
 
   unpipe@1.0.0: {}
 
