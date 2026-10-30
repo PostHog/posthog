@@ -116,6 +116,18 @@ class TestIssueSummaryParsing(SimpleTestCase):
         base: dict[str, Any] = {"fingerprints": ["a"], "latest_release": "1.0.0", "occurrences": 5}
         assert (compute_input_hash(**{**base, **before}) == compute_input_hash(**{**base, **after})) == same
 
+    @parameterized.expand(
+        [
+            ("single_slot", 1, 1),
+            ("keeps_two_for_alerts", 4, 2),
+            ("floor", 5, 3),
+            ("floor_above_quarter", 12, 3),
+            ("quarter", 50, 12),
+        ]
+    )
+    def test_issue_summary_worker_slot_count(self, _name: str, max_concurrent_activities: int, expected: int) -> None:
+        assert summary_worker.issue_summary_worker_slot_count(max_concurrent_activities) == expected
+
 
 # Failures after the gates pass.
 FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
