@@ -17,6 +17,7 @@ import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, Lem
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -57,6 +58,7 @@ import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { MetricLineageTab } from './MetricLineageTab'
 import { MetricTestsTab } from './tabs/MetricTestsTab'
 import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
+import { MetricUsageTab } from './tabs/MetricUsageTab'
 
 export const scene: SceneExport<DataCatalogMetricSceneLogicProps> = {
     component: DataCatalogMetricScene,
@@ -92,6 +94,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         activeTab,
         mountedTabs,
     } = useValues(dataCatalogMetricSceneLogic)
+    const usageEnabled = useFeatureFlag('DATA_CATALOG_USAGE')
     const {
         approveMetric,
         refreshMetricFromInsight,
@@ -391,6 +394,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                             key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
+                        usageEnabled ? { key: 'usage', label: 'Usage' } : null,
                     ]}
                 />
 
@@ -434,6 +438,12 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                 {mountedTabs.includes('data-quality') && (
                     <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
+                    </div>
+                )}
+
+                {usageEnabled && mountedTabs.includes('usage') && (
+                    <div className={tabPanelClassName('usage', activeTab)}>
+                        <MetricUsageTab name={metric.name} />
                     </div>
                 )}
             </SceneContent>
