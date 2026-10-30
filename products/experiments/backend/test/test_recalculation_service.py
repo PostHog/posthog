@@ -4,13 +4,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -49,6 +51,18 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _describe_workflow(state: WorkflowExecutionStatus | Exception):
+    handle = MagicMock()
+    if isinstance(state, Exception):
+        handle.describe = AsyncMock(side_effect=state)
+    else:
+        handle.describe = AsyncMock(return_value=MagicMock(status=state))
+    return patch(
+        "products.experiments.backend.recalculation.sync_connect",
+        return_value=MagicMock(get_workflow_handle=MagicMock(return_value=handle)),
+    )
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
@@ -337,11 +351,18 @@ class TestRecalculationService(BaseTest):
             # (name, status, stale_field) — both lifecycle anchors must release the experiment when their
             # respective timestamp is past the staleness threshold. Without this, a Temporal-connect failure
             # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
-            ("pending_stale_by_created_at", "pending", "created_at"),
-            ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+            (
+                "pending_stale_by_created_at",
+                "pending",
+                "created_at",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+            ),
+            ("in_progress_stale_by_started_at", "in_progress", "started_at", WorkflowExecutionStatus.TERMINATED),
         ]
     )
-    def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
+    def test_request_recalculation_recovers_from_stale_active_row(
+        self, name: str, status: str, stale_field: str, workflow_state: WorkflowExecutionStatus | Exception
+    ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
         long_ago = timezone.now() - timedelta(hours=2)
         stale_kwargs: dict = {"team": self.team, "experiment": exp, "status": status}
@@ -354,6 +375,7 @@ class TestRecalculationService(BaseTest):
 
         with (
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            _describe_workflow(workflow_state),
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
@@ -365,6 +387,25 @@ class TestRecalculationService(BaseTest):
         stale_row.refresh_from_db()
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
+
+    def test_request_recalculation_keeps_a_stale_row_whose_workflow_still_runs(self):
+        exp = self._launched_experiment(flag_key="stale-but-running")
+        waiting_row = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now() - timedelta(hours=2)
+        )
+
+        with (
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            _describe_workflow(WorkflowExecutionStatus.RUNNING),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is True
+        assert result["id"] == str(waiting_row.id)
+        waiting_row.refresh_from_db()
+        assert waiting_row.status == "in_progress"
+        mock_cancel.assert_not_called()
 
     def test_request_recalculation_does_not_recover_recent_active_row(self):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the

@@ -20,6 +20,7 @@ from django.utils import timezone
 import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -54,8 +55,12 @@ from products.experiments.backend.temporal.models import (
 # value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
-# is the defense-in-depth backstop if that rollback itself fails.
+# is the defense-in-depth backstop if that rollback itself fails. Calcs on the activity and precompute queues have
+# no calc budget, so request_recalculation asks Temporal whether the workflow of a row past this threshold still
+# runs before it treats the row as stale.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+# request_recalculation describes the workflow of a row past the threshold while it holds the experiment lock.
+_WORKFLOW_DESCRIBE_TIMEOUT = timedelta(seconds=5)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
@@ -285,6 +290,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     FAILED when it is safe to do so, and the exception propagates to the caller.
     """
     try:
+        activity_task_queue = _activity_task_queue(organization_id)
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
@@ -292,7 +298,10 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
-                    activity_task_queue=_activity_task_queue(organization_id),
+                    activity_task_queue=activity_task_queue,
+                    precompute_task_queue=(
+                        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE if activity_task_queue else None
+                    ),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -329,6 +338,41 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
         except Exception:
             # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
             pass
+
+
+def _workflow_running(recalculation_id: str) -> bool:
+    # Any error answers False, which keeps the plain staleness threshold. A run that never started answers
+    # False too, because Temporal does not find its workflow.
+    try:
+        temporal = sync_connect()
+        handle = temporal.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
+        description = asyncio.run(handle.describe(rpc_timeout=_WORKFLOW_DESCRIBE_TIMEOUT))
+    except Exception:
+        return False
+    return description.status == WorkflowExecutionStatus.RUNNING
+
+
+def _running_past_staleness_threshold(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
+    """An active run older than _STALE_RECALC_THRESHOLD whose workflow still runs. Callers hold the lock and
+    have already found no active run inside the threshold.
+
+    Calcs on the activity and precompute queues have no total budget, so a healthy run can wait in a queue for
+    longer than the threshold. Without this check, a new request would mark that run FAILED and cancel it.
+    """
+    candidate = (
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment=experiment,
+            status__in=[
+                ExperimentMetricsRecalculation.Status.PENDING,
+                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+            ],
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if candidate is None or not _workflow_running(str(candidate.id)):
+        return None
+    return candidate
 
 
 def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
@@ -489,7 +533,7 @@ def _request_recalculation(
                 | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
             )
             .first()
-        )
+        ) or _running_past_staleness_threshold(experiment)
         if existing:
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)

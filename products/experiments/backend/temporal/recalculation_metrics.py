@@ -212,11 +212,12 @@ class ExperimentsRecalculationMetricsInterceptor(Interceptor):
 
     # Required by `is_task_queue_supported` in `posthog/temporal/common/interceptor.py` — without this attribute
     # the interceptor is filtered out of every worker and the metrics never emit. The recalc workflow + activities
-    # run on the first queue, and the metric calculation activity also runs on the second. Both registrations are in
-    # `posthog/management/commands/start_temporal_worker.py`.
+    # run on the first queue, and the metric calculation activity also runs on the other two. All registrations are
+    # in `posthog/management/commands/start_temporal_worker.py`.
     task_queue = (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
     )
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:

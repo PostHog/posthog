@@ -79,6 +79,8 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
 # the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
 # stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# Only calcs on the workflow's own queue get it. On the activity and precompute queues the pod and slot count is
+# the cap, so a calc must wait in the queue instead of timing out and retrying against ClickHouse.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
@@ -114,6 +116,8 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
     # None keeps the activity on the workflow's own queue.
     activity_task_queue: str | None = None
+    # Task queue for the calcs that read the aux-cluster precompute table. Used only with activity_task_queue.
+    precompute_task_queue: str | None = None
 
 
 @dataclasses.dataclass(frozen=False)
@@ -128,6 +132,8 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
+    # Discovery sets it, so the workflow can pick the calc's task queue before the calc runs.
+    reads_precomputed_metric_events: bool = False
 
 
 @dataclasses.dataclass

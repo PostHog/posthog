@@ -30,6 +30,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
@@ -44,6 +45,7 @@ from products.experiments.backend.metric_calculation.config import get_metric_ca
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -120,6 +122,27 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+def _reads_precomputed_metric_events(
+    experiment: Experiment, team_experiments_config: TeamExperimentsConfig, metric_dict: dict[str, Any]
+) -> bool:
+    # Only the task queue depends on it, so an error sends the calc to the direct-scan queue instead of failing
+    # the discovery of the whole run.
+    try:
+        runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(metric_dict)),
+            team=experiment.team,
+            experiment=experiment,
+            team_experiments_config=team_experiments_config,
+            bypass_warehouse_access_control=True,
+            user_facing=False,
+            error_event_context=None,
+        )
+        return runner.reads_precomputed_metric_events()
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -128,11 +151,19 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
     with team_scope(state.team_id, canonical=True):
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
+        team_experiments_config = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
 
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
         # matches the metrics this activity schedules.
         metrics_to_recalculate = [
-            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, role=metric.role)
+            ExperimentMetricToRecalculate(
+                experiment_id=experiment.id,
+                metric_uuid=metric.uuid,
+                role=metric.role,
+                reads_precomputed_metric_events=_reads_precomputed_metric_events(
+                    experiment, team_experiments_config, metric.definition
+                ),
+            )
             for metric in get_metrics_for_calculation(experiment)
         ]
 

@@ -37,6 +37,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -199,6 +200,37 @@ class TestRecalculationActivities(BaseTest):
         assert set(recalc.metric_uuids) == expected_uuids
         assert {m.metric_uuid for m in metrics} == expected_uuids
         assert {m.role for m in metrics} == expected_roles
+
+    @parameterized.expand(
+        [
+            # name, team precompute enabled, funnel order, reads the precompute table
+            ("ordered_funnel_on_precompute_team", True, "ordered", True),
+            ("unordered_funnel_on_precompute_team", True, "unordered", False),
+            ("ordered_funnel_on_direct_scan_team", False, "ordered", False),
+        ]
+    )
+    def test_discover_marks_metrics_that_read_the_precompute_table(
+        self, name: str, precompute_enabled: bool, funnel_order_type: str, expected: bool
+    ):
+        TeamExperimentsConfig.objects.update_or_create(
+            team=self.team, defaults={"experiment_precomputation_enabled": precompute_enabled}
+        )
+        exp = self._experiment(flag_key=f"discover-precompute-{name}")
+        exp.start_date = timezone.now() - timedelta(days=7)
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "funnel_order_type": funnel_order_type,
+                "series": [{"kind": "EventsNode", "event": "signup"}, {"kind": "EventsNode", "event": "purchase"}],
+            }
+        ]
+        exp.save()
+
+        metrics = _discover(str(self._recalc(exp).id))
+
+        assert [m.reads_precomputed_metric_events for m in metrics] == [expected]
 
     @parameterized.expand(
         [

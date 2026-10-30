@@ -41,6 +41,11 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
 
+# Gates the per-metric precompute queue and the calc-queue timeouts. Pre-patch histories scheduled every calc on
+# the activity queue with the schedule_to_close budget, so they must replay that way.
+CALC_QUEUES_WAIT_PATCH = "recalc-precompute-queue-wait-2026-10"
+
+
 def _ended_by_temporal(error: ActivityError) -> bool:
     """True when Temporal ended the metric's retries from the outside, so no attempt persisted its outcome.
 
@@ -164,6 +169,18 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
             else None
         )
+        on_calc_queues = activity_task_queue is not None and temporalio.workflow.patched(CALC_QUEUES_WAIT_PATCH)
+
+        def calc_task_queue(metric: ExperimentMetricToRecalculate) -> str | None:
+            if on_calc_queues and inputs.precompute_task_queue and metric.reads_precomputed_metric_events:
+                return inputs.precompute_task_queue
+            return activity_task_queue
+
+        # On the calc queues the worker slots are the cap, so a calc waits for a slot for as long as it takes.
+        # start_to_close and the heartbeat still bound each attempt, and MAX_METRIC_ATTEMPTS bounds the retries.
+        calc_schedule_to_close = (
+            None if on_calc_queues else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
+        )
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(
@@ -176,10 +193,10 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         metric.role,
                     ],
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=calc_schedule_to_close,
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
-                    task_queue=activity_task_queue,
+                    task_queue=calc_task_queue(metric),
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
