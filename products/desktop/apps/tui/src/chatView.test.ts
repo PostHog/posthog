@@ -86,4 +86,16 @@ describe("ChatView", () => {
     // Ink draws an empty string with no height, so a blank line must carry a space to take up a row.
     expect(chat.render(40, 8).every((line) => line.length > 0)).toBe(true);
   });
+
+  it("shows the run's status right under the latest message", () => {
+    const chat = new ChatView();
+    chat.setTranscript([{ kind: "user", id: "u1", text: "yo" }], {
+      notice: { text: "Thinking…", tone: "working" },
+    });
+    const lines = plain(chat.render(40, 4)).map((line) => line.trim());
+
+    expect(lines[0]).toBe("yo");
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toMatch(/Thinking…$/);
+  });
 });

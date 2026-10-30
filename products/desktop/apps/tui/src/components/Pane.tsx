@@ -1,5 +1,5 @@
 import type { Task } from "@posthog/shared";
-import { Box, Text, useBoxMetrics } from "ink";
+import { Box, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatView } from "../chatView";
 import type { Composer } from "../composer";
@@ -75,29 +75,6 @@ export function Pane({
     () => withPending(transcript.lines, pending),
     [transcript, pending],
   );
-  const hasOlder = view.windowStart > 0;
-  // Set before this render draws the chat, so a frame never shows the previous transcript.
-  const shown = useRef<{
-    chat: ChatView;
-    lines: typeof lines;
-    hasOlder: boolean;
-  } | null>(null);
-  if (
-    shown.current?.chat !== chat ||
-    shown.current.lines !== lines ||
-    shown.current.hasOlder !== hasOlder
-  ) {
-    chat.setTranscript(lines, { hasOlder });
-    shown.current = { chat, lines, hasOlder };
-  }
-  // Reaching the top, or a transcript shorter than the pane, pulls in the page above.
-  useEffect(() => {
-    if (width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop())
-      loadOlder();
-  });
-  const run = task?.latest_run;
-
-  const composerLines = width > 0 ? composer.render(width, focused) : [];
   // A new chat shows its message and start-up state before the run even exists.
   const notice = task?.latest_run
     ? runNotice(
@@ -108,8 +85,35 @@ export function Pane({
     : pending
       ? ({ text: "Starting cloud run…", tone: "working" } as const)
       : null;
-  const chatHeight =
-    height - composerLines.length - (view.error ? 1 : 0) - (notice ? 1 : 0);
+  const noticeKey = notice ? `${notice.tone}:${notice.text}` : "";
+  // Keeps a working notice's spinner turning.
+  useAnimation({ interval: 80, isActive: notice?.tone === "working" });
+  const hasOlder = view.windowStart > 0;
+  // Set before this render draws the chat, so a frame never shows the previous transcript.
+  const shown = useRef<{
+    chat: ChatView;
+    lines: typeof lines;
+    hasOlder: boolean;
+    noticeKey: string;
+  } | null>(null);
+  if (
+    shown.current?.chat !== chat ||
+    shown.current.lines !== lines ||
+    shown.current.hasOlder !== hasOlder ||
+    shown.current.noticeKey !== noticeKey
+  ) {
+    chat.setTranscript(lines, { hasOlder, notice });
+    shown.current = { chat, lines, hasOlder, noticeKey };
+  }
+  // Reaching the top, or a transcript shorter than the pane, pulls in the page above.
+  useEffect(() => {
+    if (width > 0 && hasOlder && !view.loadingOlder && chat.isAtTop())
+      loadOlder();
+  });
+  const run = task?.latest_run;
+
+  const composerLines = width > 0 ? composer.render(width, focused) : [];
+  const chatHeight = height - composerLines.length - (view.error ? 1 : 0);
 
   let content: ReactElement;
   if (!paneTaskId && !pending)
@@ -136,12 +140,6 @@ export function Pane({
           </Text>
         ))}
         {view.error && <Text color="red">{view.error}</Text>}
-        {notice?.tone === "working" && <Spinner label={notice.text} />}
-        {notice?.tone === "error" && (
-          <Text color="red" wrap="truncate-end">
-            {notice.text}
-          </Text>
-        )}
       </>
     );
   }

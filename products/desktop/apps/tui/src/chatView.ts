@@ -23,6 +23,27 @@ const TOOL_MARKS: Record<string, string> = {
   in_progress: "\u001b[33m●\u001b[39m",
 };
 const OLDER_ROW = "older";
+const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+
+export interface ChatNotice {
+  text: string;
+  tone: "working" | "error";
+}
+
+// The run's status line; a working one spins, advancing with the clock on each repaint.
+class NoticeRow implements Component {
+  constructor(private readonly notice: ChatNotice) {}
+
+  render(): string[] {
+    if (this.notice.tone === "error") {
+      return [` \u001b[31m${this.notice.text}\u001b[39m`];
+    }
+    const frame = SPINNER[Math.floor(Date.now() / 80) % SPINNER.length];
+    return [DIM(` ${frame} ${this.notice.text}`)];
+  }
+
+  invalidate(): void {}
+}
 
 function assistantMessage(text: string): AssistantMessage {
   return {
@@ -90,13 +111,25 @@ export class ChatView {
   private anchor: { id: string; within: number } | null = null;
   private transcriptChanged = false;
 
-  setTranscript(lines: TranscriptLine[], { hasOlder = false } = {}): void {
+  setTranscript(
+    lines: TranscriptLine[],
+    {
+      hasOlder = false,
+      notice = null,
+    }: { hasOlder?: boolean; notice?: ChatNotice | null } = {},
+  ): void {
     this.items = lines.flatMap((line, index) => {
       const item = { id: line.id, component: new Trimmed(componentFor(line)) };
       return needsGap(lines[index - 1], line)
         ? [{ id: `${line.id}:gap`, component: new Spacer(1) }, item]
         : [item];
     });
+    if (notice) {
+      this.items.push(
+        { id: "notice:gap", component: new Spacer(1) },
+        { id: "notice", component: new NoticeRow(notice) },
+      );
+    }
     if (hasOlder) {
       this.items.unshift({
         id: OLDER_ROW,
