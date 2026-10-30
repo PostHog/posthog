@@ -3,6 +3,7 @@ import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, openActions } from "../actions";
+import type { Billing } from "../billing";
 import { chatgptPlan } from "../chatgpt";
 import { type ChatNotice, type ChatView, overlayBottom } from "../chatView";
 import { claudePlan } from "../claudeLocal";
@@ -113,6 +114,7 @@ export function Pane({
   isLocalPane,
   newChatPlace,
   banner = [],
+  billing,
   chat,
   composer,
   pending,
@@ -150,6 +152,8 @@ export function Pane({
   newChatPlace: "local" | "cloud";
   // What an empty chat shows above its composer: the model, who pays, and where it runs.
   banner?: string[];
+  // Who pays for a new chat, from /billing, until its run says.
+  billing?: Billing;
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
@@ -314,11 +318,17 @@ export function Pane({
         ? "claude"
         : "chatgpt"
       : null
-    : access?.claude_model_access === "own-subscription"
-      ? "claude"
-      : access?.codex_model_access === "own-subscription"
-        ? "chatgpt"
-        : null;
+    : task
+      ? access?.claude_model_access === "own-subscription"
+        ? "claude"
+        : access?.codex_model_access === "own-subscription"
+          ? "chatgpt"
+          : null
+      : billing === "anthropic"
+        ? "claude"
+        : billing === "chatgpt"
+          ? "chatgpt"
+          : null;
   const spent = useTaskCost(
     runs,
     onPlan ? null : paneTaskId,

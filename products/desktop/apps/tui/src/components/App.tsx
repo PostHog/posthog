@@ -434,6 +434,7 @@ export function App({
         billing: loadPrefs().billing,
         model: modelLabel(node.id, null),
       })}
+      billing={loadPrefs().billing}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
