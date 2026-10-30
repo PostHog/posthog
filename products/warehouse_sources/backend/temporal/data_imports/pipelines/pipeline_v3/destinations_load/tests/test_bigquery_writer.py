@@ -513,3 +513,16 @@ class TestAppend:
 
         with pytest.raises(DestinationConfigurationError, match="rate"):
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1)
+
+    async def test_a_number_other_than_0_or_1_cannot_convert_to_the_bool_column(self) -> None:
+        # Regression: `pc.cast` treats any nonzero number as truthy rather than raising, unlike
+        # its float-to-int64 cast, so aligning to a BOOL target used to silently turn 2 into true
+        # instead of raising the way a direct append to BigQuery always did.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "active": [True]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="active"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)

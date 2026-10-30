@@ -467,6 +467,12 @@ class BigQueryDestinationWriter:
                 continue
             try:
                 cast = pc.cast(column, arrow_type)
+                # `safe` casting still lets any nonzero number through to BOOL as `true`, because
+                # Arrow does not treat that as a loss of precision the way it does a fractional
+                # float truncated to an int. Casting back and comparing catches it the same way a
+                # retry against the live table would have, instead of silently losing the number.
+                if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
+                    raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
             except pa.ArrowException as err:
                 raise DestinationConfigurationError(
                     self._ctx.destination_name,
