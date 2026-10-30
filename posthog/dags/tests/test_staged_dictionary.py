@@ -100,34 +100,42 @@ class _RecordingCluster:
         return _Done(fn(self.data_cluster_name))
 
 
+_STAGED = StagedDictionary(key="snapshot_dictionary.parquet", columns="id", structure="id Int64")
+
+
 class _RecordingDictionary:
     name = "snapshot_dictionary"
     query = "SELECT FROM source"
 
-    def __init__(self) -> None:
-        self.source_by_cluster: dict[str, str] = {}
+    def __init__(self, left_behind: dict[str, str]) -> None:
+        self.source_by_cluster = dict(left_behind)
 
     def staged(self) -> StagedDictionary:
-        return StagedDictionary(key="snapshot_dictionary.parquet", columns="id", structure="id Int64")
+        return _STAGED
 
     def create(self, client: Any, shards: int, max_execution_time: int, max_memory_usage: int, query: Any = None):
-        self.source_by_cluster[client] = query or self.query
+        self.source_by_cluster.setdefault(client, query or self.query)
 
     def recreate(self, client: Any, shards: int, max_execution_time: int, max_memory_usage: int, query: Any = None):
+        self.source_by_cluster.pop(client, None)
         self.create(client, shards, max_execution_time, max_memory_usage, query)
 
 
 class TestCreateOnEveryCluster:
     @parameterized.expand(
         [
-            ("one cluster reads the source table", ["posthog"], False),
-            ("every cluster reads the staged object, the source cluster too", ["posthog", "events"], True),
+            ("one cluster reads the source table", ["posthog"], False, False),
+            ("every cluster reads the staged object, the source cluster too", ["posthog", "events"], True, False),
+            ("one cluster replaces a staged definition a failed run left", ["posthog"], False, True),
         ]
     )
-    def test_the_dictionary_source_on_each_cluster(self, _name: str, names: list[str], staged: bool) -> None:
+    def test_the_dictionary_source_on_each_cluster(
+        self, _name: str, names: list[str], staged: bool, left_behind: bool
+    ) -> None:
         # A source cluster that reads the live table sees rows written after the export while its
         # hosts load one by one, so its hosts disagree with each other and with the other cluster.
-        dictionary = _RecordingDictionary()
+        # A kept staged definition loads a stale object, so the run deletes an old key set.
+        dictionary = _RecordingDictionary({"posthog": _STAGED.query} if left_behind else {})
         expected = dictionary.staged().query if staged else dictionary.query
 
         with patch.object(StagedDictionary, "export"):

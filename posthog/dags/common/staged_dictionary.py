@@ -92,19 +92,12 @@ def create_on_every_cluster(
     table would see rows written after the export, and the hosts would not agree.
     """
     first, *rest = clusters
-    if not rest:
-        first.map_all_hosts(
-            partial(
-                dictionary.create,
-                shards=shards,
-                max_execution_time=max_execution_time,
-                max_memory_usage=max_memory_usage,
-            )
-        ).result()
-        return
+    staged = dictionary.staged() if rest else None
+    if staged is not None:
+        first.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
 
-    staged = dictionary.staged()
-    first.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
+    # Recreate, never CREATE ... IF NOT EXISTS: a failed run leaves its dictionary behind, and a
+    # later run with fewer clusters would keep that definition and read a stale staged object.
     for cluster in clusters:
         cluster.map_all_hosts(
             partial(
@@ -112,11 +105,12 @@ def create_on_every_cluster(
                 shards=shards,
                 max_execution_time=max_execution_time,
                 max_memory_usage=max_memory_usage,
-                query=staged.query,
+                query=staged.query if staged is not None else None,
             )
         ).result()
 
-    context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in clusters]}")
+    if staged is not None:
+        context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in clusters]}")
 
 
 def load_and_verify_on_every_cluster(clusters: Sequence[ClickhouseCluster], dictionary: StageableDictionary) -> None:
