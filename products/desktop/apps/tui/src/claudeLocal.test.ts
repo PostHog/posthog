@@ -5,6 +5,8 @@ import { type StoredLogEntry, TypedEventEmitter } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { ClaudeLocalSession, claudePlan } from "./claudeLocal";
 import type { AgentPrompt } from "./prompts";
+import { emptyRunView } from "./runs";
+import { transcriptFrom } from "./transcript";
 
 function fakeLog(
   saved: { sessionId?: string; entries: StoredLogEntry[] } = { entries: [] },
@@ -81,6 +83,51 @@ describe("ClaudeLocalSession", () => {
     expect(last.entries).toHaveLength(1);
     expect(last.entries[0].notification).toEqual(message);
     expect(session.runtime).toBe("acp");
+  });
+
+  it("runs a ! command on this machine, shows it in the chat, and hands its output to the next prompt", async () => {
+    const agent = fakeAgent();
+    const log = fakeLog();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      { ...input, cwd: process.cwd() },
+      async () => true,
+      log,
+    );
+    let view = emptyRunView;
+    session.watch((next) => {
+      view = next;
+    });
+    await session.start();
+
+    const result = await session.control.bash("echo hi");
+
+    expect(result).toMatchObject({ output: "hi", exitCode: 0 });
+    const shells = transcriptFrom("acp", view.entries).lines.filter(
+      (line) => line.kind === "shell",
+    );
+    expect(shells).toEqual([
+      expect.objectContaining({
+        command: "echo hi",
+        status: "completed",
+        output: "hi",
+      }),
+    ]);
+    // The output goes to the agent with the next message, as the desktop app does.
+    await session.prompt("what did that print?");
+    const blocksSent = (): { type: string; text?: string }[] =>
+      (agent.prompt.mock.calls as unknown as unknown[][]).at(-1)?.[1] as {
+        type: string;
+        text?: string;
+      }[];
+    const sent = blocksSent();
+    expect(sent.map((block) => block.text)).toEqual([
+      expect.stringContaining("$ echo hi\nhi"),
+      "what did that print?",
+    ]);
+    // Once sent, it is not sent again.
+    await session.prompt("and now?");
+    expect(blocksSent()).toHaveLength(1);
   });
 
   it("refuses to start when Claude Code is not logged in, so nothing bills PostHog", async () => {

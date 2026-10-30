@@ -337,6 +337,19 @@ function toLine(item: ConversationItem): TranscriptLine[] {
   if (item.type === "turn_cancelled") {
     return [{ kind: "notice", id: item.id, text: "Cancelled", tone: "info" }];
   }
+  // A ! command the TUI ran itself for a Claude Code chat, logged as the desktop app logs its own.
+  if (item.type === "user_shell_execute") {
+    const { result } = item;
+    return [
+      {
+        kind: "shell",
+        id: item.id,
+        command: item.command,
+        status: result ? "completed" : "in_progress",
+        output: result ? result.stdout || result.stderr : "",
+      },
+    ];
+  }
   if (item.type !== "session_update") return [];
   const update = item.update;
   switch (update.sessionUpdate) {
