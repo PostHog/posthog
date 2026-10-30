@@ -2834,11 +2834,10 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             timezone="America/New_York",
             persons_on_events_mode=persons_on_events_mode,
         )
-        if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-            assert re.search(r"toTimeZone\(e2\.timestamp, %\(hogql_val_\d+\)s\) AS timestamp", sql), sql
-            assert re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(e\.timestamp,", sql), sql
-        else:
-            assert re.search(r"greaterOrEquals\(toTimeZone\(e2\.timestamp,", sql), sql
+        # Both person-ID joins hang off e2 and are read by its own ON constraint, so e2 is wrapped in a subquery
+        # and the JOIN ON compares its exported, already converted timestamp with the toTimeZone of e.timestamp.
+        assert re.search(r"toTimeZone\(e2\.timestamp, %\(hogql_val_\d+\)s\) AS timestamp", sql), sql
+        assert re.search(r"greaterOrEquals\(e2\.timestamp, toTimeZone\(e\.timestamp,", sql), sql
         # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
         assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
             f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"

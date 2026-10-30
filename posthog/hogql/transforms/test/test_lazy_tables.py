@@ -165,6 +165,14 @@ class TestWrappedEventJoins(SimpleTestCase):
         assert {"properties___$raw_user_agent", "properties___$ip"} <= self._exports(printed, "joined", native)
         assert "joined.properties," not in printed.split(" FROM ", 1)[0]
 
+    def test_wraps_a_join_whose_constraint_needs_the_identity_join(self) -> None:
+        printed, _ = self._compile(f"SELECT joined.event {WRAPPED_JOIN}", person_overrides=False)
+        assert self._exports(printed, "joined", native=False) == {"pdi___person_id", "event"}
+        assert "AS joined__pdi ON equals(joined.distinct_id, joined__pdi.distinct_id)" in printed
+        assert printed.endswith(
+            "AS joined ON equals(initial__pdi.person_id, joined.pdi___person_id) WHERE equals(initial.team_id, 1) LIMIT 50000"
+        )
+
     def test_corrects_the_person_id_inside_the_wrapper_only(self) -> None:
         printed, _ = self._compile(f"SELECT joined.person_id {WRAPPED_JOIN}")
         assert printed.startswith(
@@ -234,11 +242,13 @@ class TestWrappedEventJoins(SimpleTestCase):
         native: bool = False,
         person_properties: str | None = None,
         restricted: set[RestrictedProperty] | None = None,
+        person_overrides: bool = True,
     ) -> tuple[str, HogQLContext]:
         database = Database()
         events = database.get_table("events")
         events.fields["$virt_is_bot"] = create_is_bot_field(name="$virt_is_bot")
-        _use_person_id_from_person_overrides(database)
+        if person_overrides:
+            _use_person_id_from_person_overrides(database)
         if person_properties == "on_events":
             _use_person_properties_from_events(database)
             poe = events.fields["poe"]
