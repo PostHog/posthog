@@ -161,6 +161,9 @@ class TaskProfile:
     user_authorable_prs: bool
     # Who authors pull requests when the run does not set TaskRunOptions.pr_authorship_mode.
     default_pr_authorship: PrAuthorship
+    # True lets a run open a pull request when it finishes. A caller can still turn it off for one
+    # run. False means runs never open one, whatever the caller passes.
+    create_pr: bool
     # True gives the agent a finish tool that moves the task to done.
     finish_tool: bool
     # True moves the task to done when a turn closes, including a failed turn. Use it for work that
