@@ -373,6 +373,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_COMMUNITY_SKILLS: 'llm-analytics-community-skills', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
+    LLM_ANALYTICS_JUDGE_IMAGES: 'llm-analytics-judge-images', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
@@ -545,7 +546,6 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_JUMP_BACK_RANKING: 'today-jump-back-ranking',
-    TODAY_PULSE_RANKING: 'today-pulse-ranking',
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics

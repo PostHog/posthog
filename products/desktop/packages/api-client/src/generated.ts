@@ -9228,6 +9228,7 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
                         reasoning_level?:
                             | (("minimal" | "low" | "medium" | "high") | null)
                             | undefined;
@@ -10938,6 +10939,10 @@ export namespace Schemas {
         incremental: boolean;
         status: string | null;
         /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
@@ -12516,6 +12521,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13930,7 +13936,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15354,6 +15361,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -19476,6 +19484,7 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
                   reasoning_level?:
                       | (("minimal" | "low" | "medium" | "high") | null)
                       | undefined;

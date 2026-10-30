@@ -341,6 +341,7 @@ export interface llmEvaluationLogicValues {
     hogTestMessage: string | null
     hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
+    includeMedia: boolean
     isForceRefresh: boolean
     isNewEvaluation: boolean
     isReportableEvaluation: boolean
@@ -534,6 +535,9 @@ export interface llmEvaluationLogicActions {
     setHogTestMessage: (message: string | null) => {
         message: string | null
     }
+    setIncludeMedia: (includeMedia: boolean) => {
+        includeMedia: boolean
+    }
     setJudgeMethod: (judgeMethod: JudgeMethod) => {
         judgeMethod: JudgeMethod
     }
@@ -605,6 +609,7 @@ export interface llmEvaluationLogicMeta {
         selectedModelOption: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => ModelOption | null
         judgeMethod: (evaluation: EvaluationConfig | null, selectedModelOption: ModelOption | null) => JudgeMethod
         usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
+        includeMedia: (evaluation: EvaluationConfig | null) => boolean
         reasoningLevel: (evaluation: EvaluationConfig | null) => ReasoningLevel | null
         selectedModelSupportsReasoning: (selectedModelOption: ModelOption | null, usesDecisionModel: boolean) => boolean
         selectedModelName: (
@@ -702,6 +707,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
+        setIncludeMedia: (includeMedia: boolean) => ({ includeMedia }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => ({ reasoningLevel }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
@@ -1040,6 +1046,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                       : state.output_config,
                           }
                         : state,
+                // Always explicit: a PATCH without the field keeps the saved value.
+                setIncludeMedia: (state, { includeMedia }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, include_media: includeMedia } }
+                        : state,
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {
                         return null
@@ -1190,6 +1201,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setJudgeMethod: () => true,
+                setIncludeMedia: () => true,
                 setReasoningLevel: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
@@ -1769,6 +1781,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
         usesDecisionModel: [(s) => [s.judgeMethod], (judgeMethod: JudgeMethod): boolean => judgeMethod === 'decision'],
+        includeMedia: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean =>
+                !isLLMJudgeEvaluation(evaluation) || evaluation.evaluation_config?.include_media !== false,
+        ],
         reasoningLevel: [
             (s) => [s.evaluation],
             (evaluation: EvaluationConfig | null): ReasoningLevel | null =>
