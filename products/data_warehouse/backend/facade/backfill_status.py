@@ -11,6 +11,7 @@ from products.data_warehouse.backend.logic.backfill_status import (
     historical_backfill_months,
     record_backfill_finished,
     record_backfill_outcome,
+    record_backfill_recovery,
     record_backfill_started,
     stale_running_partitions,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "historical_backfill_months",
     "record_backfill_finished",
     "record_backfill_outcome",
+    "record_backfill_recovery",
     "record_backfill_started",
     "stale_running_partitions",
 ]

@@ -50,7 +50,10 @@ import psycopg
 import pydantic
 import structlog
 from clickhouse_driver import Client
-from clickhouse_driver.errors import Error as ClickHouseError
+from clickhouse_driver.errors import (
+    Error as ClickHouseError,
+    ServerException,
+)
 from dagster import (
     AssetExecutionContext,
     Config,
@@ -67,7 +70,15 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
+from tenacity import (
+    retry,
+    retry_if_exception,
+    retry_if_exception_type,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_exponential,
+    wait_fixed,
+)
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -187,14 +198,20 @@ def _duckgres_backfill_options() -> str:
     )
 
 
+def _retry_cluster_discovery(error: BaseException) -> bool:
+    return isinstance(error, (TimeoutError, OSError)) or (
+        isinstance(error, ServerException) and error.code in (159, 202, 209, 210)
+    )
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(5),
-    retry=retry_if_exception_type((TimeoutError, OSError)),
+    retry=retry_if_exception(_retry_cluster_discovery),
     reraise=True,
 )
 def _get_cluster() -> ClickhouseCluster:
-    """get_cluster() with retry for transient bootstrap timeouts.
+    """get_cluster() with retry for transient discovery failures.
 
     Retries the cluster discovery query only — does not affect subsequent
     per-host query execution, avoiding stacked retries with Tenacity
@@ -3026,44 +3043,6 @@ def duckling_events_daily_backfill_sensor(
                 if not is_yesterday:
                     catchup_emitted += 1
                 context.log.info(f"Creating partition for team_id={backfill.team_id}, date={date_str}")
-            elif is_yesterday:
-                # Existing freshest partition - check if the last run failed and needs retry.
-                # Only yesterday is retried, so the run lookup stays at one query per team.
-                runs = context.instance.get_runs(
-                    filters=RunsFilter(
-                        job_name="duckling_events_backfill_job",
-                        tags={"dagster/partition": partition_key},
-                    ),
-                    limit=1,
-                )
-                if runs:
-                    latest_run = runs[0]
-                    # Only retry if failed - skip if in progress or succeeded
-                    if latest_run.status == DagsterRunStatus.FAILURE:
-                        # Failed run - trigger retry with unique run_key
-                        run_requests.append(
-                            RunRequest(
-                                partition_key=partition_key,
-                                run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
-                            )
-                        )
-                        context.log.info(
-                            f"Retrying failed partition team_id={backfill.team_id}, date={date_str} "
-                            f"(previous run: {latest_run.run_id[:8]})"
-                        )
-                        logger.info(
-                            "duckling_sensor_retry_failed_partition",
-                            team_id=backfill.team_id,
-                            date=date_str,
-                            previous_run_id=latest_run.run_id,
-                        )
-                    elif latest_run.status in (
-                        DagsterRunStatus.STARTED,
-                        DagsterRunStatus.QUEUED,
-                    ):
-                        context.log.debug(
-                            f"Skipping partition team_id={backfill.team_id}, date={date_str} - run in progress"
-                        )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new partitions to backfill")
@@ -3389,38 +3368,6 @@ def duckling_persons_daily_backfill_sensor(
                 )
             )
             context.log.info(f"Creating persons partition for team_id={backfill.team_id}, date={yesterday}")
-        else:
-            runs = context.instance.get_runs(
-                filters=RunsFilter(
-                    job_name="duckling_persons_backfill_job",
-                    tags={"dagster/partition": partition_key},
-                ),
-                limit=1,
-            )
-            if runs:
-                latest_run = runs[0]
-                # Only retry if failed - skip if in progress or succeeded
-                if latest_run.status == DagsterRunStatus.FAILURE:
-                    run_requests.append(
-                        RunRequest(
-                            partition_key=partition_key,
-                            run_key=f"{partition_key}_persons_retry_{latest_run.run_id[:8]}",
-                        )
-                    )
-                    context.log.info(f"Retrying failed persons partition team_id={backfill.team_id}, date={yesterday}")
-                    logger.info(
-                        "duckling_persons_sensor_retry_failed_partition",
-                        team_id=backfill.team_id,
-                        date=yesterday,
-                        previous_run_id=latest_run.run_id,
-                    )
-                elif latest_run.status in (
-                    DagsterRunStatus.STARTED,
-                    DagsterRunStatus.QUEUED,
-                ):
-                    context.log.debug(
-                        f"Skipping persons partition team_id={backfill.team_id}, date={yesterday} - run in progress"
-                    )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new persons partitions to backfill")
@@ -3531,25 +3478,6 @@ def duckling_persons_full_backfill_sensor(
                         run_id=latest_run.run_id,
                         outcome=_outcome_from_run_status(latest_run.status),
                     )
-                # Only retry if failed - skip if in progress or succeeded
-                if latest_run.status == DagsterRunStatus.FAILURE:
-                    run_requests.append(
-                        RunRequest(
-                            partition_key=partition_key,
-                            run_key=f"{partition_key}_persons_full_retry_{latest_run.run_id[:8]}",
-                        )
-                    )
-                    context.log.info(f"Retrying failed full persons backfill for team_id={team_id}")
-                    logger.info(
-                        "duckling_persons_full_backfill_retry",
-                        team_id=team_id,
-                        previous_run_id=latest_run.run_id,
-                    )
-                elif latest_run.status in (
-                    DagsterRunStatus.STARTED,
-                    DagsterRunStatus.QUEUED,
-                ):
-                    context.log.debug(f"Skipping team_id={team_id} - run in progress")
             elif partition_key not in projected_persons_partitions:
                 # Registered partition with no findable run: no evidence the data ever landed,
                 # so project it failed rather than re-checking it every tick forever.
