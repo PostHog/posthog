@@ -217,6 +217,14 @@ class TestWrappedEventJoins(SimpleTestCase):
             "AS joined ON equals(initial__pdi.person_id, joined.pdi___person_id) WHERE equals(initial.team_id, 1) LIMIT 50000"
         )
 
+    def test_moves_the_sample_clause_into_the_wrapper(self) -> None:
+        printed, _ = self._compile(
+            "SELECT count() FROM events AS initial JOIN events AS joined SAMPLE 0.1 "
+            "ON initial.person_id = joined.person_id"
+        )
+        assert "FROM events AS joined SAMPLE 0.1 " in printed, printed
+        assert printed.count("SAMPLE") == 1, printed
+
     def test_corrects_the_person_id_inside_the_wrapper_only(self) -> None:
         printed, _ = self._compile(f"SELECT joined.person_id {WRAPPED_JOIN}")
         assert printed.startswith(
