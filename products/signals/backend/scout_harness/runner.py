@@ -42,7 +42,11 @@ from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_scouts_preserving_trial_model,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
@@ -92,6 +96,7 @@ from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
 )
+from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
@@ -484,6 +489,10 @@ async def _arun_signals_scout(
                 skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
             )
         agent_runtime = experiment.agent_runtime
+    preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
+    if trial is None and experiment is None and not preserve_trial_model:
+        free_trial_runtime = await database_sync_to_async(trial_scout_runtime, thread_sensitive=False)(team)
+        agent_runtime = free_trial_runtime or agent_runtime
     runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter

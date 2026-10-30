@@ -116,6 +116,8 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     run_signals_scout_activity,
     start_trial_signals_scout_run,
 )
+from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import AgentTurnFailed, CustomPromptSandboxContext
@@ -1919,6 +1921,12 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     runtime_drift = outcome_case == "runtime_drift"
     final_metrics_failure = outcome_case == "final_metrics_failure"
     task_cancelled = outcome_case in {"task_cancelled_no_message", "task_cancelled_with_message"}
+    if outcome_case == "completed":
+        await database_sync_to_async(SignalTrialGrant.objects.for_team(ateam.id, canonical=True).create)(
+            team_id=ateam.id,
+            organization_id=ateam.organization_id,
+            claimed_by_id=atrial_operator.id,
+        )
     await database_sync_to_async(LLMSkill.objects.filter(pk=aerrors_skill.pk).update)(allowed_tools=["emit_report"])
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
         team=ateam,
@@ -2685,7 +2693,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier, grant_status",
     [
         # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
         # optional effort) travel with the model so the agent server can route it.
@@ -2695,6 +2703,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             "high",
+            None,
             None,
         ),
         # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
@@ -2706,6 +2715,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             None,
             None,
+            None,
         ),
         # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
         (
@@ -2715,9 +2725,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             "high",
             None,
+            None,
         ),
         # Neither configured: agent-server default.
-        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None, None),
         # The tier travels with the model it was configured beside. A slice pinned to flex asks for
         # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
         # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
@@ -2729,6 +2740,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             "medium",
             "flex",
+            None,
         ),
         # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
         (
@@ -2738,6 +2750,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "codex",
             None,
             "flex",
+            None,
         ),
         # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
         # the pin's model, and some models reject the field outright.
@@ -2746,6 +2759,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
             "gpt-5.6-luna",
             "codex",
+            None,
             None,
             None,
         ),
@@ -2758,6 +2772,36 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "claude",
             None,
             None,
+            None,
+        ),
+        (
+            ScoutModel(
+                model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
+            ),
+            AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
+            "gpt-6-luna",
+            "codex",
+            None,
+            None,
+            "active",
+        ),
+        (
+            ScoutModel(model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-6-sol"),
+            "claude-opus-5",
+            "claude",
+            "high",
+            None,
+            "exhausted",
+        ),
+        (
+            ScoutModel(model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-6-sol"),
+            "claude-opus-5",
+            "claude",
+            "high",
+            None,
+            "preserve_model",
         ),
     ],
 )
@@ -2770,6 +2814,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     expected_runtime_adapter,
     expected_reasoning_effort,
     expected_service_tier,
+    grant_status,
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
@@ -2777,6 +2822,19 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
+    if grant_status is not None:
+        await database_sync_to_async(SignalTrialGrant.objects.for_team(ateam.id, canonical=True).create)(
+            team_id=ateam.id,
+            organization_id=ateam.organization_id,
+            claimed_by_id=42,
+            exhausted_at=timezone.now() if grant_status == "exhausted" else None,
+        )
+    if grant_status == "preserve_model":
+        aerrors_skill.metadata = {
+            "seeded_by": HARNESS_SEEDED_BY,
+            "canonical_hash": _compute_row_hash(aerrors_skill, []),
+        }
+        await database_sync_to_async(aerrors_skill.save)(update_fields=["metadata"])
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -2789,6 +2847,19 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     with (
         patch("products.signals.backend.github_optional.ResearchAccessPolicy.enabled", return_value=True),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.signals.backend.trial.scouts.TrialBilling.status",
+            return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.canonical_scouts_preserving_trial_model",
+            return_value=frozenset({"signals-scout-errors"}),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+            return_value=frozenset({"signals-scout-errors"}),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_scout_model",
             return_value=resolved,
@@ -2876,6 +2947,10 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         return session, result
 
     with (
+        patch(
+            "products.signals.backend.scout_harness.runner.trial_scout_runtime",
+            return_value=AgentRuntime(runtime_adapter="codex", model="gpt-6-luna"),
+        ),
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
