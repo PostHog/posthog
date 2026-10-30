@@ -137,6 +137,25 @@ describe("ChatView", () => {
     expect(chat.imageAt(0)).toBeNull();
   });
 
+  it("shows an assistant's code block as indented code, without its fences or language", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      {
+        kind: "assistant",
+        id: "a",
+        text: "Before.\n\n```rust\nfn main() {}\n```\n\nAfter.",
+      },
+    ]);
+
+    expect(plain(chat.render(30, 5))).toEqual([
+      " Before.",
+      "",
+      "   fn main() {}",
+      "",
+      " After.",
+    ]);
+  });
+
   it("opens a tool group on a click to show each call and its output", () => {
     const chat = new ChatView();
     chat.setTranscript([
@@ -298,7 +317,7 @@ describe("ChatView", () => {
       const lines = chat.render(40, 20);
       chat.select({ row: 0, column: 0 }, { row: 19, column: 39 });
 
-      expect(lines.filter((line) => line.trim()).length).toBeGreaterThan(8);
+      expect(lines.filter((line) => line.trim()).length).toBeGreaterThan(6);
       expect(chat.selectedText().trimEnd()).toBe(
         [
           paragraph,
@@ -306,10 +325,8 @@ describe("ChatView", () => {
           `- ${item}`,
           "- short item",
           "",
-          "```",
           "  const x = 1;",
           "  const y = 2;",
-          "```",
         ].join("\n"),
       );
     });
