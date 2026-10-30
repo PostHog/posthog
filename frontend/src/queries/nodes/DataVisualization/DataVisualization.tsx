@@ -225,7 +225,7 @@ interface ChartLogicValues {
 }
 
 function getDrilldownProps(
-    props: Pick<DataTableVisualizationProps, 'filtersOverride' | 'variablesOverride' | 'inSharedMode' | 'context'>,
+    props: DataTableVisualizationProps,
     query: VisualizationNode,
     key: string
 ): BIDrilldownProps {
@@ -266,16 +266,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
 function DataTableVisualizationWithChartLogics(props: DataTableVisualizationProps): JSX.Element {
     const { query, dataVisualizationProps } = useValues(dataVisualizationLogic)
-    const { filtersOverride, variablesOverride, inSharedMode, context } = props
-    const drilldownProps = useMemo(
-        () =>
-            getDrilldownProps(
-                { filtersOverride, variablesOverride, inSharedMode, context },
-                query,
-                dataVisualizationProps.key
-            ),
-        [filtersOverride, variablesOverride, inSharedMode, context, query, dataVisualizationProps.key]
-    )
+    const drilldownProps = getDrilldownProps(props, query, dataVisualizationProps.key)
     const drilldownLogic = biDrilldownLogic(drilldownProps)
     const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
     const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
@@ -286,11 +277,9 @@ function DataTableVisualizationWithChartLogics(props: DataTableVisualizationProp
     // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
     // trends-only showAlertThresholdLines viz setting, which VisualizationNode doesn't have, so
     // going through it would hide the lines on SQL charts entirely.
-    const contextInsightProps = props.context?.insightProps as InsightLogicProps | undefined
-    const alertsInsightProps = useMemo<InsightLogicProps>(
-        () => contextInsightProps ?? { dashboardItemId: undefined },
-        [contextInsightProps]
-    )
+    const alertsInsightProps = (props.context?.insightProps as InsightLogicProps | undefined) ?? {
+        dashboardItemId: undefined,
+    }
     const { insight } = useValues(insightLogic(alertsInsightProps))
     const { alerts } = useValues(
         insightAlertsLogic({
@@ -303,39 +292,24 @@ function DataTableVisualizationWithChartLogics(props: DataTableVisualizationProp
         () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
         [insight?.id, alerts]
     )
-    const insightNumericId = insight?.id || 'new'
-
-    // The content memoizes chart data on this object, so it only changes when one of its values changes
-    const chartLogics = useMemo<ChartLogicValues>(
-        () => ({
-            drilldownProps,
-            drilldownLogic,
-            inspectResult,
-            setInteraction,
-            closeResultMenu,
-            seriesBreakdownData,
-            chartData,
-            goalLines,
-            alertThresholdLines,
-            alertsInsightProps,
-            insightNumericId,
-        }),
-        [
-            drilldownProps,
-            drilldownLogic,
-            inspectResult,
-            setInteraction,
-            closeResultMenu,
-            seriesBreakdownData,
-            chartData,
-            goalLines,
-            alertThresholdLines,
-            alertsInsightProps,
-            insightNumericId,
-        ]
+    return (
+        <DataTableVisualizationContent
+            {...props}
+            chartLogics={{
+                drilldownProps,
+                drilldownLogic,
+                inspectResult,
+                setInteraction,
+                closeResultMenu,
+                seriesBreakdownData,
+                chartData,
+                goalLines,
+                alertThresholdLines,
+                alertsInsightProps,
+                insightNumericId: insight?.id || 'new',
+            }}
+        />
     )
-
-    return <DataTableVisualizationContent {...props} chartLogics={chartLogics} />
 }
 
 function DataTableVisualizationContent({
