@@ -259,6 +259,20 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
             "cohorts": False,
         }
 
+    def test_resave_counts_unconvertible_legacy_groups_as_errors(self) -> None:
+        # A behavioral leaf without a time window converts to nothing.
+        leaf = {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"}
+        cohort = Cohort.objects.create(
+            team=self.team, name="unconvertible_groups_cohort", groups=[{"properties": [leaf]}], filters=None
+        )
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], stdout=out)
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert "1 errors" in out.getvalue()
+
     def test_resave_leaves_static_legacy_groups_cohort_untouched(self) -> None:
         # The flags service assumes a static cohort is never realtime.
         groups = [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}]
