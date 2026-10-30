@@ -23,6 +23,7 @@
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@posthog/ui": "workspace:*",
+    "@posthog/workspace-server": "workspace:*",
     "ink": "^7.1.1",
     "react": "catalog:",
     "vite": "^7.0.0",

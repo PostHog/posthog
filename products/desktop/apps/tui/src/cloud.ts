@@ -1,15 +1,20 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPiRpcClient } from "@posthog/agent/pi/rpc-client";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
-import {
-  getCloudTaskGatewayUrl,
-  TRANSCRIPT_TAIL_WINDOW,
-} from "@posthog/shared";
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import { AgentAuthAdapter } from "@posthog/workspace-server/services/agent/auth-adapter";
+import type {
+  AgentAuth,
+  AgentMcpApps,
+} from "@posthog/workspace-server/services/agent/ports";
+import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
+import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
+import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
+import type { TuiAuth } from "./auth";
 import { currentRepository, PiChats } from "./chats";
 import { LocalSession } from "./local";
 import { type PiCommand, type PiControl, piControl } from "./models";
@@ -25,17 +30,24 @@ interface TokenSource {
 
 export function authenticatedFetch(
   auth: TokenSource,
-  fetch: typeof globalThis.fetch = globalThis.fetch,
-): (url: string, init?: RequestInit) => Promise<Response> {
-  const send = (url: string, init: RequestInit | undefined, token: string) => {
+  fetch: (
+    input: string | Request,
+    init?: RequestInit,
+  ) => Promise<Response> = globalThis.fetch,
+): (input: string | Request, init?: RequestInit) => Promise<Response> {
+  const send = (
+    input: string | Request,
+    init: RequestInit | undefined,
+    token: string,
+  ) => {
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Bearer ${token}`);
-    return fetch(url, { ...init, headers });
+    return fetch(input, { ...init, headers });
   };
-  return async (url, init) => {
-    const response = await send(url, init, await auth.getAccessToken());
+  return async (input, init) => {
+    const response = await send(input, init, await auth.getAccessToken());
     if (response.status !== 401) return response;
-    return send(url, init, await auth.refreshAccessToken());
+    return send(input, init, await auth.refreshAccessToken());
   };
 }
 
@@ -73,8 +85,20 @@ const noAnalytics: IAnalytics = {
   shutdown: async () => {},
 };
 
+// MCP apps render inside the desktop app; the terminal has nowhere to show them.
+const noMcpApps: AgentMcpApps = {
+  handleDiscovery: async () => {},
+  setServerConfigs: () => {},
+  addServerConfigs: () => {},
+  setConfigResolver: () => {},
+  notifyToolCancelled: () => {},
+  notifyToolInput: () => {},
+  notifyToolResult: () => {},
+  cleanup: async () => {},
+};
+
 export function createCloud(
-  auth: TokenSource & { apiHost: string },
+  auth: TuiAuth,
   api: PostHogAPIClient,
 ): {
   runs: CloudRuns;
@@ -120,6 +144,45 @@ export function createCloud(
     if (!result.success)
       throw new Error(result.error ?? "Couldn't send the message");
   };
+  let projectId: number | null = null;
+  const agentAuth: AgentAuth = {
+    getValidAccessToken: async () => ({
+      accessToken: await auth.getAccessToken(),
+      apiHost: auth.apiHost,
+    }),
+    refreshAccessToken: async () => ({
+      accessToken: await auth.refreshAccessToken(),
+      apiHost: auth.apiHost,
+    }),
+    getOAuthCredentials: () => auth.oauthCredentials(),
+    getState: () => ({ currentProjectId: projectId }),
+    authenticatedFetch: (fetch, input, init) =>
+      authenticatedFetch(auth, fetch)(input, init),
+  };
+  // The same auth proxy, MCP servers and gateway attribution the desktop app gives local pi sessions.
+  const authProxy = new AuthProxyService(
+    { authenticatedFetch: authenticatedFetch(auth) },
+    logger,
+  );
+  const mcp = new AgentAuthAdapter(
+    agentAuth,
+    authProxy,
+    new McpProxyService(
+      {
+        authenticatedFetch: authenticatedFetch(auth),
+        refreshAccessToken: () => auth.refreshAccessToken(),
+      },
+      logger,
+    ),
+    logger,
+  );
+  const piClients = new LocalPiRpcClientFactory(
+    agentAuth,
+    authProxy,
+    mcp,
+    noMcpApps,
+    logger,
+  );
   const sendPi: PiCommand = async (input) =>
     engine.sendCommand({ ...input, ...(await context()) });
   return {
@@ -128,23 +191,12 @@ export function createCloud(
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
-      const { apiHost, teamId } = await context();
+      projectId = (await context()).teamId;
       mkdirSync(LOCAL_SESSIONS, { recursive: true });
       const session = new LocalSession(
-        createPiRpcClient({
+        await piClients.create({
           sessionFile: join(LOCAL_SESSIONS, `${id}.jsonl`),
-          taskContext: {
-            taskId: id,
-            cwd: process.cwd(),
-            projectId: teamId,
-            apiHost,
-            environment: "local",
-          },
-          providerOptions: {
-            apiKey: await auth.getAccessToken(),
-            baseUrl: getCloudTaskGatewayUrl(apiHost),
-            headers: {},
-          },
+          taskContext: { taskId: id, cwd: process.cwd() },
         }),
       );
       await session.start();
