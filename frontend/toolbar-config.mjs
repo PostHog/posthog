@@ -23,7 +23,7 @@ const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
 // will silently return undefined — keep shims in sync when connect contracts change.
 const shimmedModules = {
     'scenes/userLogic': 'src/toolbar/shared/shims/userLogic.ts',
-    'scenes/organization/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
+    'models/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
     'scenes/sceneLogic': 'src/toolbar/shared/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shared/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shared/shims/featureFlagLogic.ts',
