@@ -335,8 +335,7 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
                 for run_id in ("run-1", "run-1", "run-2")
             ]
 
-        # The retry is answered from the op's record; the new run starts an op that finds no live person
-        # and counts it from the tombstone the first op wrote.
+        # The retry is answered from the op's record; the new run starts an op that finds no live person.
         assert counts == [1, 1, 1]
         ops = [call.request.op_id for call in self._saga_calls()]
         assert ops[0] == ops[1] != ops[2]
@@ -387,7 +386,6 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is True
 
     def test_a_person_tombstoned_before_the_saga_claimed_it_is_counted_from_its_tombstone(self):
-        # Stands in for an earlier attempt whose saga op finished after its call failed.
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         tombstone_persons_in_postgres(self.team.pk, [p.uuid])
         ghost = Person(id=10**9, uuid=uuid4(), team=self.team)
