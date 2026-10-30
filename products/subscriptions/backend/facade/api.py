@@ -115,6 +115,7 @@ __all__ = [
     "subscription_ids_in_team",
     "unsubscribe",
     "update_subscription",
+    "user_has_slack_subscription",
     "validate_re_enable",
     "viewable_live_insight_id",
 ]
@@ -153,6 +154,11 @@ def failed_delivery_counts(*, team_id: int, since: datetime, limit: int) -> list
 def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int]) -> set[int]:
     """Which of the given subscription ids belong to the team."""
     return queries.subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids)
+
+
+def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
+    """Whether the user created a subscription that delivers to Slack in this team. A disabled one counts."""
+    return queries.user_has_slack_subscription(team_id=team_id, user_id=user_id)
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
@@ -194,6 +200,11 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
 def insight_has_active_subscription(insight_id: int) -> bool:
     """Whether an enabled subscription delivers this insight, directly or as a dashboard tile."""
     return queries.insight_has_active_subscription(insight_id)
+
+
+def insight_ids_with_active_subscriptions(*, team_ids: Collection[int]) -> set[int]:
+    """Insights of these teams that an enabled subscription delivers, directly or as a live dashboard tile."""
+    return queries.insight_ids_with_active_subscriptions(team_ids=team_ids)
 
 
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:

@@ -41,6 +41,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.query import (
+    CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
     CONCURRENCY_LIMIT_USER_MESSAGE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
@@ -91,6 +92,31 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    @patch("posthog.api.query.report_user_or_team_action")
+    @patch("posthog.api.query.process_query_model")
+    def test_query_response_identity_matches_query_analytics(self, mock_process_query_model, mock_report_action):
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
+        client_query_id = "11111111-1111-4111-8111-111111111111"
+        mock_process_query_model.return_value = {"results": [[1]]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "client_query_id": client_query_id,
+            },
+            HTTP_X_REQUEST_ID=request_id,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [[1]]})
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertIn(f'request_id;desc="{request_id}"', response["Server-Timing"])
+        self.assertEqual(mock_process_query_model.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+        self.assertEqual(mock_report_action.call_args.args[0], "query api response")
+        self.assertEqual(mock_report_action.call_args.args[1]["client_query_id"], client_query_id)
+        self.assertEqual(mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
 
     @parameterized.expand(
         [
@@ -150,8 +176,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
         detail = response.json()["detail"]
-        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertTrue(detail.startswith(CONCURRENCY_LIMIT_USER_MESSAGE), detail)
+        self.assertIn(f"Expected available in {CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS} seconds.", detail)
         self.assertNotIn("app:query:per-org", detail)
 
     @parameterized.expand(

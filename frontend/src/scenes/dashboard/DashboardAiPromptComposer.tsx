@@ -5,9 +5,9 @@ import type { FormEvent } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { dashboardAiPromptComposerLogic } from './dashboardAiPromptComposerLogic'
+import { reportDashboardEmptyAiPromptSubmitted } from './dashboardEvents'
 
 function reportDashboardEmptyAiPromptClicked(
     promptLabel: string,
@@ -127,7 +127,6 @@ export function DashboardAiPromptComposer({
 }: DashboardAiPromptComposerProps): JSX.Element {
     const { prompt, promptSource } = useValues(dashboardAiPromptComposerLogic)
     const { setPrompt } = useActions(dashboardAiPromptComposerLogic)
-    const { reportDashboardEmptyAiPromptSubmitted } = useActions(eventUsageLogic)
 
     const submitPrompt = (event: FormEvent<HTMLFormElement>): void => {
         event.preventDefault()

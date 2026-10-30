@@ -23,6 +23,8 @@ from posthog.redis import get_client
 from posthog.test.fixtures import create_app_metric2
 from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
+
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -68,6 +70,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/survey_responses")
         self.redis_client.delete(f"@posthog/quota-limits/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limits/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limits/mcp_events")
         self.redis_client.delete(f"@posthog/quota-limits/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
         self.redis_client.delete(f"@posthog/quota-limits/logs_mb_ingested")
@@ -79,6 +82,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/survey_responses")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/mcp_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
         materialize("events", "$exception_values")
@@ -86,6 +90,30 @@ class TestQuotaLimiting(BaseTest):
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    @parameterized.expand([(False,), (True,)])
+    @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
+    def test_offline_usage_updates_today_without_recounting_billing_history(self, deleted_team: bool) -> None:
+        self.organization.usage = {
+            "period": ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"],
+            "llm_events": {"usage": 50, "todays_usage": 0, "limit": 1000},
+        }
+        self.organization.save(update_fields=["usage"])
+        for accepted_at, quantity in ((now() - datetime.timedelta(days=1), 50), (now(), 20), (now(), 10)):
+            OfflineEvaluationUsageLedger.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                experiment_id=uuid4(),
+                accepted_at=accepted_at,
+                quantity=quantity,
+            )
+        if deleted_team:
+            self.team.delete()
+        for _ in range(2):
+            self._run_quota_limiting()
+            self.organization.refresh_from_db()
+            self.assertEqual(self.organization.usage["llm_events"]["usage"], 50)
+            self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 0 if deleted_team else 30)
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -264,7 +292,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(3, 10)):
+        with self.assertNumQueries(FuzzyInt(4, 11)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
@@ -434,6 +462,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_feature_flags": None,
                 "quota_limited_survey_responses": None,
                 "quota_limited_llm_events": None,
+                "quota_limited_mcp_events": None,
                 "quota_limited_cdp_trigger_events": None,
                 "quota_limited_rows_exported": None,
             }
@@ -1900,6 +1929,33 @@ class TestQuotaLimiting(BaseTest):
                 self.team.api_token.encode("UTF-8")
             ]
 
+    @parameterized.expand(
+        [
+            ("over_the_mcp_limit", {"usage": 0, "limit": 2, "todays_usage": 0}, True),
+            ("no_mcp_limit_from_billing", None, False),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_mcp_events_count_against_the_mcp_events_quota(
+        self, _name: str, mcp_events_usage: dict[str, int] | None, expect_limited: bool, patch_capture
+    ) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
+            if mcp_events_usage is not None:
+                self.organization.usage["mcp_events"] = mcp_events_usage
+            self.organization.save()
+
+            for _ in range(3):
+                _create_event(event="$mcp_tool_call", team=self.team, distinct_id="mcp_user", timestamp=now())
+            flush_persons_and_events()
+
+            result = update_all_orgs_billing_quotas()
+
+            org_id = str(self.organization.id)
+            limited_tokens = [self.team.api_token.encode("UTF-8")] if expect_limited else []
+            assert result.quota_limited_orgs["mcp_events"] == ({org_id: 1612137599} if expect_limited else {})
+            assert self.redis_client.zrange("@posthog/quota-limits/mcp_events", 0, -1) == limited_tokens
+
     @patch("posthoganalytics.capture")
     def test_traces_alone_can_exceed_the_shared_quota(self, patch_capture) -> None:
         with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
@@ -2470,6 +2526,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         api_queries_read_bytes=0,
         survey_responses=0,
         llm_events=0,
+        mcp_events=0,
         ai_credits=0,
         signals_credits=0,
         posthog_code_credits=0,
@@ -2684,6 +2741,70 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
                 {},
                 {},
                 False,
+            ),
+            (
+                "zero_limit_block_is_not_a_candidate",
+                {
+                    "posthog_code_credits": {
+                        "usage": 0,
+                        "limit": 0,
+                        "todays_usage": 0,
+                        "quota_limited_until": 1_700_000_000,
+                    },
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                ["phc_blocked"],
+                {"posthog_code_credits": ["phc_blocked"]},
+                {},
+                False,
+            ),
+            (
+                "zero_limit_block_does_not_hide_another_resource",
+                {
+                    "posthog_code_credits": {
+                        "usage": 0,
+                        "limit": 0,
+                        "todays_usage": 0,
+                        "quota_limited_until": 1_700_000_000,
+                    },
+                    "events": {"usage": 0, "limit": 1_000, "quota_limited_until": 1_700_000_000},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                "zero_limit_with_overage_buffer_is_a_candidate",
+                {
+                    "recordings": {"usage": 0, "limit": 0, "todays_usage": 0, "quota_limited_until": 1_700_000_000},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                True,
+            ),
+            (
+                "zero_signals_limit_is_a_candidate",
+                {
+                    "signals_credits": {
+                        "usage": 0,
+                        "limit": 0,
+                        "todays_usage": 0,
+                        "quota_limited_until": 1_700_000_000,
+                    },
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                [],
+                {},
+                {},
+                True,
             ),
         ]
     )
@@ -3296,10 +3417,13 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
+    @parameterized.expand([("recount_succeeds", False), ("recount_fails", True)])
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(self, _feature_enabled, _capture) -> None:
+    def test_quota_cron_recounts_live_instead_of_writing_its_stale_snapshot(
+        self, _name, recount_fails, _feature_enabled, _capture
+    ) -> None:
         # The cron snapshots fleet usage before its org loop, so a push-refresh that fires while
         # the loop runs (a PR landing) writes a fresher, higher todays_usage than the snapshot.
         # Writing the snapshot back would unpause the over-limit org until the next tick; the
@@ -3318,17 +3442,47 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 return_value=[(self.team.id, 100)],
             ),
             patch(
-                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_orgs",
+                return_value={str(self.organization.id): 1500},
+                side_effect=DatabaseError("Signals usage unavailable") if recount_fails else None,
             ) as live_mock,
         ):
             update_all_orgs_billing_quotas()
 
-        assert live_mock.call_args.args[0] == str(self.organization.id)
+        assert live_mock.call_args.args[0] == [str(self.organization.id)]
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"]["todays_usage"] == 1500
         assert self.team.api_token in list_limited_team_attributes(
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_quota_cron_keeps_zero_limit_block_without_recounting(self, _feature_enabled, _capture) -> None:
+        self._set_self_driving_usage(0)
+        assert self.organization.usage is not None
+        self.organization.usage["posthog_code_credits"] = {
+            "usage": 0,
+            "todays_usage": 0,
+            "limit": 0,
+            "quota_limited_until": 1782864000,
+        }
+        self.organization.save()
+        replace_limited_team_tokens(
+            QuotaResource.POSTHOG_CODE_CREDITS,
+            {self.team.api_token: 1782864000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        with patch(
+            "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_orgs", return_value={}
+        ) as live_mock:
+            update_all_orgs_billing_quotas()
+
+        assert all(str(self.organization.id) not in call.args[0] for call in live_mock.call_args_list)
+        assert self.team.api_token in list_limited_team_attributes(
+            QuotaResource.POSTHOG_CODE_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
     @parameterized.expand(

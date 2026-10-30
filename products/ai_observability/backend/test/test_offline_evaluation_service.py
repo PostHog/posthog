@@ -6,7 +6,7 @@ from threading import Event
 from typing import Literal
 from uuid import uuid4
 
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
@@ -18,6 +18,7 @@ from products.ai_observability.backend.models.datasets import Dataset, DatasetIt
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -85,7 +86,10 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(error.exception.code, "content_conflict")
         self.assertEqual(OfflineExperiment.objects.for_team(self.team.id).count(), 1)
 
-    def test_upload_retry_preserves_identity_acceptance_and_retention(self) -> None:
+    @parameterized.expand([(None,), ("model-a",)])
+    def test_upload_retry_preserves_identity_acceptance_and_retention(self, model_version: str | None) -> None:
+        self.item = replace(self.item, model_version=model_version)
+        self.submission = replace(self.submission, items=[self.item])
         accepted = self.ingestion.upload(self.experiment.id, self.submission)
         replay = self.ingestion.upload(self.experiment.id, self.submission)
 
@@ -95,6 +99,7 @@ class TestOfflineEvaluationService(TestCase):
         self.assertTrue(accepted.results[0].created)
         item = OfflineExperimentItem.objects.for_team(self.team.id).get(id=self.item.id)
         result = OfflineEvaluationResult.objects.for_team(self.team.id).get(id=accepted.results[0].id)
+        self.assertEqual(item.model_version, model_version)
         self.assertEqual(item.payload_expires_at, item.accepted_at + timedelta(days=30))
         self.assertEqual(result.payload_expires_at, result.accepted_at + timedelta(days=30))
         self.assertEqual(
@@ -102,6 +107,101 @@ class TestOfflineEvaluationService(TestCase):
         )
         self.assertEqual(
             OfflineEvaluationResultPayload.objects.for_team(self.team.id).get(result=result).data, self.result.payload
+        )
+        ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get()
+        self.assertEqual(ledger.quantity, 1)
+        self.assertEqual(ledger.accepted_at, result.accepted_at)
+
+    def test_upload_records_one_usage_entry_for_all_new_results_including_non_ok_outcomes(self) -> None:
+        second_item = replace(self.item, id=uuid4())
+        second_version = self.scorer.create_new_version(config={}, created_by=None)
+        submission = UploadSubmission(
+            items=[self.item, second_item],
+            results=[
+                self.result,
+                replace(self.result, scorer_version_id=second_version.id, status="error", value=None),
+                replace(self.result, item_id=second_item.id, status="skipped", value=None),
+                replace(
+                    self.result,
+                    item_id=second_item.id,
+                    scorer_version_id=second_version.id,
+                    status="not_applicable",
+                    value=None,
+                ),
+            ],
+        )
+
+        accepted = self.ingestion.upload(self.experiment.id, submission)
+
+        ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get()
+        self.assertEqual(ledger.quantity, 4)
+        self.assertEqual(ledger.organization_id, self.team.organization_id)
+        self.assertEqual(ledger.experiment_id, self.experiment.id)
+        self.assertEqual({result.accepted_at for result in accepted.results}, {ledger.accepted_at})
+        self.assertEqual(
+            set(OfflineEvaluationResult.objects.for_team(self.team.id).values_list("accepted_at", flat=True)),
+            {ledger.accepted_at},
+        )
+        self.assertTrue(timezone.is_aware(ledger.accepted_at))
+
+        for result in reversed(submission.results):
+            replay = self.ingestion.upload(self.experiment.id, UploadSubmission(results=[result]))
+            self.assertFalse(replay.results[0].created)
+        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get().quantity, 4)
+
+    def test_ledger_write_failure_rolls_back_results_and_payloads(self) -> None:
+        def fail_ledger_insert(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+        ) -> object:
+            if sql.startswith("INSERT INTO") and OfflineEvaluationUsageLedger._meta.db_table in sql:
+                raise IntegrityError("Ledger insert failed")
+            return execute(sql, params, many, context)
+
+        with (
+            connection.execute_wrapper(fail_ledger_insert),
+            self.assertRaisesMessage(IntegrityError, "Ledger insert failed"),
+        ):
+            self.ingestion.upload(self.experiment.id, self.submission)
+
+        self.assertFalse(OfflineExperimentItem.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).exists())
+        accepted = self.ingestion.upload(self.experiment.id, self.submission)
+        self.assertTrue(accepted.results[0].created)
+        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get().quantity, 1)
+
+    def test_usage_keeps_organization_at_acceptance_after_project_moves(self) -> None:
+        self.ingestion.upload(self.experiment.id, self.submission)
+        original_ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get()
+        other_organization = Organization.objects.create(name="New owner")
+        project = self.team.project
+        project.organization = other_organization
+        project.save(update_fields=["organization"])
+        Team.objects.filter(id=self.team.id).update(organization=other_organization)
+        second_item = replace(self.item, id=uuid4())
+
+        self.ingestion.upload(
+            self.experiment.id,
+            UploadSubmission(items=[second_item], results=[self.result, replace(self.result, item_id=second_item.id)]),
+        )
+
+        original_ledger.refresh_from_db()
+        self.assertEqual(original_ledger.organization_id, self.team.organization_id)
+        self.assertEqual(original_ledger.quantity, 1)
+        new_ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).exclude(id=original_ledger.id).get()
+        self.assertEqual(new_ledger.organization_id, other_organization.id)
+        self.assertEqual(new_ledger.quantity, 1)
+
+    def test_privileged_result_deletion_removes_retry_identity_but_not_recorded_usage(self) -> None:
+        self.ingestion.upload(self.experiment.id, self.submission)
+        OfflineEvaluationResult.objects.for_team(self.team.id).all().delete()
+        replay = self.ingestion.upload(self.experiment.id, self.submission)
+        self.assertTrue(replay.results[0].created)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+            [1, 1],
         )
 
     def test_child_environment_keeps_the_entire_experiment_graph_and_hosted_links(self) -> None:
@@ -132,12 +232,16 @@ class TestOfflineEvaluationService(TestCase):
 
         self.assertEqual(closed.counts.accepted_item_count, 1)
         self.assertEqual(closed.counts.accepted_result_count, 1)
+        ledger = OfflineEvaluationUsageLedger.objects.for_team(child.id).get()
+        self.assertEqual(ledger.organization_id, child.organization_id)
+        self.assertEqual(ledger.quantity, 1)
         for model, row_id in (
             (OfflineExperiment, experiment.id),
             (OfflineExperimentItem, self.item.id),
             (OfflineEvaluationResult, accepted.results[0].id),
             (OfflineExperimentItemPayload, self.item.id),
             (OfflineEvaluationResultPayload, accepted.results[0].id),
+            (OfflineEvaluationUsageLedger, ledger.id),
         ):
             with self.subTest(model=model.__name__):
                 row = model.objects.for_team(child.id).get(pk=row_id)
@@ -166,6 +270,7 @@ class TestOfflineEvaluationService(TestCase):
             self.ingestion.upload(self.experiment.id, changed)
         self.assertEqual(error.exception.code, "content_conflict")
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).get().numeric_value, 0.8)
+        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get().quantity, 1)
 
     @parameterized.expand([("missing_scorer",), ("foreign_scorer",), ("invalid_score",), ("missing_item_and_scorer",)])
     def test_invalid_batch_does_not_persist_any_rows(self, failure: str) -> None:
@@ -200,26 +305,39 @@ class TestOfflineEvaluationService(TestCase):
         self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).exists())
 
-    def test_additional_scorer_uses_existing_item_without_payload(self) -> None:
+    def test_mixed_upload_counts_new_results_and_reuses_existing_items(self) -> None:
         self.ingestion.upload(self.experiment.id, self.submission)
         scorer = ScoreDefinition.objects.create(team=self.team, name="Safety", kind="boolean")
         version = scorer.create_new_version(config={}, created_by=None)
+        second_item = replace(self.item, id=uuid4())
 
         receipt = self.ingestion.upload(
             self.experiment.id,
             UploadSubmission(
-                results=[ResultSubmission(item_id=self.item.id, scorer_version_id=version.id, status="ok", value=False)]
+                items=[second_item],
+                results=[
+                    ResultSubmission(item_id=self.item.id, scorer_version_id=version.id, status="ok", value=False),
+                    self.result,
+                    replace(self.result, item_id=second_item.id),
+                ],
             ),
         )
 
         self.assertFalse(receipt.items[0].created)
         self.assertTrue(receipt.results[0].created)
-        self.assertEqual(OfflineExperimentItem.objects.for_team(self.team.id).count(), 1)
-        self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 1)
-        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
+        self.assertFalse(receipt.results[1].created)
+        self.assertTrue(receipt.results[2].created)
+        self.assertEqual(OfflineExperimentItem.objects.for_team(self.team.id).count(), 2)
+        self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 2)
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 3)
         self.assertIs(
             OfflineEvaluationResult.objects.for_team(self.team.id).get(id=receipt.results[0].id).boolean_value, False
+        )
+        self.assertEqual(
+            sorted(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+            [1, 2],
         )
 
     @parameterized.expand([("unknown",), ("foreign",)])
@@ -483,22 +601,34 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
         finally:
             connection.close()
 
-    def test_concurrent_duplicate_uploads_return_the_same_result(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_concurrent_duplicate_uploads_return_the_same_result(self, overlapping: bool) -> None:
+        second_submission = self.submission
+        if overlapping:
+            new_item = replace(self.submission.items[0], id=uuid4())
+            second_submission = UploadSubmission(
+                items=[new_item],
+                results=[replace(self.submission.results[0], item_id=new_item.id), self.submission.results[0]],
+            )
         second_started = Event()
         with ThreadPoolExecutor(max_workers=1) as executor:
             with transaction.atomic():
                 first = self.ingestion.upload(self.experiment.id, self.submission)
                 pending = executor.submit(
                     self._run_second_operation,
-                    lambda: self.ingestion.upload(self.experiment.id, self.submission),
+                    lambda: self.ingestion.upload(self.experiment.id, second_submission),
                     second_started,
                 )
                 self.assertTrue(second_started.wait(timeout=10))
             second = pending.result(timeout=10)
 
         assert isinstance(second, UploadReceipt)
-        self.assertEqual(second.results, [replace(first.results[0], created=False)])
-        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(second.results[-1], replace(first.results[0], created=False))
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2 if overlapping else 1)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+            [1, 1] if overlapping else [1],
+        )
 
     def test_concurrent_experiment_creation_returns_one_identity(self) -> None:
         submission = ExperimentSubmission(id=uuid4(), name="Retried creation", started_at=self.experiment.started_at)

@@ -19,6 +19,7 @@ from ..facade.enums import (
 )
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
+from .assignment import assign_surfaced, notify_surfaced
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
@@ -59,6 +60,7 @@ def apply_run(
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
+    assigned = assign_surfaced(context, team, surfaced)
     assets_reconciled = _reconcile_assets(context)
     outcomes: OutcomeBatches = (
         (SuggestionOutcome.CREATED, created),
@@ -69,6 +71,7 @@ def apply_run(
         (SuggestionOutcome.SURFACED, surfaced),
     )
     transaction.on_commit(partial(_report_all, outcomes, team))
+    transaction.on_commit(partial(notify_surfaced, team, assigned, context.run_id))
     return LifecycleResult(
         created=len(created),
         reproposed=len(reopened.reproposed),
@@ -209,7 +212,7 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> list[Warehou
         rules.max_open_per_kind,
     )
     suggestions.filter(id__in=chosen).update(surfaced_at=now)
-    return list(suggestions.filter(id__in=chosen))
+    return list(suggestions.filter(id__in=chosen).select_related("assignee"))
 
 
 def _pick_in_turns(
@@ -240,14 +243,39 @@ def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
-        "id", "kind", "subject_kind", "subject_id", "reviewed_at", "asset_outcome"
+        "id",
+        "kind",
+        "subject_kind",
+        "subject_id",
+        "reviewed_at",
+        "score_inputs",
+        "asset_outcome",
+        "realized_seconds_saved_per_month",
+        "realized_bytes_saved_per_month",
     ):
-        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(
-            context, _subject(row), accepted_at=row.reviewed_at
-        )
-        if outcome != row.asset_outcome:
-            changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
+        updates = _asset_updates(context, row)
+        if any(getattr(row, field) != value for field, value in updates.items()):
+            changed += suggestions.filter(id=row.id).update(**updates)
     return changed
+
+
+def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
+    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    subject = _subject(row)
+    savings = (
+        candidate.realized_savings(context, subject, row.score_inputs)
+        if _window_starts_after(context, row.reviewed_at)
+        else None
+    )
+    return {
+        "asset_outcome": candidate.asset_outcome(context, subject, accepted_at=row.reviewed_at),
+        "realized_seconds_saved_per_month": savings.seconds if savings else None,
+        "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
+    }
+
+
+def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:
+    return accepted_at is not None and accepted_at < context.reads.window.starts_at
 
 
 def _move_all(

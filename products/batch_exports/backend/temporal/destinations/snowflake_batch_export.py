@@ -17,7 +17,7 @@ import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
+from snowflake.connector.constants import QueryStatus
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errorcode import ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE
 from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
@@ -25,7 +25,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import Integration, SnowflakeIntegration
+from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SnowflakeIntegration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -197,10 +199,8 @@ async def _get_snowflake_integration(integration_id: int, team_id: int) -> Snowf
     `SnowflakeIntegration` raises `SnowflakeIntegrationError` if the config is malformed.
     """
     try:
-        integration = await Integration.objects.aget(
-            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
-        )
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.snowflake.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise SnowflakeIntegrationNotFoundError(integration_id, team_id)
 
     return SnowflakeIntegration(integration)
@@ -272,6 +272,7 @@ SnowflakeTypeName = typing.Literal[
     "STRING",
     "TEXT",
     "BINARY",
+    "UUID",
     # Semi-structured type
     "VARIANT",
     # The following are all aliases representing the same integer type
@@ -282,6 +283,8 @@ SnowflakeTypeName = typing.Literal[
     "TINYINT",
     "BYTEINT",
     "FIXED",
+    # Fixed-point number with a non-zero scale, created as 'NUMBER(precision, scale)'
+    "NUMBER",
     # All aliases of the same 64 bit float type
     "FLOAT",
     "FLOAT4",
@@ -294,6 +297,7 @@ SnowflakeTypeName = typing.Literal[
     "TIMESTAMP",
     "TIMESTAMP_NTZ",
     "TIMESTAMP_LTZ",
+    "TIMESTAMP_TZ",
     "ARRAY",
 ]
 
@@ -301,17 +305,78 @@ SnowflakeTypeName = typing.Literal[
 class SnowflakeType(typing.NamedTuple):
     name: SnowflakeTypeName
     repeated: bool
+    precision: int | None = None
+    scale: int | None = None
+
+
+@frozen
+class SnowflakeFieldDescriptor:
+    name: str
+    data_type: str
+    is_nullable: bool
+
+
+def _map_describe_table_to_descriptor(
+    row: collections.abc.Sequence[typing.Any] | collections.abc.Mapping[str, typing.Any],
+    metas: collections.abc.Sequence[ResultMetadata],
+) -> SnowflakeFieldDescriptor:
+    collect = {}
+
+    if isinstance(row, collections.abc.Mapping):
+        # Can happen with DictCursor, which we don't use at the moment.
+        it = zip((row[meta.name] for meta in metas), metas)
+    else:
+        it = zip(row, metas)
+
+    for field, meta in it:
+        match meta.name:
+            case "name":
+                collect["name"] = field
+            case "type":
+                collect["data_type"] = field
+            case "null?":
+                collect["is_nullable"] = field == "Y"
+
+    return SnowflakeFieldDescriptor(**collect)
+
+
+SNOWFLAKE_MAX_NUMBER_PRECISION = 38
 
 
 class SnowflakeDestinationField(typing.NamedTuple):
     name: str
     type: SnowflakeTypeName
     is_nullable: bool
+    precision: int | None = None
+    scale: int | None = None
+
+    @classmethod
+    def from_field_descriptor(cls, fd: SnowflakeFieldDescriptor) -> typing.Self:
+        """Construct this field from the result of a Snowflake DESCRIBE query."""
+        type_name, _, parameters = fd.data_type.partition("(")
+        type_name = type_name.split(" COLLATE ", 1)[0].strip()
+
+        precision: int | None = None
+        scale: int | None = None
+
+        if type_name == "VARCHAR":
+            type_name = "TEXT"
+
+        elif type_name == "NUMBER":
+            precision, scale = (int(value) for value in parameters.split(")", 1)[0].split(","))
+            # Use FIXED to distinguish described NUMBER columns from explicit Arrow decimals.
+            type_name = "FIXED"
+
+        if type_name not in typing.get_args(SnowflakeTypeName):
+            raise ValueError(f"Unsupported type: '{fd.data_type}'")
+
+        return cls(fd.name, typing.cast(SnowflakeTypeName, type_name), fd.is_nullable, precision, scale)
 
 
 def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     """Mapping of `pa.DataType` to corresponding `SnowflakeType`."""
-    repeated = False
+    precision: int | None = None
+    scale: int | None = None
 
     if pa.types.is_string(data_type):
         snowflake_type_name: SnowflakeTypeName = "STRING"
@@ -321,6 +386,9 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
 
     elif pa.types.is_binary(data_type):
         snowflake_type_name = "BINARY"
+
+    elif isinstance(data_type, pa.UuidType):
+        snowflake_type_name = "UUID"
 
     elif pa.types.is_signed_integer(data_type) or pa.types.is_unsigned_integer(data_type):
         # Snowflake's integer is weird: It supports all signed numbers with 38 digits:
@@ -332,6 +400,10 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     elif pa.types.is_floating(data_type):
         snowflake_type_name = "FLOAT"
 
+    elif pa.types.is_decimal(data_type) and data_type.precision <= SNOWFLAKE_MAX_NUMBER_PRECISION:
+        snowflake_type_name = "NUMBER"
+        precision, scale = data_type.precision, data_type.scale
+
     elif pa.types.is_boolean(data_type):
         snowflake_type_name = "BOOLEAN"
 
@@ -342,13 +414,12 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
         snowflake_type_name = "TIMESTAMP"
 
     elif pa.types.is_list(data_type):
-        repeated = True
-        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name
+        return data_type_to_snowflake_type(data_type.value_type)._replace(repeated=True)
 
     else:
         raise TypeError(f"Unsupported type: '{data_type}'")
 
-    return SnowflakeType(snowflake_type_name, repeated=repeated)
+    return SnowflakeType(snowflake_type_name, repeated=False, precision=precision, scale=scale)
 
 
 def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
@@ -358,6 +429,8 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type: pa.DataType = pa.string()
         case "BINARY":
             base_type = pa.binary()
+        case "UUID":
+            base_type = pa.uuid()
         case "INT" | "INTEGER" | "BIGINT" | "SMALLINT" | "TINYINT" | "BYTEINT" | "FIXED":
             base_type = pa.int64()
         case "BOOLEAN":
@@ -370,6 +443,9 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
             base_type = pa.float64()
+        case "NUMBER":
+            assert type.precision is not None and type.scale is not None
+            base_type = pa.decimal128(type.precision, type.scale)
         case _:
             raise ValueError(f"Unsupported type: '{type.name}'")
 
@@ -401,9 +477,12 @@ class SnowflakeField(Field):
             # it. For now, only support arrays of string.
             # TODO: Maybe support more arrays?
             snowflake_type = SnowflakeType(name="STRING", repeated=True)
+        elif field.type == "NUMBER" or (field.type == "FIXED" and field.scale):
+            # Preserve explicit NUMBER fields as decimals even at scale zero.
+            # Nonzero-scale FIXED fields also need decimals to avoid truncating fractional values.
+            snowflake_type = SnowflakeType(name="NUMBER", repeated=False, precision=field.precision, scale=field.scale)
         elif field.type == "FIXED":
-            # This isn't documented as a type. I know it is 'INTEGER', not sure why the
-            # snowflake library invented 'FIXED'.
+            # Treat zero-scale NUMBER columns discovered by DESCRIBE as integers.
             snowflake_type = SnowflakeType(name="INTEGER", repeated=False)
         else:
             snowflake_type = SnowflakeType(name=field.type, repeated=False)
@@ -422,8 +501,22 @@ class SnowflakeField(Field):
         else:
             return self.snowflake_type.name
 
+    @property
+    def snowflake_type_ddl(self) -> str:
+        if self.snowflake_type_name == "NUMBER":
+            # A bare 'NUMBER' is 'NUMBER(38, 0)', which would round away all decimals.
+            assert self.snowflake_type.precision is not None and self.snowflake_type.scale is not None
+            return f"NUMBER({self.snowflake_type.precision}, {self.snowflake_type.scale})"
+        return self.snowflake_type_name
+
     def to_destination_field(self) -> SnowflakeDestinationField:
-        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
+        return SnowflakeDestinationField(
+            name=self.name,
+            type=self.snowflake_type_name,
+            is_nullable=self.nullable,
+            precision=self.snowflake_type.precision,
+            scale=self.snowflake_type.scale,
+        )
 
     def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
         return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
@@ -894,19 +987,18 @@ class SnowflakeClient:
                 from the table, or the fields we require have types we do not support.
         """
         try:
-            result = await self.execute_async_query(f"""
-                SELECT * FROM "{table.name}" LIMIT 0
-            """)
+            result = await self.execute_async_query(f"DESCRIBE TABLE {_quote_snowflake_identifier(table.name)}")
             assert result is not None
-            _, metadata = result
+            rows, description = result
         except snowflake.connector.errors.ProgrammingError as e:
             if "does not exist" in str(e):
                 raise SnowflakeTableNotFoundError(table.name)
             else:
                 raise
+        field_descriptors = [_map_describe_table_to_descriptor(row, description) for row in rows]
 
         if table.is_mutable():
-            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            existing = {fd.name.lower() for fd in field_descriptors}
             missing_primary_key_fields = set(table.primary_key) - existing
             if missing_primary_key_fields:
                 raise SnowflakeIncompatibleSchemaError(
@@ -929,13 +1021,9 @@ class SnowflakeClient:
 
         record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
-            SnowflakeDestinationField(
-                field_metadata.name,
-                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
-                field_metadata.is_nullable,
-            )
-            for field_metadata in metadata
-            if field_metadata.name.lower() in record_batch_field_names
+            SnowflakeDestinationField.from_field_descriptor(fd)
+            for fd in field_descriptors
+            if fd.name.lower() in record_batch_field_names
         )
 
         try:
@@ -965,7 +1053,7 @@ class SnowflakeClient:
                 won't fail if the table already exists.
         """
         field_ddl = ", ".join(
-            f"{_quote_snowflake_identifier(field.name)} {field.snowflake_type_name}" for field in table
+            f"{_quote_snowflake_identifier(field.name)} {field.snowflake_type_ddl}" for field in table
         )
 
         if_not_exists = ""

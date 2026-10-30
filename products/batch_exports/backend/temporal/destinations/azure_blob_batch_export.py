@@ -15,13 +15,15 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import AzureBlobIntegration
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
     BatchExportField,
@@ -36,10 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.constants import (
-    AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
-    FILE_FORMAT_EXTENSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -126,8 +125,8 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.azure_blob.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise AzureBlobIntegrationNotFoundError(integration_id, team_id)
 
     return AzureBlobIntegration(integration)

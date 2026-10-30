@@ -219,6 +219,93 @@ JAMF_PRO_ENDPOINTS: dict[str, JamfProEndpointConfig] = {
         parent_filter=("isSmartGroup", False),
         row_fields=["mobileDeviceId"],
     ),
+    "computer_extension_attributes": JamfProEndpointConfig(
+        name="computer_extension_attributes",
+        path="/api/v1/computer-extension-attributes",
+        # scriptContents can embed credentials, like scripts.
+        capture_samples=False,
+    ),
+    "mobile_device_extension_attributes": JamfProEndpointConfig(
+        name="mobile_device_extension_attributes",
+        path="/api/v1/mobile-device-extension-attributes",
+    ),
+    "volume_purchasing_locations": JamfProEndpointConfig(
+        name="volume_purchasing_locations",
+        path="/api/v1/volume-purchasing-locations",
+    ),
+    # Content rows have no id of their own. One app can be bought at both pricing tiers, so the
+    # tier is part of the key.
+    "volume_purchasing_content": JamfProEndpointConfig(
+        name="volume_purchasing_content",
+        path="/api/v1/volume-purchasing-locations/{id}/content",
+        primary_keys=["volumePurchasingLocationId", "adamId", "pricingParam"],
+        sort="name:asc",
+        parent="volume_purchasing_locations",
+        parent_id_field="volumePurchasingLocationId",
+    ),
+    "volume_purchasing_subscriptions": JamfProEndpointConfig(
+        name="volume_purchasing_subscriptions",
+        path="/api/v1/volume-purchasing-subscriptions",
+    ),
+    "device_enrollments": JamfProEndpointConfig(
+        name="device_enrollments",
+        path="/api/v1/device-enrollments",
+    ),
+    # The device roster takes no paging parameters and returns every device of the instance at once.
+    "device_enrollment_devices": JamfProEndpointConfig(
+        name="device_enrollment_devices",
+        path="/api/v1/device-enrollments/{id}/devices",
+        paginated=False,
+        sort=None,
+        primary_keys=["deviceEnrollmentProgramInstanceId", "id"],
+        parent="device_enrollments",
+        parent_id_field="deviceEnrollmentProgramInstanceId",
+    ),
+    # Change history of the reference objects. Full refresh only: the `date` filter would not cut the
+    # request count (one walk per parent either way), and a run-wide watermark across parents could skip
+    # notes written to an earlier parent while later parents are still being read.
+    "building_history": JamfProEndpointConfig(
+        name="building_history",
+        path="/api/v1/buildings/{id}/history",
+        primary_keys=["buildingId", "id"],
+        sort="date:asc",
+        parent="buildings",
+        parent_id_field="buildingId",
+    ),
+    "category_history": JamfProEndpointConfig(
+        name="category_history",
+        path="/api/v1/categories/{id}/history",
+        primary_keys=["categoryId", "id"],
+        sort="date:asc",
+        parent="categories",
+        parent_id_field="categoryId",
+    ),
+    "department_history": JamfProEndpointConfig(
+        name="department_history",
+        path="/api/v1/departments/{id}/history",
+        primary_keys=["departmentId", "id"],
+        sort="date:asc",
+        parent="departments",
+        parent_id_field="departmentId",
+    ),
+    "package_history": JamfProEndpointConfig(
+        name="package_history",
+        path="/api/v1/packages/{id}/history",
+        primary_keys=["packageId", "id"],
+        sort="date:asc",
+        parent="packages",
+        parent_id_field="packageId",
+    ),
+    "script_history": JamfProEndpointConfig(
+        name="script_history",
+        path="/api/v1/scripts/{id}/history",
+        primary_keys=["scriptId", "id"],
+        sort="date:asc",
+        # This session also fetches the parent scripts list, which carries scriptContents.
+        capture_samples=False,
+        parent="scripts",
+        parent_id_field="scriptId",
+    ),
 }
 
 ENDPOINTS = tuple(JAMF_PRO_ENDPOINTS.keys())

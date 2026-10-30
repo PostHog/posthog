@@ -71,6 +71,11 @@ def ilike_matches(pattern: str, text: str) -> bool:
     return like_matches(pattern.lower(), text.lower())
 
 
+def is_json_verbatim(value: str) -> bool:
+    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
+    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
+
+
 def unwrap_optional(t):
     if get_origin(t) is Union and type(None) in get_args(t):
         # Return the first argument, which is the actual type in Optional[type]

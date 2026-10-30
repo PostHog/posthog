@@ -1,3 +1,3 @@
 import {run} from './inspect'
 
-run()
+void run()

@@ -1,10 +1,10 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
-import { EnrichedReviewer } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import { ReviewerRowMenu } from './ReviewerRowMenu'
 import {
     ReviewerClaim,
     reviewerClaimRemoveDisabledReason,
@@ -49,50 +49,51 @@ export function SuggestedReviewerPerson({
 }: {
     reviewer: EnrichedReviewer
     disabled: boolean
-    onRemove: () => void
+    onRemove: (removal?: ReviewerRemoval) => void
     claim?: ReviewerClaim
 }): JSX.Element {
     const displayName = getReviewerDisplayName(reviewer)
     const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-start gap-2 rounded px-1.5 py-1.5 hover:bg-fill-highlight">
-            <Tooltip
-                title={
-                    reviewer.user
-                        ? undefined
-                        : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
-                }
-            >
-                <span className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
-                    <PersonDisplay
-                        person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                        displayName={displayName}
-                        withIcon="xs"
-                        noLink
-                        noPopover
-                    />
-                </span>
-            </Tooltip>
-            {isScoutReviewer(reviewer) ? (
-                <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
-            ) : (
-                <LemonTag type="muted" size="small" wrap className="max-w-32">
-                    {sourceLabel}
-                </LemonTag>
-            )}
-            <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-            <LemonButton
-                type="tertiary"
-                size="xsmall"
-                icon={<IconX />}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5">
+            <ReviewerRowMenu
+                reviewer={reviewer}
+                displayName={displayName}
                 disabledReason={
                     reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
                     (disabled ? 'Updating…' : undefined)
                 }
-                onClick={onRemove}
-                tooltip={`Remove ${displayName}`}
-            />
+                onRemove={onRemove}
+            >
+                <Tooltip
+                    title={
+                        reviewer.user
+                            ? undefined
+                            : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
+                    }
+                >
+                    <span className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
+                        <PersonDisplay
+                            person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                            displayName={displayName}
+                            withIcon="xs"
+                            noLink
+                            noPopover
+                        />
+                    </span>
+                </Tooltip>
+            </ReviewerRowMenu>
+            <div className="flex items-center gap-2">
+                {isScoutReviewer(reviewer) ? (
+                    <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
+                ) : (
+                    <LemonTag type="muted" size="small" wrap className="max-w-32">
+                        {sourceLabel}
+                    </LemonTag>
+                )}
+                <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
+            </div>
         </div>
     )
 }

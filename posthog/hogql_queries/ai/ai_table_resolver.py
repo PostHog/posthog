@@ -85,6 +85,7 @@ def query_ai_events(
     settings: HogQLGlobalSettings | None = None,
     workload: Workload | None = None,
     posthog_tables_only: bool = False,
+    bypass_property_access_control: bool = False,
 ) -> Any:
     """Execute a query written against the dedicated ai_events table.
 
@@ -107,6 +108,8 @@ def query_ai_events(
 
     Pass the requesting ``user`` for interactive reads so member and role property rules
     apply on every read path. Userless background reads apply the project's default rules.
+    Online evaluations opt into ``bypass_property_access_control`` to grade complete events
+    as a project workflow, independently of user permissions.
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
@@ -130,12 +133,13 @@ def query_ai_events(
         kwargs["settings"] = settings
     if workload is not None:
         kwargs["workload"] = workload
-    if posthog_tables_only:
+    if posthog_tables_only or bypass_property_access_control:
         kwargs["context"] = HogQLContext(
             team_id=team.pk,
             team=team,
             user=user,
-            database=Database.create_for_posthog_tables(team, modifiers=modifiers),
+            database=Database.create_for_posthog_tables(team, modifiers=modifiers) if posthog_tables_only else None,
+            restricted_properties=set() if bypass_property_access_control else None,
         )
 
     with tags_context(product=Product.LLM_ANALYTICS):
@@ -160,6 +164,7 @@ def query_ai_events(
                 user=user,
                 use_new_events_schema=events_schema,
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+                restricted_properties=set() if bypass_property_access_control else None,
                 database=Database.create_for_posthog_tables(team, modifiers=modifiers) if posthog_tables_only else None,
             ),
         }

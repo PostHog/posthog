@@ -266,6 +266,65 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.selectedCategoryLabel).toEqual('Self-managed')
     })
 
+    describe('with managed object storage sources', () => {
+        afterEach(() => {
+            // The flag outlives the test otherwise, and the catalog tests below expect it off.
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            { enabled: false, expectSelfManaged: true },
+            { enabled: true, expectSelfManaged: false },
+        ])(
+            'self-managed tiles and category with object storage sources enabled=$enabled',
+            ({ enabled, expectSelfManaged }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: enabled,
+                })
+                const logic = sourceCatalogLogic()
+                const selfManagedNames = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+
+                const presentNames = logic.values.catalogItems.map((item) => item.name)
+                const hasCategory = logic.values.categoriesWithCounts.some((cat) => cat.category === 'self-managed')
+
+                expect(selfManagedNames.some((name) => presentNames.includes(name))).toBe(expectSelfManaged)
+                expect(hasCategory).toBe(expectSelfManaged)
+                expect(logic.values.catalogItems.some((item) => item.selfManaged)).toBe(expectSelfManaged)
+            }
+        )
+
+        it.each([
+            { enabled: false, expectSelfManaged: true },
+            { enabled: true, expectSelfManaged: false },
+        ])(
+            'file upload tiles are self-managed and searchable as such with object storage sources enabled=$enabled',
+            ({ enabled, expectSelfManaged }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: enabled,
+                })
+                const logic = sourceCatalogLogic()
+
+                const uploadTiles = logic.values.catalogItems.filter((item) => item.name.startsWith('FileUpload-'))
+                expect(uploadTiles).toHaveLength(3)
+                for (const tile of uploadTiles) {
+                    expect(!!tile.selfManaged).toBe(expectSelfManaged)
+                    expect(tile.keywords.includes('selfmanaged')).toBe(expectSelfManaged)
+                }
+            }
+        )
+
+        it('ignores a self-managed category link when object storage sources are enabled', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: true,
+            })
+            const logic = sourceCatalogLogic()
+
+            router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
+
+            expect(logic.values.selectedCategory).toEqual('all')
+        })
+    })
+
     it('opens on the category the sources list linked to', () => {
         const logic = sourceCatalogLogic()
         expect(logic.values.selectedCategory).toEqual('all')

@@ -46,10 +46,14 @@ from products.signals.backend.ranking.features import FEATURE_SETS
 from products.signals.backend.ranking.model_contract import model_mismatch, trained_head_files
 from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
+    PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
+    PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
+    USER_VECTORS_SCHEMA_VERSION_METADATA_KEY,
     ServingManifest,
     model_key,
     serving_manifest_key,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
@@ -65,7 +69,16 @@ from products.signals.dags.inbox_ranking.common import (
     serving_mirror_storage,
     skip_unconfigured,
 )
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
@@ -89,6 +102,7 @@ from products.signals.dags.inbox_ranking.training.promotion import decide_promot
 from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, recipe_mismatch
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, ManifestDecision, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    MirrorPublication,
     capture_training_events,
     promotion_event,
     serving_manifest_event,
@@ -398,16 +412,24 @@ class _ServingStore:
     # A cross-account bucket refuses a write that does not hand ownership to the bucket owner.
     acl: str | None = None
 
-    def write(self, key: str, content: str | bytes, content_type: str | None = None) -> None:
-        extras: dict[str, str] = {}
+    def write(
+        self,
+        key: str,
+        content: str | bytes,
+        content_type: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        extras: dict[str, Any] = {}
         if content_type is not None:
             extras["ContentType"] = content_type
+        if metadata is not None:
+            extras["Metadata"] = metadata
         if self.acl is not None:
             extras["ACL"] = self.acl
         self.storage.write(bucket=self.bucket, key=key, content=content, extras=extras or None)
 
 
-@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=[PROJECT_VECTORS_TABLE], **COMMON_ASSET_KWARGS)
+@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=[PROJECT_VECTORS_TABLE, USER_VECTORS_TABLE], **COMMON_ASSET_KWARGS)
 def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
     """Publish the models the scoring sweep serves, and the manifest naming them.
 
@@ -420,6 +442,9 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
     When an entry reads project vectors, the dt=D `inbox_project_vectors` day is copied the same
     way, and the manifest names it. Its `as_of` is the end of dt=D, so it is never newer than a
     report the sweep scores after this publish.
+
+    The dt=D `inbox_user_vectors` day is copied too, and the manifest names it in `user_vectors`. No
+    model reads it yet, so a missing day leaves the key out and never blocks the publish.
     """
     if skip_unconfigured(context):
         return
@@ -507,11 +532,22 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         manifest = manifest.model_copy(update={"project_vectors": serving_project_vectors_key(prefix, partition_key)})
     manifest_key = serving_manifest_key(prefix)
     primary = _ServingStore(storage=object_storage.object_storage_client(), bucket=settings.OBJECT_STORAGE_BUCKET)
+    user_vectors_key = serving_user_vectors_key(prefix, partition_key)
+    user_vectors_bytes = _publish_user_vectors(
+        context,
+        client,
+        bucket,
+        partition_object_key(prefix, USER_VECTORS_TABLE, partition_key),
+        user_vectors_key,
+        primary,
+    )
+    if user_vectors_bytes is not None:
+        manifest = manifest.model_copy(update={"user_vectors": user_vectors_key})
     publication = publish_serving_models(
         context, client, bucket, prefix, manifest, primary, project_vectors_source=project_vectors_source
     )
     context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
-    mirror_published = _publish_mirror(context, client, bucket, prefix, manifest)
+    mirror = _publish_mirror(context, client, bucket, prefix, partition_key, manifest)
     capture_training_events(
         context,
         partition_key,
@@ -524,8 +560,8 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                 reason=decision.reason,
                 copied_keys=publication.copied,
                 present_keys=publication.present,
-                bytes_copied=publication.bytes_copied,
-                mirror_published=mirror_published,
+                bytes_copied=publication.bytes_copied + (user_vectors_bytes or 0),
+                mirror=mirror,
                 recipe_hashes={
                     model_key(metadata["model_name"], metadata["model_version"]): metadata.get(RECIPE_HASH_KEY)
                     for metadata in (
@@ -540,7 +576,13 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         ],
     )
     mirror_metadata = (
-        {} if mirror_published is None else {"mirror_published": dagster.MetadataValue.bool(mirror_published)}
+        {}
+        if mirror is None
+        else {
+            "mirror_published": dagster.MetadataValue.bool(mirror.published),
+            "mirror_project_vectors_key": dagster.MetadataValue.text(mirror.project_vectors_key or ""),
+            "mirror_skip_reason": dagster.MetadataValue.text(mirror.skip_reason or ""),
+        }
     )
     return {
         "published": dagster.MetadataValue.bool(True),
@@ -552,8 +594,9 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         ),
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
-        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied + (user_vectors_bytes or 0)),
         "project_vectors_key": dagster.MetadataValue.text(manifest.project_vectors or ""),
+        "user_vectors_key": dagster.MetadataValue.text(manifest.user_vectors or ""),
         **pin_metadata,
         **mirror_metadata,
     }
@@ -675,38 +718,134 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
     return metadata, None
 
 
-def _publish_mirror(context: RunContext, client, bucket: str, prefix: str, manifest: ServingManifest) -> bool | None:
+# How many days before the publish partition the mirror region's project vectors day, and the
+# engagement export it was built from, may be. The mirror region builds day D after this region's
+# 05:00 UTC publish, so a mirror that keeps up names D-1.
+MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS = 3
+
+NO_FRESH_PROJECT_VECTORS = "no_fresh_project_vectors"
+UNKNOWN_SCHEMA_VERSION = "unknown_schema_version"
+STALE_ENGAGEMENT_EXPORT = "stale_engagement_export"
+MIRROR_PUBLISH_FAILED = "publish_failed"
+
+
+@frozen
+class _MirrorProjectVectors:
+    """The mirror region's project vectors day the mirror manifest names, or the newest day refused."""
+
+    key: str | None
+    date: str | None
+    engagement_export_date: str | None
+    # Why no day passes, or None when `key` names one.
+    refusal: str | None
+
+
+def _project_vectors_refusal(metadata: Mapping[str, str], oldest: datetime.date) -> str | None:
+    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) != str(PROJECT_VECTORS_SCHEMA_VERSION):
+        return UNKNOWN_SCHEMA_VERSION
+    try:
+        engagement_date = datetime.date.fromisoformat(metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY, ""))
+    except ValueError:
+        return STALE_ENGAGEMENT_EXPORT
+    return STALE_ENGAGEMENT_EXPORT if engagement_date < oldest else None
+
+
+def _mirror_project_vectors(mirror: _ServingStore, prefix: str, partition_key: str) -> _MirrorProjectVectors:
+    """The newest day within `MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS` of the partition that the mirror
+    region wrote its own project vectors for, and that this build can name.
+
+    Only object metadata is read, never the body: this region must not hold the mirror region's
+    per-team vectors. The mirror grant has no list permission, so a missing key answers 403, and
+    `head_object` reads both as absent.
+    """
+    end = datetime.date.fromisoformat(partition_key)
+    oldest = end - datetime.timedelta(days=MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS)
+    newest_refused: _MirrorProjectVectors | None = None
+    for offset in range(MIRROR_PROJECT_VECTORS_MAX_LAG_DAYS + 1):
+        day = (end - datetime.timedelta(days=offset)).isoformat()
+        key = serving_project_vectors_key(prefix, day)
+        head = mirror.storage.head_object(bucket=mirror.bucket, file_key=key)
+        if head is None:
+            continue
+        metadata = head.get("Metadata") or {}
+        refusal = _project_vectors_refusal(metadata, oldest)
+        found = _MirrorProjectVectors(
+            key=None if refusal else key,
+            date=day,
+            engagement_export_date=metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY),
+            refusal=refusal,
+        )
+        if refusal is None:
+            return found
+        newest_refused = newest_refused or found
+    return newest_refused or _MirrorProjectVectors(
+        key=None, date=None, engagement_export_date=None, refusal=NO_FRESH_PROJECT_VECTORS
+    )
+
+
+def _publish_mirror(
+    context: RunContext, client, bucket: str, prefix: str, partition_key: str, manifest: ServingManifest
+) -> MirrorPublication | None:
     """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
-    set, otherwise whether the mirror now serves this manifest.
+    set, otherwise what the mirror now serves.
 
     The primary publish has already succeeded, so a mirror failure only logs: the region that
     trains keeps serving, and the mirror keeps its previous manifest and models.
 
     Project vectors are per-team data of this deployment's teams, so they never go to another
-    deployment's store. The mirror's manifest names none, and its sweep skips the models that read them.
-    A served model that reads them could not score there, so the mirror keeps its previous manifest.
+    deployment's store. When an entry reads them, the mirror's manifest names the mirror region's
+    own day instead (`_mirror_project_vectors`). That day is already in the mirror store, so
+    `publish_serving_models` gets no source and copies none. Without such a day the mirror's
+    manifest names none, and its sweep skips the models that read them. A served model that reads
+    them could not score there, so then the mirror keeps its previous manifest.
+
+    User vectors are per-user data of this deployment, so they never go to the mirror either, and
+    the mirror's manifest names none.
     """
     if not settings.INBOX_RANKING_SERVING_MIRROR_BUCKET:
         return None
-    if manifest.served.reads_project_vectors:
-        context.log.warning(
-            f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project vectors"
-        )
-        return False
+    vectors: _MirrorProjectVectors | None = None
     try:
         mirror = _ServingStore(
             storage=serving_mirror_storage(),
             bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET,
             acl="bucket-owner-full-control",
         )
+        if manifest.project_vectors is not None:
+            vectors = _mirror_project_vectors(mirror, prefix, partition_key)
+        project_vectors_key = vectors.key if vectors else None
+        if manifest.served.reads_project_vectors and vectors is not None and project_vectors_key is None:
+            context.log.warning(
+                f"serving manifest {manifest.manifest_version} not mirrored: its served model reads project "
+                f"vectors and the mirror has no usable day ({vectors.refusal}, newest day {vectors.date})"
+            )
+            return _mirror_publication(vectors, skip_reason=vectors.refusal)
         publish_serving_models(
-            context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
+            context,
+            client,
+            bucket,
+            prefix,
+            manifest.model_copy(update={"project_vectors": project_vectors_key, "user_vectors": None}),
+            mirror,
         )
     except Exception as error:
         context.log.exception(f"serving manifest {manifest.manifest_version} not mirrored: {error!r}")
-        return False
-    context.log.info(f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}")
-    return True
+        return _mirror_publication(vectors, skip_reason=MIRROR_PUBLISH_FAILED)
+    context.log.info(
+        f"mirrored serving manifest {manifest.manifest_version} to {mirror.bucket}"
+        f" with project vectors {project_vectors_key}"
+    )
+    return _mirror_publication(vectors, skip_reason=None)
+
+
+def _mirror_publication(vectors: _MirrorProjectVectors | None, skip_reason: str | None) -> MirrorPublication:
+    return MirrorPublication(
+        published=skip_reason is None,
+        project_vectors_key=vectors.key if vectors and skip_reason is None else None,
+        project_vectors_date=vectors.date if vectors else None,
+        engagement_export_date=vectors.engagement_export_date if vectors else None,
+        skip_reason=skip_reason,
+    )
 
 
 @frozen
@@ -781,6 +920,39 @@ def _publish_project_vectors(
         raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
     target.write(target_key, body)
     context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
+    return len(body)
+
+
+def _publish_user_vectors(
+    context: RunContext,
+    client,
+    bucket: str,
+    source: str,
+    target_key: str,
+    target: _ServingStore,
+) -> int | None:
+    """Copy one day of user vectors to `target_key`, stamped with its schema version. Returns the
+    bytes moved, or None when the day is not in `target` after the call.
+
+    No model reads user vectors yet, so a missing day or a failed copy only logs, and the publish
+    goes on without them. A day already at the target is left alone, like a project vectors day.
+    """
+    try:
+        if target.storage.head_object(bucket=target.bucket, file_key=target_key) is not None:
+            return 0
+        body = _read_bytes_if_exists(client, bucket, source)
+        if body is None:
+            context.log.warning(f"user vectors {source} are missing in the dataset bucket; manifest names none")
+            return None
+        target.write(
+            target_key,
+            body,
+            metadata={USER_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)},
+        )
+    except Exception as error:
+        context.log.exception(f"user vectors {source} not copied: {error!r}")
+        return None
+    context.log.info(f"copied user vectors to {target.bucket}/{target_key}")
     return len(body)
 
 

@@ -144,6 +144,25 @@ CAMPAIGN_BREAKDOWN_STATS_FIELDS = ["campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 ADSET_BREAKDOWN_STATS_FIELDS = ["adset_id", "campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 AD_BREAKDOWN_STATS_FIELDS = ["ad_id", "adset_id", "campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 
+# How far into a video people watched. Only the country and platform breakdown tables request
+# these. Meta rejects the whole request when the `region` breakdown asks for some of them:
+# "video_avg_time_watched_actions field cannot be requested with the region breakdown", and the
+# p25 to p100 fields "do not support region breakdown".
+_VIDEO_WATCH_DEPTH_FIELDS = [
+    "video_30_sec_watched_actions",
+    "video_p25_watched_actions",
+    "video_p50_watched_actions",
+    "video_p75_watched_actions",
+    "video_p95_watched_actions",
+    "video_p100_watched_actions",
+    "video_avg_time_watched_actions",
+]
+
+
+def _with_video_watch_depth(field_names: list[str]) -> list[str]:
+    return [*field_names, *_VIDEO_WATCH_DEPTH_FIELDS]
+
+
 # Meta: "Hourly breakdowns do not support unique fields, which are any fields prepended with
 # `unique_*`, `reach` or `frequency`." `cpp` and `cost_per_unique_click` are derived from those.
 # A person who saw an ad cannot be counted once across a split Meta does not deduplicate over, so
@@ -161,7 +180,7 @@ _UNIQUE_METRIC_FIELDS = {
 
 
 # Hourly and creative-asset breakdowns do not support these video metrics.
-_VIDEO_METRIC_FIELDS = {"video_play_actions", "video_thruplay_watched_actions"}
+_VIDEO_METRIC_FIELDS = {"video_play_actions", "video_thruplay_watched_actions", *_VIDEO_WATCH_DEPTH_FIELDS}
 
 
 def _without_metrics(field_names: list[str], excluded_fields: set[str]) -> list[str]:
@@ -311,6 +330,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "video_p75_watched_actions",
             "video_p95_watched_actions",
             "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -345,6 +367,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_mode": "datetime",
         "partition_format": "week",
         "partition_keys": ["created_time"],
+        # An adset's targeting spec can be large enough that Meta refuses even the smallest page.
+        "refusable_fields": ("targeting", "promoted_object"),
     },
     MetaAdsResource.AdsetStats: {
         "primary_keys": ["adset_id", "account_id", "date_start"],
@@ -383,8 +407,17 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_30_sec_watched_actions",
             "video_play_actions",
             "video_thruplay_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -453,8 +486,17 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_30_sec_watched_actions",
             "video_play_actions",
             "video_thruplay_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -623,19 +665,27 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.CampaignStatsByAgeGender: _breakdown_stats(
         "campaign", ["age", "gender"], CAMPAIGN_BREAKDOWN_STATS_FIELDS
     ),
-    MetaAdsResource.CampaignStatsByCountry: _breakdown_stats("campaign", ["country"], CAMPAIGN_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.CampaignStatsByCountry: _breakdown_stats(
+        "campaign", ["country"], _with_video_watch_depth(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.CampaignStatsByRegion: _breakdown_stats("campaign", ["region"], CAMPAIGN_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.CampaignStatsByPlatform: _breakdown_stats(
-        "campaign", ["publisher_platform", "platform_position", "impression_device"], CAMPAIGN_BREAKDOWN_STATS_FIELDS
+        "campaign",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(CAMPAIGN_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.CampaignStatsHourly: _breakdown_stats(
         "campaign", ["hourly_stats_aggregated_by_advertiser_time_zone"], HOURLY_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdsetStatsByAgeGender: _breakdown_stats("adset", ["age", "gender"], ADSET_BREAKDOWN_STATS_FIELDS),
-    MetaAdsResource.AdsetStatsByCountry: _breakdown_stats("adset", ["country"], ADSET_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.AdsetStatsByCountry: _breakdown_stats(
+        "adset", ["country"], _with_video_watch_depth(ADSET_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.AdsetStatsByRegion: _breakdown_stats("adset", ["region"], ADSET_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdsetStatsByPlatform: _breakdown_stats(
-        "adset", ["publisher_platform", "platform_position", "impression_device"], ADSET_BREAKDOWN_STATS_FIELDS
+        "adset",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(ADSET_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.AdsetStatsHourly: _breakdown_stats(
         "adset",
@@ -643,10 +693,14 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         _without_metrics(ADSET_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     MetaAdsResource.AdStatsByAgeGender: _breakdown_stats("ad", ["age", "gender"], AD_BREAKDOWN_STATS_FIELDS),
-    MetaAdsResource.AdStatsByCountry: _breakdown_stats("ad", ["country"], AD_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.AdStatsByCountry: _breakdown_stats(
+        "ad", ["country"], _with_video_watch_depth(AD_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.AdStatsByRegion: _breakdown_stats("ad", ["region"], AD_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdStatsByPlatform: _breakdown_stats(
-        "ad", ["publisher_platform", "platform_position", "impression_device"], AD_BREAKDOWN_STATS_FIELDS
+        "ad",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(AD_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
         "ad",

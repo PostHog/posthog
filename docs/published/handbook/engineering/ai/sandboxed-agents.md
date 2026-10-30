@@ -35,6 +35,7 @@ The full task composer remains available during startup.
 Follow-up messages collect in "Up next" and send after the first response finishes.
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+The PostHog AI thread and embedded run views render Pi session logs independently of the `pi-acp` rollout flag.
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
@@ -304,6 +305,10 @@ They're copied to three discovery locations during image build:
 - `~/.agents/skills/` – Codex agent discovery
 - `~/.claude/skills/` – Claude Code CLI discovery
 
+Evals build skills from the local checkout into a new output directory, then capture a snapshot. Model comparisons share one saved snapshot across their model runs, so rendered examples cannot change between models. `--skill-snapshot-report <results.json>` reuses a previous run's archived snapshot only if its source fingerprint and commit match the checkout. The fingerprint includes staged and unstaged changes plus untracked source files, so schema edits outside the skill folders also invalidate reuse. It excludes configured result files and comparison output directories, including outputs inside the checkout. Docker mounts the snapshot at all three discovery paths, replacing image-only skills as well. Modal builds use the same snapshot. Before the agent starts, the harness checks every skill file against a SHA-256 manifest in the agent's task filesystem and stops on missing, changed, or extra files. MCP delivery pins the archive hash and clears native bundled skills. Verification reads the delivery mode inside the running sandbox, including when a worker retrieves it by ID. Desktop skill-source preferences and shell-level MCP archive URLs cannot replace the eval snapshot.
+
+Run reports and PostHog eval metadata record the skill snapshot hash alongside the commit and dirty-worktree flag. The local run report includes the full file manifest's path. Model comparisons reject missing or different snapshot hashes. These checks confirm which files the agent can read; separate tool-call checks confirm whether it reads a skill.
+
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
 ## Multi-turn sessions
@@ -520,6 +525,9 @@ at boot and dockerd does not autostart. Run the baked `bootstrap-dev-stack` help
 required — the sandbox has no TTY, and running phrocs under a pseudo-TTY makes it balloon in
 memory until it is OOM-killed — and the detached start returns while the stack is still booting,
 so `hogli wait` is what blocks until every process reports ready.
+On a 16 GiB self-driving run the full stack takes about 12 GiB and leaves no room for tests,
+so the agent should start only the datastores unless the task needs the running app
+(see `docs/internal/cloud-task-sandbox.md`).
 
 Provisioning also fires that helper detached as soon as the sandbox is up (best-effort, only on
 runs that booted the PostHog-published `posthog-dev-stack` image itself — never a user-authored
@@ -593,8 +601,8 @@ The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for truste
 
 Every Modal sandbox is created with a [readiness probe](https://modal.com/docs/guide/sandboxes#readiness-probes) that runs `true` inside the sandbox until it exits 0.
 Provisioning waits on that probe before it runs anything else in the sandbox, because a sandbox can come up dead with every RPC succeeding.
-That happens most often after a filesystem snapshot restore: a resume snapshot, or the prebaked dev-stack image, which is itself a snapshot.
-A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: resume snapshot, then custom or dev-stack image, then the plain base.
+That happens most often after a filesystem snapshot restore: a repository snapshot, a Streamlit app image, or the prebaked dev-stack image, which is itself a snapshot.
+A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: custom or dev-stack image, then the plain base.
 Termination is retried, and provisioning fails when it still does not complete: the run stores only the id of the sandbox that `create()` returned, so a sandbox left running here is invisible to every later cleanup path.
 A directory resume snapshot is mounted into the sandbox after the probe has passed, and Modal stops the probe at its first success.
 Provisioning therefore runs one more `true` after that mount, and recreates the sandbox without the mount when it fails.
@@ -708,7 +716,7 @@ same-run restores stay idle until a message arrives. Internal recovery instructi
 use hidden content blocks; adapters and transcript rendering omit those blocks from
 user message echoes. Existing unmarked transcript entries are unchanged.
 
-Full filesystem snapshots contain an agent binary. Prewarmed resumes require its
+Repository snapshots contain an agent binary. Prewarmed resumes require its
 `prewarmedResumeMessageDriven` capability; the older `prewarmedResumeIdle` capability
 alone is insufficient. An incompatible snapshot uses the existing fresh-agent fallback.
 The check applies to ACP runs, because the capability belongs to the ACP agent server.

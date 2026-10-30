@@ -12,7 +12,7 @@ Under pytest that infrastructure lived in session fixtures, and suites ran stric
 Wall-clock was dominated by suites queueing behind each other while sandbox capacity sat idle.
 
 The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds sandbox and team-setup load with shared semaphores.
-Braintrust remains the eval engine and reporting backend; it just no longer controls scheduling.
+Braintrust remains the local eval engine. PostHog owns remote result reporting, and the harness controls scheduling.
 The `EvalAsync` call itself lives behind an `EvalEngine` seam (`../engines/`): `_BaseEvalRun.run()` hands a neutral `ExperimentSpec` to the engine resolved by `engines/registry.resolve_engine()` (shared via `EvalContext.engine`) and gets back a neutral `ExperimentResult` (`engines/types.py`), so a future PostHog-native engine can slot in behind the same interface — implementing the `EvalEngine` protocol and passing the conformance suite — without touching the run base or any suite.
 
 Not every suite is sandboxed anymore: each suite declares a `SUITE_KIND` (`requirements.py`), the kind maps to a set of `Infra` requirements, and the harness boots only the union of what the selected suites need.
@@ -77,6 +77,10 @@ The final summary renders after teardown, logging is flushed, and the transcript
 The comparison checks every configuration first with `--check`, then forwards child output into its combined transcript.
 `--results-file` writes a validated run report using the reporter's existing scores, status counts, and case selection.
 The comparison retains these reports after each model and checks that case and scorer selections match.
+It reuses the first model's archived branch-skill snapshot for later models and checks that their snapshot hashes match.
+Saved snapshots include a source fingerprint. Reuse stops if the branch's skill sources or commit changed.
+With `--keep-sandbox-containers`, mounted skill files remain under `logs/skill-snapshots/` after the run so preserved containers can still read them.
+Cases with `interaction_origin="posthog_ai"` also receive the production PostHog AI system prompt from this checkout before the task starts. The interaction origin alone does not supply that prompt. Compare skill versions only with the same client prompt and scorer versions.
 No prompts, model answers, or credentials are included in the comparison report.
 
 The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.
@@ -85,7 +89,7 @@ Only the final overall run status uses `PASS` or `FAIL`.
 `CASE START` and `CASE PHASE` identify each trial. `CASE READY` marks completed execution with scoring still pending.
 The reporter prints phase counts and the oldest active trial every 30 seconds while suites run.
 The `scoring` duration includes waiting for the experiment results. It does not measure scorer execution alone.
-Public runs update Braintrust trial metadata after scoring so it contains the final phase durations.
+Local results and PostHog uploads include final phase durations after scoring.
 Scorer exceptions produce case errors in the console and final summary.
 The reporter writes output in worker threads so slow output does not stop the event loop.
 Terminal writes do not hold the transcript file lock, so progress output cannot block logging through that lock.

@@ -88,3 +88,13 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
             return 'definition'
     }
 }
+
+const FEATURE_FLAG_PROPERTY_PREFIX = '$feature/'
+
+/** The flag key behind a `$feature/<key>` property, or null for any other property. */
+export function featureFlagKeyFromProperty(propertyKey: unknown): string | null {
+    if (typeof propertyKey !== 'string' || !propertyKey.startsWith(FEATURE_FLAG_PROPERTY_PREFIX)) {
+        return null
+    }
+    return propertyKey.slice(FEATURE_FLAG_PROPERTY_PREFIX.length) || null
+}

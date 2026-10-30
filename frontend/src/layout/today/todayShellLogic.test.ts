@@ -4,11 +4,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getToolSourceItems, isToolItem, toolLabel } from 'scenes/tools/toolsUtils'
+import { urls } from 'scenes/urls'
 
 import { navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_MAX_WIDTH,
+    railPaneForPath,
+    railPaneHref,
+    todayShellLogic,
+} from './todayShellLogic'
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -86,7 +93,7 @@ describe('todayShellLogic', () => {
         ['home', false, '/home'],
         ['spaces', true, '/spaces/new'],
         ['spaces', false, '/ai'],
-        ['analytics', false, '/airplane'],
+        ['analytics', false, '/analytics/all'],
         ['products', false, '/airplane'],
     ] as const)('opens the %s section when its rail item is picked, sandbox %s', (pane, sandbox, pathname) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: sandbox })
@@ -109,6 +116,17 @@ describe('todayShellLogic', () => {
         logic.actions.pickPane(openPane)
         router.actions.push('/project/1/dashboard')
         expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['home', 'new', urls.projectHomepage()],
+        ['spaces', 'new', urls.taskNewSession()],
+        ['spaces', 'legacy', urls.ai()],
+        ['analytics', 'new', urls.analyticsList()],
+        ['products', 'new', undefined],
+        ['settings', 'new', urls.settings('project')],
+    ] as const)('a rail pick on %s with the %s PostHog AI view opens %s', (pane, phaiView, href) => {
+        expect(railPaneHref(pane, phaiView)).toBe(href)
     })
 
     test.each(['spaces', 'analytics', 'products'] as const)(

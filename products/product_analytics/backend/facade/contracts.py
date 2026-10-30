@@ -139,11 +139,19 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
-class WatchedTrendsInsight:
+class SavedTrendsInsight:
     team_id: int
     insight_id: int
     # The trends interval, "day" when the query sets none.
     interval: str
+
+
+@dataclass(frozen=True)
+class ViewableInsight:
+    id: int
+    short_id: str
+    # The saved name, else the generated one. None when the insight has neither.
+    name: str | None
 
 
 @dataclass(frozen=True)
@@ -174,3 +182,13 @@ class InsightDashboardContext:
     filters: dict[str, Any]
     tile_filters: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class OrganizationEventsRetention:
+    """The window an organization set for its projects, and the windows its admins can set, in months."""
+
+    organization_months: int | None
+    plan_months: int
+    min_months: int
+    max_months: int

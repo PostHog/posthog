@@ -29,10 +29,10 @@ from temporalio.common import RetryPolicy
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
-    Integration,
     IntegrationError,
     S3CompatibleIntegration,
 )
@@ -41,6 +41,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportField,
@@ -56,10 +57,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.constants import (
-    FILE_FORMAT_EXTENSIONS,
-    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.destinations.utils import (
     get_absolute_key_prefix,
     get_manifest_key,
@@ -180,16 +178,16 @@ async def _get_s3_integration(
     the credentials are malformed.
     """
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.any.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise S3IntegrationNotFoundError(integration_id, team_id)
 
-    if integration.kind == Integration.IntegrationKind.AWS_S3:
+    if integration.kind == IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
             return AWSS3RoleBasedIntegration(integration)
         return AWSS3Integration(integration)
 
-    if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+    if integration.kind == IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
     raise IntegrationError(

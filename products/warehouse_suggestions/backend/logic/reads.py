@@ -1,6 +1,7 @@
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
+from math import isfinite
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from .rules import Rules, Surface, SurfaceRules, TrafficRules
 READS_QUERY_SETTINGS = {"max_execution_time": 30, "max_threads": 2}
 FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
+MEASUREMENT_FEATURE = Feature.WAREHOUSE_SUGGESTIONS
+UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
@@ -65,6 +68,8 @@ class SubjectReads:
     human_days: int
     background_requests: int
     background_reads: int
+    background_duration_ms: int
+    background_read_bytes: int
     human_reads: int
     human_duration_ms: int
     human_read_bytes: int
@@ -75,6 +80,10 @@ class SubjectReads:
     alone_read_bytes_p90: float
     last_read_at: datetime
     requests_by_surface: Mapping[Surface, int]
+    measured_reads: int = 0
+    measured_duration_ms: float = 0.0
+    measured_read_bytes: float = 0.0
+    last_measured_at: datetime | None = None
 
     @property
     def surfaces(self) -> frozenset[Surface]:
@@ -138,6 +147,7 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
         "read": ReadKind.READ.value,
         "refresh": ReadKind.REFRESH.value,
         "saved_query": WarehouseSuggestionSubjectKind.SAVED_QUERY.value,
+        "measurement_feature": MEASUREMENT_FEATURE.value,
     }
     human_sql, human_params = human_condition(rules.traffic)
     surface_sql, surface_params = surface_expression(rules.surfaces)
@@ -220,17 +230,26 @@ SELECT
     uniqIf(day, is_human),
     uniqMergeIf(requests, NOT is_human),
     sumIf(read_count, NOT is_human),
+    sumIf(duration_ms_sum, NOT is_human),
+    sumIf(read_bytes_sum, NOT is_human),
     sumIf(read_count, is_human),
     sumIf(duration_ms_sum, is_human),
     sumIf(read_bytes_sum, is_human),
-    sumIf(read_count, read_alone),
-    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone)[{FIRST_QUANTILE}],
-    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone)[{FIRST_QUANTILE}],
-    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone)[{SECOND_QUANTILE}],
-    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone)[{SECOND_QUANTILE}],
-    toTimeZone(max(max_event_time), 'UTC')
+    sumIf(read_count, read_alone AND NOT is_measurement),
+    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone AND NOT is_measurement)[{FIRST_QUANTILE}],
+    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone AND NOT is_measurement)[{FIRST_QUANTILE}],
+    quantilesMergeIf(0.5, 0.9)(duration_ms_quantiles, read_alone AND NOT is_measurement)[{SECOND_QUANTILE}],
+    quantilesMergeIf(0.5, 0.9)(read_bytes_quantiles, read_alone AND NOT is_measurement)[{SECOND_QUANTILE}],
+    toTimeZone(max(max_event_time), 'UTC'),
+    sumIf(read_count, is_measurement),
+    argMaxIf(duration_ms_sum / read_count, max_event_time, is_measurement),
+    argMaxIf(read_bytes_sum / read_count, max_event_time, is_measurement),
+    toTimeZone(maxIf(max_event_time, is_measurement), 'UTC')
 FROM (
-    SELECT *, {{human}} AS is_human
+    SELECT
+        *,
+        {{human}} AS is_human,
+        lc_feature = %(measurement_feature)s AND read_alone AS is_measurement
     FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
     WHERE {WINDOW_FILTER}
         AND read_kind = %(read)s
@@ -305,18 +324,28 @@ def _subject_reads(
             human_days=row[4],
             background_requests=row[5],
             background_reads=row[6],
-            human_reads=row[7],
-            human_duration_ms=row[8],
-            human_read_bytes=row[9],
-            alone_reads=row[10],
-            alone_duration_ms_median=float(row[11]),
-            alone_read_bytes_median=float(row[12]),
-            alone_duration_ms_p90=float(row[13]),
-            alone_read_bytes_p90=float(row[14]),
-            last_read_at=row[15],
+            background_duration_ms=row[7],
+            background_read_bytes=row[8],
+            human_reads=row[9],
+            human_duration_ms=row[10],
+            human_read_bytes=row[11],
+            alone_reads=row[12],
+            alone_duration_ms_median=float(row[13]),
+            alone_read_bytes_median=float(row[14]),
+            alone_duration_ms_p90=float(row[15]),
+            alone_read_bytes_p90=float(row[16]),
+            last_read_at=row[17],
             requests_by_surface=surface_counts.get(subject, {}),
+            measured_reads=row[18],
+            measured_duration_ms=_finite(row[19]),
+            measured_read_bytes=_finite(row[20]),
+            last_measured_at=row[21] if row[21] > UNIX_EPOCH else None,
         )
     return reads
+
+
+def _finite(value: float) -> float:
+    return float(value) if isfinite(value) else 0.0
 
 
 def _refreshes(params: Mapping[str, Any], team_id: int) -> dict[UUID, SubjectRefreshes]:

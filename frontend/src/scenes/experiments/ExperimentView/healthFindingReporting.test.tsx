@@ -53,7 +53,7 @@ const UNEVEN_EXPOSURES = {
     bias_risk: { multiple_variant_percentage: 5 },
     health_findings: [
         exposureFinding('srm', 'Users are not split across variants as configured', []),
-        exposureFinding('bias_risk_multiple_excluded', 'Setup likely introduced bias', [
+        exposureFinding('bias_risk_multiple_excluded', 'The uneven split may bias the results', [
             'adjust_distribution',
             'use_first_seen_variant',
         ]),

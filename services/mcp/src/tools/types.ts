@@ -120,6 +120,7 @@ export type Env = {
     POSTHOG_ANALYTICS_HOST: string | undefined
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_SKILLS_SHA256?: string | undefined
     POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
@@ -176,6 +177,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
         readOnlyHint: boolean
     }
     _meta?: ToolMeta
+    /** Appended to the `render-ui` result so the model knows what the rendered app already shows. */
+    renderedNote?: string
 }
 
 export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<

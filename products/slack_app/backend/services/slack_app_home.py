@@ -15,7 +15,7 @@ in `products/slack_app/backend/api.py` are the ones that actually call
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -26,19 +26,17 @@ from django.http import HttpResponse, JsonResponse
 
 import structlog
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_byos_enabled,
-    is_slack_app_multiplayer_approvals_enabled,
-    is_slack_app_oauth_enabled,
-    is_slack_app_unprompted_answers_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -89,6 +87,11 @@ from products.slack_app.backend.services.slack_settings import (
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
+    workspace_integrations,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -471,6 +474,7 @@ def render_home_view(
     thread_join_mode: ThreadJoinMode | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
+    interview_invite: dict | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -541,6 +545,12 @@ def render_home_view(
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
+
+    # Section 6a — interview invitation. `interview_invite` is the section block.
+    if interview_invite is not None:
+        blocks.append({"type": "divider"})
+        blocks.append(_section_title("💬 Talk to the team"))
+        blocks.append(interview_invite)
 
     # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
@@ -1713,7 +1723,7 @@ def _selected_value(state: dict, block_prefix: str, action_id: str) -> str | Non
 # here.
 
 
-def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Integration) -> None:
+def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: WorkspaceIntegration) -> None:
     """Publish the Home tab for the user who just opened it.
 
     The caller resolves the integration through the shared region gate, so this
@@ -1740,6 +1750,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
+        record_feature_used(slack_team_id, slack_user_id, SlackFeature.APP_HOME_TASKS)
         capture_slack_event(
             integration,
             "slack app home opened",
@@ -1812,9 +1823,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id == ACTION_SET_THREAD_JOIN_MODE:
         picked = (action.get("selected_option") or {}).get("value")
         # An unrecognised value is ignored rather than stored.
-        if picked in ThreadJoinMode.values and _thread_join_offered(
-            integration, _resolve_home_user(integration, slack_user_id)
-        ):
+        if picked in ThreadJoinMode.values and _resolve_home_user(integration, slack_user_id) is not None:
             set_thread_join_mode(integration.integration_id, slack_user_id, ThreadJoinMode(picked))
             capture_slack_event(integration, "slack app thread join mode set", slack_user_id=slack_user_id, mode=picked)
         republish()
@@ -1827,7 +1836,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_UNTAGGED_QUESTION_MODE:
-        if (mode := _picked_untagged_mode(action)) is not None and is_slack_app_unprompted_answers_enabled(integration):
+        if (mode := _picked_untagged_mode(action)) is not None:
             set_untagged_question_mode(integration.integration_id, slack_user_id, mode)
         republish()
         return HttpResponse(status=200)
@@ -1946,7 +1955,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 # ---------------------------------------------------------------------------
 
 
-def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> Integration | None:
+def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> WorkspaceIntegration | None:
     """The integration the viewer's Home tab is rendered against.
 
     Same resolver the publish path runs, so a click is answered for the project the viewer
@@ -1964,7 +1973,7 @@ def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> 
     return result.resolved_or_first()
 
 
-def _stored_personal_preferences(integration: Integration, slack_user_id: str) -> AIPreferences:
+def _stored_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> AIPreferences:
     """The viewer's stored central preference, for prefilling the edit modal.
 
     Deliberately the stored per-user value rather than the resolved default: the
@@ -1988,7 +1997,7 @@ def _stored_personal_preferences(integration: Integration, slack_user_id: str) -
     )
 
 
-def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
+def _is_admin(slack: SlackIntegration, integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     try:
         return is_slack_workspace_admin(slack, integration, slack_user_id)
     except Exception:
@@ -2000,7 +2009,7 @@ def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: 
         return False
 
 
-def _open_edit_modal(integration: Integration, slack_user_id: str, *, trigger_id: str) -> None:
+def _open_edit_modal(integration: WorkspaceIntegration, slack_user_id: str, *, trigger_id: str) -> None:
     current = _stored_personal_preferences(integration, slack_user_id)
     supported = _supported_efforts(current.runtime_adapter, current.model)
     slack = SlackIntegration(integration)
@@ -2037,7 +2046,7 @@ def _render_unavailable_modal() -> dict:
     }
 
 
-def _update_modal_after_input_change(payload: dict, integration: Integration) -> HttpResponse:
+def _update_modal_after_input_change(payload: dict, integration: WorkspaceIntegration) -> HttpResponse:
     """Re-render the modal in response to a runtime_adapter or model change.
 
     Reads the in-flight state from `payload["view"]`, drops whatever the change
@@ -2090,8 +2099,8 @@ def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[s
 
 
 def _routed_project_integration(
-    integration: Integration, slack_user_id: str, *, accessible: list[Integration] | None = None
-) -> Integration | None:
+    integration: WorkspaceIntegration, slack_user_id: str, *, accessible: Sequence[WorkspaceIntegration] | None = None
+) -> WorkspaceIntegration | None:
     """The integration of the project this viewer's mentions currently route to,
     restricted to projects the viewer can access. None when they can reach none.
     Pass `accessible` when the caller already resolved it, to skip the repeat
@@ -2109,7 +2118,9 @@ def _routed_project_integration(
         return None
 
 
-def _personal_preference_target(integration: Integration, slack_user_id: str) -> tuple[User, Integration]:
+def _personal_preference_target(
+    integration: WorkspaceIntegration, slack_user_id: str
+) -> tuple[User, WorkspaceIntegration]:
     """The PostHog user behind this viewer and the project whose central config
     they edit — the one their mentions route to, restricted to this user's own
     access via `resolve_from_candidates(user=...)`.
@@ -2141,7 +2152,7 @@ def _personal_preference_target(integration: Integration, slack_user_id: str) ->
 
 
 def _apply_personal_preferences(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     *,
     runtime_adapter: str | None,
@@ -2180,7 +2191,7 @@ def _apply_personal_preferences(
     )
 
 
-def _reset_personal_preferences(integration: Integration, slack_user_id: str) -> None:
+def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the viewer's central per-(user, project) preference, which resets
     them to the project default. The reset button only renders for viewers with
     such a preference, so an unmapped viewer is a no-op here."""
@@ -2209,7 +2220,7 @@ def _picked_untagged_mode(action: dict) -> UntaggedFollowupMode | None:
     return UntaggedFollowupMode(picked) if picked in UntaggedFollowupMode.values else None
 
 
-def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
+def _clear_project_personal(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the personal routing override; drop the row once it holds nothing else."""
 
     row = SlackSettings.objects.filter(
@@ -2243,7 +2254,7 @@ class _HomeRender:
 
 def _build_home_view(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     *,
     view_state: HomeViewState | None = None,
@@ -2286,24 +2297,17 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
-        untagged_question_mode=(
-            resolve_untagged_question_mode(integration.integration_id, slack_user_id)
-            if is_slack_app_unprompted_answers_enabled(integration)
-            else None
-        ),
+        untagged_question_mode=resolve_untagged_question_mode(integration.integration_id, slack_user_id),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id) if home_user is not None else None
         ),
         own_plan=own_plan,
-        thread_join_mode=(
-            resolve_thread_join_mode(integration, slack_user_id)
-            if _thread_join_offered(integration, home_user)
-            else None
-        ),
+        thread_join_mode=(resolve_thread_join_mode(integration, slack_user_id) if home_user is not None else None),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
+        interview_invite=invite_section(INVITE_MESSAGE, book_button(integration.id, "home")),
     )
     return _HomeRender(
         view=view,
@@ -2314,7 +2318,7 @@ def _build_home_view(
 
 
 def _republish_home(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     *,
     view_state: HomeViewState | None = None,
@@ -2351,10 +2355,10 @@ _TASKS_RECENT_WINDOW = timedelta(days=14)
 
 
 def _resolve_tasks_state(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     *,
-    accessible: list[Integration],
+    accessible: Sequence[WorkspaceIntegration],
     selected_repo: str | None = None,
     selected_status: str | None = None,
     page: int = 0,
@@ -2502,7 +2506,7 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
 
 
 def _resolve_run_defaults_state(
-    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+    integration: WorkspaceIntegration, slack_user_id: str, *, accessible: Sequence[WorkspaceIntegration]
 ) -> RunDefaultsState:
     """The PostHog default this person's Slack runs fall back to, plus where to change it.
 
@@ -2548,12 +2552,12 @@ def _resolve_run_defaults_state(
     )
 
 
-def _thread_join_offered(integration: Integration, home_user: User | None) -> bool:
-    return home_user is not None and is_slack_app_multiplayer_approvals_enabled(integration, home_user.distinct_id)
-
-
 def _resolve_own_plan_state(
-    integration: Integration, slack_user_id: str, home_user: User | None, *, accessible: list[Integration]
+    integration: WorkspaceIntegration,
+    slack_user_id: str,
+    home_user: User | None,
+    *,
+    accessible: Sequence[WorkspaceIntegration],
 ) -> OwnPlanState | None:
     """The ChatGPT plan card for this viewer, or `None` when the card is not offered."""
     from products.slack_app.backend.services.slack_messages import ai_subscriptions_url  # noqa: PLC0415
@@ -2575,11 +2579,11 @@ def _resolve_own_plan_state(
         return None
 
 
-def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
+def _auto_model_choice_offered(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     return _resolve_home_user(integration, slack_user_id) is not None
 
 
-def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
+def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
@@ -2611,7 +2615,7 @@ def _resolve_account_state(integration: Integration, slack_user_id: str) -> Acco
     return AccountState(enabled=True, linked_email=None, link_url=link_url)
 
 
-def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | None:
+def _resolve_home_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
     """Identify the PostHog user behind this Slack identity.
 
     Mirrors the event-path cascade in `resolve_posthog_user_from_event`: the
@@ -2651,7 +2655,7 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
     return membership.user if membership else None
 
 
-def _analytics_home_user(integration: Integration, slack_user_id: str) -> User | None:
+def _analytics_home_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
     # Attribution is best-effort, so a failed lookup must not cost the reader the publish or the click.
     try:
         return _resolve_home_user(integration, slack_user_id)
@@ -2660,7 +2664,7 @@ def _analytics_home_user(integration: Integration, slack_user_id: str) -> User |
         return None
 
 
-def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHubState:
+def _resolve_github_state(integration: WorkspaceIntegration, slack_user_id: str) -> GitHubState:
     """List the personal GitHub installations of the user opening the Home tab.
 
     Usability comes from the tasks facade, the same judgment
@@ -2711,16 +2715,12 @@ def _github_account_from_row(row: UserIntegration) -> GitHubAccount:
     )
 
 
-def _workspace_integrations(slack_team_id: str) -> list[Integration]:
+def _workspace_integrations(slack_team_id: str) -> list[WorkspaceIntegration]:
     """Every PostHog project this Slack workspace is connected to."""
-    return list(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
-        .select_related("team", "team__organization")
-        .order_by("id")
-    )
+    return workspace_integrations(slack_team_id)
 
 
-def _accessible_integrations(integration: Integration, slack_user_id: str) -> list[Integration]:
+def _accessible_integrations(integration: WorkspaceIntegration, slack_user_id: str) -> list[WorkspaceIntegration]:
     """The workspace's projects this Slack user can actually reach in PostHog.
 
     Resolved once per publish and handed to every card: it costs a `UserPermissions`
@@ -2737,9 +2737,9 @@ def _accessible_integrations(integration: Integration, slack_user_id: str) -> li
 
 
 def _resolve_stats_state(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     *,
-    accessible: list[Integration],
+    accessible: Sequence[WorkspaceIntegration],
     is_admin: bool,
     window_days: int = DEFAULT_STATS_WINDOW_DAYS,
     force_refresh: bool = False,
@@ -2774,7 +2774,7 @@ def _resolve_stats_state(
 
 
 def _resolve_project_state(
-    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+    integration: WorkspaceIntegration, slack_user_id: str, *, accessible: Sequence[WorkspaceIntegration]
 ) -> ProjectState:
     candidates = _workspace_integrations(integration.integration_id)
     if not candidates:
@@ -2797,7 +2797,7 @@ def _resolve_project_state(
         .first()
     )
 
-    def project_label(c: Integration) -> str:
+    def project_label(c: WorkspaceIntegration) -> str:
         return f"{c.team.organization.name} · {c.team.name}"
 
     # Look up the workspace default's label against the full candidate list,
@@ -2821,8 +2821,8 @@ def _resolve_project_state(
 
 
 def _filter_accessible_integrations(
-    integration: Integration, slack_user_id: str, candidates: list[Integration]
-) -> list[Integration]:
+    integration: WorkspaceIntegration, slack_user_id: str, candidates: Sequence[WorkspaceIntegration]
+) -> list[WorkspaceIntegration]:
     """The candidates this Slack identity can reach.
 
     `views.publish` answers whoever opens the tab, including a Slack Connect guest with no
@@ -2839,7 +2839,7 @@ def _filter_accessible_integrations(
 
 
 def _apply_project_pick(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     *,
     actor_slack_user_id: str,
     action: dict,
@@ -2857,11 +2857,7 @@ def _apply_project_pick(
         team_id = int(selected)
     except (TypeError, ValueError):
         return
-    target = (
-        Integration.objects.filter(kind="slack", integration_id=integration.integration_id, team_id=team_id)
-        .select_related("team", "team__organization")
-        .first()
-    )
+    target = get_team_workspace_integration(team_id, integration.integration_id)
     if target is None:
         return
     # The renderer hides options the clicker can't reach, but a hand-crafted
@@ -2872,7 +2868,7 @@ def _apply_project_pick(
     SlackSettings.objects.update_or_create(
         slack_workspace_id=integration.integration_id,
         slack_user_id=actor_slack_user_id if scope == "personal" else None,
-        defaults={"default_integration": target},
+        defaults={"default_integration_id": target.id},
     )
     logger.info(
         "slack_app_home_project_default_set",
@@ -2883,7 +2879,7 @@ def _apply_project_pick(
     )
 
 
-def _unlink_user_account(integration: Integration, slack_user_id: str) -> None:
+def _unlink_user_account(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     # Scope across every org connected to this Slack workspace, not just the
     # one for the integration the click happened to land on — for multi-org
     # workspaces, the linked row may live in any of them.
@@ -2904,11 +2900,7 @@ def _unlink_user_account(integration: Integration, slack_user_id: str) -> None:
 
 
 def _workspace_org_ids(slack_team_id: str) -> set:
-    return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
-    )
+    return {row.team.organization_id for row in workspace_integrations(slack_team_id)}
 
 
 def _modal_error_response(message: str) -> JsonResponse:

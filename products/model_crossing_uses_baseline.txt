@@ -277,7 +277,6 @@ event_definitions.EventDefinition posthog.ObjectMediaPreview.event_definition re
 event_definitions.PropertyDefinition access_control.PropertyAccessControl.property_definition reverse-accessor(property_access_controls) 1
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
-experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
 experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
@@ -628,7 +627,6 @@ product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_e
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_execution drives(TrendsQuery) 32
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(TrendsQuery) 10
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
@@ -900,11 +898,9 @@ warehouse_sources.ExternalDataSource products.data_warehouse.backend.presentatio
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.logic.job_logs.coordinator instance-many(select_related) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.logic.sources instance-many(order_by) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
-warehouse_sources.ExternalDataSource products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.tasks.tasks instance-many(distinct) 1
 warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection instance-many(exclude) 1
 warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection instance-many(filter) 1
-warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection write(create) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.demo.health write(create) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.demo.health write(update) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.hogql_queries.adapters.factory instance-many(filter) 1
@@ -999,7 +995,6 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpo
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_execution drives(TrendsQuery) 32
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(TrendsQuery) 10
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3

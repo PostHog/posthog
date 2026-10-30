@@ -113,7 +113,9 @@ export interface aiObservabilityScoreDefinitionsLogicValues {
     scoreDefinitionCountLabel: string
     scoreDefinitions: PaginatedScoreDefinitionListApi
     scoreDefinitionsError: boolean
+    scoreDefinitionsLoaded: boolean
     scoreDefinitionsLoading: boolean
+    showEmptyState: boolean
     sorting: Sorting | null
 }
 
@@ -140,7 +142,6 @@ export interface aiObservabilityScoreDefinitionsLogicActions {
             debounce: boolean
         }
     }
-
     resetForTeam: () => {
         value: true
     }
@@ -169,6 +170,14 @@ export interface aiObservabilityScoreDefinitionsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filters: (rawFilters: Partial<ScoreDefinitionFilters> | null) => ScoreDefinitionFilters
         count: (scoreDefinitions: PaginatedScoreDefinitionListApi) => number
+        showEmptyState: (
+            currentTeamId: number | null,
+            scoreDefinitionsLoaded: boolean,
+            scoreDefinitionsLoading: boolean,
+            scoreDefinitionsError: boolean,
+            count: number,
+            filters: ScoreDefinitionFilters
+        ) => boolean
         sorting: (filters: ScoreDefinitionFilters) => Sorting | null
         pagination: (filters: ScoreDefinitionFilters, count: number) => PaginationManual
         scoreDefinitionCountLabel: (
@@ -213,6 +222,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             { resetForTeam: () => ({ results: [], count: 0, next: null, previous: null }) },
         ],
         scoreDefinitionsError: [false, { loadScoreDefinitions: () => false, loadScoreDefinitionsFailure: () => true }],
+        scoreDefinitionsLoaded: [false, { loadScoreDefinitionsSuccess: () => true, resetForTeam: () => false }],
         rawFilters: [
             null as Partial<ScoreDefinitionFilters> | null,
             {
@@ -295,6 +305,36 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
         count: [
             (s) => [s.scoreDefinitions],
             (scoreDefinitions: PaginatedScoreDefinitionListApi) => scoreDefinitions.count,
+        ],
+
+        showEmptyState: [
+            (s) => [
+                s.currentTeamId,
+                s.scoreDefinitionsLoaded,
+                s.scoreDefinitionsLoading,
+                s.scoreDefinitionsError,
+                s.count,
+                s.filters,
+            ],
+            (
+                currentTeamId: number | null,
+                loaded: boolean,
+                loading: boolean,
+                error: boolean,
+                count: number,
+                filters: ScoreDefinitionFilters
+            ): boolean =>
+                !!currentTeamId &&
+                loaded &&
+                !loading &&
+                !error &&
+                count === 0 &&
+                !filters.search &&
+                !filters.kind &&
+                !filters.created_by &&
+                filters.tags.length === 0 &&
+                filters.archived === 'false' &&
+                filters.page === 1,
         ],
 
         sorting: [

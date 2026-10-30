@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -26,9 +27,12 @@ from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
+import grpc
+from personhog.lifecycle.v1 import lifecycle_pb2
 from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_pb2
 
 from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.personhog_client.interceptor import SEMANTIC_REFUSAL_METADATA_KEY
 from posthog.utils import is_anonymous_id
 
 
@@ -37,6 +41,27 @@ class _Call:
     method: str
     request: Any
     response: Any = None
+
+
+class _FakeRpcError(grpc.RpcError):
+    """A failed call the way grpcio raises one: status, details and trailing metadata are methods."""
+
+    def __init__(
+        self, code: grpc.StatusCode, details: str, trailing_metadata: Sequence[tuple[str, str | bytes]] = ()
+    ) -> None:
+        super().__init__(details)
+        self._code = code
+        self._details = details
+        self._trailing_metadata = trailing_metadata
+
+    def code(self) -> grpc.StatusCode:
+        return self._code
+
+    def details(self) -> str:
+        return self._details
+
+    def trailing_metadata(self) -> Sequence[tuple[str, str | bytes]]:
+        return self._trailing_metadata
 
 
 def _order_identified_first(
@@ -53,6 +78,31 @@ DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 # The replica's cap on keys per version floor request.
 VERSION_RPC_MAX_KEYS = 250
 
+# The replica's cap on distinct ids across all persons in one restore request.
+RESTORE_MAX_DISTINCT_IDS = 1000
+
+# The identity server's cap on person ids per lifecycle DeletePersons request.
+LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
+
+# team_id is narrowed to i32 server-side.
+_MAX_TEAM_ID = 2**31 - 1
+
+
+class _FakeLifecycleClient:
+    """The fake's ``lifecycle`` namespace; the saga state lives on the fake itself."""
+
+    def __init__(self, fake: FakePersonHogClient) -> None:
+        self._fake = fake
+
+    @property
+    def configured(self) -> bool:
+        return True
+
+    def delete_persons(
+        self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
+    ) -> lifecycle_pb2.DeletePersonsResponse:
+        return self._fake._lifecycle_delete_persons(request)
+
 
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
@@ -63,6 +113,7 @@ class FakePersonHogClient:
 
     def __init__(self) -> None:
         self.calls: list[_Call] = []
+        self.lifecycle = _FakeLifecycleClient(self)
 
         # keyed by (team_id, person_id)
         self._persons_by_id: dict[tuple[int, int], person_pb2.Person] = {}
@@ -79,6 +130,11 @@ class FakePersonHogClient:
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.
         self.tombstoned_delete_max_rows = 5000
+
+        # by op_id: the frozen request (team, person ids as sent) and the recorded response
+        self._lifecycle_ops: dict[str, tuple[int, tuple[int, ...], lifecycle_pb2.DeletePersonsResponse]] = {}
+        # (team_id, person_id) held by another live lifecycle op
+        self._lifecycle_marks: set[tuple[int, int]] = set()
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -198,6 +254,10 @@ class FakePersonHogClient:
         )
         self._groups[(team_id, group_type_index, group_key)] = group
         return group
+
+    def hold_lifecycle_mark(self, *, team_id: int, person_id: int) -> None:
+        """Make a person look held by another live lifecycle op, so a delete reports SKIPPED_CONFLICT."""
+        self._lifecycle_marks.add((team_id, person_id))
 
     def add_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
         self._cohort_memberships.setdefault(person_id, []).append(
@@ -694,6 +754,74 @@ class FakePersonHogClient:
             tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
         return version
 
+    # ── Lifecycle sagas ───────────────────────────────────────────────
+
+    def _lifecycle_delete_persons(
+        self, request: lifecycle_pb2.DeletePersonsRequest
+    ) -> lifecycle_pb2.DeletePersonsResponse:
+        self.calls.append(_Call("lifecycle.delete_persons", request))
+        self._validate_lifecycle_delete(request)
+
+        frozen = (request.team_id, tuple(request.person_ids))
+        recorded = self._lifecycle_ops.get(request.op_id)
+        if recorded is not None:
+            team_id, person_ids, response = recorded
+            if (team_id, person_ids) != frozen:
+                raise _FakeRpcError(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    f"op {request.op_id} already exists with a different request",
+                    ((SEMANTIC_REFUSAL_METADATA_KEY, "op_id_reused"),),
+                )
+            copy = lifecycle_pb2.DeletePersonsResponse()
+            copy.CopyFrom(response)
+            return copy
+
+        # One decision per distinct person, so a duplicated id reports the same outcome twice.
+        outcomes: dict[int, lifecycle_pb2.DeletePersonOutcome] = {}
+        for person_id in request.person_ids:
+            if person_id in outcomes:
+                continue
+            person = self._live(self._persons_by_id.get((request.team_id, person_id)))
+            if person is None:
+                outcomes[person_id] = lifecycle_pb2.DELETE_PERSON_OUTCOME_NOT_FOUND
+            elif (request.team_id, person_id) in self._lifecycle_marks:
+                outcomes[person_id] = lifecycle_pb2.DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT
+            else:
+                # No publish-queue row: the death document and the outbox carry the ClickHouse tombstones.
+                self._tombstone_person(request.team_id, person, person_pb2.TombstonedPerson())
+                self._cohort_memberships.pop(person.id, None)
+                for key in [key for key in self._cohort_members if key[1] == person.id]:
+                    del self._cohort_members[key]
+                outcomes[person_id] = lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED
+
+        response = lifecycle_pb2.DeletePersonsResponse(op_id=request.op_id)
+        for person_id in request.person_ids:
+            response.results.add(person_id=person_id, outcome=outcomes[person_id])
+        self._lifecycle_ops[request.op_id] = (frozen[0], frozen[1], response)
+        copy = lifecycle_pb2.DeletePersonsResponse()
+        copy.CopyFrom(response)
+        return copy
+
+    @staticmethod
+    def _validate_lifecycle_delete(request: lifecycle_pb2.DeletePersonsRequest) -> None:
+        """Mirror the identity server's request validation (rust/personhog-identity, validation.rs)."""
+        if not 0 < request.team_id <= _MAX_TEAM_ID:
+            reason = "team_id must be a positive 32-bit integer"
+        elif not request.person_ids:
+            reason = "person_ids must not be empty"
+        elif len(request.person_ids) > LIFECYCLE_DELETE_MAX_PERSON_IDS:
+            reason = f"batch size {len(request.person_ids)} exceeds maximum {LIFECYCLE_DELETE_MAX_PERSON_IDS}"
+        elif any(person_id <= 0 for person_id in request.person_ids):
+            reason = "person_ids must be positive integers"
+        else:
+            try:
+                UUID(request.op_id)
+            except ValueError:
+                reason = "op_id must be a valid UUID"
+            else:
+                return
+        raise _FakeRpcError(grpc.StatusCode.INVALID_ARGUMENT, reason)
+
     def ack_person_tombstones(
         self, request: person_pb2.AckPersonTombstonesRequest, timeout: float | None = None
     ) -> person_pb2.AckPersonTombstonesResponse:
@@ -1084,6 +1212,8 @@ class FakePersonHogClient:
         if not all(isinstance(props, dict) for props in parsed_properties):
             raise ValueError("properties must be a JSON object")
         listed = [d for p in request.persons for d in p.distinct_ids]
+        if len(listed) > RESTORE_MAX_DISTINCT_IDS:
+            raise ValueError(f"At most {RESTORE_MAX_DISTINCT_IDS} distinct ids per restore, got {len(listed)}")
         if len({d.distinct_id for d in listed}) != len(listed) or any(
             not d.distinct_id or d.version < 0 for d in listed
         ):

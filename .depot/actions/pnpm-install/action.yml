@@ -1,6 +1,7 @@
 # Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
-# Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
-# "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not
+# Kept equivalent to canonical except for the `inputs.install` guards, the master-gated
+# "Save pnpm store" step below, and the timeout-minutes on both restores, which GitHub Actions
+# rejects in a composite step. actions/cache routes to Depot Cache, so shared keys do not
 # collide.
 name: Install pnpm dependencies
 description: |
@@ -55,11 +56,34 @@ runs:
         - name: Restore pnpm store
           id: restore
           if: inputs.install != 'false'
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
               key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
               restore-keys: pnpm-${{ runner.os }}-
+
+        # pnpm 11 checks the lockfile against the supply-chain policies in pnpm-workspace.yaml
+        # on every install, and the check fetches registry metadata even when the store is warm.
+        # pnpm records a passed check in lockfile-verified.jsonl, keyed by lockfile path, content
+        # and policy, and skips the check when the record matches. No restore-keys: a record for
+        # another lockfile cannot match.
+        - name: Get pnpm cache path
+          id: pnpm-cache
+          if: inputs.install != 'false'
+          shell: bash
+          run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm lockfile verdict
+          id: restore-verdict
+          if: inputs.install != 'false'
+          timeout-minutes: 2
+          continue-on-error: true
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+              key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
         - name: Install dependencies
           if: inputs.install != 'false'
@@ -81,3 +105,11 @@ runs:
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
               key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+        # On a verdict miss the install above ran the check itself, so the record is pnpm's own.
+        - name: Save pnpm lockfile verdict
+          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && steps.restore-verdict.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+              key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
