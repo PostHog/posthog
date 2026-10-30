@@ -69,7 +69,8 @@ Survey craft beyond this belongs to the surveys product's guidance.
 
 **Always link the experiment's flag.**
 The app's quick-create always does, and the experiment's User feedback tab lists only surveys linked to its flag, so a survey without the link doesn't show up there.
-The link also hides the survey from users the experiment never enrolled, which matters on a partial rollout.
+The link also hides the survey from users outside the flag's rollout, which matters on a partial rollout.
+It doesn't check the experiment's exposure criteria. With a custom exposure event, someone in the rollout can answer without ever firing it, so tell the user the survey reaches everyone the flag is on for, not only the people the experiment counts.
 It brings the exposure interaction in Decision 2, one more reason to create the survey as a draft.
 Resolve `feature_flag.id` from `experiment-get`. The API takes the integer ID, not the flag key.
 
