@@ -346,6 +346,12 @@ def feed_window(team_id: int, start: datetime, end: datetime, as_of: datetime, p
     return FeedWindow(start=start, end=end, as_of=as_of, window_days=preset_days, generation=generation)
 
 
+@frozen
+class GroupReach:
+    sessions: int
+    people: int
+
+
 def _group_reach(
     team_id: int,
     window: FeedWindow,
@@ -353,7 +359,7 @@ def _group_reach(
     scanner_ids: Sequence[Any],
     categories: Sequence[str],
     experiment_ids: Collection[int],
-) -> dict[str, tuple[int, int]]:
+) -> dict[str, GroupReach]:
     """Sessions and distinct people in each feed group, counted over the window's rows the viewer may read in the
     chosen categories, so a card's counts match the group list it opens."""
     root_ids = list(roots)
@@ -371,7 +377,7 @@ def _group_reach(
         .values(root=Coalesce("feed_group_id", "observation_id"))
         .annotate(sessions=Count("observation_id"), people=Count("person_key", distinct=True))
     )
-    return {str(row["root"]): (row["sessions"], row["people"]) for row in members}
+    return {str(row["root"]): GroupReach(sessions=row["sessions"], people=row["people"]) for row in members}
 
 
 def select_embedding_picks(
@@ -435,12 +441,12 @@ def select_embedding_picks(
     reach = _group_reach(team_id, window, roots, scanner_ids, categories, experiment_ids)
     for row in rows:
         entry = window_values[row["id"]]
-        sessions, people = reach.get(str(entry["group_root"]), (1, 1))
+        group = reach.get(str(entry["group_root"]), GroupReach(sessions=1, people=1))
         row["watch_category"] = CATEGORY_NAMES[entry["category"]]
         row["watch_percentile"] = entry["percentile"]
         row["watch_group_root"] = str(entry["group_root"])
-        row["watch_group_size"] = sessions
-        row["watch_group_people"] = people
+        row["watch_group_size"] = group.sessions
+        row["watch_group_people"] = group.people
     return rows
 
 
