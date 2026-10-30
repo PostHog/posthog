@@ -8,10 +8,15 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
+import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    warehouseTablesList: jest.fn(),
+}))
 jest.mock('~/queries/query')
 
 describe('sourceManagementLogic', () => {
@@ -32,6 +37,13 @@ describe('sourceManagementLogic', () => {
         jest.spyOn(api.dataWarehouseViewLinks, 'list').mockResolvedValue({
             results: [],
         } as any)
+
+        ;(warehouseTablesList as jest.Mock).mockResolvedValue({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+        })
 
         ;(performQuery as jest.Mock).mockResolvedValue({
             tables: {},
@@ -174,7 +186,9 @@ describe('sourceManagementLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
 
         logic.actions.deleteSource(source)
-        await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+        await expectLogic(logic)
+            .toDispatchActions(['sourceLoadingFinished'])
+            .toNotHaveDispatchedActions(['sourceDeleted'])
 
         expect(logic.values.sourceReloadingById['source-1']).toBe(false)
         // A transient list failure resolves to an empty page, so reloading after a failed delete
@@ -200,5 +214,41 @@ describe('sourceManagementLogic', () => {
 
         resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
         await shallowLoad
+    })
+
+    it.each([
+        ['no linked tables', [], ['orders', 'users', 'events']],
+        ['one linked table', ['t-orders'], ['users', 'events']],
+        ['every self-managed table linked', ['t-orders', 't-users'], ['events']],
+        ['id of an unknown table', ['t-missing'], ['orders', 'users', 'events']],
+    ])('hides tables a managed source will import from the self-managed list: %s', async (_, linkedIds, expected) => {
+        ;(warehouseTablesList as jest.Mock).mockResolvedValue({
+            results: linkedIds.map((id) => ({ id, pending_source_id: 's2' })),
+        })
+        databaseLogic.mount()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPendingSelfManagedTableIdsSuccess'])
+        databaseTableListLogic.actions.loadDatabaseSuccess({
+            tables: {
+                orders: { type: 'data_warehouse', id: 't-orders', name: 'orders', fields: {} },
+                users: { type: 'data_warehouse', id: 't-users', name: 'users', fields: {} },
+                // Linked tables are only hidden when they have no source of their own.
+                events: { type: 'data_warehouse', id: 't-events', name: 'events', fields: {} },
+                stripe_charges: {
+                    type: 'data_warehouse',
+                    id: 't-charges',
+                    name: 'stripe_charges',
+                    fields: {},
+                    source: { id: 's1', status: 'Running', source_type: 'Stripe', prefix: '' },
+                },
+            },
+            joins: [],
+        } as unknown as DatabaseSchemaQueryResponse)
+
+        expect(warehouseTablesList).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ pending_source: true })
+        )
+        expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
     })
 })

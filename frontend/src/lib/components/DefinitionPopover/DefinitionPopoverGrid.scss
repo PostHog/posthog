@@ -1,0 +1,21 @@
+.definition-popover-grid {
+    display: grid;
+    grid-gap: 0.5rem;
+
+    .definition-popover-grid-card {
+        display: flex;
+        flex-direction: column;
+
+        .definition-popover-grid-card-title {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .definition-popover-grid-card-content {
+            margin-top: 0.25rem;
+        }
+    }
+}

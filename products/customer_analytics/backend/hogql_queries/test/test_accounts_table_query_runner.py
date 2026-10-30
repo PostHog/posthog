@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -75,6 +76,92 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 class TestAccountsTableQueryRunner(BaseTest):
     def _run(self, query: AccountsTableQuery) -> AccountsTableQueryResponse:
         return AccountsTableQueryRunner(query=query, team=self.team, user=self.user).calculate()
+
+    def test_resolves_default_columns_and_metadata_without_accounts(self) -> None:
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        AccountRelationshipDefinition.objects.for_team(other_team.id).create(team_id=other_team.id, name="Private role")
+
+        response = self._run(AccountsTableQuery(columns=[], useDefaultColumns=True))
+
+        assert response.results == []
+        assert response.columns == [
+            AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME),
+            AccountsTableTagsColumn(),
+            AccountsTableNoteCountColumn(),
+            AccountsTableRelationshipColumn(definitionId=str(definition.id)),
+        ]
+        assert response.relationshipDefinitions is not None
+        assert [(item.id, item.name) for item in response.relationshipDefinitions] == [(str(definition.id), "CSM")]
+
+    def test_returns_filter_definition_metadata_without_selecting_its_values(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", display_type=DisplayType.SELECT
+        )
+        definition.options = [{"id": "option-1", "label": "Standard", "color": "preset-1"}]
+        definition.save(update_fields=["options"])
+        account = create_account(team_id=self.team.id, name="Unset")
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)],
+                filters=[
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id), operator=AccountsTableCustomPropertyOperator.IS_NOT_SET
+                    )
+                ],
+            )
+        )
+
+        assert response.results[0].id == str(account.id)
+        assert response.results[0].customProperties == {}
+        assert response.customPropertyDefinitions is not None
+        metadata = response.customPropertyDefinitions[0]
+        assert metadata.id == str(definition.id)
+        assert metadata.name == "Tier"
+        assert metadata.display_type == "select"
+        assert metadata.options is not None
+        assert metadata.options[0].label == "Standard"
+        assert not metadata.is_canonical
+        assert metadata.source is None
+
+    def test_saved_view_omits_deleted_columns_and_sort_without_blocking_rows(self) -> None:
+        account = create_account(team_id=self.team.id, name="Remaining account")
+        deleted = create_custom_property_definition(
+            team_id=self.team.id, name="Removed score", display_type=DisplayType.NUMBER
+        )
+        deleted_id = str(deleted.id)
+        deleted.delete()
+        deleted_relationship = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Removed role"
+        )
+        relationship_id = str(deleted_relationship.id)
+        deleted_relationship.delete()
+        name_column = AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)
+        deleted_column = AccountsTableCustomPropertyColumn(definitionId=deleted_id)
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[
+                    name_column,
+                    deleted_column,
+                    AccountsTableCustomPropertyHistoryColumn(definitionId=deleted_id, windowDays=7),
+                    AccountsTableRelationshipColumn(definitionId=relationship_id),
+                ],
+                sort=AccountsTableSort(column=deleted_column, direction=AccountsTableSortDirection.ASC),
+                ignoreMissingDefinitions=True,
+            )
+        )
+
+        assert response.columns == [name_column]
+        assert [row.id for row in response.results] == [str(account.id)]
+        assert response.results[0].customProperties == {}
+        assert response.results[0].customPropertyHistory == {}
+        assert response.results[0].relationships == {}
+        assert response.customPropertyDefinitions == []
+        assert response.relationshipDefinitions == []
 
     def test_returns_requested_postgres_cells_with_typed_defaults(self) -> None:
         empty_account = create_account(team_id=self.team.id, name="Empty")
@@ -322,6 +409,81 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert remaining_response.results == []
         assert remaining_response.metricsResults == [12.5, 1]
 
+        definition.display_type = DisplayType.TEXT
+        definition.save(update_fields=["display_type"])
+        restored = self._run(
+            AccountsTableQuery(
+                columns=[],
+                ignoreMissingDefinitions=True,
+                metrics=[
+                    AccountsTableCountMetric(),
+                    AccountsTableAggregateMetric(aggregation=AccountsTableAggregation.SUM, column=column),
+                ],
+            )
+        )
+        assert restored.metricsResults == [3, None]
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    metrics=[AccountsTableAggregateMetric(aggregation=AccountsTableAggregation.SUM, column=column)],
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("comparison_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.GT, [10]),
+            ("equality_on_number", DisplayType.NUMBER, AccountsTableCustomPropertyOperator.EXACT, ["gold"]),
+            ("contains_on_number", DisplayType.NUMBER, AccountsTableCustomPropertyOperator.ICONTAINS, ["large"]),
+            ("date_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.IS_DATE_AFTER, ["2026-01-01"]),
+        ]
+    )
+    def test_recovers_saved_filters_with_incompatible_property_types(
+        self,
+        _name: str,
+        display_type: DisplayType,
+        operator: AccountsTableCustomPropertyOperator,
+        values: list[int] | list[str],
+    ) -> None:
+        definition = create_custom_property_definition(team_id=self.team.id, name="Changed", display_type=display_type)
+        account = create_account(team_id=self.team.id, name="Visible")
+        other = create_account(team_id=self.team.id, name="Other")
+        query = AccountsTableQuery(
+            columns=[AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)],
+            filterGroups=[
+                [
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id), operator=operator, values=values
+                    ),
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.NAME,
+                        operator=AccountsTableAccountFieldOperator.EXACT,
+                        values=["Visible"],
+                    ),
+                ]
+            ],
+        )
+        with self.assertRaises(ValidationError):
+            self._run(query)
+
+        query.ignoreMissingDefinitions = True
+        assert query.filterGroups is not None
+        invalid_filter, valid_filter = query.filterGroups[0]
+        for split_groups in (False, True):
+            query.filterGroups = (
+                [[invalid_filter], [valid_filter]] if split_groups else [[invalid_filter, valid_filter]]
+            )
+            rows = self._run(query)
+            metrics = self._run(query.model_copy(update={"columns": [], "metrics": [AccountsTableCountMetric()]}))
+            assert [row.id for row in rows.results] == [str(account.id)]
+            assert metrics.metricsResults == [1]
+
+        query.filterGroups = [[invalid_filter]]
+        rows = self._run(query)
+        metrics = self._run(query.model_copy(update={"columns": [], "metrics": [AccountsTableCountMetric()]}))
+        assert {row.id for row in rows.results} == {str(account.id), str(other.id)}
+        assert metrics.metricsResults == [2]
+
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
             team_id=self.team.id,
@@ -337,8 +499,27 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(7):
-            page = api.query_accounts_table(
+        cache.delete(f"customer_analytics:account_table_workflow_references:{self.team.id}")
+        with patch(
+            "products.customer_analytics.backend.facade.api._custom_property_references_by_definition_id",
+            wraps=api._custom_property_references_by_definition_id,
+        ) as references:
+            with self.assertNumQueries(9):
+                page = api.query_accounts_table(
+                    team_id=self.team.id,
+                    user_access_control=UserAccessControl(user=self.user, team=self.team),
+                    selection=contracts.AccountTableColumnSelection(
+                        custom_property_definition_ids=frozenset({definition.id})
+                    ),
+                    filters=(),
+                    sort=None,
+                    offset=0,
+                    limit=100,
+                )
+
+            assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+
+            api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
                 selection=contracts.AccountTableColumnSelection(
@@ -346,11 +527,10 @@ class TestAccountsTableQueryRunner(BaseTest):
                 ),
                 filters=(),
                 sort=None,
-                offset=0,
-                limit=100,
+                offset=1,
+                limit=1,
             )
-
-        assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+            assert references.call_count == 1
 
     def test_resolves_the_logo_domain_from_account_properties(self) -> None:
         from_website_domain = create_account(
@@ -1317,8 +1497,10 @@ class TestAccountsTableQueryAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+    @patch("posthog.api.query.report_user_or_team_action")
+    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self, mock_report_action) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
         endpoint = f"/api/projects/{self.team.id}/accounts_table_query/"
         accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
         payload = {"query": accounts_query, "refresh": "force_blocking"}
@@ -1335,10 +1517,13 @@ class TestAccountsTableQueryAPI(APIBaseTest):
             endpoint,
             payload,
             format="json",
-            headers={"authorization": f"Bearer {self._token(['account:read'])}"},
+            headers={"authorization": f"Bearer {self._token(['account:read'])}", "x-request-id": request_id},
         )
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
         assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+        assert allowed["X-Request-ID"] == request_id
+        assert f'request_id;desc="{request_id}"' in allowed["Server-Timing"]
+        assert mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"] == request_id
 
     def test_accounts_table_query_endpoint_rejects_other_query_kinds(self) -> None:
         response = self.client.post(

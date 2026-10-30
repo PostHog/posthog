@@ -7,8 +7,10 @@ from posthog.api.test.test_team import create_team
 from products.warehouse_sources.backend.ad_hoc_sync import (
     SyncStillRunningError,
     WorkflowStartError,
+    resume_schedule_after_ad_hoc_run,
     trigger_ad_hoc_sync,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
@@ -62,7 +64,60 @@ def test_failed_start_rolls_back_the_pause_it_took(schema):
     assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
 
 
-def test_a_schedule_already_paused_is_left_paused(schema):
+@pytest.mark.parametrize(
+    "marker,unpause_error,expect_resume",
+    [
+        ("wf-ad-hoc", None, True),
+        (True, None, True),
+        (None, None, False),
+        ("wf-other-run", None, False),
+        # The marker is the only record of the pause, so it stays until the unpause succeeds.
+        ("wf-ad-hoc", RuntimeError("temporal down"), True),
+    ],
+    ids=["own_run", "legacy_marker", "no_marker", "other_run", "unpause_fails"],
+)
+def test_resume_schedule_after_ad_hoc_run(schema, marker, unpause_error, expect_resume):
+    schema.sync_type_config = {
+        "reset_pipeline": True,
+        **({"admin_unpause_schedule_after_run": marker} if marker else {}),
+    }
+    schema.save()
+    job = ExternalDataJob.objects.create(
+        team_id=schema.team_id, pipeline=schema.source, schema=schema, status="Completed", workflow_id="wf-ad-hoc"
+    )
+
+    with patch(f"{MODULE}.a_unpause_external_data_schedule", side_effect=unpause_error) as mock_unpause:
+        if unpause_error:
+            with pytest.raises(RuntimeError):
+                resume_schedule_after_ad_hoc_run(schema.id, schema.team_id, job.id)
+        else:
+            assert resume_schedule_after_ad_hoc_run(schema.id, schema.team_id, job.id) is expect_resume
+
+    if expect_resume:
+        mock_unpause.assert_called_once_with(str(schema.id))
+    else:
+        mock_unpause.assert_not_called()
+    schema.refresh_from_db()
+    marker_kept = bool(marker) and (not expect_resume or unpause_error is not None)
+    assert ("admin_unpause_schedule_after_run" in schema.sync_type_config) is marker_kept
+    assert schema.sync_type_config["reset_pipeline"] is True
+
+
+@pytest.mark.parametrize(
+    "previous_marker",
+    [
+        # Auto-unpausing would undo an operator's own manual pause.
+        None,
+        # A failed ad-hoc run left the pause, and only the retry can still complete to resume it.
+        "wf-failed-ad-hoc",
+    ],
+    ids=["paused_by_hand", "paused_by_earlier_ad_hoc_run"],
+)
+def test_a_schedule_already_paused_is_left_paused(schema, previous_marker):
+    if previous_marker:
+        schema.sync_type_config = {"admin_unpause_schedule_after_run": previous_marker}
+        schema.save()
+
     with (
         patch(f"{MODULE}.is_schedule_paused", return_value=True),
         patch(f"{MODULE}.pause_external_data_schedule") as mock_pause,
@@ -72,11 +127,11 @@ def test_a_schedule_already_paused_is_left_paused(schema):
             MagicMock(), schema, billable=False, reset_pipeline=False, workflow_id_prefix="test"
         )
 
-    # Auto-unpausing would undo an operator's own manual pause.
     mock_pause.assert_not_called()
     assert trigger.schedule_paused_now is False
     schema.refresh_from_db()
-    assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
+    expected_marker = trigger.workflow_id if previous_marker else None
+    assert schema.sync_type_config.get("admin_unpause_schedule_after_run") == expected_marker
 
 
 def test_failed_start_restores_staged_reset_state(schema, no_sync_to_wait_for):

@@ -28,6 +28,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // Required-field invariants the native codex app-server enforces on each request.
 const REQUIRED_FIELDS: Record<string, string[]> = {
+  "thread/compact/start": ["threadId"],
   "thread/goal/clear": ["threadId"],
   "thread/goal/get": ["threadId"],
   "thread/goal/set": ["threadId"],
@@ -707,6 +708,194 @@ describe("CodexAppServerAgent", () => {
       });
     }
   });
+
+  it.each([
+    {
+      label: "completes",
+      prompt: "/compact keep the test plan",
+      status: "completed",
+      stopReason: "end_turn",
+      boundaries: 1,
+      expectedStatus: undefined,
+    },
+    {
+      label: "fails",
+      prompt: "/compact",
+      status: "failed",
+      stopReason: "refusal",
+      boundaries: 0,
+      expectedStatus: { sessionId: "thr_1", status: "compacting_failed" },
+    },
+    {
+      label: "hits a fatal model error",
+      prompt: "/compact",
+      status: "error",
+      stopReason: "end_turn",
+      boundaries: 0,
+      expectedStatus: {
+        sessionId: "thr_1",
+        status: "compacting_failed",
+        error: "The model could not summarize this conversation.",
+      },
+    },
+    {
+      label: "is cancelled",
+      prompt: "/compact",
+      status: "cancel",
+      stopReason: "cancelled",
+      boundaries: 0,
+      expectedStatus: {
+        sessionId: "thr_1",
+        status: "compacting",
+        isComplete: true,
+      },
+    },
+  ])(
+    "/compact owns the native compaction turn when it $label",
+    async (testCase) => {
+      vi.useFakeTimers();
+      try {
+        const stub = makeStubRpc({
+          "thread/start": { thread: { id: "thr_1" } },
+          "thread/compact/start": {},
+          "turn/interrupt": {},
+        });
+        const { client, extNotifications } = makeFakeClient();
+        const agent = new CodexAppServerAgent(client, {
+          processOptions: { binaryPath: "/bundle/codex" },
+          rpcFactory: stub.factory,
+        });
+
+        await agent.newSession({
+          cwd: "/repo",
+        } as unknown as NewSessionRequest);
+        const done = agent.prompt({
+          sessionId: "thr_1",
+          prompt: [{ type: "text", text: testCase.prompt }],
+        } as unknown as PromptRequest);
+        await vi.advanceTimersByTimeAsync(0);
+        stub.emit("turn/started", {
+          threadId: "thr_1",
+          turn: { id: "turn_c" },
+        });
+        stub.emit("item/started", {
+          threadId: "thr_1",
+          item: { type: "contextCompaction", id: "c1" },
+        });
+        if (testCase.status === "error") {
+          stub.emit("error", {
+            threadId: "thr_1",
+            turnId: "turn_c",
+            willRetry: false,
+            error: {
+              message: JSON.stringify({
+                error: {
+                  message: "The model could not summarize this conversation.",
+                  type: "invalid_request_error",
+                },
+              }),
+            },
+          });
+        } else if (testCase.status === "cancel") {
+          await agent.cancel({ sessionId: "thr_1" });
+          expect(stub.requests).toContainEqual({
+            method: "turn/interrupt",
+            params: { threadId: "thr_1", turnId: "turn_c" },
+          });
+        } else {
+          if (testCase.status === "completed") {
+            stub.emit("item/completed", {
+              threadId: "thr_1",
+              item: { type: "contextCompaction", id: "c1" },
+            });
+          }
+          stub.emit("turn/completed", {
+            threadId: "thr_1",
+            turn: { id: "turn_c", status: testCase.status },
+          });
+          await vi.advanceTimersByTimeAsync(250);
+        }
+
+        await expect(done).resolves.toMatchObject({
+          stopReason: testCase.stopReason,
+          ...(testCase.status === "error"
+            ? { _meta: { compactionFailed: true } }
+            : {}),
+        });
+        expect(stub.requests).toContainEqual({
+          method: "thread/compact/start",
+          params: { threadId: "thr_1" },
+        });
+        expect(
+          stub.requests.some((request) => request.method === "turn/start"),
+        ).toBe(false);
+        expect(
+          extNotifications.filter(
+            (n) => n.method === "_posthog/compact_boundary",
+          ),
+        ).toHaveLength(testCase.boundaries);
+        if (testCase.expectedStatus) {
+          expect(extNotifications).toContainEqual({
+            method: "_posthog/status",
+            params: testCase.expectedStatus,
+          });
+        }
+        expect(
+          extNotifications.some(
+            (n) => n.method === "_posthog/background_turn_started",
+          ),
+        ).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    { label: "steered into a running turn", steer: true },
+    { label: "sent during a background goal turn", steer: false },
+  ])(
+    "declines /compact $label without interrupting the turn",
+    async (testCase) => {
+      const stub = makeStubRpc({
+        "thread/start": { thread: { id: "thr_1" } },
+        "turn/start": { turn: { id: "turn_1", status: "inProgress" } },
+      });
+      const { client, sessionUpdates } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/bundle/codex" },
+        rpcFactory: stub.factory,
+      });
+      await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+      if (testCase.steer) {
+        void agent.prompt({
+          sessionId: "thr_1",
+          prompt: [{ type: "text", text: "long task" }],
+        } as unknown as PromptRequest);
+      }
+      stub.emit("turn/started", { threadId: "thr_1", turn: { id: "turn_1" } });
+
+      const result = await agent.prompt({
+        sessionId: "thr_1",
+        prompt: [{ type: "text", text: "/compact" }],
+        ...(testCase.steer ? { _meta: { steer: true } } : {}),
+      } as unknown as PromptRequest);
+
+      expect(result).toMatchObject(
+        testCase.steer
+          ? { _meta: { steer: false, steerDeclineCause: "turn_not_steerable" } }
+          : { stopReason: "end_turn" },
+      );
+      expect(
+        stub.requests.some(
+          (request) => request.method === "thread/compact/start",
+        ),
+      ).toBe(false);
+      expect(JSON.stringify(sessionUpdates)).toContain(
+        "Run /compact again when this turn ends.",
+      );
+    },
+  );
 
   it("handles a goal command wrapped in hidden cold-resume context", async () => {
     const stub = makeStubRpc({
@@ -3971,6 +4160,7 @@ describe("CodexAppServerAgent", () => {
         description: "Set or view the goal for a long-running task",
         input: { hint: "[<objective>|clear|pause|resume]" },
       },
+      { name: "compact", description: "Compact the conversation context" },
       { name: "deploy", description: "Deploy" },
     ]);
   });
@@ -4252,7 +4442,7 @@ describe("CodexAppServerAgent", () => {
     ).toHaveLength(1);
   });
 
-  it("still emits compact_boundary when the turn dies mid-compaction (no stuck isCompacting)", async () => {
+  it("reports a failed compaction when the turn dies mid-compaction (no stuck isCompacting)", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
@@ -4268,7 +4458,7 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
-    // A fatal error ends the turn before item/completed; failure recovery still fires the boundary.
+    // A fatal error ends the turn before item/completed; failure recovery clears isCompacting.
     stub.emit("item/started", {
       item: { type: "contextCompaction", id: "c1" },
     });
@@ -4277,10 +4467,13 @@ describe("CodexAppServerAgent", () => {
       "The agent stopped before completing this request: boom",
     );
 
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/status",
+      params: { sessionId: "t", status: "compacting_failed", error: "boom" },
+    });
     expect(
-      extNotifications.find((n) => n.method === "_posthog/compact_boundary")
-        ?.params,
-    ).toMatchObject({ sessionId: "t" });
+      extNotifications.some((n) => n.method === "_posthog/compact_boundary"),
+    ).toBe(false);
   });
 
   it("loadSession resumes the thread and returns configOptions", async () => {

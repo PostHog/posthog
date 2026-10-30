@@ -7,7 +7,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { commandKSearchLogic } from './commandKSearchLogic'
 
 export function CommandKSearchFooter(): JSX.Element {
-    const { highlightIsFilterRow, chips, mode, chipSelection, tabAsksAi } = useValues(commandKSearchLogic)
+    const { highlightIsFilterRow, chips, chipSelection, tabAsksAi } = useValues(commandKSearchLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
 
     return (
@@ -49,7 +49,7 @@ export function CommandKSearchFooter(): JSX.Element {
                 </span>
             )}
             <span className="flex items-center gap-1">
-                <Kbd>Esc</Kbd> {mode === 'empty' ? 'close' : 'clear'}
+                <Kbd>Esc</Kbd> close
             </span>
         </div>
     )
