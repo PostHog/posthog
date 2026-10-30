@@ -80,6 +80,9 @@ export interface Transcript {
   wake: { reason: string } | null;
   // The modes a Claude Code or Codex session offers and the one it is in, from its config options; null without any.
   modes: { available: Mode[]; current: string } | null;
+  // Background shells the last turn left running: Claude Code's Bash calls run in the background, until a turn
+  // with no prompt behind it (the shell reporting back) follows them.
+  shells: number;
 }
 
 // A session names its modes in the `mode` option of its opening result, and again whenever one changes.
@@ -145,6 +148,26 @@ function wakeOf(items: ConversationItem[]): Transcript["wake"] {
   return null;
 }
 
+const backgroundInput = z.object({ run_in_background: z.literal(true) });
+
+// Background shells the last prompted turn started, unless a turn without a prompt (the shell's report) came after.
+function shellsOf(items: ConversationItem[]): number {
+  let count = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "user_message") break;
+    if (item.type !== "session_update") continue;
+    if (item.turnContext.isImplicit) return 0;
+    const update = item.update;
+    if (
+      update.sessionUpdate === "tool_call" &&
+      backgroundInput.safeParse(update.rawInput).success
+    )
+      count++;
+  }
+  return count;
+}
+
 // Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
 export function transcriptFrom(
   runtime: AgentRuntime | undefined,
@@ -198,6 +221,7 @@ export function transcriptFrom(
         }
       : null;
   const wake = lastTurn ? wakeOf(built.items) : null;
+  const shells = lastTurn && runtime !== "pi" ? shellsOf(built.items) : 0;
   const modes = runtime === "pi" ? null : modesOf(entries);
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
   if (
@@ -215,9 +239,10 @@ export function transcriptFrom(
       turnStartedAt,
       wake,
       modes,
+      shells,
     };
   }
-  return { lines, turnOpen, lastTurn, turnStartedAt, wake, modes };
+  return { lines, turnOpen, lastTurn, turnStartedAt, wake, modes, shells };
 }
 
 // The conversation builder keeps a message's text and drops its images, so each user line takes them back

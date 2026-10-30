@@ -1040,7 +1040,7 @@ describe("runNotice after a finished turn", () => {
     endedAt: new Date(2026, 0, 1, 17, 6).getTime(),
   };
 
-  it("says how long the agent worked and when it finished", () => {
+  it("says how long the agent worked and when it finished, with a hedgehog verb picked by the turn's end", () => {
     const notice = runNotice(
       { ...emptyRunView, loaded: true, status: "in_progress" },
       lines,
@@ -1048,8 +1048,49 @@ describe("runNotice after a finished turn", () => {
       done,
     );
     expect(notice?.tone).toBe("done");
-    expect(notice?.text).toMatch(/^Worked for 2m 30s · done 5:06/);
+    expect(notice?.text).toMatch(
+      /^[A-Z][a-z]+(?: [a-z]+)? for 2m 30s · done 5:06/,
+    );
+    // The verb is the turn's own, so a redraw never changes it.
+    const again = runNotice(
+      { ...emptyRunView, loaded: true, status: "in_progress" },
+      lines,
+      false,
+      done,
+    );
+    expect(again?.text).toBe(notice?.text);
+    const other = runNotice(
+      { ...emptyRunView, loaded: true, status: "in_progress" },
+      lines,
+      false,
+      { ...done, endedAt: done.endedAt + 1 },
+    );
+    expect(other?.text.split(" for ")[0]).not.toBe(
+      notice?.text.split(" for ")[0],
+    );
   });
+
+  it.each([
+    ["the harness's status", "2 shells · 1 monitor", "2 shells still running"],
+    ["a count", 1, "1 shell still running"],
+  ])(
+    "says the shells still running after the turn, from %s, while the run is live",
+    (_, shells, expected) => {
+      const live: RunView = {
+        ...emptyRunView,
+        loaded: true,
+        status: "in_progress",
+      };
+      expect(
+        runNotice(live, lines, false, done, null, { shells })?.text,
+      ).toMatch(new RegExp(` · done 5:06 [AP]M · ${expected}$`));
+      expect(
+        runNotice({ ...live, status: "completed" }, lines, false, done, null, {
+          shells,
+        })?.text,
+      ).not.toContain("still running");
+    },
+  );
 
   it("says what the agent waits on after it scheduled a wake-up, instead of calling the turn done", () => {
     const notice = runNotice(
@@ -1061,7 +1102,7 @@ describe("runNotice after a finished turn", () => {
       { wake: { reason: "watching CI" } },
     );
     expect(notice).toMatchObject({
-      text: "Worked for 2m 30s · waiting",
+      text: expect.stringMatching(/ for 2m 30s · waiting$/),
       subject: "watching CI",
       tone: "done",
     });

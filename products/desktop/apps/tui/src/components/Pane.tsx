@@ -268,6 +268,7 @@ export function Pane({
             turnStartedAt: null,
             wake: null,
             modes: null,
+            shells: 0,
           },
     [task, local, view.entries],
   );
@@ -300,6 +301,11 @@ export function Pane({
     [view.entries, setupRunId],
   );
   const compacting = useMemo(() => isCompacting(view.entries), [view.entries]);
+  // Shells the agent left running after its turn: pi's harness says so in its status line, a Claude Code log by its calls.
+  const shellsAfter =
+    view.sandboxAlive === false
+      ? undefined
+      : (shellsStatus(view.entries) ?? transcript.shells);
   // A new chat shows its message and start-up state before the run even exists.
   const notice: ChatNotice | null = task?.latest_run
     ? runNotice(
@@ -308,7 +314,14 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
-        { setup, reopening, delivery, compacting, wake: transcript.wake },
+        {
+          setup,
+          reopening,
+          delivery,
+          compacting,
+          wake: transcript.wake,
+          shells: shellsAfter,
+        },
       )
     : local
       ? runNotice(
@@ -317,7 +330,7 @@ export function Pane({
           transcript.turnOpen,
           transcript.lastTurn,
           transcript.turnStartedAt,
-          { compacting, wake: transcript.wake },
+          { compacting, wake: transcript.wake, shells: shellsAfter },
         )
       : pending
         ? ({

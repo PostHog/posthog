@@ -520,6 +520,39 @@ describe("transcriptFrom last turn", () => {
     expect(transcriptFrom("acp", ACP_LOG).wake).toBeNull();
     expect(transcriptFrom("acp", log.slice(0, -1)).wake).toBeNull();
   });
+
+  it("counts the background shells the last turn left running, until a later turn ran for one", () => {
+    const bash = (id: string, second: number, background: boolean) =>
+      update(second, {
+        sessionUpdate: "tool_call",
+        toolCallId: id,
+        title: "Bash",
+        kind: "execute",
+        status: "completed",
+        rawInput: { command: "pnpm test", run_in_background: background },
+        rawOutput: { output: "started" },
+      });
+    // Inside the turn's window: it ends at second 6.
+    const log = [
+      ...ACP_LOG.slice(0, -1),
+      bash("b1", 5, true),
+      bash("b2", 5, false),
+      bash("b3", 5, true),
+      ...ACP_LOG.slice(-1),
+    ];
+    expect(transcriptFrom("acp", log).shells).toBe(2);
+    expect(transcriptFrom("acp", ACP_LOG).shells).toBe(0);
+    // A turn with no prompt behind it is the shell reporting back, so the shells it followed are done.
+    const reported = [
+      ...log,
+      update(8, {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Tests passed." },
+      }),
+      acp(9, { id: 2, result: { stopReason: "end_turn" } }),
+    ];
+    expect(transcriptFrom("acp", reported).shells).toBe(0);
+  });
 });
 
 describe("withPending", () => {
