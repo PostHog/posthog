@@ -63,7 +63,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
-from posthog.temporal.ai_observability.judge_images import build_image_prompt
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
@@ -708,7 +708,7 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
-        image_prompt=build_image_prompt(
+        attachment_prompt=build_attachment_prompt(
             evaluation, user_prompt, lambda media_marker: format_trace_for_judge(trace, media_marker)
         ),
     )

@@ -20,6 +20,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
@@ -36,7 +37,6 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
-from products.ai_observability.backend.llm.images import ImagePart, convert_image_parts
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -311,7 +311,7 @@ You must respond with valid JSON that matches this schema:
 Return ONLY the JSON object, no other text or markdown formatting."""
 
         enhanced_messages = [{"role": "system", "content": enhanced_system}]
-        enhanced_messages.extend(convert_image_parts(request.messages, _openai_image_block))
+        enhanced_messages.extend(convert_attachment_parts(request.messages, _openai_attachment_block))
 
         create_response = client.chat.completions.create(
             model=request.model,
@@ -520,7 +520,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages.extend(convert_image_parts(request.messages, _openai_image_block))
+        messages.extend(convert_attachment_parts(request.messages, _openai_attachment_block))
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
@@ -573,5 +573,10 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         return result
 
 
-def _openai_image_block(part: ImagePart) -> dict[str, Any]:
+def _openai_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    if part.audio_format is not None:
+        return {"type": "input_audio", "input_audio": {"data": part.base64(), "format": part.audio_format}}
+    if part.is_pdf:
+        # The chat API takes a PDF only as inline data, and requires a file name with it.
+        return {"type": "file", "file": {"filename": "attachment.pdf", "file_data": part.data_uri()}}
     return {"type": "image_url", "image_url": {"url": part.url or part.data_uri()}}
