@@ -56,7 +56,7 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT, FINAL_MESSAGE_MAX_CHARS
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -547,14 +547,22 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
             response = client.patch(
                 base,
-                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                {
+                    "status": "failed",
+                    "error_message": "Synthetic failure",
+                    "error_type": "agent_declined",
+                    "output": {"final_message": "Synthetic report"},
+                    "state": {"agent_version": "test-agent"},
+                },
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", "agent_declined")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.output is not None
+        assert run.output["final_message"] == "Synthetic report"
         assert run.completed_at is not None
         assert run.state is not None
         assert run.state["agent_version"] == "test-agent"
@@ -571,6 +579,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("remove", {"state_remove_keys": ["model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
+            ("report_with_other_output", {"status": "completed", "output": {"final_message": "x", "url": "x"}}),
+            ("report_without_terminal_status", {"output": {"final_message": "x"}}),
+            (
+                "report_too_long",
+                {"status": "completed", "output": {"final_message": "x" * (FINAL_MESSAGE_MAX_CHARS + 1)}},
+            ),
+            ("error_type_without_failure", {"status": "completed", "error_type": "agent_declined"}),
             ("status_type", {"status": {"value": "failed"}}),
         ]
     )
