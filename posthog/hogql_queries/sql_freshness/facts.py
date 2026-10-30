@@ -75,8 +75,7 @@ class QueryFacts:
     start_of_today: datetime
     start_of_utc_today: datetime
     windows: tuple[Window, ...]
-    relative_date_range: bool
-    rolling_filters: bool
+    relative_inputs: bool
     unsupported_field: bool = False
     join: bool = False
     foreign_source: bool = False
@@ -428,8 +427,7 @@ def extract_facts(
     now: datetime,
     timezone: tzinfo,
     week_start_day: Optional[int],
-    relative_date_range: bool,
-    rolling_filters: bool,
+    relative_inputs: bool,
 ) -> QueryFacts:
     now = now.astimezone(timezone)
     scan = _QueryScan()
@@ -463,8 +461,7 @@ def extract_facts(
         start_of_today=_start_of_day(now, timezone),
         start_of_utc_today=evaluator.start_of_utc_today,
         windows=tuple(windows),
-        relative_date_range=relative_date_range,
-        rolling_filters=rolling_filters,
+        relative_inputs=relative_inputs,
         unsupported_field=scan.unsupported_field,
         join=has_join,
         foreign_source=foreign_source,

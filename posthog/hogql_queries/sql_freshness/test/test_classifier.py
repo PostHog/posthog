@@ -128,7 +128,7 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         SqlWindowClass.UP_TO_NOW_LONG,
         {
             "now": datetime(2026, 10, 29, 23, 30, tzinfo=UTC),
-            "relative_date_range": True,
+            "relative_inputs": True,
             "fresh_until": NEXT_MIDNIGHT,
         },
     ),
@@ -151,16 +151,10 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         {"now": datetime(2026, 10, 29, 0, 30, tzinfo=UTC)},
     ),
     (
-        "relative_filters_expire_at_midnight",
+        "relative_inputs_expire_within_the_hour",
         PAST_DAY,
         SqlWindowClass.FIXED_PAST,
-        {"relative_date_range": True, "fresh_until": NEXT_MIDNIGHT},
-    ),
-    (
-        "rolling_filter_values_expire_within_the_hour",
-        PAST_DAY,
-        SqlWindowClass.FIXED_PAST,
-        {"rolling_filters": True, "fresh_until": NOW + timedelta(hours=1)},
+        {"relative_inputs": True, "fresh_until": NOW + timedelta(hours=1)},
     ),
     (
         "today_bound_ends_at_the_project_midnight",
@@ -183,10 +177,7 @@ GRANT_CASES: list[tuple[Any, ...]] = [
 ]
 CLOCK_CALL = re.compile(r"\b(now|today|yesterday)\(")
 CLOCK_RELATIVE_CASES = [
-    case
-    for case in GRANT_CASES
-    if CLOCK_CALL.search(case[1])
-    or (len(case) > 3 and (case[3].get("relative_date_range") or case[3].get("rolling_filters")))
+    case for case in GRANT_CASES if CLOCK_CALL.search(case[1]) or (len(case) > 3 and case[3].get("relative_inputs"))
 ]
 
 
@@ -202,8 +193,7 @@ class TestClassify(BaseTest):
         self,
         sql: str,
         now: datetime = NOW,
-        relative_date_range: bool = False,
-        rolling_filters: bool = False,
+        relative_inputs: bool = False,
         timezone: Any = None,
     ):
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
@@ -212,8 +202,7 @@ class TestClassify(BaseTest):
             now=now,
             timezone=timezone or self.team.timezone_info,
             week_start_day=self.team.week_start_day,
-            relative_date_range=relative_date_range,
-            rolling_filters=rolling_filters,
+            relative_inputs=relative_inputs,
         )
 
     @parameterized.expand(GRANT_CASES)
@@ -225,8 +214,7 @@ class TestClassify(BaseTest):
         freshness = self._classify(
             sql,
             now=now,
-            relative_date_range=options.get("relative_date_range", False),
-            rolling_filters=options.get("rolling_filters", False),
+            relative_inputs=options.get("relative_inputs", False),
             timezone=options.get("timezone"),
         )
         assert isinstance(freshness, SqlFreshness)
@@ -241,8 +229,7 @@ class TestClassify(BaseTest):
         freshness = self._classify(
             sql,
             now=NEXT_MIDNIGHT - timedelta(minutes=5),
-            relative_date_range=options.get("relative_date_range", False),
-            rolling_filters=options.get("rolling_filters", False),
+            relative_inputs=options.get("relative_inputs", False),
             timezone=options.get("timezone"),
         )
         assert isinstance(freshness, SqlFreshness)

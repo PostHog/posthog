@@ -2,9 +2,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
-from zoneinfo import ZoneInfo
-
-from dateutil.parser import isoparse
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
@@ -25,7 +22,7 @@ from posthog.hogql.database.schema.activity_log_visibility import activity_log_v
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import SUB_DAY_DELTA_KEYS, replace_filters
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -51,7 +48,7 @@ from posthog.hogql_queries.sql_freshness.classifier import (
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
-from posthog.utils import relative_date_parse_with_delta_mapping
+from posthog.utils import record_relative_date_reads
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -62,19 +59,6 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
-
-
-def _is_absolute_date(value: str) -> bool:
-    try:
-        isoparse(value)
-    except ValueError:
-        return False
-    return True
-
-
-def _is_sub_day_relative_date(value: str, timezone: ZoneInfo) -> bool:
-    _parsed, delta_mapping, _position = relative_date_parse_with_delta_mapping(value, timezone)
-    return bool(delta_mapping and SUB_DAY_DELTA_KEYS & delta_mapping.keys())
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -145,29 +129,22 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
         return {}
 
-    def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
+    def _classify_sql_freshness(
+        self, query: ast.SelectQuery | ast.SelectSetQuery, relative_date_reads: list[str]
+    ) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
-        filters = self.query.filters
-        date_range = filters.dateRange if filters else None
-        bounds = [bound for bound in (date_range.date_from, date_range.date_to) if bound] if date_range else []
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
         except Exception:
             return Reject(reason=FreshnessReason.UNPARSEABLE)
-        relative_bounds = [bound for bound in bounds if not _is_absolute_date(bound)]
         return classify(
             resolved,
             now=datetime.now(UTC),
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
             week_start_day=self.team.week_start_day,
-            relative_date_range=bool(relative_bounds),
-            rolling_filters=bool(
-                self.query.variables
-                or (filters and (filters.properties or filters.filterTestAccounts))
-                or any(_is_sub_day_relative_date(bound, self.team.timezone_info) for bound in relative_bounds)
-            ),
+            relative_inputs=bool(relative_date_reads),
         )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
@@ -350,6 +327,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         )
 
+    def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        with record_relative_date_reads() as relative_date_reads:
+            query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        if self._api_sql_freshness_enabled and self._direct_engine is None:
+            self._sql_classification = self._classify_sql_freshness(query, relative_date_reads)
+        return query
+
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
         self._sql_classification = None
@@ -394,9 +378,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 expected_direct_engine=self._direct_engine,
             )
 
-        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
-        if self._api_sql_freshness_enabled and self._direct_engine is None:
-            self._sql_classification = self._classify_sql_freshness(query)
+        query = self._build_query()
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)

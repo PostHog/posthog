@@ -107,14 +107,14 @@ def window_age(facts: QueryFacts) -> Verdict:
 
 
 def clock_days_end_at_midnight(facts: QueryFacts) -> Verdict:
-    if not (facts.reads_clock or facts.relative_date_range or facts.rolling_filters):
+    if not (facts.reads_clock or facts.relative_inputs):
         return None
     next_midnight = min(facts.start_of_today + timedelta(days=1), facts.start_of_utc_today + timedelta(days=1))
     return Cap(until=next_midnight, reason=FreshnessReason.CLOCK_DAY)
 
 
 def now_anchored_past_moves(facts: QueryFacts) -> Verdict:
-    if not (facts.reads_now or facts.rolling_filters) or not _reads_fixed_past(facts):
+    if not (facts.reads_now or facts.relative_inputs) or not _reads_fixed_past(facts):
         return None
     return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG], reason=FreshnessReason.NOW_ANCHORED)
 
