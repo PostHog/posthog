@@ -1947,13 +1947,15 @@ export interface AccessControlFilterWarningApi {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
