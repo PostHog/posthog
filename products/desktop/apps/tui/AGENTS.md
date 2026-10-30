@@ -32,7 +32,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | Module | Owns |
 | --- | --- |
 | `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown |
-| `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to `~/.config/posthog-tui/layout.json` |
+| `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |

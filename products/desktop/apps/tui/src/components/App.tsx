@@ -22,6 +22,7 @@ import {
   activeWorkspace,
   allPanes,
   type LayoutState,
+  layoutPath,
   loadLayout,
   type PaneNode,
   saveLayout,
@@ -38,6 +39,7 @@ import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 
 export interface Session {
+  account?: string;
   work: WorkList;
   runs: CloudRuns;
   chats: PiChats;
@@ -66,7 +68,11 @@ export function App({
   } = session ?? {};
   const notice = useNotice();
   const { flashNotice } = notice;
-  const [layout, setLayout] = useState<LayoutState>(loadLayout);
+  const layoutFile = layoutPath(session?.account);
+  const [layout, setLayout] = useState<LayoutState>(() =>
+    loadLayout(layoutFile),
+  );
+  const layoutFrom = useRef(layoutFile);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
   const {
@@ -116,7 +122,13 @@ export function App({
       latestSubmit.current(paneId, text, images),
   });
 
-  useEffect(() => saveLayout(layout), [layout]);
+  // A sign-in or sign-out swaps in that account's layout before anything is saved to its file.
+  useEffect(() => {
+    if (layoutFrom.current !== layoutFile) {
+      layoutFrom.current = layoutFile;
+      setLayout(loadLayout(layoutFile));
+    } else saveLayout(layout, layoutFile);
+  }, [layout, layoutFile]);
 
   const {
     page,

@@ -27,6 +27,10 @@ export interface LayoutState {
 
 const LAYOUT_PATH = join(homedir(), ".config", "posthog-tui", "layout.json");
 
+// Each account has its own file, so a sign-out and a later sign-in bring its workspaces back. Signed out, or signed in before the session recorded an account, the layout uses the shared file.
+export const layoutPath = (account?: string): string =>
+  account ? join(dirname(LAYOUT_PATH), `layout.${account}.json`) : LAYOUT_PATH;
+
 const newId = (): string => globalThis.crypto.randomUUID();
 
 function newWorkspace(taskId: string | null, title?: string): Workspace {

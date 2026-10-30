@@ -397,15 +397,41 @@ export class ChatView {
   }
 
   // The selected text as drawn, one line per row.
+  // The selected text as it reads: a paragraph wrapped over rows comes back as one line, without the pane's padding.
   selectedText(): string {
     const range = this.range();
     if (!range) return "";
-    const rows: string[] = [];
+    const rows: { row: number; text: string; fromEdge: boolean }[] = [];
     for (let row = range.start.row; row <= range.end.row; row++) {
       const [start, end] = this.columnsOn(row, range);
-      rows.push(textBetween(this.content[row] ?? "", start, end));
+      const text = textBetween(this.content[row] ?? "", start, end);
+      rows.push({ row, text, fromEdge: start === 0 });
     }
-    return rows.join("\n");
+    // Rows copied from their left edge share the pane's padding and any block indent, which the copy drops.
+    const indents = rows
+      .filter(({ text, fromEdge }) => fromEdge && text.trim())
+      .map(({ text }) => text.length - text.trimStart().length);
+    const indent = indents.length > 0 ? Math.min(...indents) : 0;
+    const lines: string[] = [];
+    rows.forEach(({ row, text, fromEdge }, index) => {
+      const line = fromEdge ? text.slice(indent) : text;
+      const above = lines.at(-1);
+      if (index > 0 && above?.trim() && line.trim() && this.wrapsInto(row))
+        lines[lines.length - 1] = `${above} ${line.trimStart()}`;
+      else lines.push(line);
+    });
+    return lines.join("\n");
+  }
+
+  // pi wraps a word that does not fit onto the next row, so a row continues the one above when that word would overflow it.
+  private wrapsInto(row: number): boolean {
+    const above = stripTerminalSequences(this.content[row - 1] ?? "").trimEnd();
+    const [word = ""] = stripTerminalSequences(this.content[row] ?? "")
+      .trimStart()
+      .split(" ");
+    if (!above.trim() || !word) return false;
+    // The last cell is the row's right padding.
+    return visibleWidth(above) + 1 + visibleWidth(word) > this.size.width - 1;
   }
 
   private cellAt({ row, column }: Click): Cell {

@@ -59,8 +59,15 @@ export class TuiAuth {
       },
       region,
     );
-    save(credentials, path);
-    return new TuiAuth(credentials, path);
+    const user = await fetch(
+      `${getCloudUrlFromRegion(region)}/api/users/@me/`,
+      { headers: { Authorization: `Bearer ${credentials.access}` }, signal },
+    );
+    const account = user.ok
+      ? ((await user.json()) as { uuid?: string }).uuid
+      : undefined;
+    save({ ...credentials, account }, path);
+    return new TuiAuth({ ...credentials, account }, path);
   }
 
   static logout(path: string = AUTH_PATH): void {
@@ -69,6 +76,11 @@ export class TuiAuth {
 
   get region(): CloudRegion {
     return this.credentials.region as CloudRegion;
+  }
+
+  // The signed-in user's id. A session saved before sign-in recorded it has none.
+  get account(): string | undefined {
+    return this.credentials.account as string | undefined;
   }
 
   get apiHost(): string {
@@ -97,7 +109,8 @@ export class TuiAuth {
       this.credentials.region as CloudRegion,
       this.credentials,
     )
-      .then((credentials) => {
+      .then((refreshed) => {
+        const credentials = { ...refreshed, account: this.account };
         this.credentials = credentials;
         save(credentials, this.path);
         return credentials.access;

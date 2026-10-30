@@ -24,7 +24,11 @@ export function Root({
       () => auth.getAccessToken(),
       () => auth.refreshAccessToken(),
     );
-    return { work: new WorkList(api), ...createCloud(auth, api) };
+    return {
+      account: auth.account,
+      work: new WorkList(api),
+      ...createCloud(auth, api),
+    };
   }, [auth]);
 
   const login = async (
