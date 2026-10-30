@@ -421,7 +421,7 @@ class OfflineEvaluationReadService:
             evaluator_trace_id=result.evaluator_trace_id,
             evaluated_at=result.evaluated_at,
             accepted_at=result.accepted_at,
-            payload_state=result.effective_payload_state,
+            payload_state=result.payload_state,
             payload_expires_at=result.payload_expires_at,
         )
 
@@ -441,7 +441,7 @@ class OfflineEvaluationReadService:
             dataset_item_version_id=item.dataset_item_version_id,
             application_trace_id=item.application_trace_id,
             accepted_at=item.accepted_at,
-            payload_state=item.effective_payload_state,
+            payload_state=item.payload_state,
             payload_expires_at=item.payload_expires_at,
             results=results or [],
         )
@@ -539,7 +539,7 @@ class OfflineEvaluationReadService:
 
     def get_item_payload(self, experiment_id: UUID, item_id: UUID) -> OfflinePayloadRead:
         item = self._require_item(experiment_id, item_id)
-        payload_state = item.effective_payload_state
+        payload_state = item.payload_state
         payload = (
             OfflineExperimentItemPayload.objects.for_team(self.team_id).filter(item_id=item.id).first()
             if payload_state == PayloadState.AVAILABLE
@@ -557,7 +557,7 @@ class OfflineEvaluationReadService:
         result = self._results().filter(id=result_id, item__experiment_id=experiment_id).first()
         if result is None:
             raise OfflineEvaluationNotFound
-        payload_state = result.effective_payload_state
+        payload_state = result.payload_state
         payload = (
             OfflineEvaluationResultPayload.objects.for_team(self.team_id).filter(result_id=result.id).first()
             if payload_state == PayloadState.AVAILABLE

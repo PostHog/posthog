@@ -117,16 +117,6 @@ class OfflinePayloadOwner(models.Model):
             ),
         ]
 
-    @property
-    def effective_payload_state(self) -> str:
-        if (
-            self.payload_state == PayloadState.AVAILABLE
-            and self.payload_expires_at is not None
-            and self.payload_expires_at <= timezone.now()
-        ):
-            return PayloadState.EXPIRED
-        return self.payload_state
-
 
 class OfflineExperimentItem(OfflinePayloadOwner):
     id = models.UUIDField(primary_key=True)

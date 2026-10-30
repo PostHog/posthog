@@ -3,8 +3,6 @@ from datetime import datetime, timedelta
 from sys import float_info
 from uuid import uuid4
 
-import time_machine
-
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -573,41 +571,32 @@ class TestOfflineEvaluationReads(TestCase):
         item.save(update_fields=["accepted_at"])
         self._payload(item, {"input": None})
         self._payload(result, {})
-        self.assertEqual(self.service.get_item_payload(experiment.id, item.id).payload_state, "expired")
-        self.assertIsNone(self.service.get_item_payload(experiment.id, item.id).data)
+        self.assertEqual(self.service.get_item_payload(experiment.id, item.id).payload_state, "available")
+        self.assertEqual(self.service.get_item_payload(experiment.id, item.id).data, {"input": None})
+        self.assertEqual(
+            self.service.list_items(experiment.id, OfflineReadQuery()).results[0].payload_state, "available"
+        )
         self.assertEqual(self.service.get_result_payload(experiment.id, result.id).data, {})
         before = self.service.list_summaries(experiment.id, OfflineReadQuery())
         OfflinePayloadRetention().run()
         expired = self.service.get_item_payload(experiment.id, item.id)
         self.assertEqual((expired.payload_state, expired.available, expired.data), ("expired", False, None))
+        self.assertEqual(self.service.list_items(experiment.id, OfflineReadQuery()).results[0].payload_state, "expired")
         self.assertTrue(self.service.get_result_payload(experiment.id, result.id).available)
         self.assertEqual(self.service.list_summaries(experiment.id, OfflineReadQuery()), before)
         self.assertEqual(
             self.service.scorer_history(self.numeric.definition_id, OfflineReadQuery()).results[0].summary,
             before.results[0],
         )
-
-    @parameterized.expand([(-1, True), (0, False), (1, False)])
-    def test_payload_reads_enforce_deadline_before_cleanup(self, seconds: int, available: bool) -> None:
-        experiment = self._experiment()
-        item = self._item(experiment)
-        result = self._result(item, self.numeric, 1.0)
         result.accepted_at = item.accepted_at
-        result.save(update_fields=["accepted_at"])
-        self._payload(item, {"input": "example"})
-        self._payload(result, {"reasoning": "example"})
-        with time_machine.travel(item.accepted_at + timedelta(days=30, seconds=seconds), tick=False):
-            for payload in (
-                self.service.get_item_payload(experiment.id, item.id),
-                self.service.get_result_payload(experiment.id, result.id),
-            ):
-                self.assertEqual(payload.available, available)
-                self.assertEqual(payload.payload_state, "available" if available else "expired")
-                if not available:
-                    self.assertIsNone(payload.data)
-            items = self.service.list_items(experiment.id, OfflineReadQuery()).results
-            self.assertEqual(items[0].payload_state, "available" if available else "expired")
-        self.assertTrue(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+        result.payload_expires_at = item.payload_expires_at
+        result.save(update_fields=["accepted_at", "payload_expires_at"])
+        self.assertEqual(self.service.get_result_payload(experiment.id, result.id).data, {})
+        OfflinePayloadRetention().run()
+        expired_result = self.service.get_result_payload(experiment.id, result.id)
+        self.assertEqual(
+            (expired_result.payload_state, expired_result.available, expired_result.data), ("expired", False, None)
+        )
 
     def test_metadata_only_counts_and_nested_identity_checks(self) -> None:
         experiment, other_experiment = self._experiment(), self._experiment()
