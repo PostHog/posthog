@@ -144,7 +144,7 @@ export function Sidebar({
       ))}
       <Box flexGrow={1} />
       <Text dimColor={!notice} wrap="truncate-end">
-        {notice ?? "^N new · ^S split · ^C^C close"}
+        {notice ?? "^N new · ^S split · ^Q quit"}
       </Text>
     </Box>
   );

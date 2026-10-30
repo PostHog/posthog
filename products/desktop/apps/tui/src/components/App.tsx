@@ -440,6 +440,8 @@ export function App({
   useInput((input, key) => {
     const shortcut = shortcutFor(input, key);
     if (shortcut === "close") return close();
+    // Layout and chats are saved as they change, so quitting loses nothing.
+    if (shortcut === "quit") return exit();
     if (shortcut === "newChat") {
       setLayout(newChat);
       return;
