@@ -316,6 +316,29 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([row["value"] for row in runner.run()], [3.0])
 
+    def test_reads_points_ingested_without_observed_timestamps(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=5), 2.0), (anchor - dt.timedelta(minutes=4), 3.0)],
+        )
+
+        stored = sync_execute(
+            "SELECT length(timestamp_arr), length(observed_timestamp_arr) FROM metrics4_samples WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual(stored, [(2, 0)])
+        self.assertEqual(sum(row["value"] for row in runner.run()), 5.0)
+
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
