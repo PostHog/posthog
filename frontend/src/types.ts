@@ -6290,6 +6290,8 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
+    /** The managed source that will import this self-managed table on its first sync, if one is linked. */
+    pending_source_id?: string | null
     options?: { csv_allow_double_quotes?: boolean | null }
     user_access_level?: AccessControlLevel
 }
@@ -6700,6 +6702,8 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    /** The schema is linked to a self-managed table that its first sync will import. */
+    pending_self_managed_table?: boolean
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null
@@ -6715,6 +6719,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /** The history table's name, or `null` when the table keeps no history. Older history tables end in `_cdc`. */
+    history_table_name?: string | null
     /**
      * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
      * failure is current. A later run that succeeds, or fails for another reason, clears it.

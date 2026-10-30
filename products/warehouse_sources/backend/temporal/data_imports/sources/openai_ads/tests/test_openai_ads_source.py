@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
 )
@@ -69,8 +70,14 @@ class TestOpenAIAdsSourceForPipeline:
         self, endpoint: str, primary_keys: list[str], partition_keys: list[str], sort_mode: str
     ) -> None:
         page = ScriptedResponse(json={"data": [], "has_more": False})
-        script = [ScriptedResponse(json={"currency_code": "USD"}), page] if "insights" in endpoint else [page]
-        result = SourceDriver(OpenAIAdsSource(), OpenAIAdsSourceConfig(api_key="k")).run(endpoint, script)
+
+        # A first sync of insights reads the currency, then the reporting history in several windows.
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if "insights" in endpoint and request.path == "/v1/ad_account":
+                return ScriptedResponse(json={"currency_code": "USD"})
+            return page
+
+        result = SourceDriver(OpenAIAdsSource(), OpenAIAdsSourceConfig(api_key="k")).run(endpoint, respond)
         response = result.response
         assert result.raised is None
         assert response is not None

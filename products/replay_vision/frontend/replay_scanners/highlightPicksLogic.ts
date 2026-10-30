@@ -92,6 +92,16 @@ export interface highlightPicksLogicActions {
         item: HighlightFeedItemApi
         position: number
     }
+    docsOpened: () => {
+        value: true
+    }
+    emptyStateAction: (
+        reason: HighlightFeedEmptyReason,
+        action: string
+    ) => {
+        action: string
+        reason: HighlightFeedEmptyReason
+    }
     emptyStateShown: (reason: HighlightFeedEmptyReason) => {
         reason: HighlightFeedEmptyReason
     }
@@ -177,6 +187,8 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
         setPicksLoad: (load: HighlightFeedLoad) => ({ load }),
         cardSeen: (item: HighlightFeedItemApi, position: number) => ({ item, position }),
         emptyStateShown: (reason: HighlightFeedEmptyReason) => ({ reason }),
+        emptyStateAction: (reason: HighlightFeedEmptyReason, action: string) => ({ reason, action }),
+        docsOpened: true,
     }),
 
     loaders(({ values, actions }) => ({
@@ -302,6 +314,12 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
                 }
                 cache.emptyStateShownReason = reason
                 posthog.capture('replay_vision_highlight_picks_empty_shown', { reason })
+            },
+            emptyStateAction: ({ reason, action }) => {
+                posthog.capture('replay_vision_highlight_picks_empty_action', { reason, action })
+            },
+            docsOpened: () => {
+                posthog.capture('replay_vision_highlight_picks_docs_opened')
             },
             cardSeen: ({ item, position }) => {
                 // Fallback rows below the picks were not served by the ranker, so they are not impressions of this load.
