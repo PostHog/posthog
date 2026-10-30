@@ -295,12 +295,7 @@ def _query_depot_attempt_branches(source: ExternalDataSource, attempt_ids: list[
         pull_requests: str | None = resolve_github_tables(team=source.team, repo=depot.repository).pull_requests
     except GitHubSourceNotConnectedError:
         pull_requests = None
-    sql = f"""
-        SELECT attempt_id, head_branch
-        FROM ({attempt_head_branches(depot, pull_requests)})
-        WHERE attempt_id IN {{attempt_ids}}
-        LIMIT {{limit}}
-    """
+    sql = f"{attempt_head_branches(depot, pull_requests)} LIMIT {{limit}}"
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=source.team.pk):
         response = execute_hogql_query(
             query=parse_select(

@@ -112,22 +112,31 @@ def _conclusion(status: str) -> str:
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
 
 
-def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
-    # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
-    # filters then match it like a GitHub run of the same PR.
-    pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
-    if pull_requests_table:
-        head_branch = "nullIf(pr.head_branch, '')"
-        actor = "nullIf(pr.author, '')"
-        branch_join = f"""
+_PR_NUMBER = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
+_PUSHED_BRANCH = "nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), '')"
+
+
+def _pr_snapshot_join(pull_requests_table: str, numbers_filter: str = "") -> str:
+    return f"""
             LEFT JOIN (
                 SELECT
                     number,
                     any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch,
                     any(user) AS author
                 FROM {pull_requests_table}
+                {numbers_filter}
                 GROUP BY number
-            ) AS pr ON {pr_number} = pr.number"""
+            ) AS pr ON {_PR_NUMBER} = pr.number"""
+
+
+def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
+    # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
+    # filters then match it like a GitHub run of the same PR.
+    pr_number = _PR_NUMBER
+    if pull_requests_table:
+        head_branch = "nullIf(pr.head_branch, '')"
+        actor = "nullIf(pr.author, '')"
+        branch_join = _pr_snapshot_join(pull_requests_table)
     else:
         head_branch = "NULL"
         actor = "NULL"
@@ -138,7 +147,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {_id_to_int("if(a.run_workflow_count = 1, a.run_id, a.workflow_id)")} AS github_run_id,
             {_id_to_int("a.attempt_id")} AS github_job_id,
             {pr_number} AS pr_number,
-            coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
+            coalesce({_PUSHED_BRANCH}, {head_branch}) AS head_branch,
             a.repo AS repo,
             {actor} AS actor,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
@@ -167,8 +176,24 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
 
 
 def attempt_head_branches(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
-    """Each attempt's head branch by Depot attempt id, the branch its runs row carries."""
-    return f"SELECT native_attempt_id AS attempt_id, head_branch FROM {_attempts(depot, pull_requests_table)}"
+    """The head branch of each attempt in the `{attempt_ids}` placeholder, as its runs row carries it.
+
+    Groups only the PR snapshots those attempts reference, not the whole PR table like the runs view.
+    """
+    head_branch = _PUSHED_BRANCH
+    branch_join = ""
+    if pull_requests_table:
+        head_branch = f"coalesce({_PUSHED_BRANCH}, nullIf(pr.head_branch, ''))"
+        numbers_filter = (
+            f"WHERE number IN (SELECT {_PR_NUMBER} FROM {depot.table} AS a WHERE a.attempt_id IN {{attempt_ids}})"
+        )
+        branch_join = _pr_snapshot_join(pull_requests_table, numbers_filter)
+    return f"""
+        SELECT a.attempt_id AS attempt_id, {head_branch} AS head_branch
+        FROM {depot.table} AS a
+        {branch_join}
+        WHERE a.attempt_id IN {{attempt_ids}} AND lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'
+    """
 
 
 def _runs(attempts: str) -> str:
