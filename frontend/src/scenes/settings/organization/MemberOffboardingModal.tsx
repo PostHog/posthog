@@ -31,6 +31,7 @@ export function MemberOffboardingModal(): JSX.Element {
         keep,
         removedLoading,
         savingResourcesLoading,
+        savingResourceIds,
         getSelectionLabel,
     } = useValues(memberOffboardingLogic)
     const { close, loadResources, setKeep, disableResources, remove } = useActions(memberOffboardingLogic)
@@ -123,7 +124,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                               type="secondary"
                                               status="danger"
                                               size="small"
-                                              loading={savingResourcesLoading}
+                                              loading={savingResourceIds.length > 0}
                                               disabledReason={disabledReason}
                                               onClick={() => {
                                                   disableResources([...ctx.selectedKeys])
@@ -178,7 +179,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                           render: (_: unknown, resource: NonNullable<typeof resources>[number]) => (
                                               <div className="flex items-center gap-2">
                                                   <LemonSwitch
-                                                      loading={savingResourcesLoading}
+                                                      loading={savingResourceIds.includes(resource.id)}
                                                       checked={keep.includes(resource.id)}
                                                       onChange={(enabled) => setKeep(resource.id, enabled)}
                                                       disabledReason={disabledReason}

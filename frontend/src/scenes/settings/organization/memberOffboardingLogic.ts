@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { fullNameOrEmail, pluralize } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -33,6 +33,7 @@ export interface memberOffboardingLogicValues {
     removedLoading: boolean
     resources: MemberOffboardingResourceApi[] | null
     resourcesLoading: boolean
+    savingResourceIds: string[]
     savingResources: boolean
     savingResourcesLoading: boolean
 }
@@ -172,6 +173,15 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                 setKeptResources: (_, { ids }) => ids,
             },
         ],
+        savingResourceIds: [
+            [] as string[],
+            {
+                open: () => [],
+                saveResources: (_, { ids }) => ids,
+                saveResourcesSuccess: () => [],
+                saveResourcesFailure: () => [],
+            },
+        ],
         loadError: [
             null as string | null,
             { open: () => null, loadResources: () => null, loadResourcesFailure: (_, { error }) => error },
@@ -225,8 +235,19 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                 )
                 const failed = selected.filter((_, index) => results[index].status === 'rejected')
                 if (failed.length) {
+                    const reasons = [
+                        ...new Set(
+                            results.flatMap((result) =>
+                                result.status === 'rejected' &&
+                                result.reason instanceof ApiError &&
+                                result.reason.detail
+                                    ? [result.reason.detail]
+                                    : []
+                            )
+                        ),
+                    ]
                     lemonToast.error(
-                        `Couldn't update ${failed.map((resource) => resource.name).join(', ')}. Please try again.`
+                        `Couldn't update ${failed.map((resource) => resource.name).join(', ')}. ${reasons.join(' ') || 'Please try again.'}`
                     )
                 }
                 return true

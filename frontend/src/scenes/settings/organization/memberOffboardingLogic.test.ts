@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER } fro
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -64,7 +65,11 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.resources).toEqual(resources)
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
         membersLogic.actions.loadAllMembersSuccess([MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER])
-        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.setKeep(resources[0].id, false)
+            expect(logic.values.savingResourceIds).toEqual([resources[0].id])
+        }).toFinishAllListeners()
+        expect(logic.values.savingResourceIds).toEqual([])
         expect(updates).toEqual([{ path: '/api/projects/1/dashboards/1/sharing/', body: { enabled: false } }])
         expect(submitted).toEqual([])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
@@ -96,6 +101,7 @@ describe('memberOffboardingLogic', () => {
         ])
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
         expect(logic.values.savingResourcesLoading).toBe(false)
+        expect(logic.values.savingResourceIds).toEqual([])
         useMocks({
             patch: { '/api/projects/:project/:kind/:resource/sharing/': () => [204, null] },
         })
@@ -107,6 +113,27 @@ describe('memberOffboardingLogic', () => {
             'saveResourcesSuccess',
         ])
         expect(logic.values.keep).toContain(resources[0].id)
+    })
+
+    it('explains why the organization policy prevents re-enabling a public link', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, false)).toFinishAllListeners()
+        useMocks({
+            patch: {
+                '/api/projects/1/dashboards/1/sharing/': () => [
+                    403,
+                    { detail: 'Public sharing is disabled for this organization.' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.setKeep(resources[0].id, true)).toFinishAllListeners()
+        expect(logic.values.keep).toEqual([resources[1].id])
+        expect(logic.values.savingResourceIds).toEqual([])
+        expect(toast).toHaveBeenLastCalledWith(
+            "Couldn't update Product overview. Public sharing is disabled for this organization."
+        )
+        toast.mockRestore()
     })
 
     it('keeps successful bulk changes when another resource fails', async () => {
