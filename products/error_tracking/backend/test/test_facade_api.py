@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, IntegrationManager
 from posthog.models import Team
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
@@ -255,6 +256,33 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             )
 
         assert not ErrorTrackingExternalReference.objects.exists()
+
+    @parameterized.expand(
+        [
+            ("unsupported_kind", "slack", {}, "Provider not supported"),
+            ("source_row", "github", {SOURCE_MARKER_CONFIG_KEY: "Github"}, "Integration does not belong to this team."),
+            ("other_auth_type", "github", None, "Integration does not belong to this team."),
+        ]
+    )
+    def test_link_external_reference_integration_lookup_errors(self, _name, kind, config, expected_message):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        if config is None:
+            integration, _ = IntegrationManager.github.token.upsert(
+                self.team.id, "token-row", config={}, sensitive_config={"access_token": "token"}
+            )
+        else:
+            integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as raised:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                external_context={"key": "ENG-1"},
+                distinct_id=self.user.id,
+            )
+
+        assert str(raised.exception) == expected_message
 
     @parameterized.expand(
         [

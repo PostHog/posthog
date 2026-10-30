@@ -35,7 +35,7 @@ from products.feature_flags.backend.facade.edits import (
 
 
 class ConditionsChangeShape(StrEnum):
-    # pinned: the finding's subcodes. The page sends them as `finding_variant` on the health finding events.
+    # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
     VARIANT_OVERRIDE_CHANGED = "variant_override_changed"
     CONDITIONS_CHANGED = "conditions_changed"
     REVERTED = "reverted"
