@@ -59,6 +59,9 @@ export function transcriptFrom(
   return { lines, turnOpen };
 }
 
+// Bookkeeping the harness asks for every turn; it says nothing about the work.
+const SUMMARY_TOOL = "task_summary_update";
+
 function toLine(item: ConversationItem): TranscriptLine[] {
   if (item.type === "user_message") {
     return [{ kind: "user", id: item.id, text: item.content }];
@@ -74,6 +77,7 @@ function toLine(item: ConversationItem): TranscriptLine[] {
         ? [{ kind: "assistant", id: item.id, text: update.content.text }]
         : [];
     case "tool_call":
+      if (update.title.endsWith(SUMMARY_TOOL)) return [];
       return [
         {
           kind: "tool",

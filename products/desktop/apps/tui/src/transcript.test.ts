@@ -123,6 +123,25 @@ describe("transcriptFrom", () => {
   });
 });
 
+describe("transcriptFrom bookkeeping", () => {
+  it("hides the agent's task summary updates", () => {
+    const entries = [
+      ...PI_LOG.slice(0, 2),
+      piEvent(3, {
+        type: "tool_call_started",
+        toolCall: {
+          id: "s1",
+          title: "mcp_posthog_code_tools_task_summary_update",
+          status: "completed",
+        },
+      }),
+    ];
+    expect(
+      transcriptFrom("pi", entries).lines.map((line) => line.kind),
+    ).toEqual(["user"]);
+  });
+});
+
 describe("transcriptFrom turn state", () => {
   it.each([
     ["mid-turn", PI_LOG.slice(0, -1), true],
