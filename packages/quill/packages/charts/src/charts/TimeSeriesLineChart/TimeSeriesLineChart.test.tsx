@@ -10,7 +10,7 @@ import {
     setupSyncRaf,
     waitForChartTooltip,
 } from '../../testing'
-import { TimeSeriesLineChart } from './TimeSeriesLineChart'
+import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = {
     colors: ['#111', '#222', '#333'],
@@ -651,26 +651,38 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('interactive legend', () => {
-        it('formats legend values with each series axis format', () => {
-            const { container } = renderChart(
+        // MULTI_SERIES peaks at 3 in both series.
+        it.each<[string, Partial<TimeSeriesLineChartConfig>, string[][]]>([
+            [
+                'formats legend values with each series axis format',
+                {
+                    yAxis: [
+                        { id: 'left', suffix: ' ms' },
+                        { id: 'right', prefix: '$' },
+                    ],
+                },
+                [['3 ms'], ['$3']],
+            ],
+            [
+                'keeps a secondary axis without a format plain',
+                { yAxis: [{ id: 'left', suffix: ' ms' }, { id: 'right' }] },
+                [['3 ms'], ['3']],
+            ],
+            [
+                'keeps raw values plain on a percent chart',
+                { yAxis: { format: 'percentage_scaled' }, percentStackView: true },
+                [['3'], ['3']],
+            ],
+        ])('%s', (_, config, expectedValues) => {
+            const { chart } = renderChart(
                 <TimeSeriesLineChart
                     series={[MULTI_SERIES[0], { ...MULTI_SERIES[1], yAxisId: 'right' }]}
                     labels={LABELS}
                     theme={THEME}
-                    config={{
-                        yAxis: [
-                            { id: 'left', suffix: ' ms' },
-                            { id: 'right', prefix: '$' },
-                        ],
-                        legend: { show: true, values: ['max'] },
-                    }}
+                    config={{ ...config, legend: { show: true, values: ['max'] } }}
                 />
             )
-            const cells = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-value"]'))
-            expect(cells.map((c) => c.textContent)).toEqual([
-                `${Math.max(...MULTI_SERIES[0].data)} ms`,
-                `$${Math.max(...MULTI_SERIES[1].data)}`,
-            ])
+            expect(chart.legendValues()).toEqual(expectedValues)
         })
 
         it('lists the raw series (not derived trend lines) and isolates one on click', () => {

@@ -268,7 +268,7 @@ export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/st
 
 // Generic UI primitives (no canvas) — composed alongside charts by adapters
 export { Legend } from './components/Legend/Legend'
-export type { LegendItem, LegendItemClickModifiers, LegendProps } from './components/Legend/Legend'
+export type { LegendItem, LegendItemClickModifiers, LegendProps, LegendValue } from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'

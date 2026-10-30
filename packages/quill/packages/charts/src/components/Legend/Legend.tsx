@@ -42,8 +42,11 @@ export interface LegendProps {
     formatValue?: (value: number, item: LegendItem) => string
     /** Initial table sort column. Clicking a column header changes it. Defaults to input order. */
     sortBy?: 'label' | LegendValue
-    /** Sort the initial `sortBy` column highest first. Defaults to true. */
+    /** Sort the initial `sortBy` column highest (or Z) first. Defaults to true for a value column
+     *  and false for `'label'`. */
     sortDescending?: boolean
+    /** Header text per column. Defaults to English names. */
+    columnLabels?: Partial<Record<'label' | LegendValue, string>>
 }
 
 // Align a horizontal legend with `justify-content` so wrapped rows stay centered (or start/end) within the
@@ -68,6 +71,7 @@ export function Legend({
     formatValue,
     sortBy,
     sortDescending,
+    columnLabels,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
@@ -80,6 +84,7 @@ export function Legend({
                 formatValue={formatValue}
                 sortBy={sortBy}
                 sortDescending={sortDescending}
+                columnLabels={columnLabels}
                 onItemClick={onItemClick}
                 hiddenKeys={hiddenKeys}
                 className={className}

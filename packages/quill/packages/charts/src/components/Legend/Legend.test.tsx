@@ -119,6 +119,20 @@ describe('Legend', () => {
             expect(labelsOf(container)).toEqual(['Beta', 'Alpha', 'Gamma'])
         })
 
+        it('starts an initial name sort A to Z, like a header click', () => {
+            const reversed = [...VALUE_ITEMS].reverse()
+            const { container } = render(<Legend items={reversed} values={['mean']} sortBy="label" />)
+            expect(labelsOf(container)).toEqual(['Alpha', 'Beta', 'Gamma'])
+        })
+
+        it('takes header text from columnLabels', () => {
+            const { container } = render(
+                <Legend items={VALUE_ITEMS} values={['mean', 'sum']} columnLabels={{ label: 'Series', sum: 'Sum' }} />
+            )
+            const headers = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-sort"]'))
+            expect(headers.map((h) => h.textContent)).toEqual(['Series', 'Mean', 'Sum'])
+        })
+
         it('fires onItemClick from a table row', () => {
             const onClick = jest.fn()
             const { container } = render(<Legend items={VALUE_ITEMS} values={['mean']} onItemClick={onClick} />)

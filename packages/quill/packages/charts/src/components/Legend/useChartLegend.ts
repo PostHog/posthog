@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
-import type { LegendItem, LegendItemClickModifiers, LegendProps } from './Legend'
+import type { LegendItem, LegendItemClickModifiers, LegendProps, LegendValue } from './Legend'
 import { legendItemsFromSeries, withLegendValues } from './legendItemsFromSeries'
 
 /** True when the primary pointer is coarse (a touch screen), read live at click time. Guarded like
@@ -62,6 +62,7 @@ export interface ChartLegendRenderProps {
     formatValue: LegendProps['formatValue']
     sortBy: LegendProps['sortBy']
     sortDescending: LegendProps['sortDescending']
+    columnLabels: LegendProps['columnLabels']
 }
 
 export interface ChartLegendState<Meta> {
@@ -99,7 +100,9 @@ export function useChartLegend<Meta>(
 
     const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys])
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
-    const legendValues = config?.values
+    // Keyed on the column names, so an inline `values` array doesn't recompute every series' summaries.
+    const valuesKey = config?.show ? config.values?.join(',') : undefined
+    const legendValues = useMemo(() => (valuesKey ? (valuesKey.split(',') as LegendValue[]) : undefined), [valuesKey])
     const derivedItems = useMemo(
         () =>
             items ? withLegendValues(items, series, legendValues) : legendItemsFromSeries(series, theme, legendValues),
@@ -205,6 +208,7 @@ export function useChartLegend<Meta>(
             formatValue: config?.valueFormatter,
             sortBy: config?.sortBy,
             sortDescending: config?.sortDescending,
+            columnLabels: config?.columnLabels,
         },
     }
 }

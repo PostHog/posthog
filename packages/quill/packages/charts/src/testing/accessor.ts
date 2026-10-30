@@ -133,6 +133,12 @@ export interface ChartAccessor<Meta = unknown> {
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
+    /** Click the value-table header with this text, which sorts the legend by that column. Throws
+     *  when no header has the text. */
+    sortLegendBy(header: string): void
+    /** The value-table cells of each legend row as rendered, in row then column order. Empty for a
+     *  list legend. */
+    legendValues(): string[][]
     /** Fire one `mouseMove` over the label at `index`, without waiting for a tooltip. */
     hoverAtIndex(index: number): void
     /** Hover the label at `index` until the tooltip shows its content, then read it as a `DefaultTooltip`.
@@ -331,6 +337,26 @@ export function getChart<Meta = unknown>(
             }
             act(() => {
                 fireEvent.click(row, { metaKey: additive })
+            })
+        },
+        legendValues: () =>
+            Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]'), (labelEl) =>
+                Array.from(
+                    labelEl
+                        .closest('button, div')
+                        ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-value"]') ?? [],
+                    (cell) => cell.textContent ?? ''
+                )
+            ).filter((cells) => cells.length > 0),
+        sortLegendBy(header: string): void {
+            const button = Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-sort"]')).find(
+                (el) => el.textContent?.replace(/ [↑↓]$/, '') === header
+            )
+            if (!button) {
+                throw new Error(`No legend column headed "${header}"`)
+            }
+            act(() => {
+                fireEvent.click(button)
             })
         },
         hoverAtIndex(index: number): void {

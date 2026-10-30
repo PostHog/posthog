@@ -35,8 +35,11 @@ export function ChartLegendLayout({
     // which top/bottom's max-h-[40%] still needs. Their width caps at 45% of the chart but never more than
     // 240px, so one long label can't squeeze the plot on a wide chart. `justify-center-safe` keeps short
     // side legends centered yet scrollable (plain center would push the top rows past the scroll origin).
+    // A side table legend needs room for its value columns, so it moves below (or above) a chart
+    // narrower than 480px rather than squeezing the plot and the series names.
+    const stackWhenNarrow = isRow && wide
     const legendClass = isRow
-        ? `flex flex-col self-stretch ${wide ? 'max-w-[min(60%,480px)]' : 'max-w-[min(45%,240px)]'} overflow-y-auto justify-center-safe`
+        ? `flex flex-col self-stretch ${wide ? 'max-w-[min(60%,480px)] @max-[480px]:max-w-none @max-[480px]:max-h-[40%]' : 'max-w-[min(45%,240px)]'} overflow-y-auto justify-center-safe`
         : 'self-stretch max-h-[40%] overflow-y-auto'
 
     const legendSlot = legend ? (
@@ -44,14 +47,22 @@ export function ChartLegendLayout({
     ) : null
     // `flex flex-col` so the inner chart's `flex: 1` resolves; `self-stretch` so the chart fills the cross axis regardless of `align` (which then only affects the legend).
     const chartSlot = <div className="flex flex-col flex-1 min-w-0 min-h-0 self-stretch">{children}</div>
-    return (
+    const layout = (
         <div
-            className={`flex min-w-0 min-h-0 ${isRow ? 'flex-row' : 'flex-col'} ${ALIGN_CLASS[align]} ${className ?? ''}`}
+            className={`flex min-w-0 min-h-0 ${isRow ? 'flex-row' : 'flex-col'} ${stackWhenNarrow ? 'flex-1 @max-[480px]:flex-col' : ''} ${ALIGN_CLASS[align]} ${stackWhenNarrow ? '' : (className ?? '')}`}
             style={{ gap }}
-            data-attr={dataAttr}
+            data-attr={stackWhenNarrow ? undefined : dataAttr}
         >
             {legendFirst ? legendSlot : chartSlot}
             {legendFirst ? chartSlot : legendSlot}
         </div>
+    )
+    // The container query reads the width of a wrapper, since an element can't query its own size.
+    return stackWhenNarrow ? (
+        <div className={`@container flex min-w-0 min-h-0 ${className ?? ''}`} data-attr={dataAttr}>
+            {layout}
+        </div>
+    ) : (
+        layout
     )
 }
