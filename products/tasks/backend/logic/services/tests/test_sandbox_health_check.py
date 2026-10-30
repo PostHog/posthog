@@ -196,6 +196,7 @@ def test_preflight_reports_only_the_capabilities_the_binary_carries(
     ("provider", "reason", "reported_retryability", "expected_retryability"),
     [
         ("claude", "proxy_invalid", "unknown", "requires_action"),
+        ("claude", "sandbox_required_unavailable", "unknown", "requires_action"),
         ("claude", "worktree_unverified", "requires_action", "transient"),
         ("claude", None, "requires_action", "unknown"),
         ("codex", "credential_service_unavailable", "requires_action", "transient"),

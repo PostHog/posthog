@@ -20,6 +20,9 @@ _ACTION_REQUIRED_MESSAGES = {
     "shell_tool_missing": "A shell required by the agent is unavailable. Update the sandbox image to include a supported shell, then retry.",
     "cli_version_too_old": "The agent's provider runtime is too old. Update the provider runtime in the sandbox image, then retry.",
     "bypass_root": "The provider rejected the agent's permission configuration. Run the agent as a non-root user or update its permission settings, then retry.",
+    "sandbox_required_unavailable": "The repository's Claude Code settings require a sandbox that is not available in this environment. Remove the sandbox requirement from the repository settings, then retry.",
+    "provider_not_allowed": "The agent's managed settings do not allow the configured provider. Use an allowed provider, then retry.",
+    "org_config_refused": "The provider refused the organization's configuration for this sign-in. Sign in again or ask an organization admin to restore access, then retry.",
 }
 _ACTION_REQUIRED_REASONS = frozenset({"credential_unavailable", *_ACTION_REQUIRED_MESSAGES})
 _TRANSIENT_REASONS = frozenset({"credential_service_unavailable", "session_held_by_background", "worktree_unverified"})
