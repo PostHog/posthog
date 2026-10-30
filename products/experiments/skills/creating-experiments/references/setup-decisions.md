@@ -141,7 +141,7 @@ Tier: confident on the arithmetic, best guess on the inputs (the baseline is an 
 
 This is the path until `experiment-setup-context` is on for everyone. Use it rather than writing your own SQL.
 
-1. Call `query-funnel` over the last 14 days with test accounts filtered. Step 1 is the target event with the filters you would pass as `target_properties`. Step 2 is the metric event with any `metric_properties`:
+1. Call `query-funnel` over the last 14 days with test accounts filtered. Step 1 is the target event with the filters you would pass as `target_properties`. For a surface that spans several pages, also add the path fragment you would pass as `target_url_contains`, as a `$current_url` filter with the `icontains` operator. Step 2 is the metric event with any `metric_properties`:
 
    ```json
    {
