@@ -147,6 +147,9 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     # Set when a user removes the image from its library. The row and its bytes stay, because
     # content that already embeds the URL (a sent email, a live template) must keep loading it.
     archived_at = models.DateTimeField(null=True, blank=True)
+    # Set by staff to take an image down. Unlike archived_at, the public URL stops serving it.
+    # The row and its bytes stay, so the takedown can be audited and reversed.
+    serving_disabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
