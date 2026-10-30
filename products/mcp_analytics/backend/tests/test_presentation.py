@@ -715,6 +715,17 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
 
+        first_page = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+            {"date_from": session["session_start"], "limit": 1},
+        ).json()
+        second_page = self.client.get(first_page["next"]).json()
+        assert [c["tool_name"] for c in first_page["results"]] == ["first_tool"]
+        assert first_page["previous"] is None
+        assert [c["tool_name"] for c in second_page["results"]] == ["last_tool"]
+        assert second_page["next"] is None
+        assert second_page["has_next"] is False
+
     @parameterized.expand(
         [
             ("sessions_list", "", {"date_from": "-7d"}),

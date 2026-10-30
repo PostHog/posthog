@@ -3061,10 +3061,22 @@ class TaskActivityPageSerializer(DataclassSerializer):
         required=False,
         help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
     )
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, with before and before_id set, or null on the final page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Always null: the feed pages forward only.",
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
-        fields = ["results", "unread_count", "next_before", "next_before_id"]
+        fields = ["results", "unread_count", "next_before", "next_before_id", "next", "previous"]
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):

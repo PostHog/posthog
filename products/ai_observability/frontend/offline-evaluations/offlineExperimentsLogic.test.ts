@@ -23,7 +23,13 @@ jest.mock('../generated/api', () => ({
     aiObservabilityOfflineScorersHistoryList: jest.fn(),
 }))
 
-const page: OfflineExperimentPageApi = { results: overviewExperiments, count: 100, next_cursor: 'cursor-2' }
+const page: OfflineExperimentPageApi = {
+    results: overviewExperiments,
+    count: 100,
+    next: null,
+    previous: null,
+    next_cursor: 'cursor-2',
+}
 const props = { teamId: 997, userId: 1, timezone: 'America/Toronto' }
 const list = jest.mocked(api.aiObservabilityOfflineExperimentsList)
 
@@ -37,6 +43,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
             results: overviewScorers.map((scorer) => overviewHistory(scorer)[0].summary),
             count: 3,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         jest.mocked(api.llmAnalyticsScoreDefinitionsList).mockResolvedValue({
@@ -178,6 +186,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
             results: overviewHistory(overviewScorers[0]),
             count: 6,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         const trend = offlineOverviewTrendLogic({
@@ -233,6 +243,8 @@ describe('offlineExperimentsLogic', () => {
 
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockImplementation(async (_, scorerId) => ({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [
                 {
@@ -333,6 +345,8 @@ describe('offlineExperimentsLogic', () => {
         jest.mocked(api.aiObservabilityOfflineExperimentsScorerSummariesList).mockResolvedValue({
             results: [],
             count: 0,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
         const logic = offlineExperimentsLogic(props)
@@ -502,7 +516,13 @@ describe('offlineExperimentsLogic', () => {
     it.each([true, false])(
         'distinguishes no matching experiments from a new project (has history: %s)',
         async (hasHistory) => {
-            const emptyPage: OfflineExperimentPageApi = { results: [], count: 0, next_cursor: null }
+            const emptyPage: OfflineExperimentPageApi = {
+                results: [],
+                count: 0,
+                next: null,
+                previous: null,
+                next_cursor: null,
+            }
             list.mockResolvedValueOnce(emptyPage).mockResolvedValueOnce(hasHistory ? page : emptyPage)
             const logic = offlineExperimentsLogic(props)
             logic.mount()
@@ -515,9 +535,13 @@ describe('offlineExperimentsLogic', () => {
     )
 
     it('keeps onboarding hidden when the project presence check fails', async () => {
-        list.mockResolvedValueOnce({ results: [], count: 0, next_cursor: null }).mockRejectedValueOnce(
-            new Error('Unavailable')
-        )
+        list.mockResolvedValueOnce({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+            next_cursor: null,
+        }).mockRejectedValueOnce(new Error('Unavailable'))
         const logic = offlineExperimentsLogic(props)
         logic.mount()
         await jest.advanceTimersByTimeAsync(150)

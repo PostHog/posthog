@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import page_link_with_params
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
@@ -738,7 +739,11 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             before=request.validated_query_data.get("before"),
             before_id=request.validated_query_data.get("before_id"),
         )
-        return Response(TaskActivityPageSerializer(activity).data)
+        data = TaskActivityPageSerializer(activity).data
+        if data["next_before"] is not None:
+            next_params = {"before": data["next_before"], "before_id": data["next_before_id"]}
+            data["next"] = page_link_with_params(request, next_params)
+        return Response(data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
     # annotation applied earlier — including @validated_request's — from the generated OpenAPI.

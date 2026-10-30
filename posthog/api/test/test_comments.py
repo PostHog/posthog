@@ -1324,6 +1324,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
+            "count": 0,
             "next": None,
             "previous": None,
             "results": [],
@@ -1408,6 +1409,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         with mock.patch.object(CommentPagination, "page_size", 2):
             while url:
                 payload = self.client.get(url).json()
+                assert payload["count"] == 10
                 paged_ids.extend(comment["id"] for comment in payload["results"])
                 url = payload["next"]
                 assert len(paged_ids) <= 10

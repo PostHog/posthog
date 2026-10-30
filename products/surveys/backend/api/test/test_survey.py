@@ -7615,11 +7615,14 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 2)
         self.assertTrue(data["has_more"])
+        self.assertIsNone(data["previous"])
 
-        response2 = self.client.get(self.url, {"limit": "2", "offset": "2"})
+        response2 = self.client.get(data["next"])
         data2 = response2.json()
         self.assertEqual(len(data2["results"]), 1)
+        self.assertNotIn(data2["results"][0]["uuid"], [row["uuid"] for row in data["results"]])
         self.assertFalse(data2["has_more"])
+        self.assertIsNone(data2["next"])
 
     def test_since_filter(self):
         create_person(team=self.team, distinct_ids=["old"])

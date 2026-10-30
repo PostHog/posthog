@@ -46,7 +46,20 @@ export interface ReusableWidgetSummaryApi {
     updated_at: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Reusable widgets in this page. */
     results: ReusableWidgetSummaryApi[]
     /** Total reusable widgets matching the search. */
@@ -548,7 +561,20 @@ export interface WidgetSourceApi {
     source: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Published versions, newest first. */
     results: ReusableWidgetVersionDetailApi[]
     /** Total number of published versions. */
@@ -1589,7 +1615,20 @@ export interface WidgetVersionApi {
     build_hash: string | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface WidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Versions ordered newest first. */
     results: WidgetVersionApi[]
     /**

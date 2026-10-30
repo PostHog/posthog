@@ -26,12 +26,16 @@ describe('offlineScorerHistoryLogic', () => {
         jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockResolvedValue(OFFLINE_STORY_DEFINITION)
         jest.mocked(api.llmAnalyticsScoreDefinitionsVersionsList).mockResolvedValue({
             results: [OFFLINE_STORY_VERSION],
+            next: null,
+            previous: null,
             next_cursor: null,
             count: 1,
         })
         jest.mocked(api.llmAnalyticsScoreDefinitionsVersionsRetrieve).mockResolvedValue(OFFLINE_STORY_VERSION)
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
             results: [makeOfflineHistoryPoint(1)],
+            next: null,
+            previous: null,
             next_cursor: 'older',
             count: 150,
         })
@@ -267,7 +271,13 @@ describe('offlineScorerHistoryLogic', () => {
         })
         logic.actions.loadOfflineHistoryPrimaryPage()
         await started
-        const newest = { results: [makeOfflineHistoryPoint(3)], next_cursor: null, count: 1 }
+        const newest = {
+            results: [makeOfflineHistoryPoint(3)],
+            next: null,
+            previous: null,
+            next_cursor: null,
+            count: 1,
+        }
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValueOnce(newest)
         await expectLogic(logic, () => logic.actions.loadOfflineHistoryPrimaryPage()).toDispatchActions([
             'loadOfflineHistoryPrimaryPageSuccess',
