@@ -91,7 +91,10 @@ async def test_startup_failure_is_durable_when_notification_delivery_fails(ateam
     "charts_enabled,charts,expected_chart_count",
     [(True, [CHART_PAYLOAD], 1), (False, None, 0)],
 )
-async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, charts, expected_chart_count):
+@pytest.mark.parametrize("preserve_pending", [False, True])
+async def test_started_and_ready_fire_expected_captures(
+    ateam, charts_enabled, charts, expected_chart_count, preserve_pending
+):
     driver = uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -99,6 +102,7 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
         signal_count=2,
         total_weight=1.2,
         triggering_signal_id=driver,
+        pending_triggering_signal_id=driver,
     )
     report_id = str(report.id)
     source_products = ["conversations", "zendesk"]
@@ -110,8 +114,11 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
                 report_id=report_id,
                 signal_count=2,
                 source_products=source_products,
+                preserve_pending_refresh=preserve_pending,
             )
         )
+        await database_sync_to_async(report.refresh_from_db)()
+        assert (report.pending_triggering_signal_id == driver) is preserve_pending
         await mark_report_ready_activity(
             MarkReportReadyInput(
                 team_id=ateam.id,
@@ -119,6 +126,7 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
                 title="title",
                 summary="summary",
                 processed_signal_count=2,
+                processed_pending_signal_id=str(driver) if preserve_pending else None,
                 source_products=source_products,
                 charts=charts,
                 charts_enabled=charts_enabled,

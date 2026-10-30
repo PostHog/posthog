@@ -8,6 +8,7 @@ from typing import Union
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -41,6 +42,7 @@ from products.signals.backend.temporal.types import SignalCandidate, SignalData,
 logger = structlog.get_logger(__name__)
 
 
+REPORT_RESEARCH_SIGNAL_LIMIT = 100
 WAIT_POLL_INTERVAL_SECONDS = 10
 
 # For this long, ClickHouse is polled only when the recently-seen store confirms the
@@ -604,10 +606,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    required_signal_id: str | None = None
 
 
 @frozen
@@ -621,22 +624,54 @@ class FetchSignalsForReportOutput:
 @close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsFetchForReport",
-            query=_signals_for_report_query(),
-            team=team,
-            placeholders=_report_placeholders(input.report_id),
-        )
-
-        signals = [_parse_signal_row(row) for row in (result.results or [])]
         pending_id = await (
             SignalReport.objects.using("default")
             .filter(team_id=input.team_id, id=input.report_id)
             .values_list("pending_triggering_signal_id", flat=True)
             .afirst()
         )
+        pending_signal_id = str(pending_id) if pending_id else None
+        required_ids = set(filter(None, [input.required_signal_id]))
+        priority_ids = required_ids | set(filter(None, [pending_signal_id]))
+        placeholders = {
+            **_report_placeholders(input.report_id),
+            "priority_signal_ids": ast.Tuple(
+                exprs=[ast.Constant(value=signal_id) for signal_id in sorted(priority_ids)]
+            ),
+        }
+        result = await execute_hogql_query_with_retry(
+            query_type="SignalsFetchForReport",
+            query=_signals_for_report_query(
+                limit=REPORT_RESEARCH_SIGNAL_LIMIT, prioritize_signal_ids=bool(priority_ids)
+            ),
+            team=team,
+            placeholders=placeholders,
+        )
+
+        signals = sorted(
+            (_parse_signal_row(row) for row in (result.results or [])),
+            key=lambda signal: (signal.timestamp, signal.signal_id),
+        )
+        fetched_ids = {signal.signal_id for signal in signals}
+        if not required_ids.issubset(fetched_ids):
+            raise ApplicationError(
+                "Required report signal is not visible in ClickHouse yet", type="RequiredReportSignalNotVisible"
+            )
+
+        if required_ids:
+            await (
+                SignalReport.objects.using("default")
+                .filter(
+                    team_id=input.team_id,
+                    id=input.report_id,
+                    status=SignalReport.Status.IN_PROGRESS,
+                    triggering_signal_id=input.required_signal_id,
+                    pending_triggering_signal_id=input.required_signal_id,
+                )
+                .aupdate(pending_triggering_signal_id=None)
+            )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -646,12 +681,10 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
         return FetchSignalsForReportOutput(
             signals=signals,
-            processed_pending_signal_id=(
-                str(pending_id)
-                if pending_id and any(signal.signal_id == str(pending_id) for signal in signals)
-                else None
-            ),
+            processed_pending_signal_id=pending_signal_id if pending_signal_id in fetched_ids else None,
         )
+    except ApplicationError:
+        raise
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

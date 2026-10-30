@@ -10,7 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import EmbeddingModelName
 
@@ -43,10 +45,12 @@ from products.signals.backend.signal_metadata import (
 from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
     SourceSignalMatch,
     fetch_live_source_signal_matches,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_signals_for_report_activity,
     fetch_source_signal_matches,
     retract_source_signals,
 )
@@ -462,6 +466,50 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         )
 
         assert self._signal_ids(query_report) == expected_ids
+
+    @parameterized.expand([(True, True, False), (False, True, False), (True, False, False), (True, True, True)])
+    def test_research_snapshot_keeps_required_and_pending_signals_beyond_the_row_cap(
+        self, pending_visible: bool, required_visible: bool, same_marker: bool
+    ) -> None:
+        signal_ids = [str(uuid.uuid4()) for _ in range(120)]
+        pending_id = signal_ids[-1] if pending_visible else str(uuid.uuid4())
+        required_id = pending_id if same_marker else signal_ids[-2] if required_visible else str(uuid.uuid4())
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.IN_PROGRESS,
+            triggering_signal_id=required_id,
+            pending_triggering_signal_id=pending_id,
+        )
+        for index, signal_id in enumerate(signal_ids):
+            self._emit_version(
+                document_id=signal_id,
+                report_id=str(report.id),
+                source_product="errors",
+                inserted_at=self.base + timedelta(minutes=index),
+            )
+        request = FetchSignalsForReportInput(
+            team_id=self.team.id, report_id=str(report.id), required_signal_id=required_id
+        )
+        if not required_visible:
+            with self.assertRaisesRegex(ApplicationError, "not visible"):
+                async_to_sync(fetch_signals_for_report_activity)(request)
+            report.refresh_from_db()
+            assert str(report.pending_triggering_signal_id) == pending_id
+            return
+        result = async_to_sync(fetch_signals_for_report_activity)(request)
+        fetched_ids = {signal.signal_id for signal in result.signals}
+        assert len(result.signals) == 100
+        assert required_id in fetched_ids
+        assert (pending_id in fetched_ids) is pending_visible
+        assert result.processed_pending_signal_id == (pending_id if pending_visible else None)
+        assert [signal.timestamp for signal in result.signals] == sorted(signal.timestamp for signal in result.signals)
+        report.refresh_from_db()
+        if same_marker:
+            assert report.pending_triggering_signal_id is None
+            retry = async_to_sync(fetch_signals_for_report_activity)(request)
+            assert required_id in {signal.signal_id for signal in retry.signals}
+        else:
+            assert str(report.pending_triggering_signal_id) == pending_id
 
     def test_returns_latest_content_for_a_revised_signal(self) -> None:
         # The dedup must surface the newest version's content, not an arbitrary one.
