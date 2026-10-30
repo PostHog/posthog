@@ -59,9 +59,12 @@ from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.contracts import WorkflowAccessDenied
+from products.workflows.backend.facade.proposals import approve_proposal
+from products.workflows.backend.facade.revisions import restore_revision
 from products.workflows.backend.facade.writes import save_validated_workflow, update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
@@ -8669,10 +8672,25 @@ class TestT3CodeStepOwnership(APIBaseTest):
             == "draft"
         )
 
-    @parameterized.expand([("rename",), ("enable_from_a_canvas",)])
+    _CONCURRENT_CHANGES: dict[str, tuple[str, Callable[..., Any], str, str, dict]] = {
+        "rename": ("update_workflow", update_workflow, "patch", "", {"name": "Renamed"}),
+        "restore": ("restore_revision", restore_revision, "post", "/revisions/1/restore", {"overwrite": True}),
+        "approve": (
+            "approve_proposal",
+            approve_proposal,
+            "post",
+            "/proposals/00000000-0000-4000-8000-000000000000/approve",
+            {"overwrite": True},
+        ),
+    }
+
+    @parameterized.expand([("rename",), ("restore",), ("approve",), ("enable_from_a_canvas",)])
     def test_a_teammate_cannot_change_it_while_the_owner_adds_a_t3_code_step(self, change: str) -> None:
         trigger, t3_code_step = self.flow.actions
         HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger])
+        HogFlowRevision.objects.for_team(self.team.id).create(
+            team=self.team, hog_flow=self.flow, version=1, content={"actions": [trigger]}
+        )
         teammate = self._log_in_as("teammate")
 
         def add_the_t3_code_step_first(write: Callable[..., Any]) -> Callable[..., Any]:
@@ -8683,10 +8701,11 @@ class TestT3CodeStepOwnership(APIBaseTest):
             return write_after_the_owner
 
         views = "products.workflows.backend.presentation.views.hog_flow"
-        if change == "rename":
-            with patch(f"{views}.update_workflow", side_effect=add_the_t3_code_step_first(update_workflow)):
-                response = self.client.patch(
-                    f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}", {"name": "Renamed"}, format="json"
+        if change in self._CONCURRENT_CHANGES:
+            service_name, service, method, path, body = self._CONCURRENT_CHANGES[change]
+            with patch(f"{views}.{service_name}", side_effect=add_the_t3_code_step_first(service)):
+                response = getattr(self.client, method)(
+                    f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}{path}", body, format="json"
                 )
             assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         else:
@@ -8700,7 +8719,24 @@ class TestT3CodeStepOwnership(APIBaseTest):
                 set_workflow_enabled(team_id=self.team.id, user_id=teammate.id, workflow_id=self.flow.id, enabled=True)
 
         flow = HogFlow.objects.get(id=self.flow.id)
-        assert (flow.name, flow.status) == ("Fix signup errors", "draft")
+        assert (flow.name, flow.status, flow.draft) == ("Fix signup errors", "draft", None)
+
+    def test_a_teammate_cannot_restore_a_t3_code_step_the_workflow_no_longer_has(self) -> None:
+        trigger, _ = self.flow.actions
+        HogFlow.objects.filter(id=self.flow.id).update(actions=[trigger])
+        HogFlowRevision.objects.for_team(self.team.id).create(
+            team=self.team, hog_flow=self.flow, version=1, content={"actions": self.flow.actions}
+        )
+        self._log_in_as("teammate")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/revisions/1/restore",
+            {"overwrite": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert HogFlow.objects.get(id=self.flow.id).draft is None
 
     def test_a_transactional_email_workflow_cannot_have_a_t3_code_step(self) -> None:
         template = deepcopy(webhook_template)

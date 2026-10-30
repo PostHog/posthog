@@ -6149,14 +6149,17 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         workflow_ref = self._workflow_ref()
-        self._require_t3_code_caller_access(request, self._edit_state())
         restored_version = int(version or 0)
+        revision = get_revision(hog_flow_id=workflow_ref.id, version=restored_version)
+        restored_actions = revision.content.get("actions") if revision else None
+        self._require_t3_code_caller_access(request, self._edit_state(), restored_actions)
         try:
             result = restore_revision(
                 hog_flow_id=workflow_ref.id,
                 version=restored_version,
                 overwrite=param_serializer.validated_data["overwrite"],
                 expected_draft_updated_at=param_serializer.validated_data.get("expected_draft_updated_at"),
+                authorize=lambda locked: self._require_t3_code_caller_access(request, locked, restored_actions),
             )
         except WorkflowRevisionNotFound:
             raise exceptions.NotFound("No such revision for this workflow.")
@@ -6367,8 +6370,14 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
 
         workflow_ref = self._workflow_ref()
-        self._require_t3_code_caller_access(request, self._edit_state())
         parsed_proposal_id = _parse_uuid_or_none(proposal_id)
+        proposal = (
+            get_proposal(team_id=self.team_id, hog_flow_id=workflow_ref.id, proposal_id=parsed_proposal_id)
+            if parsed_proposal_id
+            else None
+        )
+        proposed_actions = proposal.content.get("actions") if proposal else None
+        self._require_t3_code_caller_access(request, self._edit_state(), proposed_actions)
         if parsed_proposal_id is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
 
@@ -6388,6 +6397,7 @@ class HogFlowViewSet(
                 expected_draft_updated_at=param_serializer.validated_data.get("expected_draft_updated_at"),
                 resolved_by_id=request.user.pk if request.user.is_authenticated else None,
                 check_runnable=check_runnable,
+                authorize=lambda locked: self._require_t3_code_caller_access(request, locked, proposed_actions),
             )
         except WorkflowProposalNotFound:
             raise exceptions.NotFound("No such suggestion for this workflow.")
