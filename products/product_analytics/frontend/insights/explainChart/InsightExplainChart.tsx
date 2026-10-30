@@ -2,11 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-
 import type { InsightLogicProps } from '~/types'
 
-import { getToolOutputRecord, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import {
     ExplainChartView,
     type StoryEvidenceCharts,
@@ -31,18 +28,7 @@ export interface InsightExplainChartProps {
 
 export function InsightExplainChart({ insightProps, renderChart }: InsightExplainChartProps): JSX.Element {
     const { explainAvailable, story, storyShown, formatValue } = useValues(explainChartLogic(insightProps))
-    const { explainChartToolCompleted, askFollowUp } = useActions(explainChartLogic(insightProps))
-
-    useMcpToolApplyBack({
-        tools: ['explain-chart'],
-        targetKey: `explain-chart-${keyForInsightLogicProps('new')(insightProps)}`,
-        active: explainAvailable,
-        onApply: (event, { innerInput }) =>
-            explainChartToolCompleted(
-                innerInput,
-                getToolOutputRecord({ rawOutput: event.invocation.output, status: event.invocation.status })
-            ),
-    })
+    const { askFollowUp } = useActions(explainChartLogic(insightProps))
 
     if (!explainAvailable || !story || !storyShown) {
         return <>{renderChart()}</>
@@ -56,7 +42,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
                 formatValue={formatValue}
                 evidenceCharts={EVIDENCE_CHARTS}
-                footer={<ExplainChartFollowUp onClick={askFollowUp} />}
+                chapterAction={(page, step) => <ExplainChartFollowUp onClick={() => askFollowUp(page, step)} />}
                 onPageChange={({ index, fromIndex, source }) =>
                     // pinned: analytics event name, renaming breaks dashboards
                     posthog.capture('explain chart page viewed', {

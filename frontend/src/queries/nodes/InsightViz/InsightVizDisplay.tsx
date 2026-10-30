@@ -48,6 +48,7 @@ import {
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
+import { ExplainChartAgentBridge } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAgentBridge'
 import { ExplainChartAIAnalysisFallback } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback'
 import { ExplainChartButton } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartButton'
 import { InsightExplainChart } from 'products/product_analytics/frontend/insights/explainChart/InsightExplainChart'
@@ -653,6 +654,7 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
+            {showsExplainChart && <ExplainChartAgentBridge insightProps={insightProps} />}
             {renderAIAnalysisSection()}
             {renderTable()}
         </>
