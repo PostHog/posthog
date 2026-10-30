@@ -493,6 +493,7 @@ export interface inboxFiltersLogicMeta {
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
         visibleStateFilter: (
             stateFilter: (
+                | 'closed'
                 | 'dismissed'
                 | 'held-back'
                 | 'monitoring'

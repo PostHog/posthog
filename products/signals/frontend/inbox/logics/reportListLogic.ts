@@ -311,10 +311,10 @@ export interface reportListLogicActions {
     loadHasProjectClosedReports: (_: void) => void
     loadHasProjectClosedReportsFailure: (
         error: string,
-        errorObject?: unknown
+        errorObject?: any
     ) => {
         error: string
-        errorObject?: unknown
+        errorObject?: any
     }
     loadHasProjectClosedReportsSuccess: (
         hasProjectClosedReports: boolean,
