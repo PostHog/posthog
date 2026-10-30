@@ -377,8 +377,8 @@ class TestInventoryEndpoints:
         [
             ("groups", ODATA_PAGE_SIZE),
             ("refreshables", REFRESHABLES_PAGE_SIZE),
-            # A full page of workspaces with no users yields no rows but must not end the walk.
-            ("workspace_users", ODATA_PAGE_SIZE),
+            # A full page of dashboards with no tiles yields no rows but must not end the walk.
+            ("dashboard_tiles", ODATA_PAGE_SIZE),
         ]
     )
     def test_full_page_advances_skip_until_a_short_page(self, endpoint: str, page_size: int) -> None:
@@ -392,7 +392,6 @@ class TestInventoryEndpoints:
 
     @parameterized.expand(
         [
-            ("workspace_users", "users", "workspace_id", {"identifier": "a@example.com"}),
             ("dashboard_tiles", "tiles", "dashboard_id", {"id": "tile-1"}),
         ]
     )

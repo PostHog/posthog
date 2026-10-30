@@ -153,20 +153,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tenantKeyId": "Identifier of the encryption key assigned to the capacity.",
         },
     },
-    "workspace_users": {
-        "description": "A user, security group, or app with access to a workspace, one row per workspace and principal.",
-        "docs_url": "https://learn.microsoft.com/en-us/rest/api/power-bi/admin/groups-get-group-users-as-admin",
-        "columns": {
-            "workspace_id": "Identifier of the workspace the access applies to.",
-            "identifier": "Identifier of the principal, such as a user principal name or an object ID.",
-            "emailAddress": "Email address of the user.",
-            "displayName": "Display name of the principal.",
-            "graphId": "Identifier of the principal in Microsoft Graph.",
-            "principalType": "Type of principal, for example User, Group, or App.",
-            "userType": "Type of the user, for example Member or Guest.",
-            "groupUserAccessRight": "Access right the principal has on the workspace, for example Admin, Member, Contributor, or Viewer.",
-        },
-    },
     "dashboard_tiles": {
         "description": "A tile on a dashboard, one row per dashboard and tile.",
         "docs_url": "https://learn.microsoft.com/en-us/rest/api/power-bi/admin/dashboards-get-tiles-as-admin",

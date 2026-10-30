@@ -105,15 +105,6 @@ POWER_BI_ADMIN_ENDPOINTS: dict[str, PowerBiAdminEndpointConfig] = {
         description="Premium and Fabric capacities assigned to the tenant",
         supports_odata_paging=False,
     ),
-    "workspace_users": PowerBiAdminEndpointConfig(
-        name="workspace_users",
-        path="/groups",
-        primary_keys=["workspace_id", "identifier"],
-        description="Users, groups, and apps with access to each workspace, with their access right",
-        params={"$expand": "users"},
-        child_key="users",
-        parent_id_column="workspace_id",
-    ),
     "dashboard_tiles": PowerBiAdminEndpointConfig(
         name="dashboard_tiles",
         path="/dashboards",
