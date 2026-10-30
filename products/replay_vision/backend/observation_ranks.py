@@ -22,6 +22,7 @@ _WRITE_CHUNK = 500
 _COPY_SLICE = timedelta(days=1)
 
 CATEGORY_CODES: dict[str, int] = {category.name.lower(): category.value for category in RankCategory}
+CATEGORY_NAMES: dict[int, str] = {code: name for name, code in CATEGORY_CODES.items()}
 
 # A snapshot that names an experiment as anything but a plain integer gets -1, which matches no experiment, so the row
 # stays hidden from every viewer rather than readable by all.
