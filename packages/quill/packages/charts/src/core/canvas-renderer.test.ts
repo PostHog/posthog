@@ -233,6 +233,18 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    // Round caps close a dash gap narrower than the width, so the default gap grows with it.
+    it.each([
+        { name: 'the default width', width: undefined, custom: undefined, expected: [10, 10] },
+        { name: 'a 10px line', width: 10, custom: undefined, expected: [10, 18] },
+        { name: 'a custom pattern on a 10px line', width: 10, custom: [2, 8], expected: [2, 8] },
+    ])('keeps the incomplete-period dash open for $name', ({ width, custom, expected }) => {
+        const ctx = mockCanvasContext()
+        const stroke = { width, partial: { fromIndex: 1, pattern: custom } }
+        drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), makeSeries({ key: 's1', data: [10, 50, 30], stroke }))
+        expect(dashCalls(ctx)).toContainEqual(expected)
+    })
+
     describe('drawLine — monotone smoothing and yFloor', () => {
         it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
             const ctx = mockCanvasContext()
