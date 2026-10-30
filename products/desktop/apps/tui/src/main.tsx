@@ -38,6 +38,8 @@ const instance = render(root(Root), {
 });
 mouse.enable();
 mounted.__posthogTuiMounted = true;
+// The agent service's modules take over half a second to load, so they load now, behind the first paint, not on the first Claude chat.
+void import("@posthog/workspace-server/services/agent/agent");
 
 let reloading = false;
 if (import.meta.hot) {
