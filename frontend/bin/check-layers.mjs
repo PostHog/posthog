@@ -9,16 +9,13 @@
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-import { esbuildBuild } from '@posthog/esbuilder'
-
-import { AUTHENTICATED_SHELL, BOOT_ENTRIES } from './bootEntries.mjs'
+import { AUTHENTICATED_SHELL } from './bootEntries.mjs'
+import { chainTo, isAssetPath, readImportGraph, repoRoot, staticReach } from './importGraph.mjs'
 import { renderLayerGraphHtml } from './layerGraphHtml.mjs'
 import { findOpportunities } from './layerOpportunities.mjs'
 import { LAYERS, isUpward, layerOf } from './layers.mjs'
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const baselinePath = path.join(repoRoot, 'frontend', 'bin', 'layer-baseline.txt')
 const BASELINE_HEADER = `# Static imports from a lower frontend layer into a higher one (see frontend/bin/layers.mjs).
 # Grandfathered debt: the check fails on an upward import that is NOT listed here.
@@ -27,132 +24,11 @@ const BASELINE_HEADER = `# Static imports from a lower frontend layer into a hig
 # Fixed one? Run \`hogli lint:frontend-layers --prune-baseline\` to drop it.
 `
 
-// Path aliases resolve through tsconfig; anything else that is not relative is a package, and packages
-// are outside the layer map.
-const ALIAS_PREFIXES = ['lib/', 'scenes/', '~/', 'products/', 'public/', '@posthog/', '@common/']
-const ASSET_EXTENSIONS = [
-    '.css',
-    '.scss',
-    '.svg',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.gif',
-    '.webp',
-    '.avif',
-    '.ico',
-    '.woff',
-    '.woff2',
-    '.ttf',
-    '.otf',
-    '.eot',
-    '.mp3',
-    '.mp4',
-    '.wav',
-    '.ogg',
-    '.lottie',
-    '.riv',
-    '.json',
-    '.md',
-    '.txt',
-    '.html',
-    '.yaml',
-    '.yml',
-    '.csv',
-    '.wasm',
-    '.bin',
-    '.gz',
-    '.zip',
-    '.glb',
-    '.gltf',
-]
-
-const externalizePackages = {
-    name: 'externalize-packages',
-    setup(build) {
-        build.onResolve({ filter: /\?[a-z]+$/ }, (args) => ({ path: args.path, external: true }))
-        build.onResolve({ filter: /^[^./]/ }, async (args) => {
-            if (args.pluginData?.resolvingAlias) {
-                return undefined
-            }
-            if (ALIAS_PREFIXES.some((prefix) => args.path.startsWith(prefix))) {
-                const resolved = await build.resolve(args.path, {
-                    kind: args.kind,
-                    resolveDir: args.resolveDir,
-                    importer: args.importer,
-                    pluginData: { resolvingAlias: true },
-                })
-                if (!resolved.errors.length && !resolved.path.includes('/node_modules/')) {
-                    return resolved
-                }
-            }
-            return { path: args.path, external: true }
-        })
-    },
-}
-
-async function readImportGraph() {
-    const result = await esbuildBuild({
-        absWorkingDir: repoRoot,
-        entryPoints: BOOT_ENTRIES.map((entry) => `frontend/${entry}`),
-        tsconfig: path.join(repoRoot, 'tsconfig.json'),
-        bundle: true,
-        splitting: true,
-        format: 'esm',
-        jsx: 'automatic',
-        write: false,
-        metafile: true,
-        outdir: path.join(repoRoot, 'frontend', '.layer-check-out'),
-        logLevel: 'silent',
-        loader: Object.fromEntries(ASSET_EXTENSIONS.map((extension) => [extension, 'empty'])),
-        plugins: [externalizePackages],
-    })
-    const files = {}
-    for (const [file, input] of Object.entries(result.metafile.inputs)) {
-        files[file] = {
-            bytes: input.bytes,
-            staticImports: input.imports
-                .filter((i) => i.kind === 'import-statement' && !i.external && !isAssetPath(i.path))
-                .map((i) => i.path),
-        }
-    }
-    return files
-}
-
-// The `empty` loader keeps asset files out of the bundle, but esbuild still records the import edge
-// in the metafile. An asset carries no feature code, so it must not count as an upward import.
-function isAssetPath(importPath) {
-    return ASSET_EXTENSIONS.includes(path.extname(importPath).toLowerCase())
-}
-
-function staticReach(files, root) {
-    const parentOf = new Map([[root, null]])
-    const queue = [root]
-    while (queue.length) {
-        const file = queue.shift()
-        for (const target of files[file]?.staticImports ?? []) {
-            if (!parentOf.has(target)) {
-                parentOf.set(target, file)
-                queue.push(target)
-            }
-        }
-    }
-    return parentOf
-}
-
-function chainTo(parentOf, file) {
-    const chain = []
-    for (let current = file; current; current = parentOf.get(current)) {
-        chain.unshift(current)
-    }
-    return chain
-}
-
 function upwardImports(files) {
     const edges = []
     for (const [from, { staticImports }] of Object.entries(files)) {
         for (const to of staticImports) {
-            if (isUpward(from, to)) {
+            if (!isAssetPath(to) && isUpward(from, to)) {
                 edges.push(`${from} -> ${to}`)
             }
         }
