@@ -382,6 +382,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -459,6 +460,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -536,6 +538,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -613,6 +616,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -690,6 +694,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -767,6 +772,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -844,6 +850,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -921,6 +928,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -1744,6 +1752,7 @@
                                 field: "override"
                                 lazy_join: {
                                   description: None,
+                                  extra_from_fields: [],
                                   from_field: [
                                     "distinct_id"
                                   ],
@@ -1831,6 +1840,7 @@
                         field: "override"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "distinct_id"
                           ],
@@ -2736,6 +2746,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -2826,6 +2837,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -3163,6 +3175,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3259,6 +3272,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3355,6 +3369,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3451,6 +3466,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3547,6 +3563,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3643,6 +3660,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3739,6 +3757,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3835,6 +3854,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -5660,6 +5680,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5737,6 +5758,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5814,6 +5836,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5891,6 +5914,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5968,6 +5992,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6045,6 +6070,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6122,6 +6148,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6199,6 +6226,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6695,6 +6723,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6772,6 +6801,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6849,6 +6879,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6926,6 +6957,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7003,6 +7035,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7080,6 +7113,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7157,6 +7191,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7234,6 +7269,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -8060,6 +8096,7 @@
                                   field: "override"
                                   lazy_join: {
                                     description: None,
+                                    extra_from_fields: [],
                                     from_field: [
                                       "distinct_id"
                                     ],
@@ -8147,6 +8184,7 @@
                           field: "override"
                           lazy_join: {
                             description: None,
+                            extra_from_fields: [],
                             from_field: [
                               "distinct_id"
                             ],
@@ -8708,6 +8746,7 @@
                                       field: "override"
                                       lazy_join: {
                                         description: None,
+                                        extra_from_fields: [],
                                         from_field: [
                                           "distinct_id"
                                         ],
@@ -8795,6 +8834,7 @@
                               field: "override"
                               lazy_join: {
                                 description: None,
+                                extra_from_fields: [],
                                 from_field: [
                                   "distinct_id"
                                 ],
@@ -9931,6 +9971,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -10021,6 +10062,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -10358,6 +10400,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10454,6 +10497,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10550,6 +10594,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10646,6 +10691,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10742,6 +10788,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10838,6 +10885,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10934,6 +10982,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -11030,6 +11079,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -11618,6 +11668,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -11708,6 +11759,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -12045,6 +12097,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12141,6 +12194,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12237,6 +12291,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12333,6 +12388,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12429,6 +12485,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12525,6 +12582,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12621,6 +12679,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12717,6 +12776,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -15547,6 +15607,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15560,6 +15621,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -15910,6 +15972,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15923,6 +15986,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -16269,6 +16333,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16617,6 +16682,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16754,6 +16820,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -17708,6 +17775,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -17798,6 +17866,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],

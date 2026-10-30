@@ -553,6 +553,8 @@ class LazyTableResolver(TraversingVisitor):
         for new_join in joins_to_add.values():
             if new_join.from_table in joins_to_add or new_join.from_table in tables_to_add:
                 create_override(new_join.from_table, new_join.lazy_join.from_field)
+                for extra_from_field in new_join.lazy_join.extra_from_fields:
+                    create_override(new_join.from_table, extra_from_field)
             if new_join.lazy_join.to_field is not None and (
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):

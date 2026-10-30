@@ -95,6 +95,15 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                     BOUND,
                 ),
             ),
+            (
+                "or_of_flag_keys_with_other_conditions",
+                _where(
+                    FLAG_CALLED,
+                    "((properties.$feature_flag = 'a' AND distinct_id = 'x') "
+                    "OR (properties.$feature_flag = 'b' AND distinct_id = 'y'))",
+                    BOUND,
+                ),
+            ),
             ("pin_in_prewhere", f"SELECT count() FROM events PREWHERE {FLAG_CALLED} WHERE {FLAG_KEY} AND {BOUND}"),
             ("conjuncts_in_nested_ands", _where(FLAG_CALLED, f"({FLAG_KEY} AND ({BOUND} AND distinct_id = 'd'))")),
             (

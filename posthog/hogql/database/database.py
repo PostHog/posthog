@@ -176,6 +176,7 @@ from posthog.schema_enums import (
     DatabaseSerializedFieldType,
     DataWarehouseSavedQueryOrigin,
     PersonsOnEventsMode,
+    SessionsV2JoinMode,
     SessionTableVersion,
 )
 from posthog.scopes import APIScopeObject
@@ -2463,6 +2464,9 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]]
+                    if modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID
+                    else [],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V2,
                 )
@@ -2489,6 +2493,7 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V3,
                 )

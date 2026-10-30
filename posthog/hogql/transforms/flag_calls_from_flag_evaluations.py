@@ -129,9 +129,9 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before.
     """
-    scan = _EventsScan.of(node, lambda: flag_key_compares_as_string)
+    scan = EventsScan.of(node, lambda: flag_key_compares_as_string)
     return scan is not None and _qualifies(
-        scan, node, _filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
+        scan, node, filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
 
 
@@ -184,9 +184,7 @@ def _resolve_with_swaps(
     database: "Database",
     only_in_flag_evaluations: bool,
 ) -> _T_AST:
-    finder = _FlagCalledConstantFinder()
-    finder.visit(node)
-    if not finder.found:
+    if not names_flag_called_event(node):
         return resolve(node)
     if not only_in_flag_evaluations and context.uses_new_events_schema():
         return resolve(node)
@@ -246,7 +244,7 @@ def _flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
 
 
 def _qualifies(
-    scan: "_EventsScan",
+    scan: "EventsScan",
     node: ast.SelectQuery,
     conjuncts: list[ast.Expr],
     now: datetime,
@@ -261,7 +259,7 @@ def _qualifies(
     return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now, timezone)
 
 
-class _EventsScan:
+class EventsScan:
     def __init__(
         self,
         join: ast.JoinExpr,
@@ -276,7 +274,7 @@ class _EventsScan:
         self.shadowed: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool]) -> "_EventsScan | None":
+    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool]) -> "EventsScan | None":
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field) or join.table.chain != ["events"]:
             return None
@@ -344,10 +342,14 @@ class _EventsScan:
         values = _pinned_values(expr, self._reads_flag_key, _is_flag_key)
         if values is not None:
             return [value.value for value in values if isinstance(value, ast.Constant)]
-        if isinstance(expr, ast.Or) and expr.exprs:
-            branches = [self._flag_keys_in(branch) for branch in expr.exprs]
-            if all(keys is not None for keys in branches):
-                return [key for keys in branches if keys is not None for key in keys]
+        if branches := boolean_operands(expr, ast.Or):
+            branch_keys = [self._flag_keys_in(branch) for branch in branches]
+            if all(keys is not None for keys in branch_keys):
+                return [key for keys in branch_keys if keys is not None for key in keys]
+        for conjunct in boolean_operands(expr, ast.And) or []:
+            keys = self._flag_keys_in(conjunct)
+            if keys is not None:
+                return keys
         return None
 
     def flag_keys(self, conjuncts: list[ast.Expr]) -> list[str]:
@@ -386,7 +388,7 @@ class _EventsScan:
     def _lower_bound(self, expr: ast.Expr) -> ast.Expr | None:
         if isinstance(expr, ast.BetweenExpr):
             return expr.low if not expr.negated and self._reads_timestamp(expr.expr) else None
-        comparison = _comparison(expr)
+        comparison = comparison_of(expr)
         if comparison is None:
             return None
         if comparison.op in (ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Gt) and self._reads_timestamp(
@@ -403,7 +405,7 @@ class _EventsScan:
         return self.column(expr) == ["timestamp"]
 
 
-def _comparison(expr: ast.Expr) -> ast.CompareOperation | None:
+def comparison_of(expr: ast.Expr) -> ast.CompareOperation | None:
     """`expr` as a comparison, whether it is written `a >= b` or `greaterOrEquals(a, b)`."""
     if isinstance(expr, ast.CompareOperation):
         return expr
@@ -412,22 +414,62 @@ def _comparison(expr: ast.Expr) -> ast.CompareOperation | None:
     return None
 
 
-def _pinned_values(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> list[ast.Expr] | None:
-    """The values `expr` limits what `reads` matches to, or None when they are not all values `accepts` matches."""
-    comparison = _comparison(expr)
+def compared_values(expr: ast.Expr, reads: _Predicate) -> list[ast.Expr] | None:
+    """The values that `expr` compares a read matching `reads` with by `=` or `IN`, or None."""
+    comparison = comparison_of(expr)
     if comparison is None:
         return None
     if comparison.op == ast.CompareOperationOp.Eq:
-        if reads(comparison.left) and accepts(comparison.right):
+        if reads(comparison.left):
             return [comparison.right]
-        if reads(comparison.right) and accepts(comparison.left):
-            return [comparison.left]
-        return None
-    if comparison.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+        return [comparison.left] if reads(comparison.right) else None
+    if comparison.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn) and reads(comparison.left):
         right = comparison.right
-        values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
-        return values if reads(comparison.left) and values and all(accepts(value) for value in values) else None
+        return right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
     return None
+
+
+def _pinned_values(expr: ast.Expr, reads: _Predicate, accepts: _Predicate) -> list[ast.Expr] | None:
+    """The values `expr` limits what `reads` matches to, or None when they are not all values `accepts` matches."""
+    values = compared_values(expr, reads)
+    return values if values and all(accepts(value) for value in values) else None
+
+
+def flag_key_predicate(table: str, keys: list[str]) -> ast.Expr | None:
+    """`flag_key IN keys` on `table`, or None when a pin of `$feature_flag` to `keys` does not imply it.
+
+    flag_key holds the key's JSON text, and a JSONExtractString pin compares the decoded key. The pin implies this
+    predicate only when the JSON text of each key is the key itself.
+    """
+    if not keys or not all(is_json_verbatim(key) for key in keys):
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=[table, "flag_key"]),
+        right=ast.Tuple(exprs=[ast.Constant(value=key) for key in keys]),
+    )
+
+
+def point_scan_at(
+    node: ast.SelectQuery, scan: EventsScan, chain: list[str | int], condition: ast.Expr | None = None
+) -> None:
+    """Points `scan` at the table `chain` names, and moves the PREWHERE of `node`, with `condition`, into its WHERE.
+
+    The new table can read person columns through a join that the printer adds later, and ClickHouse rejects a
+    PREWHERE that reads a joined column. WHERE selects the same rows.
+    """
+    # The old alias keeps qualified reads such as `events.timestamp` resolving.
+    scan.join.alias = scan.alias
+    scan.join.table = ast.Field(chain=chain)
+    node.where = and_conditions([node.prewhere, node.where, condition])
+    node.prewhere = None
+
+
+def and_conditions(conditions: list[ast.Expr | None]) -> ast.Expr | None:
+    present = [condition for condition in conditions if condition is not None]
+    if not present:
+        return None
+    return present[0] if len(present) == 1 else ast.And(exprs=present)
 
 
 def _is_constant(expr: ast.Expr, value: str) -> bool:
@@ -453,12 +495,29 @@ def _conjuncts(expr: ast.Expr | None) -> list[ast.Expr]:
     return top_level_conjuncts(expr) if expr is not None else []
 
 
-def _filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
+def filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
+    """The top-level conjuncts of the WHERE and PREWHERE of `node`."""
     return _conjuncts(node.where) + _conjuncts(node.prewhere)
 
 
 def _utc_midnight(now: datetime) -> datetime:
     return start_of_day(now.astimezone(UTC))
+
+
+def names_flag_called_event(node: ast.AST) -> bool:
+    """Whether `$feature_flag_called` appears as a constant anywhere in `node`."""
+    finder = _FlagCalledConstantFinder()
+    finder.visit(node)
+    return finder.found
+
+
+def boolean_operands(expr: ast.Expr, operator: type[ast.And] | type[ast.Or]) -> list[ast.Expr] | None:
+    """The operands of an AND or an OR, in its node or its call form, or None for any other expression."""
+    if isinstance(expr, operator):
+        return expr.exprs
+    if isinstance(expr, ast.Call) and expr.name == ("and" if operator is ast.And else "or"):
+        return expr.args
+    return None
 
 
 def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> datetime | None:
@@ -620,14 +679,14 @@ def _constant_instant(value: object, zones: tuple[tzinfo, ...]) -> datetime | No
     return min(value.replace(tzinfo=zone) for zone in zones)
 
 
-class _SyntaxVisitor(TraversingVisitor):
+class SyntaxVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         # The inherited visit follows the field's type into shared CTE types, which takes exponential time. An
         # earlier step can resolve parts of the tree in place.
         pass
 
 
-class _AliasCollector(_SyntaxVisitor):
+class _AliasCollector(SyntaxVisitor):
     def __init__(self, root: ast.SelectQuery) -> None:
         super().__init__()
         self.root = root
@@ -646,7 +705,7 @@ class _AliasCollector(_SyntaxVisitor):
         super().visit_alias(node)
 
 
-class _FlagCalledConstantFinder(_SyntaxVisitor):
+class _FlagCalledConstantFinder(SyntaxVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.found = False
@@ -656,25 +715,13 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
             self.found = True
 
 
-class _EventsScanSwapper(_SyntaxVisitor):
-    def __init__(
-        self,
-        now: datetime,
-        timezone: ZoneInfo,
-        only_in_flag_evaluations: bool,
-        flag_key_compares_as_string: Callable[[], bool],
-    ) -> None:
+class ScanVisitor(SyntaxVisitor):
+    """Calls `visit_scan_query` for each SELECT whose `FROM events` can read the events table, not a CTE."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self.now = now
-        self.timezone = timezone
-        self.only_in_flag_evaluations = only_in_flag_evaluations
-        self.flag_key_compares_as_string = flag_key_compares_as_string
-        self.swapped = False
-        self.flag_key_predicates = 0
-        # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
-        self.refusals: list[str] = []
         # The CTE names in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
-        # A name missing here lets the swapper try the scan, and the binding check then rejects the swap.
+        # A name missing here lets a subclass change the scan, and the binding check then rejects the change.
         self.ctes: frozenset[str] = frozenset()
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
@@ -697,42 +744,53 @@ class _EventsScanSwapper(_SyntaxVisitor):
         for cte in (node.ctes or {}).values():
             self.visit(cte.expr)
             self.ctes = self.ctes.union([cte.name])
-        scan = None if "events" in self.ctes else _EventsScan.of(node, self.flag_key_compares_as_string)
-        if scan is not None:
-            conjuncts = _filter_conjuncts(node)
-            if _qualifies(
-                scan, node, conjuncts, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
-            ):
-                self._swap(node, scan, conjuncts)
-            else:
-                refusal = scan.shape_refusal(node)
-                if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
-                    self.refusals.append(refusal)
+        if "events" not in self.ctes:
+            self.visit_scan_query(node)
         super().visit_select_query(node)
         self.ctes = outer
 
-    def _swap(self, node: ast.SelectQuery, scan: _EventsScan, conjuncts: list[ast.Expr]) -> None:
-        keys = scan.flag_keys(conjuncts)
-        # The old alias keeps qualified reads such as `events.timestamp` resolving.
-        scan.join.alias = scan.alias
-        scan.join.table = ast.Field(chain=["posthog", "flag_evaluations"])
-        # A swapped PREWHERE can read person columns through a join that the printer adds later. ClickHouse
-        # rejects a PREWHERE that reads a joined column, and WHERE selects the same rows.
-        conditions = [condition for condition in (node.prewhere, node.where) if condition is not None]
-        # flag_key sorts the table, so this predicate lets ClickHouse skip other flags. flag_key holds the key's JSON
-        # text, and a JSONExtractString pin compares the decoded key. The pin implies this predicate only when the
-        # JSON text of each key is the key itself.
-        if keys and all(is_json_verbatim(key) for key in keys):
-            conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=[scan.alias, "flag_key"]),
-                    right=ast.Tuple(exprs=[ast.Constant(value=key) for key in keys]),
-                )
-            )
+    def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        raise NotImplementedError
+
+
+class _EventsScanSwapper(ScanVisitor):
+    def __init__(
+        self,
+        now: datetime,
+        timezone: ZoneInfo,
+        only_in_flag_evaluations: bool,
+        flag_key_compares_as_string: Callable[[], bool],
+    ) -> None:
+        super().__init__()
+        self.now = now
+        self.timezone = timezone
+        self.only_in_flag_evaluations = only_in_flag_evaluations
+        self.flag_key_compares_as_string = flag_key_compares_as_string
+        self.swapped = False
+        self.flag_key_predicates = 0
+        # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
+        self.refusals: list[str] = []
+
+    def visit_scan_query(self, node: ast.SelectQuery) -> None:
+        scan = EventsScan.of(node, self.flag_key_compares_as_string)
+        if scan is None:
+            return
+        conjuncts = filter_conjuncts(node)
+        if _qualifies(
+            scan, node, conjuncts, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
+        ):
+            self._swap(node, scan, conjuncts)
+        else:
+            refusal = scan.shape_refusal(node)
+            if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
+                self.refusals.append(refusal)
+
+    def _swap(self, node: ast.SelectQuery, scan: EventsScan, conjuncts: list[ast.Expr]) -> None:
+        # flag_key sorts the table, so this predicate lets ClickHouse skip other flags.
+        flag_key = flag_key_predicate(scan.alias, scan.flag_keys(conjuncts))
+        if flag_key is not None:
             self.flag_key_predicates += 1
-        node.prewhere = None
-        node.where = conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
+        point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
 
 
@@ -764,7 +822,7 @@ def _bindings(node: ast.AST) -> list[_Binding]:
     return collector.bindings
 
 
-class _BindingCollector(_SyntaxVisitor):
+class _BindingCollector(SyntaxVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.bindings: list[_Binding] = []
@@ -907,7 +965,7 @@ def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list
     return sources
 
 
-class _PropertyReadCollector(_SyntaxVisitor):
+class _PropertyReadCollector(SyntaxVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__()
         self.context = context
@@ -932,7 +990,7 @@ def _view_reading_flag_calls_from_events(node: ast.AST) -> str | None:
     return finder.found
 
 
-class _FlagCallViewFinder(_SyntaxVisitor):
+class _FlagCallViewFinder(SyntaxVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.view: str | None = None
@@ -949,11 +1007,11 @@ class _FlagCallViewFinder(_SyntaxVisitor):
 
 
 def _reads_only_flag_calls_from_events(node: ast.SelectQuery) -> bool:
-    scan = _EventsScan.of(node, lambda: True)
+    scan = EventsScan.of(node, lambda: True)
     return (
         scan is not None
         and _reads_events_table(scan.join)
-        and scan.pins_flag_calls(_filter_conjuncts(node), needs_flag_key=False)
+        and scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False)
     )
 
 
