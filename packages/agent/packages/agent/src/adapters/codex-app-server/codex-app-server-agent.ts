@@ -66,6 +66,7 @@ import {
 import {
   classifyAgentError,
   isRetryableUpstreamErrorClassification,
+  rejectedRequestMessage,
   sanitizeAgentErrorCause,
 } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
@@ -956,9 +957,24 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (compactCommand) {
       this.planHandoffCancel?.();
       this.broadcastUserInput(visiblePromptBlocks(params.prompt));
-      return await this.runOwnedTurn(APP_SERVER_METHODS.THREAD_COMPACT_START, {
-        threadId: this.threadId,
-      });
+      try {
+        return await this.runOwnedTurn(
+          APP_SERVER_METHODS.THREAD_COMPACT_START,
+          { threadId: this.threadId },
+        );
+      } catch (error) {
+        if (
+          classifyGatewayLimitError(
+            error instanceof Error ? error.message : String(error),
+          ) !== null
+        ) {
+          throw error;
+        }
+        this.logger.warn("Codex manual compaction failed", {
+          error: String(error),
+        });
+        return { stopReason: "end_turn", _meta: { compactionFailed: true } };
+      }
     }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.
@@ -2169,7 +2185,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       .catch(() => undefined);
   }
 
-  private endCompaction(reason: StopReason): void {
+  private endCompaction(reason: StopReason, error?: string): void {
     if (!this.compactionActive) return;
     this.compactionActive = false;
     if (reason === "end_turn") {
@@ -2186,7 +2202,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
               status: "compacting",
               isComplete: true,
             }
-          : { sessionId: this.sessionId, status: "compacting_failed" },
+          : {
+              sessionId: this.sessionId,
+              status: "compacting_failed",
+              ...(error ? { error } : {}),
+            },
       )
       .catch(() => undefined);
   }
@@ -2263,7 +2283,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
-    this.endCompaction("refusal");
+    this.endCompaction("refusal", compactionFailureDetail(this.lastTurnError));
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
     if (emitTurnComplete) {
@@ -2664,6 +2684,14 @@ const CODEX_BASELINE_TOKENS = 12000;
 const IMPLEMENT_PLAN_MESSAGE = "Implement the plan.";
 
 /** codex `TurnStatus` → ACP `StopReason`: interrupted → cancel, failed → refusal, else end. */
+function compactionFailureDetail(
+  cause: { message: string } | undefined,
+): string | undefined {
+  const raw = cause?.message.trim();
+  if (!raw) return undefined;
+  return (rejectedRequestMessage(raw) ?? raw).slice(0, MAX_FATAL_CAUSE_LENGTH);
+}
+
 function mapTurnStopReason(status: string | undefined): StopReason {
   if (status === "interrupted") return "cancelled";
   if (status === "failed") return "refusal";

@@ -727,6 +727,18 @@ describe("CodexAppServerAgent", () => {
       expectedStatus: { sessionId: "thr_1", status: "compacting_failed" },
     },
     {
+      label: "hits a fatal model error",
+      prompt: "/compact",
+      status: "error",
+      stopReason: "end_turn",
+      boundaries: 0,
+      expectedStatus: {
+        sessionId: "thr_1",
+        status: "compacting_failed",
+        error: "The model could not summarize this conversation.",
+      },
+    },
+    {
       label: "is cancelled",
       prompt: "/compact",
       status: "cancel",
@@ -770,7 +782,21 @@ describe("CodexAppServerAgent", () => {
           threadId: "thr_1",
           item: { type: "contextCompaction", id: "c1" },
         });
-        if (testCase.status === "cancel") {
+        if (testCase.status === "error") {
+          stub.emit("error", {
+            threadId: "thr_1",
+            turnId: "turn_c",
+            willRetry: false,
+            error: {
+              message: JSON.stringify({
+                error: {
+                  message: "The model could not summarize this conversation.",
+                  type: "invalid_request_error",
+                },
+              }),
+            },
+          });
+        } else if (testCase.status === "cancel") {
           await agent.cancel({ sessionId: "thr_1" });
           expect(stub.requests).toContainEqual({
             method: "turn/interrupt",
@@ -792,6 +818,9 @@ describe("CodexAppServerAgent", () => {
 
         await expect(done).resolves.toMatchObject({
           stopReason: testCase.stopReason,
+          ...(testCase.status === "error"
+            ? { _meta: { compactionFailed: true } }
+            : {}),
         });
         expect(stub.requests).toContainEqual({
           method: "thread/compact/start",
@@ -4440,7 +4469,7 @@ describe("CodexAppServerAgent", () => {
 
     expect(extNotifications).toContainEqual({
       method: "_posthog/status",
-      params: { sessionId: "t", status: "compacting_failed" },
+      params: { sessionId: "t", status: "compacting_failed", error: "boom" },
     });
     expect(
       extNotifications.some((n) => n.method === "_posthog/compact_boundary"),
