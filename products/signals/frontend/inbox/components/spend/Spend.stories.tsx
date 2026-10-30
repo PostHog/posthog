@@ -8,6 +8,7 @@ import { RecordedSpend } from './RecordedSpend'
 import { ReportSpendSection } from './ReportSpendSection'
 import { ScoutSpendLabel } from './ScoutSpendLabel'
 import { SourceSpendLabel } from './SourceSpendLabel'
+import { UsageOverview } from './UsageOverview'
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Usage',
@@ -81,6 +82,15 @@ export const Overview: Story = {
                 <RecordedSpend amount={0} />
                 <RecordedSpend amount={0.0001} />
             </div>
+        </div>
+    ),
+}
+
+export const BySource: Story = {
+    parameters: { testOptions: { waitForSelector: '[data-attr="usage-overview"]' } },
+    render: () => (
+        <div className="max-w-xl p-4">
+            <UsageOverview />
         </div>
     ),
 }

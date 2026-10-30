@@ -12,7 +12,7 @@ import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
 import { InstallationSetupSection } from '../shell/InstallationSetupSection'
-import { ScoutSpendLabel } from '../spend/ScoutSpendLabel'
+import { UsageOverview } from '../spend/UsageOverview'
 import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
@@ -32,13 +32,11 @@ export function SettingsTab(): JSX.Element {
                 <SelfDrivingSection />
             </SettingsSection>
             {usageEnabled && (
-                <SettingsSection title="Usage" description="Recorded usage over the last 30 days.">
-                    <div className="flex flex-col gap-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h3 className="mb-0 text-sm font-semibold">Scout runs</h3>
-                            <ScoutSpendLabel />
-                        </div>
-                    </div>
+                <SettingsSection
+                    title="Usage"
+                    description="Recorded usage for scout runs started and signals received in the last 30 days."
+                >
+                    <UsageOverview />
                 </SettingsSection>
             )}
             <AgentSteeringSection />
