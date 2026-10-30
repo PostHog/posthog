@@ -1,8 +1,9 @@
 """Keep the workflows scout running exactly where someone asked for suggestions.
 
-The scout only reads live workflows whose owner turned on "Suggest improvements", so a project with
-none gains nothing from its runs. The first live opted-in workflow switches the scout on for the
-project, and losing the last one, by opting out, archiving or deleting it, removes it again.
+The scout only reads the email steps of live workflows whose owner turned on "Suggest improvements", so
+a project with none gains nothing from its runs. The first live opted-in workflow with an email step
+switches the scout on for the project, and losing the last one, by opting out, archiving or deleting it,
+removes it again.
 """
 
 from datetime import UTC, timedelta
@@ -31,6 +32,7 @@ from products.workflows.backend.metrics import (
     TARGET_UNTRACKED_METRIC,
 )
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision
+from products.workflows.backend.models.hog_flow.hog_flow import has_agent_step_q
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
 SOURCE_PRODUCT = "workflows"
@@ -61,7 +63,7 @@ _STEP_SENDS_QUERY = """
 
 
 def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: bool) -> None:
-    """Switch the scout on or off to match the project's live opted-in workflows.
+    """Switch the scout on or off to match the project's live opted-in workflows with an email step.
 
     Switching it on grants `hog_flow_proposal:write` and makes `acting_user` the person its runs act as,
     so it happens only with an `acting_user` and `may_grant` set. Switching it off needs neither.
@@ -75,7 +77,13 @@ def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: b
         environments = Team.objects.filter(Q(id=project.id) | Q(parent_team_id=project.id)).values("id")
         wanted = (
             HogFlowOptimization.objects.unscoped()
-            .filter(team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE)
+            .filter(
+                team_id__in=environments,
+                enabled=True,
+                hog_flow__status=HogFlow.State.ACTIVE,
+                hog_flow__actions__contains=[{"type": "function_email"}],
+            )
+            .exclude(has_agent_step_q("hog_flow__actions"))
             .exists()
         )
         if not wanted:

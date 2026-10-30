@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -30,7 +31,11 @@ from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS
+from products.workflows.backend.presentation.views.hog_flow import (
+    DRAFT_CONTENT_FIELDS,
+    suggestion_touches_agent_workflow,
+)
+from products.workflows.backend.services.workflow_proposals import merge_proposal_content
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -88,6 +93,110 @@ def _webhook_action(action_id: str = "action_1", url: str = "https://example.com
     }
 
 
+def _function_action(action_id: str, template_id: str, inputs: dict) -> dict:
+    return {
+        "id": action_id,
+        "name": action_id,
+        "type": "function",
+        "config": {"template_id": template_id, "inputs": inputs},
+    }
+
+
+def _ai_task_action(action_id: str = "ai_task_1") -> dict:
+    return _function_action(
+        action_id,
+        "template-posthog-create-task",
+        {"prompt": {"value": "Investigate the ticket"}, "posthog_mcp_scopes": {"value": "read_only"}},
+    )
+
+
+def _run_scout_action() -> dict:
+    return _function_action("run_scout_1", "template-posthog-run-scout", {"skill_name": {"value": "my-scout"}})
+
+
+def _classify_action() -> dict:
+    return _function_action(
+        "classify_1",
+        "template-posthog-classify",
+        {
+            "question": {"value": "Which team owns this ticket?"},
+            "context": {"value": {"message": "{event.properties.message}"}},
+            "categories": {"value": {"team_billing": "Billing questions", "team_replay": "Replay"}},
+        },
+    )
+
+
+def _classify_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-posthog-classify"
+    template["name"] = "Classify with AI"
+    template["inputs_schema"] = [
+        {"key": "question", "type": "string", "label": "Question", "required": True},
+        {"key": "context", "type": "json", "label": "Context", "required": True},
+        {"key": "categories", "type": "dictionary", "label": "Categories", "required": True},
+    ]
+    return template
+
+
+_PLAIN_FLOW = [_trigger_action(), _webhook_action(), _classify_action()]
+
+
+class TestSuggestionTouchesAgentWorkflow(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "changes a classify step beside an AI task step",
+                [*_PLAIN_FLOW, _ai_task_action()],
+                {"actions": [{"id": "classify_1", "config": {"inputs": {"categories": {"value": {"team_x": "X"}}}}}]},
+                True,
+            ),
+            (
+                "turns the only AI task step into a webhook",
+                [*_PLAIN_FLOW, _ai_task_action()],
+                {"actions": [{"id": "ai_task_1", "config": {"template_id": "template-webhook"}}]},
+                True,
+            ),
+            (
+                "changes a webhook beside a run scout step",
+                [*_PLAIN_FLOW, _run_scout_action()],
+                {"actions": [_webhook_action(url="https://proposed.example.com")]},
+                True,
+            ),
+            (
+                "changes the trigger beside a replay vision step",
+                [*_PLAIN_FLOW, _function_action("vision_1", "template-posthog-replay-vision", {})],
+                {"actions": [{"id": "trigger_node", "config": {"filters": {"events": [{"id": "anything"}]}}}]},
+                True,
+            ),
+            ("adds an AI task step", _PLAIN_FLOW, {"actions": [_ai_task_action("ai_task_2")]}, True),
+            (
+                "turns a webhook into an AI task step",
+                _PLAIN_FLOW,
+                {"actions": [{"id": "action_1", "config": {"template_id": "template-posthog-create-task"}}]},
+                True,
+            ),
+            (
+                "changes a classify step's categories",
+                _PLAIN_FLOW,
+                {"actions": [{"id": "classify_1", "config": {"inputs": {"categories": {"value": {"team_x": "X"}}}}}]},
+                False,
+            ),
+            ("rewires edges with no agent step", _PLAIN_FLOW, {"edges": [{"from": "a", "to": "b"}]}, False),
+            (
+                "sends a template id that is not a string",
+                _PLAIN_FLOW,
+                {"actions": [{"id": "n", "config": {"template_id": ["x"]}}]},
+                False,
+            ),
+        ]
+    )
+    def test_flags_a_workflow_that_has_or_gains_an_agent_step(
+        self, _name: str, live_actions: list[dict], content: dict, expected: bool
+    ):
+        live = {"actions": live_actions, "edges": [], "variables": []}
+        assert suggestion_touches_agent_workflow(live, merge_proposal_content(live, content)) is expected
+
+
 class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -123,7 +232,7 @@ class TestWorkflowProposals(APIBaseTest):
             self._optimize(flow_id)
         return flow_id
 
-    def _propose(self, flow_id: str, **overrides) -> dict:
+    def _propose(self, flow_id: str, expected_status: int = 201, **overrides) -> dict:
         payload = {
             "title": "Point the webhook somewhere that answers",
             "rationale": "Every call to the current URL failed over the last week.",
@@ -148,7 +257,7 @@ class TestWorkflowProposals(APIBaseTest):
             format="json",
             headers={"authorization": f"Bearer {self.producer_key}"},
         )
-        assert response.status_code == 201, response.json()
+        assert response.status_code == expected_status, response.json()
         return response.json()
 
     def _publish(self, flow_id: str):
@@ -593,10 +702,19 @@ class TestWorkflowProposals(APIBaseTest):
         assert turned_on.status_code == 409, turned_on.json()
         assert turned_on.json()["code"] == "workflow_not_live"
 
-    def test_a_workflow_with_no_published_email_step_can_be_opted_out_but_not_back_in(self):
+    @parameterized.expand(
+        [
+            ("only a webhook", [], "workflow_has_no_email_step"),
+            ("an AI task step", [_ai_task_action()], "workflow_has_agent_step"),
+            ("a classify and an AI task step", [_classify_action(), _ai_task_action()], "workflow_has_agent_step"),
+        ]
+    )
+    def test_a_workflow_with_no_published_email_step_can_be_opted_out_but_not_back_in(
+        self, _name: str, other_steps: list[dict], expected_code: str
+    ):
         flow_id = self._create_active_flow()
         HogFlow.objects.filter(id=flow_id).update(
-            actions=[_trigger_action(), _webhook_action()],
+            actions=[_trigger_action(), _webhook_action(), *other_steps],
             draft={"actions": [_trigger_action(), _webhook_action(), _email_action()]},
         )
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization"
@@ -607,8 +725,88 @@ class TestWorkflowProposals(APIBaseTest):
 
         turned_on = self.client.post(url, {"enabled": True}, format="json")
         assert turned_on.status_code == 409, turned_on.json()
-        assert turned_on.json()["code"] == "workflow_has_no_email_step"
+        assert turned_on.json()["code"] == expected_code
         assert HogFlowOptimization.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
+
+    @parameterized.expand(
+        [
+            ("no email step", [], "classify_1"),
+            ("an email step too", [_email_action()], "classify_1"),
+            ("an email step too and no step id", [_email_action()], None),
+        ]
+    )
+    def test_a_classify_step_takes_a_category_suggestion_with_no_email_reading(
+        self, _name: str, other_steps: list[dict], step_id: str | None
+    ):
+        sync_template_to_db(_classify_template())
+        flow_id = self._create_active_flow(optimize=False)
+        HogFlow.objects.filter(id=flow_id).update(actions=[_trigger_action(), *other_steps, _classify_action()])
+        self._toggle(flow_id, True)
+        assert (self._suggestions_scout() is not None) is bool(other_steps)
+
+        proposal = self._propose(
+            flow_id,
+            content={
+                "actions": [
+                    {"id": "classify_1", "config": {"inputs": {"categories": {"value": {"team_growth": "Growth"}}}}}
+                ]
+            },
+            step_id=step_id,
+        )
+        assert "measured" not in proposal["evidence"]
+
+        approved = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+        assert approved.status_code == 200, approved.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        classify = next(step for step in draft["actions"] if step["id"] == "classify_1")
+        assert classify["config"]["inputs"]["categories"]["value"] == {
+            "team_billing": "Billing questions",
+            "team_replay": "Replay",
+            "team_growth": "Growth",
+        }
+
+    def test_an_opted_in_workflow_that_gains_an_agent_step_leaves_the_work_list_and_the_scout(self):
+        agent_flow, email_flow = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
+        self._toggle(agent_flow, True)
+        HogFlow.objects.filter(id=agent_flow).update(
+            actions=[*HogFlow.objects.get(id=agent_flow).actions, _ai_task_action()]
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?optimization_enabled=true").json()
+        assert agent_flow not in {item["id"] for item in listed["results"]}
+        self._toggle(email_flow, True)
+        self._toggle(email_flow, False)
+        assert self._suggestions_scout() is None
+
+    def test_a_suggestion_is_refused_at_approval_once_the_workflow_has_an_agent_step(self):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        HogFlow.objects.filter(id=flow_id).update(actions=[*HogFlow.objects.get(id=flow_id).actions, _ai_task_action()])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+
+        assert response.status_code == 409, response.json()
+        assert response.json()["code"] == "workflow_has_agent_step"
+        assert HogFlow.objects.get(id=flow_id).draft is None
+
+    def test_a_suggestion_that_changes_an_ai_task_step_is_refused(self):
+        flow_id = self._create_active_flow()
+        HogFlow.objects.filter(id=flow_id).update(
+            actions=[_trigger_action(), _webhook_action(), _email_action(), _ai_task_action()]
+        )
+
+        refused = self._propose(
+            flow_id,
+            expected_status=409,
+            content={"actions": [{"id": "ai_task_1", "config": {"inputs": {"posthog_mcp_scopes": {"value": "full"}}}}]},
+        )
+        assert refused["code"] == "workflow_has_agent_step"
+        assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
 
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self):
         flow_id = self._create_active_flow()

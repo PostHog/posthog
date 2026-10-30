@@ -22,7 +22,7 @@ import type {
     WorkflowProposalApi,
     WorkflowProposalOutcomeApi,
 } from '../../generated/api.schemas'
-import { isEmailAction } from '../hogflows/steps/types'
+import { isAgentStepAction, isClassifyAction, isEmailAction } from '../hogflows/steps/types'
 import type { HogFlow } from '../hogflows/types'
 import { workflowLogic } from '../workflowLogic'
 
@@ -69,6 +69,7 @@ export interface workflowProposalsLogicValues {
     rejectedResponseLoading: boolean
     resolvingAction: 'approve' | 'reject' | null
     resolvingId: string | null
+    classifyOnly: boolean | null
     turnOnDisabledReason: string | undefined
     turnOnRefusal: string | null
 }
@@ -545,12 +546,23 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 if (originalWorkflow.status !== 'active') {
                     return 'Suggestions need a live workflow. Enable it first.'
                 }
-                // The server judges the published steps, so an email step only in the draft does not count.
-                if (!originalWorkflow.actions.some(isEmailAction)) {
-                    return 'Self-driving only works on workflows that send email for now. Add an email step and publish the workflow to turn it on.'
+                // The server judges the published steps, so a step only in the draft does not count.
+                if (originalWorkflow.actions.some(isAgentStepAction)) {
+                    return 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.'
+                }
+                if (!originalWorkflow.actions.some((action) => isEmailAction(action) || isClassifyAction(action))) {
+                    return 'Self-driving needs a step it can suggest changes to, such as an email step. Add one and publish the workflow to turn it on.'
                 }
                 return undefined
             },
+        ],
+        classifyOnly: [
+            (s) => [s.originalWorkflow],
+            // Null until the workflow loads, so the tab does not show the copy for the wrong kind of workflow.
+            (originalWorkflow: HogFlow | null): boolean | null =>
+                originalWorkflow
+                    ? originalWorkflow.actions.some(isClassifyAction) && !originalWorkflow.actions.some(isEmailAction)
+                    : null,
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -610,7 +622,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                         actions.removeResolvedProposal(proposalId)
                     } else {
                         lemonToast.error(
-                            error.code === 'proposal_out_of_date' && error.detail
+                            (error.code === 'proposal_out_of_date' || error.code === 'workflow_has_agent_step') &&
+                                error.detail
                                 ? error.detail
                                 : 'The staged draft changed while you were confirming. Review it and try again.'
                         )

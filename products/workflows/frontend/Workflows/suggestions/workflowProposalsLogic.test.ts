@@ -18,6 +18,7 @@ const confirmTheDialog = (): void => {
 const WORKFLOW_ID = 'wf-proposals-1'
 const PROPOSAL_ID = 'proposal-1'
 const DRAFT_STAMP = '2026-05-02T00:00:00.000Z'
+const WEBHOOK_ONLY = [{ id: 'hook', type: 'function', config: { template_id: 'template-webhook' } }]
 
 describe('workflowProposalsLogic', () => {
     let logic: ReturnType<typeof workflowProposalsLogic.build>
@@ -151,16 +152,40 @@ describe('workflowProposalsLogic', () => {
 
     it.each([
         {
-            case: 'a live workflow with no email step',
+            case: 'a live workflow with no email or classify step',
             status: 'active',
-            actions: [{ id: 'hook', type: 'function' }],
+            actions: WEBHOOK_ONLY,
             enabled: false,
-            reason: 'Self-driving only works on workflows that send email for now. Add an email step and publish the workflow to turn it on.',
+            reason: 'Self-driving needs a step it can suggest changes to, such as an email step. Add one and publish the workflow to turn it on.',
+        },
+        {
+            case: 'a live workflow with only an AI task step',
+            status: 'active',
+            actions: [{ id: 'task', type: 'function', config: { template_id: 'template-posthog-create-task' } }],
+            enabled: false,
+            reason: 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.',
+        },
+        {
+            case: 'a live workflow with a classify and an AI task step',
+            status: 'active',
+            actions: [
+                { id: 'classify', type: 'function', config: { template_id: 'template-posthog-classify' } },
+                { id: 'task', type: 'function', config: { template_id: 'template-posthog-create-task' } },
+            ],
+            enabled: false,
+            reason: 'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a suggestion can\'t add one. Make this change in the workflow editor instead.',
+        },
+        {
+            case: 'a live workflow with a classify step',
+            status: 'active',
+            actions: [{ id: 'classify', type: 'function', config: { template_id: 'template-posthog-classify' } }],
+            enabled: false,
+            reason: undefined,
         },
         {
             case: 'a workflow that is not live',
             status: 'draft',
-            actions: [{ id: 'hook', type: 'function' }],
+            actions: WEBHOOK_ONLY,
             enabled: false,
             reason: 'Suggestions need a live workflow. Enable it first.',
         },
@@ -174,7 +199,7 @@ describe('workflowProposalsLogic', () => {
         {
             case: 'a workflow already on with no email step',
             status: 'active',
-            actions: [{ id: 'hook', type: 'function' }],
+            actions: WEBHOOK_ONLY,
             enabled: true,
             reason: undefined,
         },
@@ -200,7 +225,7 @@ describe('workflowProposalsLogic', () => {
 
         flowLogic.actions.setAutoSaveEnabled(false)
         flowLogic.actions.setWorkflowValue('name', 'Unsaved edit')
-        workflowActions = [{ id: 'hook', type: 'function' }]
+        workflowActions = WEBHOOK_ONLY
         await expectLogic(logic, () => {
             logic.actions.setOptimizationEnabled(true)
         }).toFinishAllListeners()
@@ -212,7 +237,7 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(logic, () => {
             flowLogic.actions.loadWorkflow()
         }).toFinishAllListeners()
-        expect(logic.values.turnOnDisabledReason).toContain('Self-driving only works on workflows that send email')
+        expect(logic.values.turnOnDisabledReason).toContain('Self-driving needs a step it can suggest changes to')
     })
 
     it('reloads the queue when the workflow version moves', async () => {

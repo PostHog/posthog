@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowRejectedSuggestions } from './WorkflowRejectedSuggestions'
+import { WorkflowScoutSuggestionsIntroduction } from './WorkflowScoutSuggestionsIntroduction'
 import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
@@ -104,6 +105,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         appliedResponseLoading,
         rejectedResponseLoading,
         listsUnreadable,
+        classifyOnly,
     } = useValues(workflowProposalsLogic({ id }))
     const { reloadLists } = useActions(workflowProposalsLogic({ id }))
 
@@ -118,7 +120,11 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         rejectedResponseLoading ||
         appliedProposals.some((proposal) => !outcomes[proposal.id])
 
-    if ((optimization === null && optimizationLoading) || (optimizationEnabled && listsUnknown && !listsUnreadable)) {
+    if (
+        classifyOnly === null ||
+        (optimization === null && optimizationLoading) ||
+        (optimizationEnabled && listsUnknown && !listsUnreadable)
+    ) {
         return <Spinner />
     }
 
@@ -133,7 +139,8 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         measuredApplied.length === 0 &&
         rejectedProposals.length === 0
 
-    const scoutStatus = optimization?.scout_status
+    // The workflows scout reads only email steps, so its status says nothing about a workflow without one.
+    const scoutStatus = classifyOnly ? undefined : optimization?.scout_status
     const pausedNotice =
         optimizationEnabled && (scoutStatus === 'paused_by_user' || scoutStatus === 'paused_by_system') ? (
             <SuggestionsPausedNotice byUser={scoutStatus === 'paused_by_user'} />
@@ -152,24 +159,31 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     if (nothingFiled) {
         // Off with nothing filed is the introduction; an unreadable setting keeps its own notice, since it
         // is not "off". Either one with a queue still shows the queue, which the server keeps resolvable.
-        if (optimizationUnreadable || !optimizationEnabled) {
-            return optimizationUnreadable ? (
-                <SuggestionsUnreadableNotice />
-            ) : (
-                <WorkflowSuggestionsIntroduction id={id} enabled={false} sample={optimization?.sample} />
-            )
+        if (optimizationUnreadable) {
+            return <SuggestionsUnreadableNotice />
+        }
+        const introduction = classifyOnly ? (
+            <WorkflowScoutSuggestionsIntroduction
+                enabled={optimizationEnabled}
+                toggle={<WorkflowSuggestionsSwitch id={id} />}
+            />
+        ) : (
+            <WorkflowSuggestionsIntroduction
+                id={id}
+                enabled={optimizationEnabled}
+                scoutStatus={scoutStatus}
+                sample={optimization?.sample}
+            />
+        )
+        if (!optimizationEnabled) {
+            return introduction
         }
 
         if (!listsSettling) {
             return (
                 <div className="flex flex-col gap-4">
                     {pausedNotice}
-                    <WorkflowSuggestionsIntroduction
-                        id={id}
-                        enabled
-                        scoutStatus={scoutStatus}
-                        sample={optimization?.sample}
-                    />
+                    {introduction}
                 </div>
             )
         }

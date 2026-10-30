@@ -283,6 +283,7 @@ from products.workflows.backend.facade.secrets import (
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
 from products.workflows.backend.facade.suggestions_scout import (
+    AGENT_STEP_TEMPLATE_IDS,
     PROPOSAL_WRITE_SCOPE,
     suggestions_sample,
     suggestions_scout_refusal,
@@ -574,6 +575,27 @@ def snapshot_flow_content(flow: WorkflowEditState) -> dict:
 
 def item_id(item: Any) -> Any:
     return item.get("id") if isinstance(item, dict) else None
+
+
+def _has_agent_step(content: dict) -> bool:
+    return any(
+        isinstance(step, dict)
+        and isinstance(step.get("config"), dict)
+        and isinstance(step["config"].get("template_id"), str)
+        and step["config"]["template_id"] in AGENT_STEP_TEMPLATE_IDS
+        for step in content.get("actions") or []
+    )
+
+
+def suggestion_touches_agent_workflow(live_content: dict, merged_content: dict) -> bool:
+    """Whether a suggestion is for a workflow with a "Create AI task", "Run scout" or "Replay Vision" step, or
+    would leave one in it.
+
+    Such a step runs another agent, or reads recordings, with its own access. An agent files the suggestion and a
+    person approves it from a diff, and almost any change upstream (a branch condition, a filter, the trigger)
+    changes what reaches that step. So a workflow with one takes no suggestions, and a suggestion can't add one.
+    """
+    return _has_agent_step(live_content) or _has_agent_step(merged_content)
 
 
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
@@ -4757,10 +4779,20 @@ class WorkflowNotLiveError(exceptions.APIException):
 class WorkflowHasNoEmailStepError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
-        "Self-driving only works on workflows that send email for now. "
-        "Add an email step and publish the workflow to turn it on."
+        "Self-driving needs a step it can suggest changes to, such as an email step. "
+        "Add one and publish the workflow to turn it on."
     )
+    # Clients match on this code, which is older than classify steps counting too.
     default_code = "workflow_has_no_email_step"
+
+
+class WorkflowHasAgentStepError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        'Workflows with a "Create AI task", "Run scout" or "Replay Vision" step can\'t take suggestions, and a '
+        "suggestion can't add one. Make this change in the workflow editor instead."
+    )
+    default_code = "workflow_has_agent_step"
 
 
 class WorkflowNotOptimisedError(exceptions.APIException):
@@ -6172,8 +6204,11 @@ class HogFlowViewSet(
         # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
         content = strip_proposal_secrets(dict(params["content"]), live_content)
 
+        merged = merge_proposal_content(live_content, content)
+        if suggestion_touches_agent_workflow(live_content, merged):
+            raise WorkflowHasAgentStepError()
+
         if "actions" in content or "edges" in content:
-            merged = merge_proposal_content(live_content, content)
             try:
                 # Warnings are fine to ignore; only raised errors mean the graph could not run.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -6217,7 +6252,20 @@ class HogFlowViewSet(
         # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
         evidence.pop("measured", None)
-        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        # PostHog reads only email metrics, so a suggestion about any other step keeps the producer's numbers alone.
+        live_email_steps = {
+            item_id(step)
+            for step in live_content.get("actions") or []
+            if isinstance(step, dict) and step.get("type") == "function_email"
+        }
+        # Without a step, a change to the workflow as a whole, or to one of its email steps, has an email reading.
+        touched_steps = {item_id(step) for step in content.get("actions") or []}
+        about_email = (
+            step_id in live_email_steps
+            if step_id
+            else bool(live_email_steps) and ("actions" not in content or bool(touched_steps & live_email_steps))
+        )
+        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence) if about_email else None
         if measured is not None:
             evidence["measured"] = measured
 
@@ -6303,7 +6351,10 @@ class HogFlowViewSet(
         if parsed_proposal_id is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
 
-        def check_runnable(merged: dict) -> None:
+        def check_runnable(live: dict, merged: dict) -> None:
+            # The workflow can have gained an agent step since the suggestion was filed.
+            if suggestion_touches_agent_workflow(live, merged):
+                raise WorkflowHasAgentStepError()
             try:
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
             except serializers.ValidationError as error:
@@ -6463,11 +6514,13 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
-            # Suggestions judge email opens and clicks. Turning it off stays open, so a workflow already
-            # on can still be switched off after it loses its email step.
-            if enabled and not instance.has_email_step:
+            # Turning it off stays open, so a workflow can still be switched off after it loses those steps.
+            if enabled and instance.step_template_ids & AGENT_STEP_TEMPLATE_IDS:
+                raise WorkflowHasAgentStepError()
+            if enabled and not (instance.has_email_step or _CLASSIFY_TEMPLATE_ID in instance.step_template_ids):
                 raise WorkflowHasNoEmailStepError()
-            if enabled and not is_optimization_enabled(instance.id):
+            # PostHog's suggestions scout reads only email steps, so only they need it running.
+            if enabled and instance.has_email_step and not is_optimization_enabled(instance.id):
                 refusal = suggestions_scout_refusal(
                     self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
                 )

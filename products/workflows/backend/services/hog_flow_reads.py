@@ -30,7 +30,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowRef,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
-from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow, has_agent_step_q
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.batch_jobs import annotate_latest_send, filter_by_broadcast_status
@@ -78,6 +78,13 @@ def get_workflow_ref(
         variables=flow.variables,
         has_email_step=any(
             isinstance(action, dict) and action.get("type") == "function_email" for action in flow.actions or []
+        ),
+        step_template_ids=frozenset(
+            action["config"]["template_id"]
+            for action in flow.actions or []
+            if isinstance(action, dict)
+            and isinstance(action.get("config"), dict)
+            and isinstance(action["config"].get("template_id"), str)
         ),
     )
 
@@ -503,7 +510,7 @@ class _WorkflowFilterSet(FilterSet):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimization__enabled=True)
-        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE)
+        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE).exclude(has_agent_step_q())
 
 
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
