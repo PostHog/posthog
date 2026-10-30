@@ -98,7 +98,7 @@ export class HogFunctionMonitoringService {
         hogFunctionMonitoringPendingMessages.set(0)
 
         // Not awaited, so a slow capture-logs cannot hold up the Kafka flush. The producer caps its own requests.
-        void this.internalLogsProducer?.flush()
+        this.internalLogsProducer?.flush()
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
