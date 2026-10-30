@@ -262,6 +262,9 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    # Facade-only: the admin replay of failed runs reads workflows through
+    # products.workflows.backend.facade.workflows.
+    "products.workflows",
 ]
 layer = "modules"
 

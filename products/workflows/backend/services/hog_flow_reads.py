@@ -3,7 +3,7 @@ searched and access-filtered page of them. Each workflow is a contract with its 
 
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final, Optional, cast
+from typing import TYPE_CHECKING, Any, Final, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -553,7 +553,9 @@ def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) ->
     targets = []
     for flow in flows:
         actions = [action for action in flow.actions or [] if isinstance(action, dict)]
-        configs = [action.get("config") if isinstance(action.get("config"), dict) else {} for action in actions]
+        configs: list[dict[str, Any]] = [
+            config if isinstance(config := action.get("config"), dict) else {} for action in actions
+        ]
         targets.append(
             WorkflowReplayTarget(
                 id=str(flow.id),

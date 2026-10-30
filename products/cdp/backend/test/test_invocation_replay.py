@@ -33,7 +33,7 @@ from products.cdp.backend.services.invocation_replay import (
     start_claimed_send,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.models import HogFlow
 
 WINDOW_START = datetime(2026, 10, 22, 11, 30, tzinfo=UTC)
 WINDOW_END = datetime(2026, 10, 22, 14, 0, tzinfo=UTC)
