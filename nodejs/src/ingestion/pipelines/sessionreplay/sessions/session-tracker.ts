@@ -9,11 +9,13 @@ import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
-// Any value means seen. The value also records whether the session billed. Code that billed a
-// session when it first saw it wrote '1', so those sessions count as billed.
+// Any value in a seen key means seen. Code that billed a session when it first saw it wrote '1' to the seen key,
+// so a session with that value counts as billed.
 const SEEN = 'seen'
-const BILLED = 'billed'
 const BILLED_AT_FIRST_SIGHT = '1'
+// The billed mark has its own key because billing must not change how long a session stays seen. The seen state
+// decides whether a session gets a new encryption key or reads its existing one.
+const BILLED = 'billed'
 
 export interface BilledSession {
     teamId: number
@@ -55,6 +57,8 @@ export interface BilledSession {
 export class SessionTracker {
     private readonly keyPrefix: string
 
+    private readonly billedKeyPrefix: string
+
     private readonly localCache: LRUCache<string, true>
 
     private readonly billedCache: LRUCache<string, true>
@@ -72,7 +76,9 @@ export class SessionTracker {
         localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE,
         keyNamespace?: string
     ) {
-        this.keyPrefix = keyNamespace ? `@posthog/replay/${keyNamespace}/session-seen` : '@posthog/replay/session-seen'
+        const namespacePrefix = keyNamespace ? `@posthog/replay/${keyNamespace}` : '@posthog/replay'
+        this.keyPrefix = `${namespacePrefix}/session-seen`
+        this.billedKeyPrefix = `${namespacePrefix}/session-billed`
         this.localCache = new LRUCache({
             max: localCacheMaxSize,
             ttl: localCacheTtlMs,
@@ -168,8 +174,7 @@ export class SessionTracker {
                 const key = this.generateKey(teamId, sessionId)
                 this.localCache.set(key, true)
                 SessionBatchMetrics.incrementNewSessionsDetected()
-                // NX keeps a `billed` value that another consumer wrote after this consumer's hasSeen read.
-                pipeline.set(key, SEEN, 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
+                pipeline.set(key, SEEN, 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS)
             }
             await pipeline.exec()
         } catch (error) {
@@ -184,7 +189,7 @@ export class SessionTracker {
     }
 
     /**
-     * A session without a key counts as unbilled, because a mark that failed to persist must not stop the bill.
+     * A session without a billed mark counts as unbilled, because a mark that failed to persist must not stop the bill.
      * On a Redis error every session outside the local billed cache counts as unbilled. A session saved in only
      * one flush has no later flush to bill it. The usage table removes a resend on the same UTC day.
      */
@@ -192,7 +197,7 @@ export class SessionTracker {
         const unbilled = new SessionSet()
         const misses: { teamId: number; sessionId: string }[] = []
         for (const { teamId, sessionId } of sessions) {
-            if (!this.billedCache.has(this.generateKey(teamId, sessionId))) {
+            if (!this.billedCache.has(this.generateBilledKey(teamId, sessionId))) {
                 misses.push({ teamId, sessionId })
             }
         }
@@ -205,11 +210,17 @@ export class SessionTracker {
         let client
         try {
             client = await this.redisPool.acquire()
-            const values = await client.mget(misses.map(({ teamId, sessionId }) => this.generateKey(teamId, sessionId)))
+            const values = await client.mget(
+                misses.flatMap(({ teamId, sessionId }) => [
+                    this.generateBilledKey(teamId, sessionId),
+                    this.generateKey(teamId, sessionId),
+                ])
+            )
             for (let i = 0; i < misses.length; i++) {
                 const { teamId, sessionId } = misses[i]
-                if (values[i] === BILLED || values[i] === BILLED_AT_FIRST_SIGHT) {
-                    this.billedCache.set(this.generateKey(teamId, sessionId), true)
+                const [billedValue, seenValue] = [values[2 * i], values[2 * i + 1]]
+                if (billedValue !== null || seenValue === BILLED_AT_FIRST_SIGHT) {
+                    this.billedCache.set(this.generateBilledKey(teamId, sessionId), true)
                 } else {
                     unbilled.add(teamId, sessionId)
                 }
@@ -245,7 +256,7 @@ export class SessionTracker {
             client = await this.redisPool.acquire()
             const pipeline = client.pipeline()
             for (const { teamId, sessionId, ttlSeconds } of sessions) {
-                const key = this.generateKey(teamId, sessionId)
+                const key = this.generateBilledKey(teamId, sessionId)
                 this.billedCache.set(key, true)
                 pipeline.set(key, BILLED, 'EX', ttlSeconds)
             }
@@ -263,5 +274,9 @@ export class SessionTracker {
 
     private generateKey(teamId: number, sessionId: string): string {
         return `${this.keyPrefix}:${teamId}:${sessionId}`
+    }
+
+    private generateBilledKey(teamId: number, sessionId: string): string {
+        return `${this.billedKeyPrefix}:${teamId}:${sessionId}`
     }
 }

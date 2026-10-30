@@ -73,7 +73,8 @@ describe('session usage', () => {
     describe('billing each saved session once', () => {
         const FIRST_FLUSH = Date.parse('2026-10-15T23:59:58Z')
         const SECOND_FLUSH = Date.parse('2026-10-16T00:00:03Z')
-        const sessionKey = '@posthog/replay/session-seen:42:session-1'
+        const seenKey = '@posthog/replay/session-seen:42:session-1'
+        const billedKey = '@posthog/replay/session-billed:42:session-1'
 
         let redisValues: Map<string, string>
         let redisTtls: Map<string, number>
@@ -148,7 +149,7 @@ describe('session usage', () => {
             ['a session the tracker marked seen but did not bill', 'seen', ['session-1']],
             ['nothing for a session that an earlier release billed when it first saw it', '1', []],
         ])('bills %s', async (_name, trackerValue, billedSessionIds) => {
-            redisValues.set(sessionKey, trackerValue)
+            redisValues.set(seenKey, trackerValue)
 
             await flush([metadata('web', FIRST_FLUSH)])
 
@@ -158,10 +159,17 @@ describe('session usage', () => {
         it.each([
             ['mobile', 7 * 24 * 60 * 60],
             ['web', 48 * 60 * 60],
-        ])('keeps a billed %s session tracked for %i seconds', async (source, ttlSeconds) => {
-            await flush([metadata(source, FIRST_FLUSH)])
+        ])(
+            'keeps a billed %s session marked for %i seconds without changing its seen key',
+            async (source, ttlSeconds) => {
+                redisValues.set(seenKey, 'seen')
+                redisTtls.set(seenKey, 48 * 60 * 60)
 
-            expect(redisTtls.get(sessionKey)).toBe(ttlSeconds)
-        })
+                await flush([metadata(source, FIRST_FLUSH)])
+
+                expect(redisTtls.get(billedKey)).toBe(ttlSeconds)
+                expect([redisValues.get(seenKey), redisTtls.get(seenKey)]).toEqual(['seen', 48 * 60 * 60])
+            }
+        )
     })
 })
