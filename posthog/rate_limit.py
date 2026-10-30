@@ -1480,7 +1480,23 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
 
 
 class _WidgetTeamTokenThrottle(SimpleRateThrottle):
-    rate = "3600/hour"
+    """One bucket for a whole site, because every visitor's widget sends the same public token.
+    Size it for a busy site's total traffic. WidgetUserBurstThrottle bounds one visitor."""
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        if super().allow_request(request, view):
+            return True
+
+        # WidgetAuthentication puts the team in request.auth.
+        team = getattr(request, "auth", None)
+        team_id = team.pk if isinstance(team, Team) else None
+        route = get_route_from_path(getattr(request, "path", None))
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
+            return True
+
+        RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return False
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if not self.scope:
@@ -1498,12 +1514,14 @@ class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
     polling 429 ticket creates."""
 
     scope = "widget_team_poll"
+    rate = settings.CONVERSATIONS_WIDGET_TEAM_POLL_THROTTLE_RATE
 
 
 class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
     """Keep this off GET poll views so list and message polling cannot exhaust it."""
 
     scope = "widget_team_write"
+    rate = settings.CONVERSATIONS_WIDGET_TEAM_WRITE_THROTTLE_RATE
 
 
 WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)

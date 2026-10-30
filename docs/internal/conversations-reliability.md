@@ -38,6 +38,20 @@ Unrelated updates to the current team do not reset the count or trigger another 
 Changing teams or toggling support resets the count and restarts polling when support is enabled.
 Failed requests retain the previous count and increase the polling interval.
 
+## Widget rate limits
+
+Every visitor's widget sends the same public token, so `posthog.rate_limit` gives the widget endpoints these buckets:
+
+- `widget_user_burst` limits one visitor. It keys on `widget_session_id`, or on the IP.
+- `widget_team_poll` limits the `GET` polling of a whole site (ticket list and open thread). The default is 600 requests a minute.
+- `widget_team_write` limits the message sends and read receipts of a whole site. The default is 3600 requests an hour.
+
+Size the team buckets for the total traffic of a busy site, not for one visitor.
+Keep the poll window short: a saturated hour-long window returns 429 to every visitor of the site until its oldest request expires.
+Set `CONVERSATIONS_WIDGET_TEAM_POLL_THROTTLE_RATE` or `CONVERSATIONS_WIDGET_TEAM_WRITE_THROTTLE_RATE` to change a rate.
+A team in `RATE_LIMITING_ALLOW_LIST_TEAMS` skips both team buckets.
+Each rejection increments `rate_limit_exceeded_total`, with the bucket in the `scope` label.
+
 ## Inbound receipts (`ConversationInboundEvent`)
 
 One row per accepted provider callback, keyed by `(team, source, source_id)`.

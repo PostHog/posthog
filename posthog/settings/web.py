@@ -544,6 +544,16 @@ BILLING_EXPORT_CONCURRENT_STREAMS = get_from_env("BILLING_EXPORT_CONCURRENT_STRE
 WIZARD_RUN_CREATE_THROTTLE_RATE = get_from_env("WIZARD_RUN_CREATE_THROTTLE_RATE", "30/hour")
 WIZARD_RUN_READ_THROTTLE_RATE = get_from_env("WIZARD_RUN_READ_THROTTLE_RATE", "120/minute")
 
+# Every visitor of a site sends the same public widget token, so each team bucket holds a whole
+# site's widget traffic. Keep the poll window short: a saturated hour-long window returns 429 to
+# every visitor of the site until its oldest request expires.
+CONVERSATIONS_WIDGET_TEAM_POLL_THROTTLE_RATE = get_from_env(
+    "CONVERSATIONS_WIDGET_TEAM_POLL_THROTTLE_RATE", "600/minute"
+)
+CONVERSATIONS_WIDGET_TEAM_WRITE_THROTTLE_RATE = get_from_env(
+    "CONVERSATIONS_WIDGET_TEAM_WRITE_THROTTLE_RATE", "3600/hour"
+)
+
 # Email domains whose signups are created already-verified (skipping the email round-trip), so
 # non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
 # every signup.
