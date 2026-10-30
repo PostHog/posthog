@@ -4516,6 +4516,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # A flag archived before its delete is listed too, without asking for archived flags.
             ("deleted_true", "?deleted=true", {"deleted-flag", "archived-deleted-flag"}),
             ("deleted_and_search", "?deleted=true&search=archived", {"archived-deleted-flag"}),
+            # An explicit archived value still narrows the deleted list.
+            ("deleted_and_archived_false", "?deleted=true&archived=false", {"deleted-flag"}),
+            ("deleted_and_archived_true", "?deleted=true&archived=true", {"archived-deleted-flag"}),
+            ("archived_true_hides_deleted", "?archived=true", set()),
         ]
     )
     def test_list_deleted_filtering(self, _name, query, expected_keys):
