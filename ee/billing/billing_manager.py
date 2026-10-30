@@ -737,6 +737,7 @@ class BillingManager:
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),
+                mcp_events=usage_summary.get("mcp_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),

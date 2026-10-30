@@ -128,6 +128,7 @@ rules:
     # setup receivers and frozen dataclass baselines) stay out, so that the review requests
     # stay rare.
     - match:
+          - '/.github/scripts/check-no-new-ee-files.py'
           - '/.github/scripts/migration-deletion-allowlist.txt'
           - '/.semgrep/rules/devex/'
           - '/.semgrep/rules/security/prefer-codegen-api.*'
@@ -186,9 +187,12 @@ rules:
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform
-    # A new product, provider, domain, or top-level package shapes the monorepo layout.
-    # The rule names who owns that decision and claims none of the files inside.
+    # A new root file or folder, product, provider, domain, or top-level package shapes
+    # the monorepo layout. The rule names who owns that decision and claims none of the
+    # files inside. '/*' matches only entries directly in the root, because '*' does not
+    # cross '/'.
     - match:
+          - '/*'
           - '/products/*'
           - '/posthog/ingress/*'
           - '/posthog/egress/*'

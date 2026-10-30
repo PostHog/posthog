@@ -13,7 +13,6 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
@@ -84,26 +83,6 @@ def query_new_dashboards(period_start: datetime, period_end: datetime) -> QueryS
 def query_new_event_definitions(period_start: datetime, period_end: datetime) -> QuerySet:
     return EventDefinition.objects.filter(created_at__gt=period_start, created_at__lte=period_end).values(
         "team_id", "name", "id"
-    )
-
-
-def query_experiments_launched(period_start: datetime, period_end: datetime) -> QuerySet:
-    return (
-        Experiment.objects.filter(
-            start_date__gt=period_start,
-            start_date__lte=period_end,
-        )
-        .exclude(
-            end_date__gt=period_start,
-            end_date__lte=period_end,
-        )
-        .values("team_id", "name", "id", "start_date")
-    )
-
-
-def query_experiments_completed(period_start: datetime, period_end: datetime) -> QuerySet:
-    return Experiment.objects.filter(end_date__gt=period_start, end_date__lte=period_end).values(
-        "team_id", "name", "id", "start_date", "end_date"
     )
 
 

@@ -72,9 +72,10 @@ class TestReportMonitoringLifecycle(SimpleTestCase):
         assert report.status == SignalReport.Status.READY
         assert report.monitoring_started_at is None
 
-    def test_finishing_verification_preserves_the_implementation_time(self) -> None:
+    @parameterized.expand([("resolved",), ("closed",)])
+    def test_finishing_verification_preserves_the_implementation_time(self, target: str) -> None:
         merged_at = timezone.now() - timedelta(days=3)
         report = SignalReport(team_id=7, status=SignalReport.Status.MONITORING, monitoring_started_at=merged_at)
-        report.transition_to(SignalReport.Status.RESOLVED)
-        assert report.status == SignalReport.Status.RESOLVED
+        report.transition_to(SignalReport.Status(target))
+        assert report.status == target
         assert report.monitoring_started_at == merged_at

@@ -54,7 +54,12 @@ from products.signals.backend.enums import (
     SignalSourceType,
     signal_source_product_choices,
 )
+from products.signals.backend.filter_catalog import (
+    SignalFilterCatalogVersion as SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition as SignalFilterSourceDefinition,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +192,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+class InboxOnboardingSetupMode(models.TextChoices):
+    QUICK = "quick", "Quick"
+    GUIDED = "guided", "Guided"
+
+
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
@@ -233,6 +243,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
+    # id from one of them fails in every other. Null on rows saved before the binding existed.
+    # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
+    default_slack_notification_integration_id = models.BigIntegerField(null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
@@ -266,6 +280,13 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Lowercased "organization/repository" names that implementation tasks may also read and write,
+    # for example an assets repository a PR uploads screenshots to. They widen the run's GitHub token
+    # only. The run never clones them, and the PR target stays the selected repository.
+    implementation_repositories = models.JSONField(default=list, db_default=[], blank=True)
+    # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
+    # still decides which projects are enrolled, so turning this on cannot enroll a project.
+    anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -357,6 +378,7 @@ class SignalReport(UUIDModel):
         READY = "ready"
         MONITORING = "monitoring"
         RESOLVED = "resolved"
+        CLOSED = "closed", "Closed"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
@@ -489,6 +511,12 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
+    # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
+    # filters on a column instead of evaluating five link subqueries for every report.
+    # implementation_pr_cache.py keeps them current.
+    has_implementation_pr = models.BooleanField(default=False, db_default=False)
+    has_active_implementation_pr = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -600,7 +628,7 @@ class SignalReport(UUIDModel):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
-            case (S.MONITORING, S.RESOLVED | S.READY):
+            case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
                 pass
 
             # Pipeline transitions
@@ -656,7 +684,14 @@ class SignalReport(UUIDModel):
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
             case (
-                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.SUPPRESSED
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.CLOSED
+                | S.FAILED,
                 S.POTENTIAL,
             ):
                 self.promoted_at = None
@@ -678,7 +713,7 @@ class SignalReport(UUIDModel):
             # before suppression. Title/summary/error are already set from the earlier research run,
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
-            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED):
+            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -698,6 +733,7 @@ class SignalReport(UUIDModel):
                 | S.READY
                 | S.MONITORING
                 | S.RESOLVED
+                | S.CLOSED
                 | S.FAILED,
                 S.SUPPRESSED,
             ):
@@ -715,13 +751,14 @@ class SignalReport(UUIDModel):
                 | S.READY
                 | S.MONITORING
                 | S.RESOLVED
+                | S.CLOSED
                 | S.FAILED
                 | S.SUPPRESSED,
                 S.DELETED,
             ):
                 pass
 
-            case (S.RESOLVED, S.READY):
+            case (S.RESOLVED | S.CLOSED, S.READY):
                 pass
 
             # Only researched reports can resolve
@@ -729,7 +766,7 @@ class SignalReport(UUIDModel):
             # FAILED resolves too: a run that died in processing still describes real work, and
             # whoever fixed it needs a way to say so. Without this edge the only exit is a
             # dismissal, which used to make the report a sink for every later recurrence.
-            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
+            case (S.PENDING_INPUT | S.READY | S.FAILED | S.CLOSED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
@@ -791,7 +828,7 @@ class SignalReport(UUIDModel):
         back through POTENTIAL to re-enter the pipeline.
         """
         S = self.Status
-        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
+        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.CLOSED, S.FAILED}
         prior = self.status_before_suppression
         if prior == S.MONITORING:
             return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
@@ -1087,6 +1124,13 @@ class SignalReport(UUIDModel):
         can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
         subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
+        artefact_rows, legacy_rows, assignment_rows = SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id)
+        return models.Q(id__in=artefact_rows) | models.Q(id__in=legacy_rows) | models.Q(id__in=assignment_rows)
+
+    @staticmethod
+    def report_ids_for_task_ids(task_ids: Any, *, team_id: int | None = None) -> list["models.QuerySet[Any]"]:
+        """The `report_id` querysets behind `reports_for_task_ids_filter`, one per link table. A caller
+        can run them as separate indexed lookups instead of one `OR` over `SignalReport`."""
         artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
@@ -1099,11 +1143,7 @@ class SignalReport(UUIDModel):
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
             assignment_rows = assignment_rows.filter(team_id=team_id)
-        return (
-            models.Q(id__in=artefact_rows.values("report_id"))
-            | models.Q(id__in=legacy_rows.values("report_id"))
-            | models.Q(id__in=assignment_rows.values("report_id"))
-        )
+        return [rows.values("report_id") for rows in (artefact_rows, legacy_rows, assignment_rows)]
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
@@ -1147,7 +1187,11 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if self.report.status in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.MONITORING,
+        }:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -1207,6 +1251,7 @@ class SignalReportTrackerIssue(TeamScopedRootMixin, UUIDModel):
     pr_linked_at = models.DateTimeField(null=True, blank=True)
     # When we closed the issue in the provider, after the report was dismissed.
     closed_at = models.DateTimeField(null=True, blank=True)
+    close_comment_posted_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2629,11 +2674,32 @@ class SignalReportMonitoringAttempt(UUIDModel):
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_attempts")
     monitoring_started_at = models.DateTimeField()
     check_versions = models.JSONField(default=dict)
+    aggregation_state = models.CharField(max_length=24, choices=MonitoringAggregation, null=True, blank=True)
+    aggregation_result_ids = models.JSONField(null=True, blank=True)
+    aggregation_reason = models.TextField(null=True, blank=True)
+    aggregation_checked_at = models.DateTimeField(null=True, blank=True)
+    assessment_requested_at = models.DateTimeField(null=True, blank=True)
+    research_requested_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
+    close_pr_on_resolve = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+        indexes = [
+            models.Index(
+                models.F("tracker_issue_close_next_attempt_at").asc(nulls_first=True),
+                models.F("tracker_issue_close_requested_at"),
+                models.F("id"),
+                condition=models.Q(
+                    tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True
+                ),
+                name="signals_pending_tracker_close",
+            ),
         ]
 
 
@@ -4057,6 +4123,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed"
         # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
         SKIPPED = "skipped"
+        # The model answered a first summary with no profile. The row holds the cost and a skip backoff.
+        EMPTY_PROFILE = "empty_profile"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

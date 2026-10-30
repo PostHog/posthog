@@ -12,7 +12,11 @@ DEFAULT_CAP_SECONDS = 3 * 60 * 60
 
 
 def _context(
-    state: dict | None, *, origin_product: str | None = Task.OriginProduct.WORKFLOW.value
+    state: dict | None,
+    *,
+    origin_product: str | None = Task.OriginProduct.WORKFLOW.value,
+    profile_key: str | None = None,
+    profile_max_wake_minutes: int | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -25,6 +29,8 @@ def _context(
         distinct_id="distinct",
         state=state,
         origin_product=origin_product,
+        profile_key=profile_key,
+        profile_max_wake_minutes=profile_max_wake_minutes,
     )
 
 
@@ -50,6 +56,51 @@ class TestMaxRunDuration:
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=DEFAULT_CAP_SECONDS)
     def test_user_created_background_runs_are_uncapped(self, _name: str, origin_product: str | None):
         assert _context({"mode": "background"}, origin_product=origin_product).max_run_duration() is None
+
+    @parameterized.expand(
+        [
+            ("profile_cap", "background", Task.OriginProduct.WORKFLOW.value, 120, DEFAULT_CAP_SECONDS, 120),
+            (
+                "profile_cap_on_user_origin",
+                "background",
+                Task.OriginProduct.USER_CREATED.value,
+                120,
+                DEFAULT_CAP_SECONDS,
+                120,
+            ),
+            ("profile_without_cap", "background", Task.OriginProduct.WORKFLOW.value, None, DEFAULT_CAP_SECONDS, None),
+            (
+                "interactive_profile_task",
+                "interactive",
+                Task.OriginProduct.WORKFLOW.value,
+                120,
+                DEFAULT_CAP_SECONDS,
+                None,
+            ),
+            ("setting_disables_profile_cap", "background", Task.OriginProduct.WORKFLOW.value, 120, 0, None),
+            ("setting_below_profile_cap", "background", Task.OriginProduct.WORKFLOW.value, 120, 3600, 60),
+        ]
+    )
+    def test_profile_sets_the_cap(
+        self,
+        _name: str,
+        mode: str,
+        origin_product: str,
+        max_wake_minutes: int | None,
+        setting_seconds: int,
+        expected_minutes: int | None,
+    ):
+        context = _context(
+            {"mode": mode},
+            origin_product=origin_product,
+            profile_key="test.profile",
+            profile_max_wake_minutes=max_wake_minutes,
+        )
+
+        with override_settings(TASKS_MAX_RUN_DURATION_SECONDS=setting_seconds):
+            result = context.max_run_duration()
+
+        assert result == (None if expected_minutes is None else timedelta(minutes=expected_minutes))
 
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=90)
     def test_setting_override_applies_to_capped_runs(self):

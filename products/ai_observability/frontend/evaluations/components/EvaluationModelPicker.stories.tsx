@@ -1,19 +1,27 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import type { JudgeMethod } from '../types'
+import type { JudgeMethod, ReasoningLevel } from '../types'
 import { EvaluationModelPicker } from './EvaluationModelPicker'
 
-const meta: Meta<{ method?: JudgeMethod; narrow?: boolean; empty?: boolean; nativeOpenAI?: boolean }> = {
+const meta: Meta<{
+    method?: JudgeMethod
+    narrow?: boolean
+    empty?: boolean
+    nativeOpenAI?: boolean
+    reasoningLevel?: ReasoningLevel
+}> = {
     title: 'Scenes-App/LLM observability/EvaluationModelPicker',
     component: EvaluationModelPicker,
     parameters: {
         layout: 'padded',
     },
-    render: ({ method = 'llm', narrow = false, empty = false, nativeOpenAI = false }) => {
+    render: ({ method = 'llm', narrow = false, empty = false, nativeOpenAI = false, reasoningLevel }) => {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/llm_analytics/provider_keys/': {
@@ -35,6 +43,7 @@ const meta: Meta<{ method?: JudgeMethod; narrow?: boolean; empty?: boolean; nati
                                       provider: 'OpenAI',
                                       supports_chat: true,
                                       supports_decisions: false,
+                                      supports_reasoning: true,
                                   },
                                   {
                                       id: 'gpt-6-luna',
@@ -78,19 +87,25 @@ const meta: Meta<{ method?: JudgeMethod; narrow?: boolean; empty?: boolean; nati
                     name: 'Response quality',
                     enabled: false,
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: 'Does the response answer the question?', judge_method: method },
+                    evaluation_config: {
+                        prompt: 'Does the response answer the question?',
+                        judge_method: method,
+                        reasoning_level: reasoningLevel,
+                    },
                     output_type: 'boolean',
                     output_config: {},
                     conditions: [],
                     target: 'generation',
                     target_config: {},
-                    model_configuration: null,
+                    model_configuration: reasoningLevel
+                        ? { provider: 'openai', model: 'gpt-5-mini', provider_key_id: 'example-openai-key' }
+                        : null,
                 },
             },
         })
         return (
             <BindLogic logic={llmEvaluationLogic} props={{ evaluationId: 'example-evaluation' }}>
-                <div className={narrow ? 'max-w-lg' : 'max-w-4xl'}>
+                <div className={narrow ? 'w-[32rem]' : 'max-w-4xl'}>
                     <EvaluationModelPicker />
                 </div>
             </BindLogic>
@@ -106,3 +121,10 @@ export const DecisionNarrow: Story = { args: { method: 'decision', narrow: true 
 export const NoDecisionModels: Story = { args: { method: 'decision', empty: true } }
 export const NativeOpenAI: Story = { args: { method: 'decision', nativeOpenAI: true } }
 export const NativeOpenAINarrow: Story = { args: { method: 'decision', nativeOpenAI: true, narrow: true } }
+export const WithAttachments: Story = {
+    args: { method: 'llm' },
+    parameters: { featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES], testOptions: { snapshotBrowsers: [] } },
+}
+export const ReasoningLevelNarrow: Story = {
+    args: { method: 'llm', nativeOpenAI: true, narrow: true, reasoningLevel: 'medium' },
+}

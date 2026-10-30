@@ -52,6 +52,9 @@ const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://pos
 const PROJECT_LOOKUP =
     'Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range.'
 const GROUP_TYPES_LOOKUP = "For the project's group types, run `execute-sql` on `system.group_type_mappings`."
+const SWITCH_TOOLS = ['switch-project', 'switch-organization', 'projects-get', 'organizations-get']
+const SWITCH_LOOKUP =
+    'To work in another project or organization, call `switch-project` or `switch-organization`. `projects-get` and `organizations-get` resolve a name to the id they take. Do not search the tool list for this.'
 
 export interface InstructionsContext {
     guidelines: string
@@ -139,6 +142,7 @@ function envContextSections(ctx: InstructionsContext): string[] {
     const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
     const lookups = [
         ...(available('project-get') ? [PROJECT_LOOKUP] : []),
+        ...(SWITCH_TOOLS.every(available) ? [SWITCH_LOOKUP] : []),
         ...(available('execute-sql') ? [GROUP_TYPES_LOOKUP] : []),
     ]
     return lookups.length > 0 ? [formatPrompt(ENV_CONTEXT, { env_lookups: lookups.join(' ') })] : []

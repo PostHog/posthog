@@ -42,6 +42,7 @@ s3://<bucket>/<prefix>/
 ├── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
 ├── inbox_user_report_interactions/v1/dt=YYYY-MM-DD/ # cumulative interactions per (report, person)
 ├── inbox_project_vectors/v1/dt=YYYY-MM-DD/    # per-team mean report vectors of past engagement, by kind
+├── inbox_user_vectors/v1/dt=YYYY-MM-DD/       # per-user mean report vectors of past engagement, by kind
 └── inbox_activity_summary_vectors/v1/dt=YYYY-MM-DD/ # one row per activity summary vector generated during the day
 ```
 
@@ -79,6 +80,15 @@ Point-in-time contract:
 - A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 - Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
+
+### User vectors
+
+`inbox_user_vectors` is an (organization, user, kind) leaf with the user vectors of `user_vectors(interactions, embeddings, as_of)` in `dataset/project_vectors.py`.
+The asset calls it with `as_of` = the end of dt=D, on the dt=D interactions and embeddings snapshots, so its rows equal what `pair_user_vectors` rebuilds for a report born on D+1.
+
+- It filters the interactions again by `training_consent_team_ids()`, and maps each team to its organization through `team_organizations`, like the pair lane.
+- Each row carries the `user_hash` of its (organization, user): a hash over each kind's name, `n_reports` and vector. A day that adds no report to a user's history keeps the hash.
+- The manifest asset copies the day to `serving_user_vectors_key(prefix, dt)` and names it in `user_vectors`. The mirror never gets a copy.
 
 ### Engagement export
 
@@ -184,7 +194,8 @@ That table drops a row 3 months after its `timestamp`, and `UserActivitySummaryV
 `inbox_ranking_training_job` runs daily at 05:00 UTC on the same partition definition (gated like the dataset job).
 It fits no model: the `nn` families train on the `signals_ml` location (see [The nn family](#the-nn-family)).
 The job runs three assets: `inbox_ranking_serving_manifest`, `inbox_ranking_served_scores` and `inbox_ranking_unseen_graded`.
-The manifest depends on the dt=D `inbox_project_vectors` partition, which it copies.
+The manifest depends on the dt=D `inbox_project_vectors` and `inbox_user_vectors` partitions, which it copies.
+The user vectors copy is optional: a missing day leaves `user_vectors` out of the manifest and never blocks the publish.
 The models live under the dataset prefix:
 
 ```text
@@ -438,13 +449,13 @@ dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locat
 
 An experiment is a `MODEL_FAMILIES` entry with `experiment=True`, a `baseline` serving family and an `expires` day (`training/families.py`). It tests a modeling idea without a serving family's costs:
 
-- **Its own job.** `inbox_ranking_nn_experiments_job` (`nn/experiments.py`, on `signals_ml`) trains every live experiment, one after the other. It has its own runtime and memory tags, so it never uses the `nn` job's budget. Its schedule (08:00 UTC, after the `nn` job's 3h budget) skips when no experiment is live.
+- **Its own job.** `inbox_ranking_nn_experiments_job` (`nn/experiments.py`, on `signals_ml`) trains every live experiment, one after the other. It has its own runtime and memory tags, so it never uses the `nn` job's budget. It holds three assets, run one step at a time in one process: `inbox_ranking_nn_experiment_candidates` (the report-grain experiments), `inbox_ranking_nn_pair_examples` and `inbox_ranking_nn_pair_experiment_candidates` (the pair-grain experiments, after the pair examples). The report experiments do not depend on the pair examples, so a failed pair step skips only the pair experiments. Its schedule (08:00 UTC, after the `nn` job's 3h budget) selects the report asset when a report experiment is live and the two pair assets when a pair experiment is live, and skips when nothing is live.
 - **No new examples.** It reads the day's `inbox_ranking_nn_examples` object. A day without that object is skipped, and so is a family after its `expires` day.
 - **Never served.** The serving manifest reads only `serving_families()`. The pin check refuses an experiment key, so the promote job, the served pointer and the pins cannot name one. To serve the recipe, register it as a serving family under a new `model_name`.
 - **Paired read.** The experiment and its baseline each fit once per seed in `EXPERIMENT_SEEDS`, on the same train rows. `metadata.json` holds a `vs_baseline` block per head: each seed's within-team and pooled holdout AUC for both arms, and the mean, min and max of the gaps. One `inbox_ranking_experiment_compared` event per head carries the gaps.
 - **Side inputs.** A side input beyond the report vectors needs a loader in `training/side_inputs.py`. The registry refuses a frame without a timezone-aware `as_of_column` and drops the rows known after the partition end. A feature set in the dags reads the frame through `rows_as_of`. A set in `features.py` cannot import the dags, so it applies the same `<= as_of` cut on the loader's column itself.
 
-The live experiment is `nn_with_prio_sources_v1`, graded against `nn_with_prio_v2` until 2026-11-11. Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
+The live report-grain experiment is `nn_with_prio_sources_v1`, graded against `nn_with_prio_v2` until 2026-11-11. The pair-grain experiments are under [User-history families](#user-history-families). Its set, `report_embeddings_priority_sources`, adds the source products of the report's signals: one column per product in a fixed vocabulary, `source_other`, `source_count` and `has_sources`. The `report_sources` loader reads only the metadata columns of `inbox_signal_embeddings`, from 30 days before the training lookback to dt=D. A moment takes the latest emission per `(team_id, signal_id)` inserted at or before it and drops a retracted signal. It never reads the impression labels' `source_products` column, which holds the latest impression's value. The scoring sweep cannot build this set, so the recipe needs serving work before it can become a serving family.
 
 The schedule is a fallback. To read an experiment on a chosen day, launch the job for that partition from the Dagster UI or the CLI:
 
@@ -458,7 +469,7 @@ The newest day you can launch is the newest day the `nn` job finished. Adjacent 
 ### Pair examples
 
 `inbox_ranking_nn_pair_examples` (`nn/pairs.py`) holds the report-user pairs for a personal ranking lane: a model that reads a vector of the reports one user viewed before, next to the report.
-It writes `inbox_ranking_nn_pair_examples/v1/dt=D/` with its own `PAIR_EXAMPLES_SCHEMA_VERSION`, and runs in its own job, `inbox_ranking_nn_pair_examples_job`, which has no schedule. Launch it for a partition after the `nn` job finished that day.
+It writes `inbox_ranking_nn_pair_examples/v1/dt=D/` with its own `PAIR_EXAMPLES_SCHEMA_VERSION`, and runs in its own job, `inbox_ranking_nn_pair_examples_job`, which has no schedule. The experiments job also builds it for the partition it trains, before the pair experiments. Launch the pair examples job alone to inspect a partition before any model reads it.
 
 - **Rows**: one per (report example, user), for each user impressed with the report within `PAIR_HORIZON_DAYS` (7) of birth. The report rows are the `open` head's rows of the dt=D `inbox_ranking_nn_examples` object, so the report inputs, the holdout split (`holdout` is the row's `open_holdout`) and the day windows are the report lane's. A report born on day B reads its impressions from the dt=B+7 `inbox_user_report_interactions` partition, the partition the report's `open` label reads.
 - **Labels**, from the same partition and before its end: `open_label` is the user's `first_opened_at`, and `action_label` is any of the user's UI action `first_*` columns from `UI_ACTION_COLUMNS`, the set the `action` project vector reads. There is no `fixed` label, because a fix belongs to the report and not to a user.
@@ -483,7 +494,21 @@ A family with `grain="pair"` scores one row per (report, impressed user) from `i
 - **Reference.** For each seed, the reference fits at report grain on the report train rows born on a pair train day, and each holdout pair takes its report's score. The reference fits before the pair matrices are built, so its report matrix and the pair matrices are never in memory together.
 - **Grade.** `vs_baseline` (`nn/pair_grade.py`) has `grain: "pair"` and, per head, within-user AUCs for each arm and seed. A user is one person in one team, and a user with one outcome class is left out. `macro` weighs each user the same, and `pooled` weighs each user by its pairs. The scopes are `all` and `non_dogfood` (without the dogfood project's users). The slices are `all`, the prior-view buckets, `history_10_plus`, `suggested_reviewer` and `not_suggested_reviewer`. `vs_baseline` and `vs_reference` give the mean, min and max delta over the paired seeds, and a team bootstrap interval for the macro delta. One `inbox_ranking_experiment_compared` event per head, scope and slice carries `grain`, `scope`, `slice` and the deltas against both arms. Report-grain experiments keep their block and their events as they were.
 
-No pair family is registered yet. The user-input feature set and the two pair families that read it come in a follow-up.
+#### User-history families
+
+`nn_pair_user_v1` and `nn_pair_base_v1` ask whether a user's own inbox history improves the ranking. Both train until 2026-11-25, with heads `open` and `action` and `nn_with_prio_v2` as the reference. `nn_pair_user_v1` names `nn_pair_base_v1` as its baseline, and the base has no pair baseline.
+
+- **Same network.** Both read the `report_embeddings_priority` columns, the team's project vectors, `is_suggested_reviewer` and the same user-history inputs, in one input shape, on the same pairs and seeds.
+- **User inputs** (`PairUserHistoryFeatureSet` in `products/signals/backend/ranking/features.py`): `log1p` of `user_open_reports` and `user_dismiss_reports`, `days_since_last_view` over its 90-day cap, `has_user_history`, and a `user` graph input. That input holds, per kind (`open`, `dismiss`), the user's vector minus the team's project vector of the kind (`user_offsets`). An offset is zero when the user has no report of the kind or the team's kind has too thin a history. A cold-start user reads zero offsets, zero counts and the capped recency, and gets a finite score from the same network.
+- **The base reads no history.** `nn_pair_base_v1`'s set holds every user column and offset at zero, whatever the pair rows hold, and keeps the reviewer flag. So `nn_pair_user_v1` against `nn_pair_base_v1` is the uplift of the user's history alone, and the change of grain and the reviewer flag are in both arms.
+- **Per pair.** The lane builds each arm's inputs from the pair rows. The report part is built once per report, and the user columns and offsets come from each pair's own user, so two users of one report never share them. The user vectors come from `pair_user_vectors` on the dt=D interactions snapshot of teams in `training_consent_team_ids()`, inside each team's organization, as of the start of the birth day. A family that reads user history skips a partition without that snapshot.
+- **Metadata.** A pair candidate records `user_vector_kinds`, and its recipe records them with `user_vector_settings`. The asset metadata adds `pair_rows`, `pair_users` and `pair_rows_with_prior_views` per family.
+
+To run both families for one partition, launch the experiments job on the `posthog.dags.locations.signals_ml` location with the tag `dagster/partition` set to the day (`YYYY-MM-DD`), as in the command above. The job needs no run config. A launch without an asset selection runs all three assets, so it also trains the report-grain experiments. To train only the pair families, select `inbox_ranking_nn_pair_examples` and `inbox_ranking_nn_pair_experiment_candidates`. Launch a day the `nn` job finished, and whose dt=D interactions and embeddings snapshots and dt=B+7 interactions partitions exist.
+
+Before the first read, launch `inbox_ranking_nn_pair_examples_job` alone on a recent day and check its metadata: `rows`, `users`, positives per label, rows and users per prior-view bucket, and `suggested_reviewer_share`. The `history_10_plus` holdout needs users with both classes in enough teams for the within-user grade and its team bootstrap to read.
+
+Lead the read with the macro within-user AUC delta of `nn_pair_user_v1` against `nn_pair_base_v1`, in `scope=non_dogfood`, `slice=all`, for `open` and `action`, next to its `vs_reference` delta. Then read the history buckets, `history_10_plus` and the reviewer slices. The predeclared bar for a go is a positive macro delta in `history_10_plus` outside dogfood on `open` or `action`, on at least 3 partitions about 7 days apart, with a team bootstrap interval above zero on at least one, and no bucket below 10 views worse than the base beyond seed noise.
 
 ## Configuration
 

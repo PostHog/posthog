@@ -47,6 +47,7 @@ import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
@@ -275,6 +276,14 @@ function AnalyticsListContent(): JSX.Element {
                                     <IconChevronDown />
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="min-w-48">
+                                    <AnalyticsPinMenuItem
+                                        target={{
+                                            type: 'folder',
+                                            ref: filters.folder!,
+                                            name: spaceName ?? topLevelSpace,
+                                        }}
+                                        dataAttr="analytics-space-pin-manage"
+                                    />
                                     <DropdownMenuItem
                                         variant="destructive"
                                         onClick={() =>

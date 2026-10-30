@@ -182,7 +182,7 @@ export interface DeriveTaskDataContext {
  * When a task last moved: the activity time the caller passes (the backend's, via
  * `taskActivityAt`), or local renderer activity where that has run ahead of the next poll.
  */
-function taskLastActivityAt(
+export function taskLastActivityAt(
   activityAt: string,
   timestamp: TaskTimestamp | undefined,
 ): number {

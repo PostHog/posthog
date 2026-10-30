@@ -716,6 +716,8 @@ function completePromptTurn(
   const wasCancelled = turn.stopReason === "cancelled";
   turn.context.turnCancelled = wasCancelled;
 
+  if (b.isCompacting) markRuntimeStatusComplete(b, "compacting");
+
   if (turn.gitAction.isGitAction && turn.gitAction.actionType) {
     b.items.push({
       type: "git_action_result",
@@ -958,6 +960,7 @@ function handleRuntimeStatus(
       markRuntimeStatusComplete(b, "compacting");
       return;
     }
+    if (b.isCompacting) return;
     b.isCompacting = true;
   } else if (status.status === "compacting_failed") {
     markRuntimeStatusComplete(b, "compacting");

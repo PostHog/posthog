@@ -3,7 +3,7 @@ from collections.abc import Collection
 from posthog.models.team import Team
 
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import api as experiments_api
 from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.session_recording_links import replay_gated_flags_for_projects
@@ -51,9 +51,7 @@ def excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
             team__project_id__in=project_ids, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
     )
-    excluded |= set(
-        Experiment.objects.filter(team_id__in=team_ids, deleted=False).values_list("feature_flag_id", flat=True)
-    )
+    excluded |= experiments_api.experiment_flag_ids(team_ids, include_deleted=False)
     excluded |= set(
         EarlyAccessFeature.objects.filter(team_id__in=team_ids, feature_flag_id__isnull=False).values_list(
             "feature_flag_id", flat=True

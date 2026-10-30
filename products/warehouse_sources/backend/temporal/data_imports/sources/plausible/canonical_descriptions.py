@@ -72,6 +72,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _DOCS_URL,
         "columns": {**_STANDARD_METRIC_COLUMNS, "utm_content": "Value of the utm_content query parameter."},
     },
+    "channels": {
+        "description": "Daily traffic metrics broken down by acquisition channel.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_STANDARD_METRIC_COLUMNS,
+            "channel": "The acquisition channel Plausible assigned to the visit, for example Organic Search or Paid Social.",
+        },
+    },
+    "hostnames": {
+        "description": "Daily traffic metrics broken down by the hostname events were sent from.",
+        "docs_url": _DOCS_URL,
+        "columns": {**_EVENT_METRIC_COLUMNS, "hostname": "The hostname the event was sent from."},
+    },
     "pages": {
         "description": "Daily traffic metrics broken down by page path and hostname.",
         "docs_url": _DOCS_URL,
@@ -123,6 +136,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Daily traffic metrics broken down by operating system.",
         "docs_url": _DOCS_URL,
         "columns": {**_STANDARD_METRIC_COLUMNS, "os": "The visitor's operating system."},
+    },
+    "operating_system_versions": {
+        "description": "Daily traffic metrics broken down by operating system and version.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            **_STANDARD_METRIC_COLUMNS,
+            "os": "The visitor's operating system.",
+            "os_version": "The version of the visitor's operating system.",
+        },
     },
     "devices": {
         "description": "Daily traffic metrics broken down by device type (screen size class).",

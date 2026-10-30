@@ -8,14 +8,11 @@ prompt or scale can tell the question no longer describes it.
 
 import uuid
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
@@ -23,10 +20,10 @@ from posthog.dataclasses import frozen
 from products.replay_vision.backend.built_in_scans import built_in_scan_for
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     PromptValence,
     ReplayScanner,
-    ScannerOrigin,
     ScannerType,
     prompt_fingerprint,
 )
@@ -139,16 +136,9 @@ def _generate(
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
     )
-    # Client setup is inside the guard too: a missing key must fall back, not fail the save.
+    # Client setup is inside the guard too: a missing gateway config must fall back, not fail the save.
     try:
-        client = genai.Client(
-            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
-        response = client.models.generate_content(
+        response = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS).generate_content(
             model=_QUESTION_MODEL,
             contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}"
             + (f"\n\nQuestion already written:\n{question}" if question else ""),
@@ -156,7 +146,6 @@ def _generate(
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={"ai_product": "replay_vision", "feature": "prompt_question", "team_id": team_id},
-            posthog_groups={"project": str(team_id)},
         )
         return _LlmQuestion.model_validate_json(response.text or "")
     except Exception:
@@ -257,93 +246,3 @@ def valence_for_snapshot(
     if scanner_type not in _DIRECTIONAL_TYPES or not valence or not _from_snapshot_prompt(snapshot_config, source):
         return None
     return PromptValence(valence)
-
-
-@frozen
-class BackfillResult:
-    checked: int
-    written: int
-
-
-def backfill_prompt_questions(
-    *,
-    team_id: int | None = None,
-    include_inline: bool = False,
-    limit: int | None = None,
-    dry_run: bool = False,
-) -> BackfillResult:
-    """Give every scanner whose question is missing or came from another prompt a question for its current prompt.
-    A monitor or scorer whose current question has no valence gets only a valence, so its question keeps its wording.
-
-    Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
-    The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
-    Each distinct prompt is condensed once per run, team and scanner type, since many scanners share one word for word.
-    Inline scanners only take a built-in scan's question, the same rule `create_inline_scanner` follows.
-    """
-    scanners = ReplayScanner.all_origins.order_by("created_at")
-    if not include_inline:
-        scanners = scanners.filter(origin=ScannerOrigin.CONFIGURED)
-    if team_id is not None:
-        scanners = scanners.filter(team_id=team_id)
-    checked = written = 0
-    condensed: dict[tuple[int, str, str, str], PromptQuestion] = {}
-    for scanner in scanners.only(
-        "id",
-        "team_id",
-        "origin",
-        "scanner_type",
-        "scanner_config",
-        "prompt_question",
-        "prompt_question_source",
-        "prompt_valence",
-    ).iterator():
-        if limit is not None and written >= limit:
-            break
-        checked += 1
-        source = _source_of(scanner.scanner_config)
-        # A question written before the scale joined the fingerprint still matches its prompt, so it keeps its wording.
-        question_is_current = scanner.prompt_question_source in (
-            source,
-            prompt_fingerprint(_prompt_of(scanner.scanner_config)),
-        )
-        if question_is_current and (scanner.scanner_type not in _DIRECTIONAL_TYPES or scanner.prompt_valence):
-            continue
-        inline_question = (
-            built_in_question(scanner.scanner_type, scanner.scanner_config)
-            if scanner.origin == ScannerOrigin.INLINE
-            else None
-        )
-        if scanner.origin == ScannerOrigin.INLINE and inline_question is None:
-            continue
-        if dry_run:
-            written += 1
-            continue
-        # A kept question goes to the model too, so the valence judges the question the page shows.
-        kept_question = scanner.prompt_question if question_is_current else ""
-        # Keyed by team too, since the answer can echo a team's own scale label.
-        key = (scanner.team_id, source, scanner.scanner_type, kept_question)
-        question = inline_question or condensed.get(key)
-        if question is None:
-            question = condense_prompt(
-                team_id=scanner.team_id,
-                scanner_type=scanner.scanner_type,
-                scanner_config=scanner.scanner_config,
-                metered=False,
-                kept_question=kept_question,
-            )
-            # A failed call has no valence; the next scanner with this prompt tries the model again.
-            if question.valence:
-                condensed[key] = question
-        fields = question.as_fields()
-        # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
-        unchanged = ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config)
-        if question_is_current:
-            # A failed model call carries no valence, and writing its question would replace a model-written one.
-            fields = {"prompt_question_source": source}
-            if question.valence:
-                fields["prompt_valence"] = question.valence
-                unchanged = unchanged.filter(prompt_valence="")
-            elif scanner.prompt_question_source == source:
-                continue
-        written += unchanged.update(**fields)
-    return BackfillResult(checked=checked, written=written)

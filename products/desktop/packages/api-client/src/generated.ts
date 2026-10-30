@@ -325,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
@@ -545,6 +546,33 @@ export namespace Schemas {
         operator: AccountsTableThresholdOperator;
         value: number;
     };
+    export type AccountsTableCustomPropertyDisplayType =
+        | "text"
+        | "link"
+        | "number"
+        | "currency"
+        | "percent"
+        | "date"
+        | "datetime"
+        | "boolean"
+        | "select";
+    export type AccountsTableCustomPropertyOption = {
+        color: string;
+        id?: (string | null) | undefined;
+        label: string;
+    };
+    export type AccountsTableCustomPropertySource = { id: string };
+    export type AccountsTableCustomPropertyDefinition = {
+        description?: (string | null) | undefined;
+        display_type: AccountsTableCustomPropertyDisplayType;
+        has_workflow_reference: boolean;
+        id: string;
+        is_big_number?: (boolean | null) | undefined;
+        is_canonical: boolean;
+        name: string;
+        options?: (Array<AccountsTableCustomPropertyOption> | null) | undefined;
+        source?: (AccountsTableCustomPropertySource | null) | undefined;
+    };
     export type AccountsTableCustomPropertyOperator =
         | "exact"
         | "is_not"
@@ -615,6 +643,13 @@ export namespace Schemas {
         tagNames: Array<string>;
     };
     export type AccountsTableUnassignedFilter = Partial<{ kind: string }>;
+    export type AccountsTableRelationshipDefinition = {
+        description?: (string | null) | undefined;
+        id: string;
+        is_controlled: boolean;
+        is_single_holder?: (boolean | null) | undefined;
+        name: string;
+    };
     export type AccountsTableRow = {
         /**
          * Requested direct Account fields, keyed by their typed field reference.
@@ -643,6 +678,19 @@ export namespace Schemas {
         tags?: (Array<string> | null) | undefined;
     };
     export type AccountsTableQueryResponse = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -652,6 +700,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -714,6 +765,7 @@ export namespace Schemas {
                   | AccountsTableCustomPropertyFilter
               > | null)
             | undefined;
+        ignoreMissingDefinitions?: (boolean | null) | undefined;
         includeChurned?: (boolean | null) | undefined;
         includeIgnored?: (boolean | null) | undefined;
         kind?: string | undefined;
@@ -730,6 +782,7 @@ export namespace Schemas {
         response?: (AccountsTableQueryResponse | null) | undefined;
         sort?: (AccountsTableSort | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
+        useDefaultColumns?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     /**
@@ -1967,6 +2020,7 @@ export namespace Schemas {
         series_label?: (string | null) | undefined;
     };
     export type TrendsQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -3189,6 +3243,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type StickinessQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3295,6 +3350,7 @@ export namespace Schemas {
         toggledLifecycles: Array<LifecycleToggle> | null;
     }>;
     export type LifecycleQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -4537,12 +4593,21 @@ export namespace Schemas {
         | "minimum"
         | "maximum"
         | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
     export type BICategoryGroup = { name: string; values: Array<string> };
     export type Operator1 = "AND" | "OR";
     export type BIConditionGroup = {
         filters: Array<string>;
         groups: Array<BIConditionGroup>;
         operator: Operator1;
+    };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: BICatalogMetricStatus;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
     };
     export type BIDateBucket =
         | "minute"
@@ -4694,12 +4759,15 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
@@ -4735,6 +4803,7 @@ export namespace Schemas {
     };
     export type BIConfig = {
         catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -7415,6 +7484,19 @@ export namespace Schemas {
             | undefined;
     };
     export type Response20 = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7424,6 +7506,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -9143,6 +9228,10 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -9869,6 +9958,8 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9891,6 +9982,8 @@ export namespace Schemas {
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
+        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
@@ -9943,6 +10036,8 @@ export namespace Schemas {
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9958,6 +10053,10 @@ export namespace Schemas {
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
          */
         subcode: string | null;
+        /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          *
@@ -10001,6 +10100,7 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -10021,6 +10121,7 @@ export namespace Schemas {
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filters"
         | "early_significance"
         | "zero_exposures"
         | "srm"
@@ -10054,6 +10155,7 @@ export namespace Schemas {
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
@@ -10062,7 +10164,7 @@ export namespace Schemas {
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
-         * What the check looks at, for example 'Feature flag variants'.
+         * The problem the check looks for, for example 'Metrics not set up'.
          */
         name: string;
         /**
@@ -10431,7 +10533,7 @@ export namespace Schemas {
          */
         key: ExperimentExposureHealthCheckKey;
         /**
-         * What the check looks at, as the health panel lists it.
+         * The problem the check looks for, as the health panel lists it.
          */
         name: string;
         /**
@@ -10478,6 +10580,10 @@ export namespace Schemas {
          * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
          */
         evidence: Record<string, string | number | null>;
+        /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          */
@@ -10841,6 +10947,10 @@ export namespace Schemas {
         incremental: boolean;
         status: string | null;
         /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
@@ -10932,6 +11042,10 @@ export namespace Schemas {
          * Whether exact source-side column metadata is available for safe source-query projection.
          */
         source_column_metadata_available: boolean;
+        /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         */
+        history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -12414,6 +12528,8 @@ export namespace Schemas {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13827,7 +13943,9 @@ export namespace Schemas {
         | "AwsS3Tables"
         | "Beacons"
         | "WooPayments"
-        | "Soniox";
+        | "Soniox"
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15250,6 +15368,8 @@ export namespace Schemas {
          * * `Beacons` - Beacons
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
+         * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -16337,10 +16457,24 @@ export namespace Schemas {
         query_status: unknown;
         hogql: string | null;
         types: Array<unknown> | null;
+        /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         */
         resolved_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
+        /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         */
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         */
+        action_names: Record<string, string> | null;
         /**
          * What ClickHouse read for this insight's last slow run, with the findings of its query scan.
          */
@@ -16369,6 +16503,12 @@ export namespace Schemas {
      * * `unavailable` - unavailable
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
+    /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
     /**
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
@@ -16478,6 +16618,14 @@ export namespace Schemas {
     export type IntegrationConfig = {
         id: number;
         kind: IntegrationKindEnum;
+        /**
+         * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `token` - Token
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
@@ -19257,6 +19405,10 @@ export namespace Schemas {
          * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
+        /**
+         * How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only.
+         */
+        personal_api_keys_limit: number;
     };
     export type PaginatedUserList = {
         count: number;
@@ -19340,6 +19492,10 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
@@ -19457,7 +19613,23 @@ export namespace Schemas {
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
     }>;
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum =
+        | "errors"
+        | "metrics"
+        | "planned"
+        | "wrong_configuration"
+        | "other";
     export type PatchedFeatureFlagPartialUpdateRequestSchema = Partial<{
+        ask_rollback_reason: boolean;
+        rollback_reason: RollbackReasonEnum | NullEnum;
+        rollback_reason_note: string | null;
         key: string;
         name: string;
         filters: FeatureFlagFiltersSchema;
@@ -19556,6 +19728,11 @@ export namespace Schemas {
             date_from: string;
             date_to: string;
         }> | null;
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        action_names: Record<string, string> | null;
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
@@ -20045,6 +20222,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         requires_credential_review: boolean;
+        personal_api_keys_limit: number;
     }>;
     export type PersonRecord = {
         /**
