@@ -1,6 +1,12 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
-import { type Dispatch, type SetStateAction, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { track } from "../analytics";
 import { REGIONS } from "../auth";
 import {
@@ -8,12 +14,13 @@ import {
   billingBlocker,
   billingNotice,
   billingSheet,
+  chatgptLoginSheet,
   claudeTokenSheet,
   cloudHarnessFor,
   localHarnessFor,
   TOKEN_SHEET_RUN,
 } from "../billing";
-import { chatgptAccount } from "../chatgpt";
+import { chatgptAccount, chatgptLogin } from "../chatgpt";
 import type { PiChats, StartPick } from "../chats";
 import { claudeOnPath } from "../claudeSetup";
 import {
@@ -21,6 +28,7 @@ import {
   loadClaudeToken,
   saveClaudeToken,
 } from "../claudeToken";
+import { connectCodexCloud } from "../codexCloud";
 import type { WelcomeStep } from "../components/Welcome";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -39,12 +47,14 @@ import {
 } from "../layout";
 import type { LocalAgent } from "../local";
 import { parseSlash } from "../models";
+import { openUrl } from "../openUrl";
 import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 import { TOKEN_HINT } from "../settings";
 import type { Sheet } from "../sheet";
 import { parseShell } from "../shell";
 import type { Notice } from "./useNotice";
 import type { RepoPicker } from "./useRepoPicker";
+import type { CodexCloudClient } from "./useSettings";
 import type { OpenModal } from "./useSheets";
 
 export interface Send {
@@ -78,6 +88,7 @@ export function useSend({
   composerFor,
   modalFor,
   openModal,
+  closeModal,
   openModelSheet,
   openEffortSheet,
   openModeSheet,
@@ -92,6 +103,7 @@ export function useSend({
   login,
   logout,
   runSetup,
+  codexCloud,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -118,6 +130,7 @@ export function useSend({
     choose: (index: number, text?: string) => void,
     dismiss?: () => void,
   ) => void;
+  closeModal: (paneId: string) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
   openModeSheet: (paneId: string, task: Task | undefined) => void;
@@ -142,6 +155,8 @@ export function useSend({
   logout: () => void;
   // Runs `claude setup-token` on the terminal and returns the token; absent where the terminal cannot be handed over.
   runSetup?: () => Promise<string>;
+  // PostHog's copy of the user's ChatGPT account, for cloud Codex runs; absent while signed out.
+  codexCloud?: CodexCloudClient;
 }): Send {
   const { isLocal, localFor, markActive } = local;
   const [pending, setPending] = useState<Map<string, string>>(new Map());
@@ -159,6 +174,26 @@ export function useSend({
   // The layout as of the last render: a sign-in swaps in the account's layout, so a sheet opened after it needs the pane it has.
   const latestLayout = useRef(layout);
   latestLayout.current = layout;
+
+  // Whether PostHog holds a ChatGPT account for cloud Codex runs; false until the server has answered.
+  const [chatgptCloud, setChatgptCloud] = useState(false);
+  useEffect(() => {
+    let current = true;
+    codexCloud
+      ?.get()
+      .then((integration) => {
+        if (current) setChatgptCloud(integration.status === "connected");
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [codexCloud]);
+  const planState = (): Parameters<typeof billingBlocker>[1] => ({
+    chatgptAccount: chatgptAccount(),
+    chatgptCloud,
+    claudeToken: loadClaudeToken() !== null,
+  });
 
   // The first run's welcome: its sheets report where it is, and the last one, or an Esc, ends it.
   // It starts from the first render, so the app's chrome never shows before the welcome does.
@@ -249,6 +284,57 @@ export function useSend({
     );
   };
 
+  // A question pi's login asks, answered on a sheet; the browser answering it first closes the sheet.
+  const askOnSheet = (
+    paneId: string,
+    question: string,
+    signal?: AbortSignal,
+  ): Promise<string> =>
+    new Promise((resolve, reject) => {
+      openModal(
+        paneId,
+        chatgptLoginSheet(question),
+        (_, text = "") => resolve(text),
+        () => reject(new Error("Sign-in cancelled")),
+      );
+      signal?.addEventListener("abort", () => {
+        closeModal(paneId);
+        reject(new Error("Sign-in cancelled"));
+      });
+    });
+
+  // Signs in to ChatGPT in the browser: pi's own login for chats here, or the account PostHog keeps for cloud Codex runs.
+  const signInToChatgpt = (
+    paneId: string,
+    cloud: boolean,
+    then: () => void,
+  ): void => {
+    welcomeAt("chatgpt");
+    showNotice("Finish signing in to ChatGPT with your browser…");
+    const ui = {
+      openUrl,
+      prompt: (question: string, signal?: AbortSignal) =>
+        askOnSheet(paneId, question, signal),
+    };
+    const signal = new AbortController().signal;
+    const signedIn = cloud
+      ? codexCloud
+        ? connectCodexCloud({
+            login: async (path) => {
+              await chatgptLogin(ui, signal, path);
+            },
+            connect: (tokens) => codexCloud.connect(tokens),
+          }).then((integration) =>
+            setChatgptCloud(integration.status === "connected"),
+          )
+        : Promise.reject(new Error("Sign in to PostHog first"))
+      : chatgptLogin(ui, signal).then(() => {});
+    signedIn.then(then, (error: unknown) => {
+      flashNotice(`ChatGPT sign-in failed: ${messageOf(error)}`);
+      endWelcome();
+    });
+  };
+
   const openBillingSheet = (paneId: string): void => {
     const here = { taskId: findPane(layout, paneId)?.taskId ?? null };
     welcomeAt("billing");
@@ -257,19 +343,19 @@ export function useSend({
       billingSheet(loadPrefs().billing),
       (index) => {
         const billing = BILLINGS[index];
-        const blocker = billingBlocker(billing, {
-          chatgptAccount: chatgptAccount(),
-          claudeToken: loadClaudeToken() !== null,
-        });
+        const place = places.placeFor(paneId);
+        const save = (): void => {
+          savePrefs({ billing });
+          flashNotice(billingNotice(billing), here);
+          endWelcome();
+        };
+        const blocker = billingBlocker(billing, planState(), place);
         if (billing === "anthropic" && blocker)
           return openClaudeTokenSheet(paneId, "", null);
-        endWelcome();
-        if (blocker) {
-          openSettings();
-          return flashNotice(blocker, here);
-        }
-        savePrefs({ billing });
-        flashNotice(billingNotice(billing), here);
+        // The plan's sign-in for where this pane's chats run; the other place asks for its own when first used.
+        if (billing === "chatgpt" && blocker)
+          return signInToChatgpt(paneId, place === "cloud", save);
+        save();
       },
       endWelcome,
     );
@@ -518,6 +604,16 @@ export function useSend({
     }
     // A local chat starts with its task row, so it is never only on this machine; without one, the message stays in the composer.
     if (!pane?.taskId && places.placeFor(paneId) === "local") {
+      if (billingBlocker(loadPrefs().billing, planState(), "local")) {
+        clearPending();
+        composerFor(paneId).setText(text);
+        if (loadPrefs().billing === "chatgpt")
+          signInToChatgpt(paneId, false, () =>
+            flashNotice("Logged in to ChatGPT. Press Enter to send.", here),
+          );
+        else openClaudeTokenSheet(paneId, "", null);
+        return;
+      }
       chats
         .createLocal(text, undefined, localHarnessFor(loadPrefs().billing))
         .then(
@@ -551,16 +647,16 @@ export function useSend({
         );
       return;
     }
-    if (!current) {
-      const blocker = billingBlocker(loadPrefs().billing, {
-        chatgptAccount: chatgptAccount(),
-        claudeToken: loadClaudeToken() !== null,
-      });
-      if (blocker) {
-        clearPending();
-        flashNotice(blocker, here);
-        return;
-      }
+    // A new cloud chat on a plan that still needs a sign-in asks for it here; the message stays in the composer.
+    if (!current && billingBlocker(loadPrefs().billing, planState(), "cloud")) {
+      clearPending();
+      composerFor(paneId).setText(text);
+      if (loadPrefs().billing === "chatgpt")
+        signInToChatgpt(paneId, true, () =>
+          flashNotice("Connected ChatGPT. Press Enter to send.", here),
+        );
+      else openClaudeTokenSheet(paneId, "", null);
+      return;
     }
     if (current) sentAt.current.set(current.id, Date.now());
     track("message sent", {

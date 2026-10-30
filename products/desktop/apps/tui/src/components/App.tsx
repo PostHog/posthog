@@ -237,7 +237,7 @@ export function App({
 
   const settings = useSettings(session?.codexCloud, runSetup);
 
-  const { modalFor, openModal, onModalKey } = useSheets({
+  const { modalFor, openModal, closeModal, onModalKey } = useSheets({
     layout,
     prompts,
     promptCursors,
@@ -300,6 +300,7 @@ export function App({
       composerFor,
       modalFor,
       openModal,
+      closeModal,
       openModelSheet,
       openEffortSheet,
       openModeSheet,
@@ -315,6 +316,7 @@ export function App({
       login,
       logout,
       runSetup,
+      codexCloud: session?.codexCloud,
     });
 
   const sidebar = useSidebar({

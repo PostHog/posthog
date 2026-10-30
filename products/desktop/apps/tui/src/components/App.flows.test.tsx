@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { CloudRegion, Task } from "@posthog/shared";
@@ -17,6 +17,7 @@ import { type ReactElement, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import { CLAUDE_TOKEN_PATH } from "../claudeToken";
+import type { CodexCloudClient } from "../hooks/useSettings";
 import {
   activeWorkspace,
   initialLayout,
@@ -40,6 +41,27 @@ import type { WorkList } from "../work";
 import { App, type Session } from "./App";
 
 vi.mock("../openUrl", () => ({ openUrl: vi.fn(), openImage: vi.fn() }));
+// pi's ChatGPT login asks for the browser's code, then leaves its tokens in the file it was given.
+vi.mock("../chatgpt", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../chatgpt")>()),
+  chatgptLogin: vi.fn(
+    async (
+      ui: { prompt: (question: string) => Promise<string> },
+      _signal: AbortSignal,
+      path: string,
+    ) => {
+      const code = await ui.prompt("Paste the code from your browser");
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          "openai-codex": { access: `access-${code}`, refresh: "refresh" },
+        }),
+      );
+      return "me@example.com";
+    },
+  ),
+}));
 const { openUrl } = await import("../openUrl");
 
 const CONFIG = join(homedir(), ".config", "posthog-tui");
@@ -89,12 +111,14 @@ function cloudApp({
   control = {},
   chats = {},
   layout = openTask(initialLayout(), task.id),
+  codexCloud,
 }: {
   task?: Task;
   view?: RunView;
   control?: Partial<PiControl>;
   chats?: Partial<PiChats>;
   layout?: ReturnType<typeof initialLayout>;
+  codexCloud?: CodexCloudClient;
 } = {}) {
   saveLayout(layout, layoutPath(ACCOUNT));
   const mouse: MouseEvents = new EventEmitter();
@@ -128,6 +152,7 @@ function cloudApp({
     chats: chats as PiChats,
     control: controlFor,
     startLocal: () => Promise.reject(new Error("no local")),
+    codexCloud,
   };
   const { instance, output, type } = renderInTerminal(
     <Box height={30} flexDirection="column">
@@ -435,6 +460,10 @@ describe("App flows", () => {
     const app = cloudApp({
       layout: initialLayout(),
       chats: { start } as unknown as Partial<PiChats>,
+      // A cloud Codex run needs the ChatGPT account PostHog holds, not pi's login.
+      codexCloud: {
+        get: async () => ({ status: "connected", email: "me@example.com" }),
+      } as unknown as CodexCloudClient,
     });
     try {
       const model = startingOptions("chatgpt", "cloud").model;
@@ -448,6 +477,49 @@ describe("App flows", () => {
         "codex",
         { model: model?.id },
       ]);
+    } finally {
+      app.close();
+    }
+  });
+
+  it("connects ChatGPT for cloud runs from the billing sheet, with pi's question on a sheet", async () => {
+    const connect = vi.fn(async () => ({
+      status: "connected",
+      email: "me@example.com",
+    }));
+    const app = cloudApp({
+      layout: initialLayout(),
+      codexCloud: {
+        get: async () => ({ status: "disconnected" }),
+        connect,
+        disconnect: async () => {},
+      } as unknown as CodexCloudClient,
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("start a cloud run"),
+      );
+      app.press("/billing");
+      app.press("\r");
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("What new chats run on"),
+      );
+      app.press("2");
+      await vi.waitFor(() =>
+        expect(app.plain()).toContain("Paste the code from your browser"),
+      );
+      app.press("abc");
+      app.press("\r");
+      await vi.waitFor(() =>
+        expect(connect).toHaveBeenCalledWith({
+          access_token: "access-abc",
+          refresh_token: "refresh",
+        }),
+      );
+      await vi.waitFor(() => expect(loadPrefs().billing).toBe("chatgpt"));
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-1500)).toContain("ChatGPT subscription"),
+      );
     } finally {
       app.close();
     }

@@ -31,7 +31,7 @@ describe("billing", () => {
 
   it("names what blocks a local chat", () => {
     expect(() => localStartFor("chatgpt", { chatgptAccount: null })).toThrow(
-      "Log in to ChatGPT in settings (Ctrl+;), or pick another /billing",
+      "Log in to ChatGPT first, or pick another /billing",
     );
   });
 
@@ -43,17 +43,30 @@ describe("billing", () => {
     expect(sheet.items[2].label).toBe("Anthropic");
   });
 
-  it("names what a plan still needs before it can pay", () => {
-    const nothing = { chatgptAccount: null, claudeToken: false };
+  it("names what a plan still needs before it can pay, per place for ChatGPT", () => {
+    const nothing = {
+      chatgptAccount: null,
+      chatgptCloud: false,
+      claudeToken: false,
+    };
     expect(billingBlocker("posthog", nothing)).toBeNull();
-    expect(billingBlocker("chatgpt", nothing)).toBe(
-      "Log in to ChatGPT in settings (Ctrl+;) first",
+    expect(billingBlocker("chatgpt", nothing, "cloud")).toBe(
+      "Connect ChatGPT for cloud runs first",
     );
-    expect(billingBlocker("anthropic", nothing)).toBe(
-      "Add your Claude token in settings (Ctrl+;) first",
+    expect(billingBlocker("chatgpt", nothing, "local")).toBe(
+      "Log in to ChatGPT first",
     );
     expect(
-      billingBlocker("anthropic", { chatgptAccount: null, claudeToken: true }),
+      billingBlocker("chatgpt", { ...nothing, chatgptCloud: true }, "cloud"),
+    ).toBeNull();
+    expect(
+      billingBlocker("chatgpt", { ...nothing, chatgptAccount: "me" }, "local"),
+    ).toBeNull();
+    expect(billingBlocker("anthropic", nothing)).toBe(
+      "Add your Claude token first",
+    );
+    expect(
+      billingBlocker("anthropic", { ...nothing, claudeToken: true }),
     ).toBeNull();
   });
 
