@@ -30,6 +30,7 @@ logger = structlog.get_logger(__name__)
 ServeStatus = Literal["ready", "unavailable"]
 
 _BUCKET_PREFIX = "personal_ranking_build_rate"
+_DAILY_BUILD_COST = 24
 
 
 class BuildThrottledError(Exception):
@@ -105,13 +106,14 @@ UNAVAILABLE = ServedRanking(
 def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig) -> int | None:
     """Spend one build from both buckets. Returns None when allowed, else the seconds until the next build."""
     hourly = Budget(burst=config.build_burst, per_hour=config.builds_per_hour)
-    # Refills the daily cap over 24 hours, so a person cannot spend it twice in one day.
-    daily = Budget(burst=config.builds_per_day, per_hour=max(1, -(-config.builds_per_day // 24)))
+    # A build costs one token per hour of the day, and the bucket refills `builds_per_day` tokens an hour,
+    # so it refills exactly `builds_per_day` builds a day. A whole-token rate per build would round it up.
+    daily = Budget(burst=config.builds_per_day * _DAILY_BUILD_COST, per_hour=config.builds_per_day)
     hourly_key = f"{_BUCKET_PREFIX}:hour:{team_id}:{user_id}"
     hourly_decision = consume(hourly_key, hourly)
     if isinstance(hourly_decision, BucketDecision) and not hourly_decision.allowed:
         return hourly_decision.retry_after
-    daily_decision = consume(f"{_BUCKET_PREFIX}:day:{team_id}:{user_id}", daily)
+    daily_decision = consume(f"{_BUCKET_PREFIX}:day:{team_id}:{user_id}", daily, cost=_DAILY_BUILD_COST)
     if isinstance(daily_decision, BucketDecision) and not daily_decision.allowed:
         if isinstance(hourly_decision, BucketDecision):
             refund(hourly_key, hourly)

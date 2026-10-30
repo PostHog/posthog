@@ -5,6 +5,7 @@ from io import StringIO
 from types import SimpleNamespace
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -515,13 +516,17 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._get()["cached"], self._rows()) == (True, 1)
         assert (self._get(refresh="true")["cached"], self._rows()) == (False, 2)
 
+        first.title = "First, edited"
+        first.save()
+        assert (self._get()["cached"], self._rows()) == (False, 3)
+
         second = self._claimed_report("Second")
         body = self._get()
-        assert (body["cached"], self._rows()) == (False, 3)
+        assert (body["cached"], self._rows()) == (False, 4)
         assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
 
-        assert (self._get(focus="checkout")["cached"], self._rows()) == (False, 4)
-        assert (self._get()["cached"], self._rows()) == (False, 5)
+        assert (self._get(focus="checkout")["cached"], self._rows()) == (False, 5)
+        assert (self._get()["cached"], self._rows()) == (False, 6)
 
     def test_throttled_build_returns_the_stored_list_or_429(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
@@ -536,6 +541,19 @@ class TestForMeEndpoint(APIBaseTest):
 
         PersonalInboxRanking.objects.for_team(self.team.id).all().delete()
         assert self.client.get(self._url()).status_code == 429
+
+    def test_daily_cap_holds_across_hours(self) -> None:
+        self.payload = {"build_burst": 10, "builds_per_hour": 120, "builds_per_day": 2}
+        self._claimed_report("First")
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            self._get()
+            self._get(refresh="true")
+
+            traveller.shift(datetime.timedelta(hours=3))
+            assert (self._get(refresh="true")["cached"], self._rows()) == (True, 2)
+
+            traveller.shift(datetime.timedelta(hours=9))
+            assert (self._get(refresh="true")["cached"], self._rows()) == (False, 3)
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()
