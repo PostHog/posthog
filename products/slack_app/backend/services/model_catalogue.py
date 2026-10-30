@@ -26,7 +26,7 @@ from products.tasks.backend.facade.model_catalogue import (
     label_for,
     model_allowed_by_product_pin,
     normalize_model_id,
-    offered_model_choices,
+    offered_model_choices as catalog_offered_model_choices,
     runtime_adapter_for,
 )
 
@@ -44,6 +44,12 @@ def available_model_choices() -> tuple[ModelChoice, ...]:
     """
     return tuple(
         choice for choice in catalog_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
+    )
+
+
+def offered_model_choices() -> tuple[ModelChoice, ...]:
+    return tuple(
+        choice for choice in catalog_offered_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
     )
 
 

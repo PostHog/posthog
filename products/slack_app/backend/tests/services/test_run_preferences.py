@@ -16,6 +16,7 @@ from products.slack_app.backend.services.run_preferences import (
     resolve_live_run_override,
     resolve_run_preferences,
 )
+from products.slack_app.backend.services.slack_app_home import get_picker_choices
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
 # Real model ids: the resolver validates efforts against the tasks catalogue (the
@@ -221,6 +222,11 @@ class TestAvailableModelChoices:
         assert not {"deepseek-ai/deepseek-v4.1-flash-1017-fast", "zai-org/glm-5.3"} & models
         assert all(c.label and c.runtime_adapter for c in choices)
 
+    def test_the_picker_offers_only_models_the_slack_pin_admits(self):
+        picker_models = {model.value for adapter in get_picker_choices() for model in adapter.models}
+        assert picker_models
+        assert picker_models <= {c.model for c in available_model_choices()}
+
 
 class TestCentralRunDefault:
     def _resolved(self, **kwargs):
@@ -228,8 +234,13 @@ class TestCentralRunDefault:
 
         return ResolvedAIRunConfig(**kwargs)
 
-    def test_an_acp_default_is_carried_through(self):
-        resolved = self._resolved(runtime="acp", runtime_adapter="claude", model="claude-fable-5", source="team")
+    @pytest.mark.parametrize(
+        "runtime_adapter, model",
+        [("claude", "claude-fable-5"), ("codex", "openai/gpt-6-sol")],
+        ids=["a_catalog_id", "a_provider_qualified_id"],
+    )
+    def test_an_acp_default_is_carried_through(self, runtime_adapter, model):
+        resolved = self._resolved(runtime="acp", runtime_adapter=runtime_adapter, model=model, source="team")
         with patch(
             "products.tasks.backend.facade.ai_run_defaults.resolve_ai_run_defaults",
             return_value=resolved,

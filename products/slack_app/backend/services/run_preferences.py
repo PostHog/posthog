@@ -28,6 +28,7 @@ from products.slack_app.backend.services.model_catalogue import (
     ModelChoice,
     available_model_choices,
     filter_unsupported_effort,
+    normalize_model_id,
     runtime_adapter_for,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
@@ -228,8 +229,8 @@ def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> Mo
     """Match a requested model id against the catalogue, case-insensitively."""
     if not model:
         return None
-    normalized = model.strip().lower()
-    return next((c for c in choices if c.model.lower() == normalized), None)
+    normalized = normalize_model_id(model)
+    return next((c for c in choices if normalize_model_id(c.model) == normalized), None)
 
 
 __all__ = [
