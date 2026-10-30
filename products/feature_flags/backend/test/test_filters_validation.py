@@ -145,6 +145,21 @@ class TestFiltersValidation(SimpleTestCase):
                 [],
             ),
             (
+                "not_in_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 5}]}]},
+                [],
+            ),
+            (
+                "exact_operator_on_cohort_property",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "operator": "exact", "value": 5}]}]},
+                ["cross_field.cohort_requires_in_or_not_in"],
+            ),
+            (
+                "cohort_property_without_operator",
+                {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": 5}]}]},
+                [],
+            ),
+            (
                 "date_operator_unparseable_value",
                 {"groups": [{"properties": [_person_prop(operator="is_date_after", value="not a date")]}]},
                 ["cross_field.date_value_not_parseable"],

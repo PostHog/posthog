@@ -44,7 +44,7 @@ Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
 # The side-mission calibration floor: templated into the prompt and enforced at emission.
 MIN_SIGNAL_CONFIDENCE = 0.4
 
-# The watch feed lists up to three headlines on one line, so an overlong one reflows the whole card.
+# The highlight feed lists up to three headlines on one line, so an overlong one reflows the whole card.
 SIGNAL_HEADLINE_MAX_LENGTH = 80
 
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
@@ -179,26 +179,6 @@ def confidence_field() -> Any:
     return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
-_NOTABILITY_REASON_DESCRIPTION = (
-    "One sentence a product team would read to decide whether to watch this session, naming the concrete moment "
-    "that makes it worth their time. Write it even when nothing stands out, saying so plainly."
-)
-_NOTABILITY_DESCRIPTION = (
-    "How much a product team would benefit from watching this session, 0.0 to 1.0 with one decimal. "
-    "Apply the notability calibration rules from the system prompt."
-)
-
-
-def notability_reason_field() -> Any:
-    """`notability_reason` field for LLM-response schemas. Declared before `notability` so the model names the
-    moment before scoring it.
-
-    Optional on purpose: this rides every scan in the product, and a required field would turn a model that
-    skipped it into a failed, already-paid observation. Readers fall back when it is absent.
-    """
-    return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
-
-
 _THUMBNAIL_DESCRIPTION = (
     "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the video "
     "file, the same scale you cite moments in, not the footer's `REC_T`."
@@ -208,8 +188,8 @@ _THUMBNAIL_DESCRIPTION = (
 def thumbnail_field() -> Any:
     """`thumbnail_t` field for LLM-response schemas, declared last so the pick never precedes the answer.
 
-    Optional for the same reason as `notability`: a skipped pick must not fail a paid-for scan. Readers fall back
-    to a cited or signal moment when absent.
+    Optional on purpose: a required field would turn a model that skipped the pick into a failed, already-paid
+    observation. Readers fall back to a cited or signal moment when absent.
     """
     return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
 
@@ -229,16 +209,6 @@ def key_moment_field() -> Any:
     return Field(default=None, ge=0, description=_KEY_MOMENT_DESCRIPTION)
 
 
-def notability_field() -> Any:
-    """`notability` field for LLM-response schemas.
-
-    Judges the session on its own merits — friction, failure, confusion, surprise — rather than on the scanner's
-    question, so a scan whose own answer is a non-event can still flag a session worth watching. Optional for the
-    same reason as `notability_reason`.
-    """
-    return Field(default=None, ge=0, le=1, description=_NOTABILITY_DESCRIPTION)
-
-
 @frozen
 class EmbeddingDocument:
     """One embedding row's identity and text: `rendering` names which field of the output it came from."""
@@ -251,11 +221,6 @@ class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
     confidence: float = confidence_field()
-    # Optional because observations scanned before notability shipped have neither field; readers must treat
-    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics. Uses the
-    # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
-    notability: float | None = notability_field()
-    notability_reason: str | None = notability_reason_field()
     # Session-clock offset of `key_moment_t`, stamped after the scan. None when the model skipped the pick or
     # named a time past the video, and on observations scanned before key moments shipped.
     key_moment_ms: int | None = Field(default=None, ge=0)

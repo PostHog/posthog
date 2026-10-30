@@ -250,6 +250,33 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
             include_from_parent=[],
         ),
     ),
+    # Wallet transactions are immutable, but a customer gets them long after the customer is
+    # created and the ledger takes no date filter, so this is full refresh only. Each row already
+    # carries `customer_id`.
+    "customer_wallet_ledger_entries": DodoPaymentsEndpointConfig(
+        path="/customers/{customer_id}/wallets/ledger-entries",
+        primary_keys=["customer_id", "id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="customer_id",
+            include_from_parent=[],
+        ),
+    ),
+    # A grant's `status` moves through delivery and revocation, and there is no date filter, so
+    # this is full refresh only. Each row already carries `entitlement_id`.
+    "entitlement_grants": DodoPaymentsEndpointConfig(
+        path="/entitlements/{id}/grants",
+        primary_keys=["entitlement_id", "id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="entitlements",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
     # A customer gets emails long after the customer is created, so the customer listing cannot
     # window them, and an email's delivery `status` changes after it is sent. Full refresh only.
     "customer_emails": DodoPaymentsEndpointConfig(
