@@ -5,7 +5,6 @@ import { useLayoutEffect, useRef } from 'react'
 import { Skeleton, Text } from '@posthog/quill'
 
 import { TodayExplore } from './TodayExplore'
-import { TodayFeed } from './TodayFeed'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
@@ -50,8 +49,7 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId, showFeed, useSampleData } =
-        useValues(todayLogic)
+    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const {
         currentProjectId,
@@ -133,7 +131,6 @@ export function TodayHomePage(): JSX.Element {
                 ) : null}
                 {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
                 <TodayForYou />
-                {showFeed && <TodayFeed />}
             </div>
         </div>
     )

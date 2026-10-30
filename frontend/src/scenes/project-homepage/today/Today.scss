@@ -305,16 +305,6 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
-.TodayFeed__spark {
-    display: block;
-    width: 96px;
-    height: 24px;
-
-    @container main-content (max-width: 600px) {
-        display: none;
-    }
-}
-
 .TodayHome__headingRow {
     display: flex;
     gap: 16px;

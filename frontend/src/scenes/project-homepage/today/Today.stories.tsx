@@ -768,32 +768,6 @@ function storyHighlights(): HighlightsApi {
     return { ...HIGHLIGHTS, pulse: [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC] }
 }
 
-function feedEventCounts(): [string, number, number][] {
-    const rows: [string, number, number][] = []
-    for (let daysAgo = 1; daysAgo <= 14; daysAgo++) {
-        const thisWeek = daysAgo <= 7
-        rows.push(['$pageview', daysAgo, 5000 + (daysAgo % 3) * 120])
-        rows.push(['checkout_completed', daysAgo, thisWeek ? 640 + daysAgo * 12 : 400 + daysAgo * 4])
-        rows.push(['signup_started', daysAgo, thisWeek ? 140 + daysAgo * 3 : 310])
-        if (thisWeek) {
-            rows.push(['invite_sent', daysAgo, 90 - daysAgo * 6])
-        }
-    }
-    return rows
-}
-
-async function feedQueryHandler(req: { request: Request }): Promise<[number, unknown]> {
-    const body = (await req.request.clone().json()) as { query?: { tags?: { name?: string } } }
-    switch (body.query?.tags?.name) {
-        case 'today_feed_event_counts':
-            return [200, { results: feedEventCounts(), columns: ['event', 'days_ago', 'events'] }]
-        case 'today_feed_rage_session':
-            return [200, { results: [['session-rage-1', 14, 'https://example.com/checkout/payment']] }]
-        default:
-            return reportMetricQueryHandler(req)
-    }
-}
-
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -982,39 +956,6 @@ export const HomeWithFrequentItems: Story = {
                     },
                 ],
             },
-        }),
-    ],
-}
-
-export const HomeWithFeed: Story = {
-    parameters: {
-        featureFlags: [
-            FEATURE_FLAGS.TODAY_RAIL_NAV,
-            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
-            FEATURE_FLAGS.TODAY_FEED,
-        ],
-    },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
-                    results: [],
-                    has_more: false,
-                    as_of: '2026-09-28T18:30:00Z',
-                },
-                'https://us.i.posthog.com/api/early_access_features': {
-                    earlyAccessFeatures: [
-                        {
-                            name: 'Funnel step notes',
-                            description: 'Write a note on any funnel step for your team to read.',
-                            stage: 'beta',
-                            flagKey: 'funnel-step-notes',
-                            documentationUrl: '',
-                        },
-                    ],
-                },
-            },
-            post: { '/api/environments/:team_id/query/:kind/': feedQueryHandler },
         }),
     ],
 }

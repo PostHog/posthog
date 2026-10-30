@@ -111,6 +111,7 @@ export enum Scene {
     AnalyticsSpaces = 'AnalyticsSpaces',
     AnalyticsProductHome = 'AnalyticsProductHome',
     Tools = 'Tools',
+    TodayFeed = 'TodayFeed',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',

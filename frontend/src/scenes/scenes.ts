@@ -358,6 +358,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Tools',
     },
+    [Scene.TodayFeed]: {
+        projectBased: true,
+        name: 'Feed',
+        layout: 'app-raw-no-header',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -863,6 +868,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
     [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
+    [urls.todayFeed()]: [Scene.TodayFeed, 'todayFeed'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

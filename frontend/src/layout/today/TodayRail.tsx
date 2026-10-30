@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
-import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, todayRailPanes } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 
@@ -12,6 +14,7 @@ const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'tod
 export function TodayRail(): JSX.Element {
     const { activePane, effectivePhaiView } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
+    const feedEnabled = useFeatureFlag('TODAY_FEED')
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
         <TodayRailTile
@@ -32,7 +35,7 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_PANES.map(renderTile)}
+            {todayRailPanes(feedEnabled).map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}

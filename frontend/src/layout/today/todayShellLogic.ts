@@ -18,7 +18,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'feed' | 'spaces' | 'analytics' | 'products' | 'settings'
 
 /** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
 export type TodaySidebarToggleSource =
@@ -52,6 +52,7 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
 /** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
 const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
     home: () => urls.projectHomepage(),
+    feed: () => urls.todayFeed(),
     spaces: todayNewChatUrl,
     analytics: () => urls.analyticsProductHome(),
     settings: () => urls.settings('project'),
@@ -89,6 +90,9 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
+    }
+    if (isUnderPath(path, urls.todayFeed())) {
+        return 'feed'
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
@@ -366,7 +370,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null): TodayRailPane =>
                 pickedPane ?? routePane ?? 'home',
         ],
-        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
+        paneHasSidebar: [
+            (s) => [s.activePane],
+            (activePane: TodayRailPane): boolean => activePane !== 'home' && activePane !== 'feed',
+        ],
         leftNavWidth: [
             (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.paneHasSidebar],
             (

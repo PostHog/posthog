@@ -1,12 +1,10 @@
 import {
     IconBell,
-    IconCursorClick,
     IconDatabase,
     IconDecisionTree,
     IconFlask,
     IconMessage,
     IconRewindPlay,
-    IconSparkles,
     IconSupport,
     IconToggle,
     IconTrends,
@@ -16,7 +14,6 @@ import {
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import type { HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
 
-import type { TodayFeedItem } from './todayFeedItems'
 import { TodayIcon } from './TodayIcon'
 import { sourceStyle } from './todaySignalReports'
 
@@ -62,17 +59,4 @@ export function reportIcon(report: Pick<SignalReport, 'source_products'>): Today
 
 export function highlightIcon(item: Pick<HighlightItemApi, 'source' | 'product'>): TodayRowIcon {
     return SOURCE_ICONS[item.source] ?? (item.product ? PRODUCT_ICONS[item.product] : undefined) ?? ANALYTICS
-}
-
-const FEED_PRODUCT_ICONS: Record<string, TodayRowIcon> = {
-    heatmaps: { color: 'var(--color-product-heatmaps-light)', glyph: <IconCursorClick /> },
-    session_replay: REPLAY,
-}
-
-export function feedIcon(item: Pick<TodayFeedItem, 'kind' | 'product'>): TodayRowIcon {
-    if (item.kind === 'preview') {
-        return { glyph: <IconSparkles /> }
-    }
-    const product = item.product ?? ''
-    return FEED_PRODUCT_ICONS[product] ?? PRODUCT_ICONS[product] ?? ANALYTICS
 }

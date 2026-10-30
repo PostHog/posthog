@@ -2,15 +2,19 @@ import { dayjs } from 'lib/dayjs'
 
 import type { TeamType } from '~/types'
 
-import { type EventDayCount, feedDays, movementItems, tryItem } from './todayFeedItems'
+import { type DayCount, type TodayFeedPost, feedDays, movementPosts, tryPost } from './todayFeedItems'
 
 const DAYS = feedDays(dayjs('2026-03-15'))
 
-function week(event: string, previous: number, current: number): EventDayCount[] {
+function week(name: string, previous: number, current: number): DayCount[] {
     return [
-        { event, daysAgo: 10, count: previous },
-        { event, daysAgo: 3, count: current },
+        { name, daysAgo: 10, count: previous },
+        { name, daysAgo: 3, count: current },
     ]
+}
+
+function events(posts: TodayFeedPost[]): string[] {
+    return posts.map((post) => (post.media?.type === 'chart' ? post.media.label : post.key))
 }
 
 function team(overrides: Partial<TeamType> = {}): TeamType {
@@ -34,32 +38,28 @@ describe('todayFeedItems', () => {
             ...week('steady_event', 5000, 5200),
         ]
 
-        const items = movementItems(counts, DAYS, {})
+        const posts = movementPosts(counts, DAYS, {})
 
-        expect(items.map((item) => item.title)).toEqual([
-            'checkout is down 80% this week',
-            'signup_started is up 200% this week',
-        ])
-        expect(items[0].series).toHaveLength(DAYS.length)
+        expect(events(posts)).toEqual(['checkout', 'signup_started'])
+        expect(posts[0].text).toBe('checkout is down 80% this week. 400 events, against 2K the week before.')
     })
 
     it('shows a new event next to a change', () => {
         const counts = [...week('invite_sent', 0, 900), ...week('checkout', 2000, 400)]
 
-        expect(movementItems(counts, DAYS, {}).map((item) => item.title)).toEqual([
-            'invite_sent started this week, with 900 events so far',
-            'checkout is down 80% this week',
-        ])
+        expect(events(movementPosts(counts, DAYS, {}))).toEqual(['invite_sent', 'checkout'])
     })
 
     it('fills the place of a hidden change with the next one', () => {
-        const counts = [...week('checkout', 2000, 400), ...week('search', 1000, 300), ...week('upload', 1000, 2000)]
-        const [hidden] = movementItems(counts, DAYS, {})
+        const counts = [
+            ...week('checkout', 2000, 400),
+            ...week('search', 1000, 300),
+            ...week('export', 1000, 2600),
+            ...week('upload', 1000, 2000),
+        ]
+        const [hidden] = movementPosts(counts, DAYS, {})
 
-        const items = movementItems(counts, DAYS, { [hidden.key]: true })
-
-        expect(items.map((item) => item.key)).not.toContain(hidden.key)
-        expect(items).toHaveLength(2)
+        expect(events(movementPosts(counts, DAYS, { [hidden.key]: true }))).toEqual(['search', 'export', 'upload'])
     })
 
     it.each<{
@@ -105,8 +105,8 @@ describe('todayFeedItems', () => {
             product: null,
         },
     ])('picks the product to try when $name', ({ team, events, hidden, product }) => {
-        const counts = events.map((event) => ({ event, daysAgo: 1, count: 1 }))
+        const counts = events.map((name) => ({ name, daysAgo: 1, count: 1 }))
 
-        expect(tryItem(team, counts, hidden, 0)?.product ?? null).toBe(product)
+        expect(tryPost(team, counts, hidden, 0)?.product ?? null).toBe(product)
     })
 })

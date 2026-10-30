@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { Button, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -11,7 +11,22 @@ import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
-import { TodayRowsSkeleton } from './TodayRowsSkeleton'
+
+function TodayRowsSkeleton(): JSX.Element {
+    return (
+        <ol className="TodayRows" aria-busy aria-label="Loading">
+            {['w-3/5', 'w-4/5', 'w-1/2'].map((width) => (
+                <li key={width} className="TodayRow">
+                    <Skeleton className="TodayRow__iconSkeleton" />
+                    <div className="flex flex-col gap-2 py-1">
+                        <Skeleton className={`h-3.5 ${width}`} />
+                        <Skeleton className="h-3 w-2/5" />
+                    </div>
+                </li>
+            ))}
+        </ol>
+    )
+}
 
 function renderRow(row: TodayForYouRow): JSX.Element {
     switch (row.kind) {

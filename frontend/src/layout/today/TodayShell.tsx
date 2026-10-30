@@ -90,7 +90,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? null : activePane === 'spaces' ? (
+            {activePane === 'home' || activePane === 'feed' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
                 <TodayPreviewCardProvider disabled={phoneLayout}>
