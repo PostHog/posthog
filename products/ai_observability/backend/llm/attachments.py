@@ -25,7 +25,7 @@ MAX_VIDEO_BYTES = 15_000_000
 
 @frozen
 class AttachmentPart:
-    """An image, PDF or audio clip in a message's content list. Each adapter converts it to its provider's block.
+    """An image, PDF, audio clip or video in a message's content list. Each adapter converts it to its provider's block.
 
     Set `url` for a link the provider downloads, or `data` for inline bytes.
     """

@@ -250,6 +250,7 @@ _MIME_ALIASES = {
     "audio/mp3": "audio/mpeg",
     "audio/x-wav": "audio/wav",
     "audio/wave": "audio/wav",
+    "video/mpg": "video/mpeg",
 }
 
 

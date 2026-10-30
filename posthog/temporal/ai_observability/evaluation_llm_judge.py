@@ -891,13 +891,13 @@ def call_llm_judge(
                     "provider": provider,
                     "model": model,
                     "status": status,
-                    "sent_pdfs": any(isinstance(part, AttachmentPart) and part.is_pdf for part in content),
+                    "sent_types": sorted({part.mime_type for part in content if isinstance(part, AttachmentPart)}),
                 }
                 logger.warning("judge_attachments_rejected", **context)
                 if not is_byok:
                     # On a PostHog key this can mean broken presigned links or a refused PDF, so keep it visible.
                     capture_exception(
-                        JudgeAttachmentsRejectedError(f"Provider rejected judge images ({status})"), context
+                        JudgeAttachmentsRejectedError(f"Provider rejected judge attachments ({status})"), context
                     )
                 response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
