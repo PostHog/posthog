@@ -312,6 +312,29 @@ describe("Composer", () => {
       expect(sent).toEqual([text.replace("lazy", "Xlazy")]);
     });
 
+    it("places the cursor after an image marker clicked in its middle", () => {
+      const sent: string[] = [];
+      const composer = new Composer(
+        () => {},
+        (message) => sent.push(message),
+      );
+      for (const key of [..."look "]) composer.handleInput(key);
+      composer.attach({ type: "image", data: "aGk=", mimeType: "image/png" });
+      for (const key of [..." here"]) composer.handleInput(key);
+      const rows = composer
+        .render(40, true)
+        .editor.map((row) => stripTerminalSequences(row));
+      const row = rows.findIndex((line) => line.includes("[Image #1]"));
+      composer.placeCursor({
+        row,
+        column: rows[row].indexOf("Image"),
+      });
+      composer.handleInput("\x7f");
+      composer.handleInput("\r");
+
+      expect(sent).toEqual(["look  here"]);
+    });
+
     it("copies a selection across wrapped rows as the text it covers", () => {
       const { composer, cellOf } = drawn();
       const brown = cellOf("brown");

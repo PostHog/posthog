@@ -209,7 +209,7 @@ export class Composer {
   placeCursor(at: Click): void {
     const { line, col } = this.positionAt(at);
     this.internals().state.cursorLine = line;
-    this.internals().setCursorCol(col);
+    this.internals().setCursorCol(this.pastMarker(line, col));
     this.selection = null;
     this.repaint();
   }
@@ -243,6 +243,22 @@ export class Composer {
       ...lines.slice(from.line + 1, to.line),
       (lines[to.line] ?? "").slice(0, to.col),
     ].join("\n");
+  }
+
+  // A click inside an image marker lands after it, where Backspace removes the whole marker.
+  private pastMarker(line: number, col: number): number {
+    const text = this.editor.getLines()[line] ?? "";
+    for (const marker of this.images.keys()) {
+      for (
+        let start = text.indexOf(marker);
+        start >= 0;
+        start = text.indexOf(marker, start + 1)
+      ) {
+        if (col > start && col < start + marker.length)
+          return start + marker.length;
+      }
+    }
+    return col;
   }
 
   private internals(): EditorInternals {
