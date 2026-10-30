@@ -67,7 +67,7 @@
     align-items: center;
     padding: 14px 16px 0;
 
-    &:not(:has(.TodayFeedCard__meta)) .TodayFeedCard__title {
+    &:has(.TodayFeedCard__meta:empty) .TodayFeedCard__title {
         grid-row: 1 / span 2;
     }
 }
@@ -129,6 +129,15 @@
 .TodayFeedCard__priority {
     font-weight: 600;
     color: var(--today-risk);
+
+    & + ::before {
+        content: ' · ';
+    }
+}
+
+.TodayFeedCard__meta:empty,
+.TodayFeedCard__body:empty {
+    display: none;
 }
 
 .TodayFeedCard__body {

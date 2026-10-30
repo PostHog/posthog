@@ -2,16 +2,17 @@ import { useActions, useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
-import { Button, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
+import { Button, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { retryImport } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { type TodayForYouRow } from './todayForYouRows'
+import { TodayForYouViewSwitch } from './TodayForYouViewSwitch'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
-import { type TodayForYouView, todayLogic } from './todayLogic'
+import { todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
 
 const TodayFeed = lazy(() => retryImport(() => import('./TodayFeed').then((m) => ({ default: m.TodayFeed }))))
@@ -56,27 +57,13 @@ export function TodayForYou(): JSX.Element {
         isNewProject,
         forYouView,
     } = useValues(todayLogic)
-    const { showMoreForYou, setListExpanded, retryFailedLoads, setForYouView } = useActions(todayLogic)
+    const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
 
     return (
         <section className="TodayHome__list" aria-label="For you today">
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading count={forYouReady ? forYouOpenCount : undefined}>For you today</TodayHomeHeading>
-                {forYouReady && forYouRows.rows.length > 0 && (
-                    <ToggleGroup
-                        size="sm"
-                        aria-label="View"
-                        value={[forYouView]}
-                        onValueChange={([view]) => view && setForYouView(view as TodayForYouView)}
-                    >
-                        <ToggleGroupItem value="list" data-attr="today-for-you-view-list">
-                            List
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="feed" data-attr="today-for-you-view-feed">
-                            Feed
-                        </ToggleGroupItem>
-                    </ToggleGroup>
-                )}
+                <TodayForYouViewSwitch />
             </div>
             {!forYouReady ? (
                 <TodayRowsSkeleton />

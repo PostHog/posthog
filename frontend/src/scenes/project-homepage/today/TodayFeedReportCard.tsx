@@ -1,24 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPullRequest, IconSparkles } from '@posthog/icons'
-import { Button } from '@posthog/quill'
-
 import { TZLabel } from 'lib/components/TZLabel'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
-import {
-    formatReportMetricValue,
-    selectReportCardImpactMetric,
-} from 'products/signals/frontend/inbox/utils/reportMetrics'
 
 import { TodayFeedCard, type TodayFeedCardTracking } from './TodayFeedCard'
+import { feedReportFacts } from './todayFeedReport'
+import { TodayFeedReportChips } from './TodayFeedReportChips'
 import { todayLogic, type TodayReportOpenSource } from './todayLogic'
 import { priorityTone } from './todayPriority'
 import { reportStateLabel } from './todayReportState'
-import { pullRequestFact } from './todayRowFacts'
 import { reportIcon } from './todayRowIcons'
 import { reportSourceLine, reportTitle } from './todaySignalReports'
 import { TodayVerdictButtons } from './TodayVerdictButtons'
@@ -41,12 +34,7 @@ export function TodayFeedReportCard({
     const title = reportTitle(report)
     const state = reportStateOverrides[report.id]
     const preview = reportPreviews[report.id]
-    const metric = selectReportCardImpactMetric(report.metrics)
-    const metricValue = metric ? formatReportMetricValue(metric, metric.value) : null
-    const pullRequest = preview?.pullRequest
-    const pullRequestNumber = pullRequest?.url.match(/\/pull\/(\d+)/)?.[1]
-    const showPullRequest = pullRequest && !title.includes(`#${pullRequestNumber}`)
-    const prompt = done ? undefined : report.suggested_prompts?.[0]
+    const { figure, series, pullRequest, prompt } = feedReportFacts(report, title, preview, done)
     return (
         <TodayFeedCard
             icon={reportIcon(report)}
@@ -56,37 +44,15 @@ export function TodayFeedReportCard({
             priority={report.priority}
             meta={state ? reportStateLabel(state) : <TZLabel time={report.updated_at} noStyles />}
             lead={preview?.lead}
-            figure={metric && metricValue ? { value: metricValue, label: metric.title } : null}
-            series={metric?.series}
+            figure={figure}
+            series={series}
             chips={
-                (showPullRequest || prompt) && (
-                    <>
-                        {showPullRequest && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={pullRequest.url} target="_blank" />}
-                                data-attr="today-feed-report-pr"
-                            >
-                                <IconPullRequest />
-                                {pullRequestFact(pullRequest.state ?? 'open')}
-                                {pullRequestNumber && <span translate="no">#{pullRequestNumber}</span>}
-                            </Button>
-                        )}
-                        {prompt && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="min-w-0"
-                                onClick={() => askAi(prompt, 'feed', report)}
-                                data-attr="today-feed-report-ask"
-                            >
-                                <IconSparkles />
-                                <span className="truncate">{prompt}</span>
-                            </Button>
-                        )}
-                    </>
+                (pullRequest || prompt) && (
+                    <TodayFeedReportChips
+                        pullRequest={pullRequest}
+                        prompt={prompt}
+                        onAsk={(question) => askAi(question, 'feed', report)}
+                    />
                 )
             }
             secondaryActions={
