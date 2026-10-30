@@ -38,6 +38,13 @@ describe('destinationConnectSceneLogic', () => {
                                     },
                                 },
                             },
+                            {
+                                id: 'item-2',
+                                proposal: {
+                                    prefix: 'billing',
+                                    destination: { type: 'Postgres', config: { host: 'billing.example.com' } },
+                                },
+                            },
                         ],
                     ]
                 },
@@ -104,5 +111,28 @@ describe('destinationConnectSceneLogic', () => {
         })
         expect(formLogic.values.postgreSQLIntegration).not.toHaveProperty('database')
         formLogic.unmount()
+    })
+
+    it('follows the latest migration item link and drops the connection saved for the previous one', async () => {
+        const open = (itemId: string): void =>
+            router.actions.push('/data-warehouse/connect-destination', {
+                kind: 'postgresql',
+                migration_id: 'migration-1',
+                migration_item_id: itemId,
+            })
+        await expectLogic(destinationConnectSceneLogic, () => {
+            open('item-1')
+            open('item-2')
+        }).toFinishAllListeners()
+        expect(destinationConnectSceneLogic.values.setupDefaults).toEqual({ host: 'billing.example.com' })
+
+        destinationConnectSceneLogic.actions.setIntegrationId(42)
+        await expectLogic(destinationConnectSceneLogic, () => open('item-1')).toFinishAllListeners()
+
+        expect(destinationConnectSceneLogic.values).toMatchObject({
+            integrationId: null,
+            isModalOpen: true,
+            setupDefaults: { host: 'db.example.com', port: 6543, user: 'loader' },
+        })
     })
 })

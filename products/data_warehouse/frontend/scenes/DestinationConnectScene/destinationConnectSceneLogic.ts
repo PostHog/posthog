@@ -27,7 +27,7 @@ export interface destinationConnectSceneLogicValues {
     integrationSetup: IntegrationSetupDefinition | null
     isModalOpen: boolean
     kind: string | null
-    loadedMigrationItemId: string | null
+    migrationItemId: string | null
     migrationPrefillLoading: boolean
     setupDefaults: Record<string, any> | undefined
     vendorConfig: Record<string, unknown> | null
@@ -42,11 +42,7 @@ export interface destinationConnectSceneLogicActions {
         itemId: string
         migrationId: string
     }
-    migrationPrefillLoaded: (
-        itemId: string,
-        vendorConfig: Record<string, unknown> | null
-    ) => {
-        itemId: string
+    migrationPrefillLoaded: (vendorConfig: Record<string, unknown> | null) => {
         vendorConfig: Record<string, unknown> | null
     }
     setIntegrationId: (integrationId: number) => {
@@ -87,10 +83,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
         setModalOpen: (open: boolean) => ({ open }),
         setIntegrationId: (integrationId: number) => ({ integrationId }),
         loadMigrationPrefill: (migrationId: string, itemId: string) => ({ migrationId, itemId }),
-        migrationPrefillLoaded: (itemId: string, vendorConfig: Record<string, unknown> | null) => ({
-            itemId,
-            vendorConfig,
-        }),
+        migrationPrefillLoaded: (vendorConfig: Record<string, unknown> | null) => ({ vendorConfig }),
     }),
     reducers({
         kind: [
@@ -103,6 +96,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             true,
             {
                 setKind: () => true,
+                loadMigrationPrefill: () => true,
                 setModalOpen: (_, { open }) => open,
             },
         ],
@@ -110,6 +104,8 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             null as number | null,
             {
                 setKind: () => null,
+                // A connection saved for one migration item must not show as saved for the next one.
+                loadMigrationPrefill: () => null,
                 setIntegrationId: (_, { integrationId }) => integrationId,
             },
         ],
@@ -120,15 +116,16 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 migrationPrefillLoaded: () => false,
             },
         ],
-        loadedMigrationItemId: [
+        migrationItemId: [
             null as string | null,
             {
-                migrationPrefillLoaded: (_, { itemId }) => itemId,
+                loadMigrationPrefill: (_, { itemId }) => itemId,
             },
         ],
         vendorConfig: [
             null as Record<string, unknown> | null,
             {
+                loadMigrationPrefill: () => null,
                 migrationPrefillLoaded: (_, { vendorConfig }) => vendorConfig,
             },
         ],
@@ -190,7 +187,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 posthog.capture('warehouse destination connect page viewed', {
                     integration_kind: values.kind,
                     destination_type: values.destinationDefinition.type,
-                    from_migration: values.migrationPrefillLoading || values.loadedMigrationItemId !== null,
+                    from_migration: values.migrationItemId !== null,
                 })
             }
         },
@@ -198,10 +195,10 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             posthog.capture('warehouse destination connection saved', {
                 integration_kind: values.kind,
                 destination_type: values.destinationDefinition?.type,
-                from_migration: values.loadedMigrationItemId !== null,
+                from_migration: values.migrationItemId !== null,
             })
         },
-        loadMigrationPrefill: async ({ migrationId, itemId }) => {
+        loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
             let vendorConfig: Record<string, unknown> | null = null
             try {
                 const items = await warehouseMigrationsItemsList(String(ApiConfig.getCurrentTeamId()), migrationId)
@@ -212,19 +209,16 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                     posthog.captureException(e)
                 }
             }
-            actions.migrationPrefillLoaded(itemId, vendorConfig)
+            // Drops this response when the user opened another item's link meanwhile.
+            breakpoint()
+            actions.migrationPrefillLoaded(vendorConfig)
         },
     })),
     urlToAction(({ actions, values }) => ({
         [urls.warehouseDestinationConnect()]: (_, searchParams) => {
             // Coming back to the same link must not overwrite what the user typed.
             const itemId = searchParams.migration_item_id ?? null
-            if (
-                searchParams.migration_id &&
-                itemId &&
-                itemId !== values.loadedMigrationItemId &&
-                !values.migrationPrefillLoading
-            ) {
+            if (searchParams.migration_id && itemId && itemId !== values.migrationItemId) {
                 actions.loadMigrationPrefill(searchParams.migration_id, itemId)
             }
             // A hash change (the side panel opening) runs this again, and a reset would hide the saved id.
