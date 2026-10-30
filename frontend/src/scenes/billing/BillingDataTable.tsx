@@ -16,8 +16,8 @@ export interface BillingDataTableProps {
     series: BillingSeriesType[]
     dates: string[]
     isLoading?: boolean
-    hiddenSeries: number[]
-    toggleSeries: (id: number) => void
+    hiddenSeries: string[]
+    toggleSeries: (key: string) => void
     toggleAllSeries: () => void
     valueFormatter?: (value: number) => string | number
     totalLabel?: string
@@ -46,8 +46,9 @@ export function BillingDataTable({
         [series]
     )
 
+    const hiddenCount = useMemo(() => series.filter((s) => hidden.has(s.key)).length, [series, hidden])
     const headerChecked: boolean | 'indeterminate' =
-        hiddenSeries.length === 0 ? true : hiddenSeries.length === series.length ? false : 'indeterminate'
+        hiddenCount === 0 ? true : hiddenCount === series.length ? false : 'indeterminate'
 
     const dateColumns = useMemo<LemonTableColumn<BillingSeriesType, keyof BillingSeriesType | undefined>[]>(() => {
         if (!dates || dates.length === 0) {
@@ -101,12 +102,12 @@ export function BillingDataTable({
                     </div>
                 ),
                 render: (_, record: BillingSeriesType) => {
-                    const isHidden = hidden.has(record.id)
+                    const isHidden = hidden.has(record.key)
                     return (
                         <div className="flex items-center gap-1">
                             <LemonCheckbox
                                 checked={!isHidden}
-                                onChange={() => toggleSeries(record.id)}
+                                onChange={() => toggleSeries(record.key)}
                                 className="mr-2"
                             />
                             <SeriesColorDot colorIndex={record.id} />
@@ -134,7 +135,7 @@ export function BillingDataTable({
                 loading={isLoading}
                 embedded
                 size="small"
-                rowClassName={(record) => (hidden.has(record.id) ? 'opacity-50' : '')}
+                rowClassName={(record) => (hidden.has(record.key) ? 'opacity-50' : '')}
                 defaultSorting={{
                     columnKey: 'total',
                     order: -1,
