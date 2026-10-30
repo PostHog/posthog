@@ -1756,6 +1756,21 @@ class TestScoutReportAPI(APIBaseTest):
             team_id=self.team.id, report_id=response.json()["report_id"]
         )
 
+    def test_emit_report_retry_retries_failed_inbox_notification_handoff(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload()
+        self.inbox_notification_mock.side_effect = [RuntimeError("Temporal unavailable"), None]
+
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            first_response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert first_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["idempotent_replay"] is True
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        assert self.inbox_notification_mock.await_count == 2
+
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
         # which writes the suggested_reviewers artefact and re-fires autostart (so a report that already

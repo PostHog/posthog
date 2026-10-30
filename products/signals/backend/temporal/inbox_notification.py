@@ -41,6 +41,10 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = structlog.get_logger(__name__)
 
 
+class SignalsNotReadyForNotificationError(Exception):
+    pass
+
+
 @dataclass
 class InboxNotificationInput:
     team_id: int
@@ -133,13 +137,16 @@ def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
 
 
 @retry(
-    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    retry=retry_if_exception_type((*CH_TRANSIENT_ERRORS, SignalsNotReadyForNotificationError)),
     stop=stop_after_attempt(4),
     wait=wait_random_exponential(multiplier=2, max=10),
     reraise=True,
 )
 def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
-    return fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    if not signals:
+        raise SignalsNotReadyForNotificationError(f"Signals for report {report_id} are not available yet")
+    return signals
 
 
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:

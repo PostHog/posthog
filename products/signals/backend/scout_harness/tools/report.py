@@ -1602,10 +1602,7 @@ async def _maybe_start_inbox_notification(*, team_id: int, report_id: str) -> No
         start_report_inbox_notification_workflow,
     )
 
-    try:
-        await start_report_inbox_notification_workflow(team_id=team_id, report_id=report_id)
-    except Exception:
-        logger.exception("signals_scout.emit_report: inbox notification failed", extra={"report_id": report_id})
+    await start_report_inbox_notification_workflow(team_id=team_id, report_id=report_id)
 
 
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
@@ -2206,6 +2203,8 @@ async def emit_report(
             team_id=team.id, idempotency_key=emit_key
         )
     if existing is not None:
+        if existing.status == SignalReport.Status.READY:
+            await _maybe_start_inbox_notification(team_id=team.id, report_id=existing.report_id)
         return await finish(_replay_result(existing))
 
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
@@ -2413,6 +2412,8 @@ def emit_report_sync(
     else:
         existing = find_scout_report_by_idempotency_key(team_id=team.id, idempotency_key=emit_key)
     if existing is not None:
+        if existing.status == SignalReport.Status.READY:
+            async_to_sync(_maybe_start_inbox_notification)(team_id=team.id, report_id=existing.report_id)
         return finish(_replay_result(existing))
 
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
