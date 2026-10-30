@@ -102,6 +102,28 @@ describe('view-only workflow', () => {
     })
 
     it.each([
+        ['clicks a button', (button: HTMLElement): boolean => fireEvent.click(button)],
+        ['presses Enter on a button', (button: HTMLElement): boolean => fireEvent.keyDown(button, { key: 'Enter' })],
+        ['types into a field', (_: HTMLElement, field: HTMLElement): boolean => fireEvent.keyDown(field, { key: 'a' })],
+        ['pastes into a field', (_: HTMLElement, field: HTMLElement): boolean => fireEvent.paste(field)],
+    ])('stops a viewer who %s inside a step', (_, interact) => {
+        const onSave = jest.fn()
+        renderForViewer(
+            <ViewOnlyArea>
+                <button onClick={onSave} onKeyDown={onSave}>
+                    Save as team default
+                </button>
+                <input aria-label="Subject" onKeyDown={onSave} onPaste={onSave} />
+            </ViewOnlyArea>
+        )
+
+        const reachedDefault = interact(screen.getByText('Save as team default'), screen.getByLabelText('Subject'))
+
+        expect(reachedDefault).toBe(false)
+        expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it.each([
         [AccessControlLevel.Editor, true],
         [AccessControlLevel.Viewer, false],
     ])('offers Duplicate to a viewer with %s access to workflows: %s', (resourceLevel, offersDuplicate) => {
