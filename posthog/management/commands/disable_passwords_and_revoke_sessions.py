@@ -68,7 +68,7 @@ class Command(BaseCommand):
             action_flag=CHANGE,
             change_message=json.dumps(
                 {
-                    "command": "contain_compromised_users",
+                    "command": "disable_passwords_and_revoke_sessions",
                     "region": region,
                     "reason": reason,
                     "password_disabled": True,
