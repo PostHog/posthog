@@ -572,6 +572,34 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
+    def test_update_org_details_drops_snapshot_older_than_last_sync(self):
+        organization = self.organization
+        trial_features = [{"key": "organizations_projects", "name": "Projects", "limit": None}]
+        pre_trial_features = [{"key": "organizations_projects", "name": "Projects", "limit": 6}]
+        billing_manager = BillingManager(license=None)
+
+        def status(features: list[dict[str, Any]]) -> BillingStatus:
+            return cast(BillingStatus, {"customer": {"available_product_features": features}})
+
+        with time_machine.travel("2026-10-28T04:14:48Z", tick=False):
+            billing_manager.update_org_details(organization, status(trial_features))
+
+        billing_manager.update_org_details(
+            organization,
+            status(pre_trial_features),
+            snapshot_at=datetime.datetime(2026, 10, 28, 3, 51, 17, tzinfo=datetime.UTC),
+        )
+        organization.refresh_from_db()
+        assert organization.available_product_features == trial_features
+
+        billing_manager.update_org_details(
+            organization,
+            status(pre_trial_features),
+            snapshot_at=datetime.datetime(2026, 10, 28, 4, 20, tzinfo=datetime.UTC),
+        )
+        organization.refresh_from_db()
+        assert organization.available_product_features == pre_trial_features
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
         organization = self.organization

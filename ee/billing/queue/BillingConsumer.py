@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional, cast
 
 from django.db import close_old_connections
+from django.utils.dateparse import parse_datetime
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
@@ -156,7 +157,8 @@ class BillingConsumer(SQSConsumer):
 
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
-        billing_manager.update_org_details(organization, data)
+        generated_at = parse_datetime(body["generated_at"]) if body.get("generated_at") else None
+        billing_manager.update_org_details(organization, data, snapshot_at=generated_at)
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
 

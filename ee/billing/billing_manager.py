@@ -127,6 +127,14 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
+# Covers SQS redelivery and consumer lag; past it, a late snapshot is applied as before.
+BILLING_SYNCED_AT_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+def _billing_synced_at_key(organization: Organization) -> str:
+    return f"billing_synced_at:{organization.id}"
+
+
 def _free_trial_active(customer: CustomerInfo) -> bool:
     free_trial_until = customer.get("free_trial_until")
     if not free_trial_until:
@@ -457,6 +465,7 @@ class BillingManager:
         handle_billing_service_error(res)
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
+        synced_at = timezone.now()
         res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
@@ -472,6 +481,7 @@ class BillingManager:
         previous_retention_months = organization_events_retention_months(organization)
         organization.available_product_features = available_product_features
         organization.save()
+        cache.set(_billing_synced_at_key(organization), synced_at, BILLING_SYNCED_AT_TTL_SECONDS)
 
         if (
             available_product_features
@@ -696,10 +706,26 @@ class BillingManager:
 
         return res.json().get("products", [])
 
-    def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
+    def update_org_details(
+        self, organization: Organization, billing_status: BillingStatus, snapshot_at: datetime | None = None
+    ) -> Organization:
         """
-        Ensure the relevant organization details are up-to-date locally
+        Ensure the relevant organization details are up-to-date locally.
+
+        `snapshot_at` is when billing built a queued status. A snapshot older than the data we last applied is
+        dropped, so a late queue message can't roll back a fresher sync (e.g. features of a just-started trial).
         """
+        synced_at = snapshot_at or timezone.now()
+        last_synced_at = cache.get(_billing_synced_at_key(organization))
+        if snapshot_at and last_synced_at and snapshot_at < last_synced_at:
+            logger.info(
+                "Dropped stale billing snapshot",
+                organization_id=str(organization.id),
+                snapshot_at=snapshot_at.isoformat(),
+                last_synced_at=last_synced_at.isoformat(),
+            )
+            return organization
+
         org_modified = False
 
         data = billing_status["customer"]
@@ -818,6 +844,8 @@ class BillingManager:
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
+
+        cache.set(_billing_synced_at_key(organization), synced_at, BILLING_SYNCED_AT_TTL_SECONDS)
 
         return organization
 
