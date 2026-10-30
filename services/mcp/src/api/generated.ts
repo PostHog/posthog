@@ -94234,7 +94234,7 @@ export namespace Schemas {
     }
 
     export interface ProjectUsageSummary {
-      /** The period the usage covers. Null when the organization has no billing period yet, and the usage then covers the current calendar month in UTC. */
+      /** The billing period the usage covers. An organization without a subscription has a rolling 30-day period. Null when billing returns no period, and the usage then covers the current calendar month in UTC. */
       billing_period: BillingPeriod | null;
       /** One entry per usage counter the project reported. */
       results: ProjectUsageItem[];

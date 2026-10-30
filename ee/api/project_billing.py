@@ -10,7 +10,7 @@ every project in it. The project routes return them as the organization routes d
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.http import StreamingHttpResponse
@@ -23,7 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 
@@ -42,6 +42,23 @@ from ee.api.organization_billing import (
 from ee.billing.grants import BillingEntitlement
 
 PROJECT_BREAKDOWNS_MESSAGE = 'Pass `["type"]` for a series per product, or omit breakdowns for one series.'
+
+
+def _stored_billing_period(organization: Organization) -> Optional[dict[str, Any]]:
+    """The billing period PostHog stores on the organization, in the shape billing returns it. None when
+    PostHog stores no period, or when its period ended and PostHog does not store the next one yet."""
+    period = organization.current_billing_period
+    if period is None:
+        return None
+    start, end = int(period.start.timestamp()), int(period.end.timestamp())
+    if end <= datetime.now(UTC).timestamp():
+        return None
+    return {
+        "current_period_start": start,
+        "current_period_end": end,
+        # Billing calls a period longer than 31 days a year.
+        "interval": "year" if end - start > timedelta(days=31).total_seconds() else "month",
+    }
 
 
 class ProjectTimeseriesRequestSerializer(BillingUsageRequestSerializer):
@@ -79,8 +96,8 @@ class ProjectUsageSummarySerializer(serializers.Serializer):
     billing_period = BillingPeriodSerializer(
         allow_null=True,
         help_text=(
-            "The period the usage covers. Null when the organization has no billing period yet, and the usage then "
-            "covers the current calendar month in UTC."
+            "The billing period the usage covers. An organization without a subscription has a rolling 30-day "
+            "period. Null when billing returns no period, and the usage then covers the current calendar month in UTC."
         ),
     )
     results = ProjectUsageItemSerializer(many=True, help_text="One entry per usage counter the project reported.")
@@ -129,13 +146,15 @@ class ProjectBillingViewSet(BillingReadViewSet):
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         manager = self._manager()
-        # The billing period comes from the project status. Billing refuses the subscription to a token
-        # that names projects, and a project-scoped credential sends one.
-        try:
-            project_status = manager.get_project_usage_status(organization, grants)
-        except requests.Timeout:
-            raise BillingQueryTimeout()
-        period = _billing_period(project_status.get("billing_period"))
+        # The period PostHog stores costs billing nothing. When PostHog stores no period, or its period ended,
+        # billing's project status supplies the period, because billing renews a period once it ends.
+        billing_period = _stored_billing_period(organization)
+        if billing_period is None:
+            try:
+                billing_period = manager.get_project_usage_status(organization, grants).get("billing_period")
+            except requests.Timeout:
+                raise BillingQueryTimeout()
+        period = _billing_period(billing_period)
         today = datetime.now(UTC).date()
         period_start = (period or {}).get("current_period_start")
         start_date = period_start[:10] if period_start else today.replace(day=1).isoformat()

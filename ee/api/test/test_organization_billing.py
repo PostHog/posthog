@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -1042,6 +1043,58 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         called = [call.args[0].split("/api/v2/billing/")[1] for call in mock_get.call_args_list]
         self.assertEqual(called, ["project/usage/status/", "usage/timeseries/"])
         self.assertEqual(response.json()["billing_period"]["current_period_start"], "2026-09-01T00:00:00Z")
+
+    @parameterized.expand(
+        [
+            (
+                "current_annual",
+                ["2026-03-01T00:00:00Z", "2027-03-01T00:00:00Z"],
+                ["usage/timeseries/"],
+                {
+                    "current_period_start": "2026-03-01T00:00:00Z",
+                    "current_period_end": "2027-03-01T00:00:00Z",
+                    "interval": "year",
+                },
+            ),
+            (
+                "current_31_days",
+                ["2026-08-20T00:00:00Z", "2026-09-20T00:00:00Z"],
+                ["usage/timeseries/"],
+                {
+                    "current_period_start": "2026-08-20T00:00:00Z",
+                    "current_period_end": "2026-09-20T00:00:00Z",
+                    "interval": "month",
+                },
+            ),
+            (
+                "ended",
+                ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+                ["project/usage/status/", "usage/timeseries/"],
+                {
+                    "current_period_start": "2026-09-01T00:00:00Z",
+                    "current_period_end": "2026-10-01T00:00:00Z",
+                    "interval": "month",
+                },
+            ),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_reads_the_stored_period_until_it_ends(
+        self, _name, stored, expected_paths, expected_period, mock_get
+    ):
+        self.organization.usage = {"period": stored}
+        self.organization.save()
+        responses = {"project/usage/status/": PROJECT_USAGE_STATUS, "usage/timeseries/": SERIES}
+        mock_get.side_effect = [_response(responses[path]) for path in expected_paths]
+        with time_machine.travel(datetime(2026, 9, 15, tzinfo=UTC), tick=False):
+            response = self.client.get(self._project_url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        called = [call.args[0].split("/api/v2/billing/")[1] for call in mock_get.call_args_list]
+        self.assertEqual(called, expected_paths)
+        self.assertEqual(response.json()["billing_period"], expected_period)
+        self.assertEqual(
+            mock_get.call_args.kwargs["params"]["start_date"], expected_period["current_period_start"][:10]
+        )
 
     @parameterized.expand([("session",), ("organization_oauth_token",), ("personal_key_for_this_project",)])
     @patch("ee.billing.billing_manager.http_session.get")
