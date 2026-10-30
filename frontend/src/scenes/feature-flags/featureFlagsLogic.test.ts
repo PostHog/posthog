@@ -520,10 +520,17 @@ describe('restoreFeatureFlag', () => {
         restoreBodies = []
         useMocks({
             get: {
-                '/api/projects/:projectId/feature_flags/': () => [
-                    200,
-                    { results: [{ id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true }], count: 1 },
-                ],
+                // Answer like the API, so the deleted view only fills when it asks for deleted flags.
+                '/api/projects/:projectId/feature_flags/': ({ request }) =>
+                    new URL(request.url).searchParams.get('deleted') === 'true'
+                        ? [
+                              200,
+                              {
+                                  results: [{ id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true }],
+                                  count: 1,
+                              },
+                          ]
+                        : [200, { results: [], count: 0 }],
             },
             patch: {
                 '/api/projects/:projectId/feature_flags/:id': async ({ request }) => {
