@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
-import type { Task } from "@posthog/shared";
+import type { ExecutionMode, Task } from "@posthog/shared";
 import type { CloudHarness } from "./billing";
 import { savedImage } from "./images";
 import type { SentImage } from "./transcript";
@@ -18,6 +18,8 @@ type ModelAccess = "posthog-gateway" | "own-subscription";
 export interface StartPick {
   model?: string;
   effort?: string;
+  // The permission mode a Claude Code chat starts in.
+  mode?: string;
 }
 
 // A continued run keeps the agent and the payer of the run before it; desktop records both on the run.
@@ -131,6 +133,10 @@ export class PiChats {
         model: pick.model,
         ...(pick.effort && { reasoningLevel: pick.effort }),
       }),
+      ...(harness !== "pi" &&
+        pick.mode && {
+          initialPermissionMode: pick.mode as ExecutionMode,
+        }),
     });
     const artifactIds =
       images.length > 0

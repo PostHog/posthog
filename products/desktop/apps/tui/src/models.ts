@@ -24,6 +24,10 @@ export type PiCommand = (
   } & (
     | { method: "pi/rpc"; params: { command: unknown } }
     | { method: "cancel" }
+    | {
+        method: "set_config_option";
+        params: { configId: string; value: string };
+      }
   ),
 ) => Promise<{ success: boolean; result?: unknown; error?: string }>;
 
@@ -171,8 +175,28 @@ export function piControl(
       if (!response.success)
         throw new Error(response.error ?? "The run did not stop");
     },
+    // The sandbox's session takes a mode change the same way; what it offers is read from the run's log.
+    setMode: async (id) => {
+      const response = await send({
+        taskId,
+        runId,
+        method: "set_config_option",
+        params: { configId: "mode", value: id },
+      });
+      if (!response.success)
+        throw new Error(response.error ?? "The run kept its mode");
+    },
   };
 }
+
+// The modes a Claude Code chat can start in, named as its session names them.
+export const CLAUDE_MODES: Mode[] = [
+  { id: "default", name: "Default" },
+  { id: "acceptEdits", name: "Accept Edits" },
+  { id: "plan", name: "Plan Mode" },
+  { id: "bypassPermissions", name: "Bypass Permissions" },
+  { id: "auto", name: "Auto Mode" },
+];
 
 // The same model, command and stop controls over any pi RPC client, cloud or local.
 export function controlOf(

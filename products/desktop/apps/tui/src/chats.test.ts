@@ -90,6 +90,20 @@ describe("PiChats", () => {
     expect(started.latest_run?.status).toBe("queued");
   });
 
+  it("starts a Claude Code cloud run in the mode picked for it", async () => {
+    const { api, chats } = setup();
+
+    await chats.start("Plan it", [], undefined, "claude", { mode: "plan" });
+
+    expect(api.createTaskRun).toHaveBeenCalledWith(
+      "t1",
+      expect.objectContaining({
+        adapter: "claude",
+        initialPermissionMode: "plan",
+      }),
+    );
+  });
+
   it.each([
     [
       "several repositories and the team's GitHub integration",

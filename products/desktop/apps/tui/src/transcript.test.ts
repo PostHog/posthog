@@ -340,6 +340,60 @@ describe("transcriptFrom bookkeeping", () => {
   });
 });
 
+describe("transcriptFrom modes", () => {
+  const acp = (second: number, notification: Record<string, unknown>) =>
+    ({
+      type: "acp_message",
+      timestamp: at(second),
+      notification,
+    }) as StoredLogEntry;
+  const option = (currentValue: string) => ({
+    id: "mode",
+    name: "Approval Preset",
+    type: "select",
+    currentValue,
+    options: [
+      { value: "auto", name: "Auto Mode" },
+      { value: "plan", name: "Plan Mode" },
+    ],
+  });
+
+  it("reads the modes a Claude Code or Codex session offers from its log, following each change", () => {
+    const opened = transcriptFrom("acp", [
+      acp(1, {
+        jsonrpc: "2.0",
+        id: 1,
+        result: { sessionId: "s1", configOptions: [option("auto")] },
+      }),
+    ]);
+    expect(opened.modes).toEqual({
+      available: [
+        { id: "auto", name: "Auto Mode" },
+        { id: "plan", name: "Plan Mode" },
+      ],
+      current: "auto",
+    });
+    const switched = transcriptFrom("acp", [
+      acp(1, {
+        jsonrpc: "2.0",
+        id: 1,
+        result: { sessionId: "s1", configOptions: [option("auto")] },
+      }),
+      acp(2, {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "config_option_update",
+            configOptions: [option("plan")],
+          },
+        },
+      }),
+    ]);
+    expect(switched.modes?.current).toBe("plan");
+    expect(transcriptFrom("pi", []).modes).toBeNull();
+  });
+});
+
 describe("transcriptFrom plans", () => {
   it("shows the plan Claude Code asks approval for as the agent's own text, not a tool call", () => {
     const acp = (

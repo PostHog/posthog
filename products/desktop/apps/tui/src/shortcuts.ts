@@ -32,6 +32,9 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if (key.ctrl && letter === "r") return "reload";
   // Ctrl+] steps a Claude Code chat's mode, Ctrl+Shift+] (Ctrl+}) steps it back. Legacy terminals send both as
   // one raw byte, so there it only goes forward; it wraps, so that is enough.
+  // Ctrl+M needs the kitty keyboard protocol, since a legacy terminal sends it as Enter; Ctrl+] works everywhere.
+  if (key.ctrl && letter === "m")
+    return key.shift ? "cycleModeBack" : "cycleMode";
   if (key.ctrl && (input === "}" || (input === "]" && key.shift)))
     return "cycleModeBack";
   if (input === "\x1d" || (key.ctrl && input === "]")) return "cycleMode";
