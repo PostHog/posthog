@@ -253,6 +253,7 @@ export enum AvailableFeature {
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
     MEMBER_GOVERNANCE = 'member_governance',
+    SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
