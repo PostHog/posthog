@@ -284,6 +284,10 @@ Measured checkout-step durations, from the GitHub API on real runs:
   The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
   **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
 
+- **If one step in a gating job needs history, check the history out in a second, conditional step.**
+  `ci-nodejs.yml`'s affected-crate detection diffs the merge base, so its `changes` job used to carry a full-history checkout: 75s of an 80s job (median of 12 runs), and every job in the workflow waits on it.
+  A sparse filter-action checkout for the gate first, then a `fetch-depth: 0` + `filter: blob:none` + sparse `rust/ proto/ .github/` checkout behind `steps.filter.outputs.rust == 'true'`, puts the ~2s path on every run that does not touch Rust and leaves Rust runs paying what they paid before.
+
 - **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the wildcard `refs/heads/*` and pulls _every branch_.
   Always pass an explicit, `--no-tags`, `--filter=blob:none` refspec scoped to the base ref.
   (Bumping `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped `refs/pull/N/merge` refspec.)
