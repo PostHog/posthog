@@ -357,7 +357,6 @@ describe('buildToolResultPayload — non-query use cases', () => {
     it.each([
         { results: [{ id: 1 }], next: null, count: 1, previous: null },
         { results: [], next: null, count: 0, previous: null },
-        { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
     ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
         for (const outputFormat of ['optimized', 'json'] as const) {
             const payload = buildToolResultPayload({
@@ -372,6 +371,27 @@ describe('buildToolResultPayload — non-query use cases', () => {
             )
             expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
         }
+    })
+
+    it.each([
+        {
+            next: 'https://example.com/api/items/?cursor=cD0yMDI2&limit=1',
+            count: undefined,
+            expected:
+                'Showing 1 results. More results exist: call the tool again with cursor=cD0yMDI2 and limit=1 to get the next page.',
+        },
+        {
+            next: 'https://example.com/api/items/?limit=1&offset=1',
+            count: 3,
+            expected:
+                'Showing 1 of 3 results. More results exist: call the tool again with offset=1 and limit=1 to get the next page.',
+        },
+    ])('tells the agent how to read the next page: $next', ({ next, count, expected }) => {
+        const handlerResult = { results: [{ id: 1 }], next, previous: null, ...(count === undefined ? {} : { count }) }
+
+        const payload = buildToolResultPayload({ handlerResult, toolName: 'mock-tool', params: {} })
+
+        expect(payload.content[0]!.text).toBe(`${formatResponse(handlerResult.results)}\n\n${expected}`)
     })
 
     it.each([

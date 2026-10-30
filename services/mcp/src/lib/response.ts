@@ -29,8 +29,15 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
     return obj
 }
 
-function unwrapPaginatedResponse(data: unknown): unknown {
-    if (
+interface PaginatedEnvelope {
+    results: unknown[]
+    next: string | null
+    previous: string | null
+    count?: number
+}
+
+function isPaginatedEnvelope(data: unknown): data is PaginatedEnvelope {
+    return (
         data !== null &&
         typeof data === 'object' &&
         'results' in data &&
@@ -38,11 +45,36 @@ function unwrapPaginatedResponse(data: unknown): unknown {
         'next' in data &&
         'previous' in data &&
         Object.keys(data).every((key) => ['results', 'next', 'count', 'previous'].includes(key))
-    ) {
-        return data.results
+    )
+}
+
+// The text output drops the envelope, so this line is the only way an agent learns that another page exists.
+const NEXT_PAGE_PARAMS = ['cursor', 'offset', 'limit', 'page'] as const
+
+function describeNextPage(envelope: PaginatedEnvelope): string | null {
+    if (!envelope.next) {
+        return null
     }
 
-    return data
+    let params: URLSearchParams
+    try {
+        params = new URL(envelope.next).searchParams
+    } catch {
+        return null
+    }
+
+    const nextPageParams = NEXT_PAGE_PARAMS.filter((name) => params.has(name)).map(
+        (name) => `${name}=${params.get(name)}`
+    )
+    if (nextPageParams.length === 0) {
+        return null
+    }
+
+    const shown =
+        typeof envelope.count === 'number'
+            ? `Showing ${envelope.results.length} of ${envelope.count} results.`
+            : `Showing ${envelope.results.length} results.`
+    return `${shown} More results exist: call the tool again with ${nextPageParams.join(' and ')} to get the next page.`
 }
 
 export function formatResponse(data: any): string {
@@ -50,11 +82,17 @@ export function formatResponse(data: any): string {
         return data
     }
 
+    const envelope = isPaginatedEnvelope(data) ? data : null
     const placeholderMap = new Map<string, string>()
-    const processed = preprocessKeys(unwrapPaginatedResponse(data), placeholderMap)
+    const processed = preprocessKeys(envelope ? envelope.results : data, placeholderMap)
     const result = encode(processed)
 
     // Use a replacer function so `$&`, `$'` and similar sequences in query JSON stay literal.
     // One pass means inserted JSON never becomes a target for a later placeholder.
-    return result.replace(QUERY_PLACEHOLDER_PATTERN, (placeholder) => placeholderMap.get(placeholder) ?? placeholder)
+    const text = result.replace(
+        QUERY_PLACEHOLDER_PATTERN,
+        (placeholder) => placeholderMap.get(placeholder) ?? placeholder
+    )
+    const nextPage = envelope ? describeNextPage(envelope) : null
+    return nextPage ? `${text}\n\n${nextPage}` : text
 }
