@@ -16,8 +16,9 @@ from posthog.test.base import (
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 import grpc
@@ -13586,6 +13587,32 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         data = response.json()
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
+
+    def _bulk_delete_query_count(self, flag_count: int) -> int:
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"query_count_flag_{flag_count}_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            for i in range(flag_count)
+        ]
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                {"ids": [f.id for f in flags]},
+            )
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == flag_count
+        return len(ctx.captured_queries)
+
+    def test_bulk_delete_query_count_does_not_grow_with_flag_count(self):
+        self._bulk_delete_query_count(1)
+        few = self._bulk_delete_query_count(2)
+        many = self._bulk_delete_query_count(6)
+
+        assert few == many, f"deleting 6 flags cost {many} queries vs {few} for 2, so something N+1s"
 
     def test_bulk_delete_validates_running_experiments(self):
         """Test that flags linked to running experiments are rejected."""
