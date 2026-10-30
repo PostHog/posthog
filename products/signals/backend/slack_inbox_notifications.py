@@ -2,14 +2,11 @@
 
 Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
 (its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
-enforced upstream — and has at least one suggested reviewer that resolves to a destination.
-Each reviewer is routed to one destination: their own configured target if set (filtered by
-their min-priority), otherwise the team-default channel. A personal target is either a channel or
-the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
-destination get a single post mentioning only the reviewers routed there. When no suggested
-reviewer resolves, the report is still delivered to the team-default channel (if one is
-configured) with no mentions, so a team is notified even when none of its members are linked to a
-resolvable GitHub identity.
+enforced upstream. The team-default channel (if configured) receives every such report. Each
+suggested reviewer is also routed to one destination: their own configured target if set (filtered
+by their min-priority), otherwise the team-default channel. A personal target is either a channel
+or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
+destination get a single post mentioning only the reviewers routed there.
 All sends are best-effort.
 """
 
@@ -473,11 +470,10 @@ def _build_reviewer_routes(
     """Route resolvable suggested reviewers to a destination, mentioning them there.
 
     Own target (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
-    filtered out of their own target does not fall back to the team channel — that was their choice.
+    filtered out of their own target is not mentioned in the team channel — that was their choice.
     Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
-    its own reviewers. When no suggested reviewer resolves, the report is still delivered to the
-    team-default channel (if configured) with no mentions, so a team is notified even when none of
-    its members are linked to a resolvable GitHub identity.
+    its own reviewers. The team-default channel (if configured) receives every report, with no
+    mentions when no reviewer is routed there.
     """
     reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
@@ -498,11 +494,9 @@ def _build_reviewer_routes(
             continue
         table.add(destination, user=user)
 
-    # No suggested reviewer resolved to a PostHog user: deliver to the team-default channel (if
-    # configured) so the team is still notified, without @-mentions — the message omits the
-    # suggested-reviewers section when there is nobody to tag. Per-user own channels are reviewer
-    # notifications, so they are not used here.
-    if not reviewer_user_ids and team_integration is not None and team_channel:
+    # The team channel gets every report. It mentions only the reviewers routed there, so a reviewer
+    # with their own target is not pinged twice.
+    if team_integration is not None and team_channel:
         table.add(_Destination(integration=team_integration, channel=team_channel, is_team_channel=True))
 
     return table.routes()
