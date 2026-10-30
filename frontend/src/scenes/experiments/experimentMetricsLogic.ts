@@ -284,7 +284,6 @@ export interface experimentMetricsLogicValues {
     currentProjectId: number | null // projectLogic
     backendEnforcesRefreshWindow: boolean
     currentRecalculation: RecalculationPayload | null
-    resultConfigurationNotice: 'previous' | 'unknown' | null
     isManualRefreshBlocked: boolean
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
@@ -310,6 +309,7 @@ export interface experimentMetricsLogicValues {
     }
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
+    resultConfigurationNotice: 'previous' | 'unknown' | null
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -369,6 +369,7 @@ export interface experimentMetricsLogicActions {
 export interface experimentMetricsLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
+        resultConfigurationNotice: (currentRecalculation: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isRecalculating: (
             recalculationLoading: boolean,
             currentRecalculation: RecalculationPayload | null,
@@ -382,7 +383,6 @@ export interface experimentMetricsLogicMeta {
         recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
-        resultConfigurationNotice: (recalc: RecalculationPayload | null) => 'previous' | 'unknown' | null
         isManualRefreshBlocked: (
             nextAllowedManualRefresh: string | null,
             refreshEligibilityTick: number,
