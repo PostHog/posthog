@@ -5,7 +5,7 @@ posthog.api.file_system.registrations, which loads at django.setup()) don't pull
 tasks API surface. Its module-scope imports reach jsonschema and the modal SDK.
 """
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from products.tasks.backend.models import Channel, Task
 
@@ -39,6 +39,12 @@ def _creator_q(user_id: int | None) -> Q:
     return Q(pk__in=[]) if user_id is None else Q(created_by_id=user_id)
 
 
+def _visible_channel_q(user_id: int | None, channel_ref: str) -> Q:
+    if isinstance(user_id, OuterRef):
+        user_id = OuterRef(user_id)
+    return Q(Exists(Channel.objects.unscoped().filter(Channel.visible_to_q(user_id), pk=OuterRef(channel_ref))))
+
+
 def scout_trial_visibility_q(user_id: int | None) -> Q:
     return ~Task.scout_experiment_q() | _creator_q(user_id)
 
@@ -49,7 +55,7 @@ def task_control_q(user_id: int | None) -> Q:
     A task with a channel must be visible through that channel and owned by the user.
     Null-channel tasks keep the product-origin control rules used before channels.
     """
-    channeled_q = Q(channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="channel") & _creator_q(user_id)
+    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, "channel_id") & _creator_q(user_id)
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
     )
@@ -66,7 +72,7 @@ def task_visibility_q(user_id: int | None) -> Q:
     Channel visibility is authoritative when a task has a channel. The creator and
     product-origin fallback applies only to null-channel compatibility rows.
     """
-    channeled_q = Q(channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="channel")
+    channeled_q = Q(channel_id__isnull=False) & _visible_channel_q(user_id, "channel_id")
     legacy_q = Q(channel_id__isnull=True) & (
         _creator_q(user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
     )
@@ -79,7 +85,7 @@ def task_visibility_q(user_id: int | None) -> Q:
 
 def task_run_visibility_q(user_id: int | None) -> Q:
     """``task_visibility_q`` traversed through the parent task relation."""
-    channeled_q = Q(task__channel_id__isnull=False) & Channel.visible_to_q(user_id, relation="task__channel")
+    channeled_q = Q(task__channel_id__isnull=False) & _visible_channel_q(user_id, "task__channel_id")
     legacy_q = Q(task__channel_id__isnull=True) & (
         (Q(task__pk__in=[]) if user_id is None else Q(task__created_by_id=user_id))
         | Q(task__created_by__isnull=True)
