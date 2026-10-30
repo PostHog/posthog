@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,7 +12,6 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.organization_offboarding import OrganizationOffboarding
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
@@ -73,14 +74,22 @@ class TestOrganizationOffboarding(APIBaseTest):
             f"/project/{self.team.pk}/dashboard/{shared.pk}",
         }
 
-    def test_preview_does_not_load_deferred_insight_queries(self) -> None:
-        for index in range(3):
+    def test_preview_query_count_does_not_grow_with_insights(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing, name="First insight")
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        self.client.get(self.url + "offboarding_preview/")
+        with CaptureQueriesContext(connection) as first:
+            response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+        for index in range(2):
             insight = Insight.objects.create(team=self.team, created_by=self.departing, name=f"Insight {index}")
             SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
-        membership = OrganizationMembership.objects.get(user=self.departing, organization=self.organization)
-        with self.assertNumQueries(6):
-            resources = OrganizationOffboarding(membership).resources()
-        assert len(resources) == 3
+        with CaptureQueriesContext(connection) as expanded:
+            response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert len(response.json()) == 3
+        assert len(expanded) == len(first)
 
     def test_removal_preserves_all_dashboard_tokens_and_other_members_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
