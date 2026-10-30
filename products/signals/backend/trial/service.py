@@ -1,12 +1,14 @@
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
+from typing import Literal
 
 from django.db import transaction
 
 import structlog
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.event_usage import report_user_action
 from posthog.models import OrganizationMembership, Team, User
 from posthog.user_permissions import UserPermissions
 
@@ -43,39 +45,100 @@ class TrialService:
             )
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
 
+    def _capture_enrollment(
+        self,
+        user: User,
+        *,
+        source: Literal["explicit", "activation"],
+        outcome: str,
+        reason: str | None = None,
+        grant_id: str | None = None,
+    ) -> None:
+        report_user_action(
+            user=user,
+            event="self-driving trial enrollment",
+            team=self.team,
+            properties={
+                "source": source,
+                "outcome": outcome,
+                "reason": reason,
+                "grant_id": grant_id,
+                "policy_version": POLICY_VERSION,
+            },
+        )
+
+    def _capture_enrollment_error(
+        self, user: User, source: Literal["explicit", "activation"], error: Exception
+    ) -> None:
+        refused = isinstance(error, (TrialRefused, PermissionDenied))
+        reason = (
+            error.reason if isinstance(error, TrialRefused) else "permission_denied" if refused else "activation_failed"
+        )
+        self._capture_enrollment(user, source=source, outcome="refused" if refused else "failed", reason=reason)
+
+    @contextmanager
+    def _enrollment_outcome(self, user: User, *, source: Literal["explicit", "activation"]) -> Iterator[None]:
+        existing = self.policy.grant() is not None
+        try:
+            yield
+        except Exception as error:
+            self._capture_enrollment_error(user, source, error)
+            raise
+        else:
+            grant = self.policy.grant()
+            outcome = "already_claimed" if existing else "activated" if grant else "paid_continuation"
+            transaction.on_commit(
+                lambda: self._capture_enrollment(
+                    user, source=source, outcome=outcome, grant_id=str(grant.id) if grant else None
+                ),
+                robust=True,
+            )
+
+    def _check_membership(self, user: User) -> None:
+        level = UserPermissions(
+            user=user, team=self.team.parent_team or self.team
+        ).current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("You need access to this project to start a trial.")
+
     def activate(self, *, user_id: int) -> None:
-        self.policy.check_enabled()
-        if self.policy.grant() is not None:
-            return
-        billing = self.billing_status()
-        if not billing.ready:
-            raise TrialRefused("billing_not_ready")
-        self.policy.claim(user_id=user_id, limits=billing.limits)
+        user = User.objects.get(pk=user_id)
+        self._capture_enrollment(user, source="explicit", outcome="attempted")
+        with self._enrollment_outcome(user, source="explicit"):
+            self.policy.check_enabled()
+            self._check_membership(user)
+            if self.policy.grant() is not None:
+                return
+            billing = self.billing_status()
+            if not billing.ready:
+                raise TrialRefused("billing_not_ready")
+            self.policy.claim(user_id=user_id, limits=billing.limits)
 
     def enroll_on_activation(
         self, *, user: User, enabled: bool, parent_access_allowed: bool = False
     ) -> AbstractContextManager[None]:
         if not enabled or not self.policy.enabled() or self.policy.grant() is not None:
             return nullcontext()
-        self.policy.check_enabled()
-        if self.team.parent_team_id and not parent_access_allowed:
-            raise PermissionDenied("You don't have access to the project that owns this data.")
-        level = UserPermissions(
-            user=user, team=self.team.parent_team or self.team
-        ).current_team.effective_membership_level
-        if level is None or level < OrganizationMembership.Level.ADMIN:
-            raise PermissionDenied("Project management permission is required to start a trial.")
-        billing = self.billing_status()
-        if not billing.ready:
-            raise TrialRefused("billing_not_ready")
-        return self._claim_on_activation(user_id=user.pk, billing=billing)
+        self._capture_enrollment(user, source="activation", outcome="attempted")
+        try:
+            self.policy.check_enabled()
+            if self.team.parent_team_id and not parent_access_allowed:
+                raise PermissionDenied("You don't have access to the project that owns this data.")
+            self._check_membership(user)
+            billing = self.billing_status()
+            if not billing.ready:
+                raise TrialRefused("billing_not_ready")
+        except Exception as error:
+            self._capture_enrollment_error(user, "activation", error)
+            raise
+        return self._claim_on_activation(user=user, billing=billing)
 
     @contextmanager
-    def _claim_on_activation(self, *, user_id: int, billing: TrialBillingStatus) -> Iterator[None]:
+    def _claim_on_activation(self, *, user: User, billing: TrialBillingStatus) -> Iterator[None]:
         # Read billing before taking locks; roll back the grant if the activation write fails.
-        with transaction.atomic():
+        with self._enrollment_outcome(user, source="activation"), transaction.atomic():
             try:
-                self.policy.claim(user_id=user_id, limits=billing.limits)
+                self.policy.claim(user_id=user.pk, limits=billing.limits)
             except TrialRefused as error:
                 if error.reason != "organization_limit" or not billing.paid_authorized:
                     raise

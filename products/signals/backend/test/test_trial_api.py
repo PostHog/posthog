@@ -67,6 +67,9 @@ class TestTrialAPI(APIBaseTest):
 
     @parameterized.expand([(False,), (True,)])
     def test_source_activation_enrolls_once_before_backfill(self, existing: bool) -> None:
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
         url = f"/api/projects/{self.team.pk}/signals/source_configs/"
         data = {"source_product": "error_tracking", "source_type": "issue_created", "enabled": True}
         source = SignalSourceConfig.objects.create(team=self.team, **{**data, "enabled": False}) if existing else None
@@ -102,15 +105,11 @@ class TestTrialAPI(APIBaseTest):
         assert grant.settled_microusd == 123
         assert SignalTrialGrant.objects.for_team(self.team.pk).count() == 1
 
-    @parameterized.expand([("member", 403), ("billing", 402), ("flag_unavailable", 402)])
+    @parameterized.expand([("billing", 402), ("flag_unavailable", 402)])
     def test_failed_enrollment_leaves_source_disabled(self, failure: str, expected_status: int) -> None:
         source = SignalSourceConfig.objects.create(
             team=self.team, source_product="github", source_type="issue", enabled=False
         )
-        if failure == "member":
-            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-                level=OrganizationMembership.Level.MEMBER
-            )
         if failure == "flag_unavailable":
             assert TrialPolicy(self.team).enabled()
             self.flag_mock.return_value = None
@@ -186,9 +185,14 @@ class TestTrialAPI(APIBaseTest):
         configs = [
             SignalScoutConfig.objects.create(team=self.team, skill_name=f"signals-scout-existing-{i}") for i in range(4)
         ]
-        with patch(
-            "products.signals.backend.trial.billing.TrialBilling.status",
-            return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+        capture = Mock()
+        with (
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
+            ),
+            patch("products.signals.backend.trial.service.report_user_action", new=capture),
+            self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/scout/configs/",
@@ -196,6 +200,7 @@ class TestTrialAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == 400, response.content
+        assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == ["attempted", "failed"]
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
         assert (
             SignalScoutConfig.objects.for_team(self.team.pk)
@@ -282,8 +287,15 @@ class TestTrialAPI(APIBaseTest):
                 assert status["used_microusd"] == 3_000_000
             assert SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization.id).count() == 1
 
-    @parameterized.expand([(TrialContinuation.PAYMENT,), (TrialContinuation.LIMIT,), (TrialContinuation.PAID,)])
-    def test_all_cohorts_can_explicitly_claim_once(self, continuation: TrialContinuation) -> None:
+    @parameterized.expand(
+        [
+            (continuation, level)
+            for continuation in (TrialContinuation.PAYMENT, TrialContinuation.LIMIT, TrialContinuation.PAID)
+            for level in (OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN)
+        ]
+    )
+    def test_all_cohorts_can_explicitly_claim_once(self, continuation: TrialContinuation, level: int) -> None:
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(level=level)
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=continuation),
@@ -291,6 +303,7 @@ class TestTrialAPI(APIBaseTest):
             status = self.client.get(self.url)
             assert status.status_code == 200
             assert status.json()["eligible"]
+            assert status.json()["can_activate"]
             assert status.json()["legacy_pr_restricted"]
             assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
             first = self.client.post(self.url, {}, format="json")
@@ -301,12 +314,9 @@ class TestTrialAPI(APIBaseTest):
         assert first.json()["legacy_pr_restricted"] is False
         assert SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization.id).count() == 1
 
-    def test_members_cannot_claim_and_unready_billing_does_not_consume_grant(self) -> None:
+    def test_member_activation_with_unready_billing_does_not_consume_grant(self) -> None:
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.MEMBER
-        membership.save(update_fields=["level"])
-        assert self.client.post(self.url, {}, format="json").status_code == 403
-        membership.level = OrganizationMembership.Level.ADMIN
         membership.save(update_fields=["level"])
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
@@ -317,6 +327,27 @@ class TestTrialAPI(APIBaseTest):
         ):
             assert self.client.post(self.url, {}, format="json").status_code == 400
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
+
+    @parameterized.expand([(True,), (False,)])
+    def test_enrollment_events_distinguish_committed_activation_and_refusal(self, ready: bool) -> None:
+        capture = Mock()
+        with (
+            patch("products.signals.backend.trial.service.report_user_action", new=capture),
+            patch(
+                "products.signals.backend.trial.billing.TrialBilling.status",
+                return_value=TrialBillingStatus(ready=ready, continuation=TrialContinuation.PAYMENT),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(self.url, {}, format="json")
+                assert response.status_code == (200 if ready else 400), response.content
+                assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == (
+                    ["attempted"] if ready else ["attempted", "refused"]
+                )
+            outcomes = [call.kwargs["properties"] for call in capture.call_args_list]
+            assert outcomes[-1]["outcome"] == ("activated" if ready else "refused")
+            assert outcomes[-1]["reason"] == (None if ready else "billing_not_ready")
+            assert outcomes[-1]["grant_id"] == (response.json()["grant_id"] if ready else None)
 
     def test_failed_billing_read_does_not_consume_grant(self) -> None:
         with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=TimeoutError()):

@@ -63,7 +63,7 @@ export const selfDrivingTrialLogic = kea<selfDrivingTrialLogicType>([
             null as string | null,
             {
                 loadTrial: () => null,
-                loadTrialFailure: () => 'Could not load trial status. Try again.',
+                loadTrialFailure: () => 'Could not load Self-driving usage. Try again.',
             },
         ],
     }),

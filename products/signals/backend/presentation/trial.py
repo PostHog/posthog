@@ -4,7 +4,7 @@ from django.db import models
 
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -89,7 +89,7 @@ class SelfDrivingTrialViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _status(self, service: TrialService) -> dict[str, object]:
         data = service.status()
         level = self.user_permissions.team(self.team.parent_team or self.team).effective_membership_level
-        data["can_activate"] = level is not None and level >= OrganizationMembership.Level.ADMIN
+        data["can_activate"] = level is not None and level >= OrganizationMembership.Level.MEMBER
         return data
 
     @extend_schema(responses=SelfDrivingTrialStatusSerializer)
@@ -98,9 +98,6 @@ class SelfDrivingTrialViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=SelfDrivingTrialActivationSerializer, responses=SelfDrivingTrialStatusSerializer)
     def create(self, request: Request, **kwargs: object) -> Response:
-        level = self.user_permissions.team(self.team.parent_team or self.team).effective_membership_level
-        if level is None or level < OrganizationMembership.Level.ADMIN:
-            raise PermissionDenied("Project management permission is required to start a trial.")
         serializer = SelfDrivingTrialActivationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         service = TrialService(self.team)

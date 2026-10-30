@@ -14,13 +14,18 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
     const { trial, trialLoading, error } = useValues(logic)
     const { loadTrial } = useActions(logic)
 
-    if (error && trial?.enabled) {
+    if (error) {
         return (
             <div>
                 <LemonBanner type="warning">
                     <div className="flex flex-wrap items-center gap-2">
                         <span>{error}</span>
-                        <LemonButton size="small" loading={trialLoading} onClick={loadTrial}>
+                        <LemonButton
+                            size="small"
+                            loading={trialLoading}
+                            onClick={loadTrial}
+                            data-attr="self-driving-trial-retry"
+                        >
                             Retry
                         </LemonButton>
                     </div>
