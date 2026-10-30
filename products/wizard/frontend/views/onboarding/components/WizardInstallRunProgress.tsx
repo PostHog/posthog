@@ -41,7 +41,9 @@ export function WizardInstallRunProgress({
     tasks: readonly WizardRunTaskApi[]
 }): JSX.Element {
     const stepStates = wizardRunProgressStates(run)
-    const visibleTasks = tasks.slice(0, 3)
+    const activeIndex = tasks.findIndex((task) => task.status === 'running')
+    const start = Math.max(0, activeIndex - 1)
+    const visibleTasks = tasks.slice(start, start + 3)
     return (
         <>
             <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">

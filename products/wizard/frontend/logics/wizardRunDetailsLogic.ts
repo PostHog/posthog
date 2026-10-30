@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -9,6 +10,7 @@ import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { wizardRunsPartialUpdate, wizardRunsRetrieve } from '../generated/api'
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
@@ -24,7 +26,12 @@ type WizardRunDiffContent = {
     content: string
 }
 
-export type WizardRunDetailSource = 'fab_click' | 'fab_expand_icon_click' | 'wizard_datatable' | 'wizard_library'
+export type WizardRunDetailSource =
+    | 'fab_click'
+    | 'fab_expand_icon_click'
+    | 'wizard_datatable'
+    | 'wizard_library'
+    | 'wizard_sidebar'
 export type WizardRunArtifactSource = 'button' | 'artifacts_section'
 export type WizardRunIdLocation = 'bottom_button' | 'run_id_label'
 
@@ -63,6 +70,7 @@ export interface wizardRunDetailsLogicValues {
 }
 
 export interface wizardRunDetailsLogicActions {
+    openLinkedRun: (runId: string) => { runId: string }
     cancelRun: (run: WizardRunApi) => { run: WizardRunApi }
     cancelRunRequest: ({ runId }: { runId: string }) => { runId: string }
     cancelRunRequestFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
@@ -158,6 +166,7 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         actions: [wizardRunsLogic, ['refreshRuns']],
     })),
     actions({
+        openLinkedRun: (runId: string) => ({ runId }),
         selectRun: (run: WizardRunApi | null, source?: WizardRunDetailSource) => ({ run, source }),
         openRunDiff: (artifact: WizardRunGitDiffArtifactApi) => ({ artifact }),
         artifactClicked: (artifact: WizardRunArtifactApi, source: WizardRunArtifactSource) => ({ artifact, source }),
@@ -354,7 +363,31 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openLinkedRun: async ({ runId }, breakpoint) => {
+            const projectId = values.currentProjectId
+            if (!projectId || values.selectedRunId === runId) {
+                return
+            }
+            const selectionVersion = cache.selectionVersion ?? 0
+            const isCurrent = (): boolean =>
+                values.currentProjectId === projectId &&
+                cache.linkedRunId === runId &&
+                (cache.selectionVersion ?? 0) === selectionVersion
+            try {
+                const run = await wizardRunsRetrieve(String(projectId), runId)
+                await breakpoint()
+                if (isCurrent()) {
+                    actions.selectRun(run, 'wizard_sidebar')
+                }
+            } catch (error) {
+                await breakpoint()
+                if (isCurrent()) {
+                    lemonToast.error(requestError(error, "Couldn't open the run. Refresh the page to try again."))
+                }
+            }
+        },
         selectRun: ({ run, source }) => {
+            cache.selectionVersion = (cache.selectionVersion ?? 0) + 1
             cache.disposables.dispose('wizardRunDetailPolling')
 
             if (!run) {
@@ -370,7 +403,12 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                 ...wizardRunEventProperties(run),
                 source,
             })
-            actions.loadRunDetails({ runId: run.id })
+            if (source === 'wizard_sidebar') {
+                cache.terminalArtifactFetchRunId = wizardRunIsActive(run) ? undefined : run.id
+                actions.loadRunDetailsSuccess(run)
+            } else {
+                actions.loadRunDetails({ runId: run.id })
+            }
             actions.loadRunArtifacts({ runId: run.id })
 
             if (wizardRunIsActive(run)) {
@@ -470,6 +508,18 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
                     })
                 }
             })
+        },
+    })),
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.wizardRuns()]: (_, searchParams) => {
+            const previousRunId = cache.linkedRunId
+            const runId = typeof searchParams.run === 'string' ? searchParams.run : null
+            cache.linkedRunId = runId
+            if (runId) {
+                actions.openLinkedRun(runId)
+            } else if (previousRunId && values.selectedRunId === previousRunId) {
+                actions.selectRun(null)
+            }
         },
     })),
 ])
