@@ -74,17 +74,21 @@ export function DefaultTooltip<Meta = unknown>({
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
     const visible = hideZeroRows ? seriesData.filter((s) => s.value !== 0) : seriesData
-    const sortedRows = sortedByValue
-        ? [...visible].sort((a, b) => (sortedByValue === 'asc' ? a.value - b.value : b.value - a.value))
-        : visible[0]?.yPixel != null
-          ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
-          : visible
     const closestKey =
         hoveredSeriesKey ??
-        (hoverPosition != null && sortedRows.length > 1 ? findClosestSeriesKey(sortedRows, hoverPosition.y) : null)
+        (hoverPosition != null && visible.length > 1 ? findClosestSeriesKey(visible, hoverPosition.y) : null)
     // A pinned tooltip lists every row, so the other series stay inspectable and clickable.
-    const closestRows = mode === 'single' && !isPinned ? sortedRows.filter((s) => s.series.key === closestKey) : []
-    const rows = closestRows.length > 0 ? closestRows : sortedRows
+    const closestRow =
+        mode === 'single' && !isPinned && closestKey != null
+            ? visible.find((s) => s.series.key === closestKey)
+            : undefined
+    const rows = closestRow
+        ? [closestRow]
+        : sortedByValue
+          ? [...visible].sort((a, b) => (sortedByValue === 'asc' ? a.value - b.value : b.value - a.value))
+          : visible[0]?.yPixel != null
+            ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
+            : visible
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
