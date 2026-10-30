@@ -245,17 +245,24 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _get_team_slack_integration(team_id: int) -> Integration | None:
-    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
-
-
-def _team_notification_channel(team_id: int) -> str | None:
-    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
-    if config is None:
+def _team_notification_target(team_id: int) -> tuple[Integration, str] | None:
+    """The team-default channel and the Slack workspace that owns it."""
+    config = (
+        SignalTeamConfig.objects.filter(team_id=team_id)
+        .select_related("default_slack_notification_integration")
+        .only("default_slack_notification_channel", "default_slack_notification_integration")
+        .first()
+    )
+    channel = ((config.default_slack_notification_channel if config else None) or "").strip()
+    if config is None or not channel:
         return None
-    channel = (config.default_slack_notification_channel or "").strip()
-    return channel or None
+    integration = config.default_slack_notification_integration
+    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
+    if integration is not None and integration.team_id == team_id and integration.kind == "slack":
+        return integration, channel
+    # A channel saved before the binding existed keeps the old routing through the oldest workspace.
+    legacy = Integration.objects.filter(team_id=team_id, kind="slack").order_by("id").first()
+    return (legacy, channel) if legacy is not None else None
 
 
 def _channel_display_name(value: str) -> str:
@@ -645,8 +652,8 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         return 0
 
     priority = _latest_priority(report)
-    team_integration = _get_team_slack_integration(team_id)
-    team_channel = _team_notification_channel(team_id) if team_integration is not None else None
+    team_target = _team_notification_target(team_id)
+    team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(
         report,

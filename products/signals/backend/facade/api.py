@@ -458,15 +458,31 @@ def get_default_slack_notification_channel(team_id: int) -> str | None:
     return value or None
 
 
-def set_default_slack_notification_channel(team_id: int, value: str | None) -> None:
-    """Idempotently set the team-default Slack channel for signal notifications."""
+def get_default_slack_notification_integration_id(team_id: int) -> int | None:
+    """The Slack integration that owns the team-default channel. None for an unbound legacy channel."""
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return (
+        SignalTeamConfig.objects.filter(team_id=team_id)
+        .values_list("default_slack_notification_integration_id", flat=True)
+        .first()
+    )
+
+
+def set_default_slack_notification_channel(team_id: int, value: str | None, *, integration_id: int | None) -> None:
+    """Idempotently set the team-default Slack channel for signal notifications, and the workspace that owns it."""
     from products.signals.backend.models import (
         SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
     SignalTeamConfig.objects.update_or_create(
         team_id=team_id,
-        defaults={"default_slack_notification_channel": value or None},
+        defaults={
+            "default_slack_notification_channel": value or None,
+            "default_slack_notification_integration_id": integration_id if value else None,
+        },
     )
 
 

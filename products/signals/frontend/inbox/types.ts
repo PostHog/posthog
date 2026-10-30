@@ -398,6 +398,8 @@ export interface SignalTeamConfig {
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
+    /** Slack integration that owns the team channel. Send it together with the channel. */
+    default_slack_notification_integration?: number | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
     /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */

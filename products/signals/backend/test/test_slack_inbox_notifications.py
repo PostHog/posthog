@@ -237,8 +237,8 @@ def org_and_team():
     org.delete()
 
 
-def _set_team_channel(team: Team, channel: str) -> None:
-    set_default_slack_notification_channel(team.id, channel)
+def _set_team_channel(team: Team, channel: str, integration: Integration | None = None) -> None:
+    set_default_slack_notification_channel(team.id, channel, integration_id=integration.id if integration else None)
 
 
 def _make_reviewer_user(org: Organization, email: str, login: str) -> User:
@@ -442,6 +442,29 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team, ai
     # a reviewer can be added to a retained report after that approval is revoked. Which of the
     # two variants renders is the shared builder's decision, tested in products/slack_app.
     assert ("@PostHog" in call_kwargs["blocks"][-1]["elements"][0]["text"]) is ai_approved
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bound", [True, False])
+def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_team, bound):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "workspace-reviewer@example.com", "workspace-bot")
+    oldest = _make_slack_integration(team, reviewer)
+    newer = Integration.objects.create(
+        team=team, kind="slack", integration_id="T456", config={}, sensitive_config={"access_token": "xoxb-other"}
+    )
+    _set_team_channel(team, "CTEAM|#posthog-signals", newer if bound else None)
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["workspace-bot"])
+
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = MagicMock()
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert slack_cls.call_args.args[0] == (newer if bound else oldest)
 
 
 @pytest.mark.parametrize(

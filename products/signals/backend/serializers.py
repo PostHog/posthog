@@ -442,6 +442,16 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default."
         ),
     )
+    default_slack_notification_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="slack"),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Connected Slack integration that owns `default_slack_notification_channel`. Send it together "
+            "with the channel. A channel saved without it is routed through the team's oldest Slack "
+            "integration, and clearing the channel clears this too."
+        ),
+    )
     issue_tracking_config = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
@@ -609,6 +619,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "default_slack_notification_integration",
             "autostart_base_branches",
             "scout_instructions",
             "research_instructions",
@@ -664,6 +675,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         attrs = super().validate(attrs)
+        # A new channel without its workspace must not keep the old binding, which may name a
+        # workspace that cannot see the new channel.
+        if "default_slack_notification_channel" in attrs and (
+            not attrs["default_slack_notification_channel"] or "default_slack_notification_integration" not in attrs
+        ):
+            attrs["default_slack_notification_integration"] = None
         # The target only makes sense against an integration, and the two can arrive in either the
         # same PATCH or separate ones, so fall back to what is already stored.
         integration = (

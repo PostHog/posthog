@@ -128,24 +128,32 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("set", None, "C123|#posthog-signals", "C123|#posthog-signals"),
-            ("clear", "C123|#posthog-signals", None, None),
+            ("set", None, "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("set_with_workspace", None, "C123|#posthog-signals", True, "C123|#posthog-signals", True),
+            ("change_without_workspace", "C999|#old", "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("clear", "C123|#posthog-signals", None, False, None, False),
         ]
     )
-    def test_update_default_slack_notification_channel(self, _name, initial, sent, expected):
+    def test_update_default_slack_notification_channel(
+        self, _name, initial, sent, send_workspace, expected, expect_bound
+    ):
+        workspace = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         if initial is not None:
             self.config.default_slack_notification_channel = initial
-            self.config.save(update_fields=["default_slack_notification_channel"])
-        response = self.client.post(
-            self._url(),
-            data={"default_slack_notification_channel": sent},
-            format="json",
-        )
+            self.config.default_slack_notification_integration = workspace
+            self.config.save(
+                update_fields=["default_slack_notification_channel", "default_slack_notification_integration"]
+            )
+        payload: dict = {"default_slack_notification_channel": sent}
+        if send_workspace:
+            payload["default_slack_notification_integration"] = workspace.id
+        response = self.client.post(self._url(), data=payload, format="json")
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] == expected
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
+        assert self.config.default_slack_notification_integration == (workspace if expect_bound else None)
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
@@ -367,7 +375,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         # materialized, so the row is created with the channel already set. That first choice
         # must still be audited even though it arrives as a create rather than an update.
         self.config.delete()
-        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals")
+        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals", integration_id=None)
 
         entries = self._activity()
         assert len(entries) == 1
