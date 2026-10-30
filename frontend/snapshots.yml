@@ -2013,17 +2013,17 @@ snapshots:
     components-not-found--not-found--light:
         hash: v1.k794b7964.ef3247e1f5c8360e264349da02724c306672e837b42f16ad74a8fad9d1219d02.A0XX2XEOCK7YQYtIRtCKo0SB4kHqS_vBHaH141IrbEE
     components-oauth-connection-logos--broken-logo--dark:
-        hash: v1.k794b7964.9e8e6d61c4484e125eede42304b6f38a2ecc96ef84818d2e9e07eb02607accbf.J1zRnFl4_rbeScN1BSh09dqW8mhinsbZxdE9PEWzqNw
+        hash: v1.k794b7964.a6caaf7dfabf6aca8af46748185f45994b60c0d1e6cae2301e7808a0779ee2c0.IHPxw0K7GIcHedJO8HabsPFM3gqEBkixVgWXYnPosmQ
     components-oauth-connection-logos--broken-logo--light:
-        hash: v1.k794b7964.76669465d3b4dddf9fd33d45bb09f1db0e05f78aeb14e8c64940db1a81d9aab0.N9Td2xmjU22juReZFAmBFCvJ7RWnKgQkxHMYFrFa698
+        hash: v1.k794b7964.8d26f2f0e43e242978bc6eed82d97bbb5e462936ed39b6307dd7f808744a8dd9.i2Bbd984H0CSmUtIfQTlHfYhqprj-AaqEGHR7554wF8
     components-oauth-connection-logos--with-logo--dark:
-        hash: v1.k794b7964.c6713b67e0825fcbaddf9a5161ac218cc10b7b37e0b76989546af3ccc9e2170f.BgdGrVUOhTti04YuJiDOFf64LC0C6bIjmmcmTcFyK78
+        hash: v1.k794b7964.c42697fa400505cc9e161f46c0777e3f4ebd41da4040020c162167eecf8bf7be.xwTyREga_cIqBftFhwXSj5ur0o_W9ZiIus1o6yO4gP8
     components-oauth-connection-logos--with-logo--light:
-        hash: v1.k794b7964.ada4261a542447f12d0f896d64fa07c776083499e8d50fe264eb5529b6aa92c5.vS-uZ_4tH1vaKaV-9BIrq2MBpzFVmrzlrZTqkLh_uBQ
+        hash: v1.k794b7964.813621f9ecbc4322028782ad595cce0f4a2122de1c32ba77ce852e90d870cb48.mLkH_gNyYtAdCx-UC5FmxuC1i-BhXP1fz6flg1-6g3A
     components-oauth-connection-logos--without-logo--dark:
-        hash: v1.k794b7964.9e8e6d61c4484e125eede42304b6f38a2ecc96ef84818d2e9e07eb02607accbf.UHsxNwfUnwWBY7bE6K812O-LImDiM_tdY2moYXIQCT4
+        hash: v1.k794b7964.a6caaf7dfabf6aca8af46748185f45994b60c0d1e6cae2301e7808a0779ee2c0.9271nBdYGNaPCHz-bqbPn-geTRzhM3PWsdw-oJh9XEw
     components-oauth-connection-logos--without-logo--light:
-        hash: v1.k794b7964.76669465d3b4dddf9fd33d45bb09f1db0e05f78aeb14e8c64940db1a81d9aab0.kkQspWJQLQTm73qg8wVkXhF8XnAdVcSzRnneE1ZywlU
+        hash: v1.k794b7964.8d26f2f0e43e242978bc6eed82d97bbb5e462936ed39b6307dd7f808744a8dd9.ErF1tre7CqFIFz7785s5lH-gw2jmVfiyI1RMJUxxW60
     components-pay-gate-mini--pay-gate-mini--dark:
         hash: v1.k794b7964.42a516cf3e11bb319673f4b0fd69efd4150fca0477d502749a36ba338da33e05.tM1QnvnZagRnjAU2zw0xRjujJMSapGoK_xbKBITppmQ
     components-pay-gate-mini--pay-gate-mini--light:

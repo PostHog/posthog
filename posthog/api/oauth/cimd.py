@@ -601,6 +601,18 @@ def _resolve_client_authentication(
     return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
+def _logo_uri_for(metadata: CIMDMetadataDocument, url: str) -> str | None:
+    """The document's logo, or else the touch icon at the root of the host that serves the document.
+
+    Many clients publish no `logo_uri`. The fallback comes from the client_id host, which the
+    document was fetched from, and not from the self-asserted `client_uri`, so a client cannot
+    borrow another site's icon. Where the host has no icon, the screens show the client's initial.
+    """
+    if logo_uri := metadata.get("logo_uri"):
+        return logo_uri
+    return usable_logo_uri(f"https://{urlparse(url).netloc}/apple-touch-icon.png")
+
+
 def _create_cimd_application(
     url: str,
     metadata: CIMDMetadataDocument,
@@ -623,7 +635,7 @@ def _create_cimd_application(
     client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    logo_uri = metadata.get("logo_uri") or None
+    logo_uri = _logo_uri_for(metadata, url)
     verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
@@ -713,7 +725,9 @@ def _update_cimd_application(
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
+    # A document without a logo keeps the stored one, and only an app with none gets the host icon
+    if metadata.get("logo_uri") is not None or not app.logo_uri:
+        app.logo_uri = _logo_uri_for(metadata, app.client_id)
     app.cimd_metadata_last_fetched = timezone.now()
 
     # Re-derived on every refresh, in both directions: a registered partner that starts
