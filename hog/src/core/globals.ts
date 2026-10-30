@@ -198,7 +198,9 @@ export function networkRuntime(runtime: Runtime, globals: GlobalOptions): Runtim
         return turn
     }
     const fetch: RuntimeFetch = async (input, init) => {
-        await waitTurn()
+        if (!init?.skipRateLimit) {
+            await waitTurn()
+        }
         if (!globals.debug) {
             return runtime.fetch(input, init)
         }

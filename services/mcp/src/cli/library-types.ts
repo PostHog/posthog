@@ -68,7 +68,8 @@ export interface ApiToolLibrary {
     schema(tool: string, fieldPath?: string): Promise<unknown>
     validate(tool: string, input: Record<string, unknown>): ApiToolValidation
     missingScopes(granted: string[], required: string[]): string[]
-    keyAccess(connection: ApiConnection): Promise<ApiToolResult<ApiKeyAccess>>
+    /** `signal` cancels the lookup, so a caller that stops waiting doesn't keep the process alive. */
+    keyAccess(connection: ApiConnection, options?: { signal?: AbortSignal }): Promise<ApiToolResult<ApiKeyAccess>>
     /** Runs the tool and returns its JSON result. */
     call(
         tool: string,

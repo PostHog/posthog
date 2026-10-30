@@ -9,6 +9,21 @@ import { completeLogin, readPendingLogin, saveLogin, startLogin, type LoggedIn }
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
+// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions.
+// A login to any other host needs --host, because the key it gets is saved for every project.
+function cloudRegion(host: string | undefined): string | undefined {
+    if (host === undefined) {
+        return undefined
+    }
+    let origin: string
+    try {
+        origin = new URL(host).origin
+    } catch {
+        return undefined
+    }
+    return Object.values(REGIONS).find((region) => region === origin)
+}
+
 type LoginResult =
     | {
           status: 'pending'
@@ -114,8 +129,9 @@ export default defineCommand({
         }
 
         let host =
-            (ctx.globals.host ?? (await ctx.config())?.config.host)?.replace(/\/+$/, '') ??
-            (options.region ? REGIONS[options.region] : undefined)
+            ctx.globals.host?.replace(/\/+$/, '') ??
+            (options.region ? REGIONS[options.region] : undefined) ??
+            cloudRegion((await ctx.config())?.config.host)
         if (!host) {
             if (!prompts) {
                 throw new HogError(

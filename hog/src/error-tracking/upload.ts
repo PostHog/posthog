@@ -410,6 +410,7 @@ export class SymbolSetClient {
                 method: 'PUT',
                 body: data as BodyInit,
                 timeoutMs: transferTimeout(data.length),
+                skipRateLimit: true,
             })
         }
         const form = new FormData()
@@ -422,6 +423,7 @@ export class SymbolSetClient {
             method: 'POST',
             body: form,
             timeoutMs: transferTimeout(data.length),
+            skipRateLimit: true,
         })
     }
 }

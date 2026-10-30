@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { Output } from '@/core/output'
+import { escapeControls, Output } from '@/core/output'
 import { plural } from '@/core/text'
 import { listEndpoints, listInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
@@ -92,7 +92,9 @@ export default defineCommand({
         if (result.status === 'applied') {
             for (const outcome of result.outcomes) {
                 if (outcome.status === 'failed') {
-                    out.line(`${out.style('Failed', 'red', 'bold')}   ${outcome.name}: ${outcome.error}`)
+                    out.line(
+                        `${out.style('Failed', 'red', 'bold')}   ${outcome.name}: ${escapeControls(outcome.error ?? '')}`
+                    )
                 } else {
                     const verb = outcome.status === 'created' ? 'Created' : 'Updated'
                     out.line(
