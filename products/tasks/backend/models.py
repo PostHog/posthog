@@ -4082,22 +4082,28 @@ class SandboxEnvironment(UUIDModel):
         pattern = r"^[A-Za-z_][A-Za-z0-9_]*$"
         return bool(re.match(pattern, key))
 
-    def get_effective_domains(self) -> list[str]:
-        if self.network_access_level == self.NetworkAccessLevel.FULL:
+    @staticmethod
+    def effective_domains(level: str, allowed_domains: Iterable[str], *, include_default_domains: bool) -> list[str]:
+        if level == SandboxEnvironment.NetworkAccessLevel.FULL:
             return []
 
-        if self.network_access_level == self.NetworkAccessLevel.TRUSTED:
+        if level == SandboxEnvironment.NetworkAccessLevel.TRUSTED:
             return DEFAULT_TRUSTED_DOMAINS.copy()
 
-        if self.network_access_level == self.NetworkAccessLevel.CUSTOM:
-            domains = list(self.allowed_domains)
-            if self.include_default_domains:
+        if level == SandboxEnvironment.NetworkAccessLevel.CUSTOM:
+            domains = list(allowed_domains)
+            if include_default_domains:
                 for domain in DEFAULT_TRUSTED_DOMAINS:
                     if domain not in domains:
                         domains.append(domain)
             return domains
 
         return []
+
+    def get_effective_domains(self) -> list[str]:
+        return SandboxEnvironment.effective_domains(
+            self.network_access_level, self.allowed_domains, include_default_domains=self.include_default_domains
+        )
 
 
 class SandboxCustomImage(TeamScopedRootMixin):
