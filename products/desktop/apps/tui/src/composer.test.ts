@@ -129,4 +129,18 @@ describe("Composer", () => {
     expect(popup).toContain("review-pr");
     expect(popup).toContain("model");
   });
+
+  it("draws the heaviest cursor in the focused pane and a grey one elsewhere", () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    composer.handleInput("x");
+    const focused = composer.render(30, true).editor.join("");
+    const unfocused = composer.render(30, false).editor.join("");
+
+    expect(focused).toContain("\x1b[7m");
+    expect(unfocused).not.toContain("\x1b[7m");
+    expect(unfocused).toContain("\x1b[100m");
+  });
 });

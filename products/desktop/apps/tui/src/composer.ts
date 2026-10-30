@@ -35,6 +35,9 @@ export function isAppKey(sequence: string): boolean {
 
 const PASTE_START = "\u001b[200~";
 const PLAIN_RULE = /^─+$/;
+const INVERSE = "\u001b[7m";
+// A grey block: lighter than the inverse cursor on light and dark themes alike.
+const UNFOCUSED_CURSOR = "\u001b[100m";
 
 // Text a person types or pastes, as opposed to navigation and control keys.
 export function isTyping(sequence: string): boolean {
@@ -112,9 +115,13 @@ export class Composer {
     focused: boolean,
   ): { editor: string[]; popup: string[] } {
     this.editor.focused = focused;
+    // pi draws its cursor as an inverse block in every pane; only the focused one keeps it solid.
     const lines = this.editor
       .render(width)
-      .map((line) => line.replace(CURSOR_MARKER, ""));
+      .map((line) => line.replace(CURSOR_MARKER, ""))
+      .map((line) =>
+        focused ? line : line.replaceAll(INVERSE, UNFOCUSED_CURSOR),
+      );
     // pi closes the input with a rule (or a "↓ n more" line); suggestions follow it.
     const closing = lines.findLastIndex(
       (line, index) =>
