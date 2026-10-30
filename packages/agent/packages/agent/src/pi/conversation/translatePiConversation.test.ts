@@ -541,6 +541,7 @@ describe("createPiConversationTranslator", () => {
           type: "runtime_status",
           timestamp: 10,
           status: "compacting",
+          compaction: { reason: "manual" },
         },
       ]);
 
@@ -559,6 +560,7 @@ describe("createPiConversationTranslator", () => {
           timestamp: 10,
           status: "compacting",
           isComplete: true,
+          compaction: { reason: "manual" },
         },
       ]);
     },
@@ -575,6 +577,7 @@ describe("createPiConversationTranslator", () => {
           summary: "Earlier work was compacted.",
           firstKeptEntryId: "entry-1",
           tokensBefore: 1000,
+          estimatedTokensAfter: 200,
         },
         aborted: false,
         willRetry: false,
@@ -584,6 +587,11 @@ describe("createPiConversationTranslator", () => {
         type: "runtime_status",
         status: "compacting",
         isComplete: true,
+        compaction: {
+          reason: "manual",
+          tokensBefore: 1000,
+          estimatedTokensAfter: 200,
+        },
       },
       {
         type: "assistant_message_chunk",
