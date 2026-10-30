@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     FirebaseResponseTooLargeError,
     FirebaseResumeConfig,
     FirestoreIncrementalCursor,
+    _api_session,
     build_jwt_assertion,
     decode_firestore_value,
     firebase_source,
@@ -197,6 +198,23 @@ class TestAccessTokens:
         session = FakeSession(post_responses=[FakeResponse(payload=body)])
 
         assert mint_access_token(session.as_session(), credentials()) == ("tok-1", expected_lifetime)
+
+
+class TestApiSessionRetries:
+    @pytest.mark.parametrize(
+        "method,status_code,expected_retry",
+        [
+            ("POST", 503, True),
+            ("POST", 429, True),
+            ("GET", 503, True),
+            ("POST", 403, False),
+        ],
+    )
+    def test_read_only_posts_retry_transient_errors(self, method: str, status_code: int, expected_retry: bool) -> None:
+        adapter = _api_session(credentials()).get_adapter("https://firestore.googleapis.com")
+
+        assert isinstance(adapter, requests.adapters.HTTPAdapter)
+        assert adapter.max_retries.is_retry(method, status_code) is expected_retry
 
 
 class TestFirestorePagination:
