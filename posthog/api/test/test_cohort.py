@@ -40,6 +40,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
@@ -4893,10 +4894,7 @@ email@example.org,
         )
 
     def _flag_calls_rewrite(self, enabled: bool):
-        return patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: enabled and key == "hogql-flag-calls-from-flag-evaluations",
-        )
+        return override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not enabled)
 
     @parameterized.expand(
         [
@@ -4935,13 +4933,6 @@ email@example.org,
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 True,
                 _FLAG_CALL_KEY_REFUSAL,
-            ),
-            (
-                "event_without_rewrite",
-                [_FLAG_CALLED_CRITERION],
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                False,
-                _HIDDEN_EVENT_REFUSAL,
             ),
             (
                 "any_flag_in_flag_evaluations_only_mode",
@@ -5157,13 +5148,6 @@ email@example.org,
                 [_FLAG_CALLED_CRITERION],
                 [_FLAG_CALLED_PAST_RETENTION_CRITERION],
                 None,
-                rewrite_enabled=False,
-            ),
-            param(
-                "adds_flag_call_without_rewrite",
-                [_PAGEVIEW_CRITERION],
-                [_PAGEVIEW_CRITERION, _FLAG_CALLED_PAST_RETENTION_CRITERION],
-                _HIDDEN_EVENT_REFUSAL,
                 rewrite_enabled=False,
             ),
         ]
