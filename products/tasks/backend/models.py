@@ -54,6 +54,7 @@ from products.tasks.backend.dev_stack_image_models import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.profiles import (
+    GithubResolution,
     PrAuthorship,
     TaskProfile,
     TaskProfileError,
@@ -666,9 +667,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             return self.origin_product == Task.OriginProduct.POSTHOG_AI
         return profile.user_authorable_prs and profile.default_pr_authorship == PrAuthorship.BOT
 
+    @staticmethod
+    def mcp_agent_key_for(origin_product: str, profile: TaskProfile | None) -> MCPBuiltInAgentKey | None:
+        if profile is not None:
+            return cast("MCPBuiltInAgentKey | None", profile.mcp_agent)
+        return MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
-        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        expected_key = Task.mcp_agent_key_for(self.origin_product, self.stored_profile)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
 
@@ -1262,6 +1269,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
 
     @staticmethod
+    def _attaches_github(origin_product: str, profile: TaskProfile | None, *, has_repository: bool) -> bool:
+        if profile is None:
+            return Task._github_resolution_allowed(origin_product, has_repository=has_repository)
+        if profile.github_resolution == GithubResolution.WITH_REPOSITORY:
+            return has_repository
+        return profile.github_resolution == GithubResolution.ALWAYS
+
+    @staticmethod
     def _build_task(
         *,
         team: Team,
@@ -1345,7 +1360,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
+        github_resolution_allowed = Task._attaches_github(origin_product, profile, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
             github_integration = next(
@@ -1408,7 +1423,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
-        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+        expected_agent_key = Task.mcp_agent_key_for(origin_product, profile)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 

@@ -432,6 +432,9 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
+    profile = task.stored_profile
+    if profile is not None:
+        return profile.personal_mcp
     return not task.internal
 
 
