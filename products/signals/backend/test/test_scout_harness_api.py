@@ -739,10 +739,8 @@ class TestScoutHarnessScoutCostsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         query.assert_not_called()
 
-    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
-        from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import generate_random_token_personal, hash_key_value
-
+    @parameterized.expand(["signals/scout/runs/costs", "signals/spend"])
+    def test_child_scoped_api_key_cannot_read_parent_costs(self, endpoint: str) -> None:
         self._make_staff()
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
@@ -757,7 +755,7 @@ class TestScoutHarnessScoutCostsAPI(APIBaseTest):
 
         with patch(_SCOUT_COSTS_QUERY) as query:
             response = self.client.get(
-                f"/api/projects/{child.id}/signals/scout/runs/costs/",
+                f"/api/projects/{child.id}/{endpoint}/",
                 HTTP_AUTHORIZATION=f"Bearer {raw}",
             )
 
@@ -6103,7 +6101,8 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 
 
 class TestScoutSpendOverview(APIBaseTest):
-    def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self) -> None:
+    @parameterized.expand([False, True])
+    def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
         run = _make_run(self.team)
         _make_run(self.team)
         private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
@@ -6122,7 +6121,12 @@ class TestScoutSpendOverview(APIBaseTest):
                 spend=amount,
                 finalized_at=timezone.now(),
             )
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/spend/")
+        url_team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team)
+            if child_environment
+            else self.team
+        )
+        response = self.client.get(f"/api/projects/{url_team.id}/signals/spend/")
         assert response.status_code == 200, response.content
         assert response.json()["scout_spend"] == {"total_spend": 125.25, "incomplete": True}
         assert response.json()["scouts"] == [

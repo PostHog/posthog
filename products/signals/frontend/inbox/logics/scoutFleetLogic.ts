@@ -17,8 +17,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { FEATURE_FLAGS, FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -1747,7 +1748,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             }
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
-            if (values.isStaff) {
+            if (values.isStaff && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_USAGE]) {
                 actions.loadScoutRunCosts()
                 actions.loadScoutCosts()
             }

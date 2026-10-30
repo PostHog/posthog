@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.spend_reporting import SpendReporting
 
 
@@ -56,7 +57,7 @@ class ReportSpendSerializer(serializers.Serializer):
 class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SpendOverviewSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     pagination_class = None
 

@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.models import Team
 
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
@@ -794,7 +795,10 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
 
 
 class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
-    def test_sources_use_latest_receipt_and_distinguish_missing_spend(self) -> None:
+    @parameterized.expand([False, True])
+    def test_sources_use_latest_receipt_and_distinguish_missing_spend(self, child_environment: bool) -> None:
+        if child_environment:
+            self.team = Team.objects.create(organization=self.organization, parent_team=self.team)
         for inserted_at, amount in [(self.base, 2.5), (self.base + timedelta(hours=1), 17.125)]:
             self._emit_version(
                 document_id="source-spend",
@@ -836,7 +840,10 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
             }
         ]
 
-    def test_report_prices_only_current_signals_and_own_implementation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_report_prices_only_current_signals_and_own_implementation(self, child_environment: bool) -> None:
+        if child_environment:
+            self.team = Team.objects.create(organization=self.organization, parent_team=self.team)
         report = SignalReport.objects.create(team=self.team)
         other_report = SignalReport.objects.create(team=self.team)
         signal_id, moved_id = str(uuid.uuid4()), str(uuid.uuid4())
@@ -848,10 +855,22 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
             self._emit_version(
                 document_id=signal, report_id=str(owner), source_product="github", inserted_at=inserted_at
             )
-        for signal, amount in [(signal_id, 12.125), (moved_id, 999)]:
-            SignalSpend.objects.for_team(self.team.id).create(
-                team=self.team, kind="ad-hoc", signal_id=signal, spend=amount, finalized_at=timezone.now()
+        amounts = [(signal_id, 12.125), (moved_id, 999)]
+        for _ in range(100):
+            extra_id = str(uuid.uuid4())
+            self._emit_version(
+                document_id=extra_id, report_id=str(report.id), source_product="github", inserted_at=self.base
             )
+            amounts.append((extra_id, 1))
+        receipt_team = self.team.parent_team or self.team
+        SignalSpend.objects.for_team(self.team.id).bulk_create(
+            [
+                SignalSpend(
+                    team=receipt_team, kind="ad-hoc", signal_id=signal, spend=amount, finalized_at=timezone.now()
+                )
+                for signal, amount in amounts
+            ]
+        )
         SignalSpend.objects.for_team(self.team.id).create(
             team=self.team,
             kind="research",
@@ -871,7 +890,7 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
         assert response.status_code == 200, response.content
         assert response.json() == {
-            "generation": {"total_spend": 32.125, "incomplete": True},
+            "generation": {"total_spend": 132.125, "incomplete": True},
             "implementation": {"total_spend": 50, "incomplete": False},
             "shared_scout_runs": {"total_spend": None, "incomplete": False},
         }

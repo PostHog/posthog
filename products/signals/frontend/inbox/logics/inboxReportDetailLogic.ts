@@ -994,6 +994,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalNode[] | null,
             {
                 loadReportSignals: async () => {
+                    const refreshUsage = values.reportSignals !== null
                     const response = await signalsReportsSignalsRetrieve(
                         String(teamLogic.values.currentTeamId),
                         props.reportId
@@ -1002,7 +1003,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         teamId: teamLogic.values.currentTeamId ?? 0,
                         reportId: props.reportId,
                     })
-                    if (spendLogic.isMounted()) {
+                    if (refreshUsage && spendLogic.isMounted()) {
                         spendLogic.actions.loadSpend()
                     }
                     return response.signals

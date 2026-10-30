@@ -26,6 +26,7 @@ import { REPORT_AI_PANEL, REPORT_AI_PANEL_ID, inboxTaskKickoffLogic } from '../i
 import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -38,6 +39,53 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    it('loads usage once on open and refreshes it after subsequent signal loads', async () => {
+        let releaseSignals!: () => void
+        const pendingSignals = new Promise<void>((resolve) => {
+            releaseSignals = resolve
+        })
+        const usageRequest = jest.fn(() => ({
+            generation: { total_spend: 125, incomplete: false },
+            implementation: { total_spend: null, incomplete: false },
+            shared_scout_runs: { total_spend: null, incomplete: false },
+        }))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:id/signals/': async () => {
+                    await pendingSignals
+                    return { signals: [] }
+                },
+                '/api/projects/:team_id/signals/reports/:id/spend/': usageRequest,
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+            },
+        })
+        initKeaTests()
+        const usage = reportSpendLogic({ teamId: MOCK_DEFAULT_TEAM.id, reportId: REPORT.id })
+        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+        usage.mount()
+        logic.mount()
+        try {
+            await expectLogic(usage).toDispatchActions(['loadSpendSuccess'])
+            expect(usageRequest).toHaveBeenCalledTimes(1)
+            releaseSignals()
+            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
+            await expectLogic(usage).toFinishAllListeners()
+            expect(usageRequest).toHaveBeenCalledTimes(1)
+
+            logic.actions.loadReportSignals()
+            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
+            await expectLogic(usage).toFinishAllListeners()
+            expect(usageRequest).toHaveBeenCalledTimes(2)
+        } finally {
+            releaseSignals()
+            logic.unmount()
+            usage.unmount()
+        }
+    })
+
     it.each([SignalReportStatus.READY, SignalReportStatus.MONITORING])(
         'orders report runs and refreshes settled tasks appropriately in %s',
         async (status) => {

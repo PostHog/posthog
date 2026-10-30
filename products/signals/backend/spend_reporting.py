@@ -9,6 +9,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -53,7 +54,7 @@ class ReportSpend:
 
 class SpendReporting:
     def __init__(self, team: Team) -> None:
-        self.team = team.parent_team or team
+        self.team = team
         self.team_id = self.team.id
 
     def _amount(self, receipts: QuerySet[SignalSpend]) -> SpendAmount:
@@ -67,15 +68,16 @@ class SpendReporting:
         )
 
     def scouts(self) -> SpendOverview:
+        team = self.team.parent_team or self.team
         end = timezone.now()
         start = end - timedelta(days=30)
         runs = (
-            SignalScoutRun.objects.for_team(self.team_id)
+            SignalScoutRun.objects.for_team(team.id)
             .filter(created_at__gte=start, created_at__lt=end)
             .exclude(metadata__has_key="scout_trial")
         )
         run_counts = dict(runs.values("skill_name").annotate(count=Count("id")).values_list("skill_name", "count"))
-        receipts = SignalSpend.objects.for_team(self.team_id).filter(
+        receipts = SignalSpend.objects.for_team(team.id).filter(
             kind=SignalSpend.Kind.SCOUT_RUN, scout_run_id__in=runs.values("id")
         )
         by_skill = {
@@ -127,6 +129,7 @@ class SpendReporting:
             team=self.team,
             context=_signals_query_context(self.team),
             ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.ONLINE,
             query_type="SignalsSourceSpend",
             placeholders={
                 "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
@@ -149,7 +152,7 @@ class SpendReporting:
     def report(self, report: SignalReport) -> ReportSpend:
         tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
         query = f"""
-            SELECT document_id
+            SELECT groupArray(document_id)
             FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
             WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
         """
@@ -158,13 +161,14 @@ class SpendReporting:
             team=self.team,
             context=_signals_query_context(self.team),
             ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.ONLINE,
             query_type="SignalsReportSpend",
             placeholders={
                 "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
                 "report_id": ast.Constant(value=str(report.id)),
             },
         )
-        signal_ids = {UUID(row[0]) for row in response.results or []}
+        signal_ids = {UUID(signal_id) for row in response.results or [] for signal_id in row[0]}
         if report.triggering_signal_id:
             signal_ids.add(report.triggering_signal_id)
         if report.pending_triggering_signal_id:
