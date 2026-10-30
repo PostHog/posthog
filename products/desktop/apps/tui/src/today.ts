@@ -63,6 +63,12 @@ export function reportPrompt(
   return `${question}\n\nThis is about the Inbox report "${item.title}": ${webUrl}`;
 }
 
+// The sky beside the Today row, on the greeting's bands: a moon late at night, a rising sun in the morning,
+// the full sun in the afternoon, a crescent in the evening. All one cell wide, as a terminal draws them.
+export function todayGlyph(hour: number): string {
+  return hour < 5 ? "☾" : hour < 12 ? "☼" : hour < 17 ? "☀" : "☽";
+}
+
 export function greeting(hour: number, firstName: string | null): string {
   const time =
     hour < 5
