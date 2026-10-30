@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.message_utils import (
     extract_text_from_messages,
     format_tool_definitions,
@@ -61,6 +62,165 @@ class TestExtractTextFromMessages:
         result = extract_text_from_messages(messages)
         assert expected_substring in result
         assert result != ""
+
+    @pytest.mark.parametrize(
+        ("block", "marker"),
+        [
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg"}},
+                "[image 1]",
+                id="openai_offloaded_pointer",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                "[image 1]",
+                id="openai_inline_data_uri",
+            ),
+            pytest.param(
+                {"type": "input_image", "image_url": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="openai_responses_customer_link",
+            ),
+            pytest.param(
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="anthropic_base64",
+            ),
+            pytest.param(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": "[base64 image redacted]"},
+                },
+                "[image]",
+                id="anthropic_redacted",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,[base64 image redacted]"}},
+                "[image]",
+                id="openai_redacted_data_uri",
+            ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," * 3 + "aGk="}},
+                "[image]",
+                id="nested_data_uri",
+            ),
+            pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGk="}}, "[image 1]", id="gemini_inline"),
+            pytest.param(
+                {"type": "image", "inline_data": {"mime_type": "image/png", "data": "aGk="}},
+                "[image 1]",
+                id="gemini_posthog_sdk",
+            ),
+            pytest.param(
+                {"type": "image", "data": "aGk=", "mime_type": "image/png"}, "[image 1]", id="gemini_interactions"
+            ),
+            pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio 1]", id="gemini_audio"),
+            pytest.param(
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "wav"}},
+                "[audio 1]",
+                id="openai_audio_wav",
+            ),
+            pytest.param(
+                {
+                    "type": "input_audio",
+                    "input_audio": {"data": f"phaiblob://v1/sha256/{'b' * 64}?mime=audio%2Fmp3", "format": "mp3"},
+                },
+                "[audio 1]",
+                id="openai_audio_offloaded",
+            ),
+            pytest.param({"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio]", id="openai_audio"),
+            pytest.param({"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file]", id="file"),
+            pytest.param(
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "aGk="}},
+                "[file 1]",
+                id="anthropic_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="}},
+                "[file 1]",
+                id="openai_chat_pdf",
+            ),
+            pytest.param(
+                {"type": "input_file", "filename": "a.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="openai_responses_pdf",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"file_id": "file-abc"}}, "[file]", id="openai_uploaded_file_without_bytes"
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="vercel_image",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "application/pdf", "data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="vercel_pdf",
+            ),
+            pytest.param(
+                {"type": "document", "mime_type": "application/pdf", "data": "aGk="}, "[file 1]", id="gemini_pdf"
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "application/pdf", "data": "data:application/octet-stream;base64,aGk="},
+                "[file 1]",
+                id="declared_pdf_beats_a_generic_data_uri",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "APPLICATION/OCTET-STREAM", "data": "data:application/pdf;base64,aGk="},
+                "[file 1]",
+                id="data_uri_pdf_beats_a_generic_declared_type",
+            ),
+            pytest.param(
+                {"type": "file", "file": {"filename": "report.PDF", "file_data": "aGk="}},
+                "[file 1]",
+                id="pdf_known_only_by_its_filename",
+            ),
+            pytest.param(
+                {"type": "image", "uri": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
+                "[image 1]",
+                id="otel_style_image_uri",
+            ),
+            pytest.param(
+                {"type": "file", "mediaType": "image/png", "file": "raw files not supported"},
+                "[image]",
+                id="vercel_sdk_placeholder",
+            ),
+        ],
+    )
+    def test_judge_attachments_replace_media_blocks_with_markers(self, block, marker):
+        messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
+
+        assert (
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
+            == f"user: {marker} What does this chart show?"
+        )
+
+    def test_judge_attachments_number_otel_parts_and_tool_result_images(self):
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"
+        image = {"type": "image_url", "image_url": {"url": pointer}}
+        messages = [
+            {
+                "role": "user",
+                "parts": [{"type": "blob", "modality": "image", "mime_type": "image/png", "content": pointer}],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "output": [{"type": "input_image", "image_url": pointer}],
+            },
+        ]
+
+        assert (
+            extract_text_from_messages(messages, JudgeAttachments(team_id=7).marker)
+            == "user: [image 1]\nuser: [image 1]\ntool[c1]: [image 1]"
+        )
+        assert extract_text_from_messages(messages).startswith("user: [image]\n")
+
+    def test_media_blocks_keep_their_text_without_judge_attachments(self):
+        block = {"type": "file", "file": {"filename": "report.pdf"}}
+
+        assert "report.pdf" in extract_text_from_messages([{"role": "user", "content": [block]}])
 
     def test_mixed_content_blocks(self):
         messages = [
@@ -499,6 +659,16 @@ class TestExtractTextFromMessages:
             ),
             pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
             pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+            pytest.param(
+                {"type": "blob", "mime_type": "audio/wav", "content": "aGVsbG8="},
+                "[audio]",
+                id="modality_from_mime_type",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "mime_type": "image/png", "uri": "gs://bucket/a.png"},
+                "[image]",
+                id="uri_nobody_else_can_fetch",
+            ),
         ],
     )
     def test_otel_parts_media_render_markers(self, part, marker):

@@ -58,7 +58,6 @@ import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
-import { shortcutLogic } from '../Shortcuts/shortcutLogic'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
@@ -146,7 +145,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
 
     return (
         <DropdownMenu>
@@ -305,23 +303,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     )}
 
                     <ThemeMenu />
-
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            tooltip="Open shortcut menu"
-                            tooltipPlacement="right"
-                            onClick={() => setShortcutMenuOpen(true)}
-                            menuItem
-                        >
-                            <span className="size-4 flex items-center justify-center">⌘</span>
-                            Shortcuts
-                            <div className="flex gap-1 ml-auto items-center">
-                                <KeyboardShortcut command option k />
-                                <span className="text-xs opacity-75">or</span>
-                                <KeyboardShortcut command shift k />
-                            </div>
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <Link

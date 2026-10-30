@@ -77,7 +77,6 @@ function mockOnboarding(firstReport: FirstReportStateApi, notify: boolean): void
     useMocks({
         get: {
             '/api/projects/:id/signals/onboarding/': {
-                variant: 'test-ui',
                 completed_at: new Date().toISOString(),
                 draft: null,
                 jobs: { scout: 'started', recommendations: 'skipped' },

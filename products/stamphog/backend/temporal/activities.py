@@ -111,7 +111,6 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
-    STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH,
@@ -1925,34 +1924,19 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         return {"verdict": "skipped_superseded"}
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
-    # outcome must not wait on them.
-    _notify_finished_review(run, input.team_id, ReviewRunStatus(run.status))
-
-    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
-    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
-    # its review (ReviewHog's label consumer accepts stamphog[bot] as a labeler and strips other bots' labels).
+    # outcome must not wait on them. Running it before the save would hand a stale refusal to
+    # ReviewHog after a superseding delivery overrode it (a newer run might approve the same head).
     #
-    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
-    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
-    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
-    # deeper review is the next step rather than a second unrequested opinion.
-    #
-    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
-    # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
-    # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
-    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
-    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
-    # missed handoff, not corruption.
-    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
-        try:
-            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
-        except Exception:
-            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
-            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
-            activity.logger.exception(
-                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
-            )
+    # Only a self-driving refusal asks for an external review. A human PR has an author who reads the
+    # refusal and decides what to do about it, and in ALL mode the handoff would fire on PRs nobody
+    # asked stamphog to look at. A self-driving PR has no such author — the refusal sits unread until
+    # Inbox triage — so ReviewHog's deeper review is the next step rather than a second unrequested opinion.
+    _notify_finished_review(
+        run,
+        input.team_id,
+        ReviewRunStatus(run.status),
+        request_external_review=is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value,
+    )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
@@ -1978,7 +1962,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
 
 
-def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatus) -> None:
+def _notify_finished_review(
+    run: ReviewRun, team_id: int, status: ReviewRunStatus, *, request_external_review: bool = False
+) -> None:
     """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
     pull_request = run.pull_request
     finished = FinishedReviewRun(
@@ -1988,6 +1974,10 @@ def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatu
         pr_number=pull_request.pr_number,
         status=status,
         verdict=ReviewVerdict(run.verdict),
+        head_sha=run.head_sha,
+        author_login=pull_request.author_login,
+        head_branch=pull_request.head_branch,
+        request_external_review=request_external_review,
     )
     for hook in get_finished_review_hooks():
         # A callback belongs to another product, and the outcome is already saved and posted.
@@ -2364,11 +2354,18 @@ def _review_payload_command() -> str:
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
     would import ahead of uv's installed dependency, which is arbitrary code execution with the
     sandbox's LLM creds. Overwriting only our known modules would leave those shadow files in place.
+
+    The command fails before it removes or extracts anything when a parent directory of a payload
+    destination is a symlink, such as a PR that commits `tools` as a link. tar follows a symlink in
+    a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
+    no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"cd {repo_dir} && {no_symlinked_parents} && rm -f {policy_paths} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"

@@ -43,14 +43,15 @@ import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { HIGHLIGHTS_TAB } from '../utils/breadcrumbs'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { CreateScannerButton } from './components/CreateScannerButton'
+import { HighlightFeedTab } from './components/HighlightFeedTab'
 import { QuillCreateScannerButton } from './components/QuillCreateScannerButton'
 import { ScannerStatusLabel } from './components/ScannerStatusLabel'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
-import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { limitReachedTooltip } from './scannerCopy'
@@ -160,8 +161,8 @@ function FieldGuideBanner(): JSX.Element | null {
     )
 }
 
-const KNOWN_TABS: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
-const DEFAULT_TAB = 'watch'
+const KNOWN_TABS: string[] = [HIGHLIGHTS_TAB, 'scanners', ReplayScannerTab.Search, 'usage']
+const DEFAULT_TAB = HIGHLIGHTS_TAB
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -323,7 +324,7 @@ export function ReplayScannersScene(): JSX.Element {
                 onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
                     {
-                        key: 'watch',
+                        key: HIGHLIGHTS_TAB,
                         label: 'Highlights',
                         content: <></>,
                     },
@@ -333,8 +334,8 @@ export function ReplayScannersScene(): JSX.Element {
                 ]}
             />
 
-            {activeTab === 'watch' ? (
-                <WatchFeedTab />
+            {activeTab === HIGHLIGHTS_TAB ? (
+                <HighlightFeedTab />
             ) : activeTab === ReplayScannerTab.Search ? (
                 <ObservationSearch className="mt-2 w-4/5 mx-auto" />
             ) : activeTab === 'usage' ? (

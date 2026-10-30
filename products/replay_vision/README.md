@@ -66,6 +66,7 @@ The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experim
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
+- `backend/gemini_client.py` — every Gemini call goes through the Go AI gateway (`AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`). There is no direct route to Google, so local development needs a running gateway (`bin/start-ai-gateway`, credential from `bin/setup-gateway-e2e`).
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.

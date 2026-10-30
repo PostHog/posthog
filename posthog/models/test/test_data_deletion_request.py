@@ -30,6 +30,8 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.event_definitions.backend.models import PropertyDefinition
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 LOCMEM_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "ddr-test"}}
 
@@ -203,6 +205,33 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     assert f"equals(team_id, {team_b.id})" in sql_b
     assert f"equals(team_id, {team_b.id})" not in sql_a
     assert f"equals(team_id, {team_a.id})" not in sql_b
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+        "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY)",
+        "distinct_id IN (SELECT e.distinct_id FROM events AS e JOIN (SELECT 'probe' AS id) AS d "
+        "ON e.distinct_id = d.id WHERE event = '$feature_flag_called')",
+    ],
+)
+def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, predicate):
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    OrganizationFeatureFlagsConfig.objects.update_or_create(
+        organization=team.organization,
+        defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+    )
+    request = DataDeletionRequest(**_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate))
+
+    with patch(
+        "posthog.hogql.database.database.feature_enabled_or_false",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+    ):
+        sql, _ = compile_hogql_predicate(request)
+
+    assert "flag_evaluations" not in sql
 
 
 def test_compile_hogql_predicate_returns_sql_and_values(team):

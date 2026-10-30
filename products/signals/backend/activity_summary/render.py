@@ -267,6 +267,7 @@ class Drop(StrEnum):
     BURST_CAP = "burst_cap"
     SAMPLE_CAP = "sample_cap"
     SECTIONS_BUDGET = "sections_budget"
+    EXCLUDED_PRODUCT = "excluded_product"
 
 
 @frozen
@@ -840,6 +841,34 @@ def scope_product(scope: str) -> Product | None:
 def scope_of(view_type: str) -> str:
     """The activity log scope of a file system type, such as "FeatureFlag" for "feature_flag"."""
     return "".join(word.capitalize() for word in view_type.split("/")[0].split("_"))
+
+
+def view_product(view: ViewItem) -> Product | None:
+    if view.type == SCENE_VIEW_TYPE:
+        return scene_product(view.ref)
+    return scope_product(scope_of(view.type))
+
+
+def without_products(
+    activity: Iterable[ActivityItem],
+    views: Iterable[ViewItem],
+    products: frozenset[Product],
+    drops: Counter[str],
+) -> tuple[list[ActivityItem], list[ViewItem]]:
+    """The activity rows and views whose product is not in `products`. Tasks have no product, so they stay."""
+    kept_activity: list[ActivityItem] = []
+    for item in activity:
+        if scope_product(item.scope) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_activity.append(item)
+    kept_views: list[ViewItem] = []
+    for view in views:
+        if view_product(view) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_views.append(view)
+    return kept_activity, kept_views
 
 
 def _days(count: int) -> str:

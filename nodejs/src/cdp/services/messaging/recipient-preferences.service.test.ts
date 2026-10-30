@@ -368,33 +368,34 @@ describe('RecipientPreferencesService', () => {
             })
 
             describe('when the recipient is on the suppression list', () => {
-                // Suppression is a deliverability signal that must apply even to transactional
-                // messages — the parameterized case guards that ordering.
-                const insertSuppressionRow = async (email: string): Promise<void> => {
+                // A hard bounce must block even transactional messages, ahead of the transactional
+                // opt-out bypass. Soft bounces alone must not.
+                const insertSuppressionRow = async (email: string, hardBounced = false): Promise<void> => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         `INSERT INTO posthog_messagesuppression
                             (id, team_id, identifier, source, reason, transient_bounce_count,
-                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                             suppressed, suppressed_at, deleted, created_at, updated_at, hard_bounced_at)
                          VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                             true, NOW(), false, NOW(), NOW())`,
-                        [team.id, email],
+                             true, NOW(), false, NOW(), NOW(), CASE WHEN $3 THEN NOW() END)`,
+                        [team.id, email, hardBounced],
                         'test-insert-suppression'
                     )
                 }
 
                 it.each([
-                    ['marketing', 'marketing' as const],
-                    ['transactional', 'transactional' as const],
-                ])('skips a %s email to a suppressed recipient', async (_label, categoryType) => {
-                    const email = `suppressed-${categoryType}@example.com`
-                    await insertSuppressionRow(email)
+                    ['skips a marketing email after soft bounces', 'marketing' as const, false, 'suppressed'],
+                    ['sends a transactional email after soft bounces', 'transactional' as const, false, null],
+                    ['skips a transactional email after a hard bounce', 'transactional' as const, true, 'suppressed'],
+                ])('%s', async (_label, categoryType, hardBounced, expected) => {
+                    const email = `suppressed-${categoryType}-${hardBounced}@example.com`
+                    await insertSuppressionRow(email, hardBounced)
                     const action = createEmailAction(email, '123e4567-e89b-12d3-a456-426614174000', categoryType)
                     const invocation = createFunctionStepInvocation(action)
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe('suppressed')
+                    expect(result).toBe(expected)
                 })
 
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address

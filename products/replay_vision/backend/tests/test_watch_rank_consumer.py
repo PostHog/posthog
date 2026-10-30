@@ -24,13 +24,13 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.models.replay_observation_rank import RankCategory, ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
+from products.replay_vision.backend.tests.helpers import axis_anchors, set_rank, snapshot_for
+from products.replay_vision.backend.watch_rank import RankRequest
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
 _WATCH_RANK = "products.replay_vision.backend.watch_rank"
-_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "group": "g1"}
 _CONSUMER = "products.replay_vision.backend.watch_rank_consumer"
 
 
@@ -99,19 +99,19 @@ class TestWatchRankConsumer(BaseTest):
 
     @parameterized.expand(
         [
-            ("issue_row_gets_a_rank_and_a_feed_group", None, None, "ranked", {"category": "failure"}),
+            ("issue_row_gets_a_rank_and_a_feed_group", None, None, "ranked", RankCategory.FAILURE),
             ("ranking_failure_leaves_no_rank", None, RuntimeError("cache down"), "failed", None),
-            ("redelivery_keeps_the_current_rank", _CURRENT_RANK, None, "already_ranked", _CURRENT_RANK),
+            ("redelivery_keeps_the_current_rank", "struggle", None, "already_ranked", RankCategory.STRUGGLE),
             ("deleted_observation_is_skipped", None, None, "missing", None),
         ]
     )
     def test_ranks_the_observation_in_a_result(
         self,
         _name: str,
-        existing_rank: dict[str, Any] | None,
+        existing_category: str | None,
         anchor_error: Exception | None,
         outcome: str,
-        expected_rank: dict[str, Any] | None,
+        expected_category: int | None,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=self.team,
@@ -120,7 +120,10 @@ class TestWatchRankConsumer(BaseTest):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-        observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
+        observation = self._observation(scanner, "sess-new")
+        kept_group = uuid.uuid4()
+        if existing_category:
+            set_rank(observation, category=existing_category, contrast=0.2, group=kept_group)
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
         if outcome == "missing":
             observation.delete()
@@ -136,17 +139,17 @@ class TestWatchRankConsumer(BaseTest):
 
         if outcome == "missing":
             return
-        observation.refresh_from_db()
-        if expected_rank is None:
-            assert observation.watch_rank is None
-        else:
-            assert observation.watch_rank is not None
-            assert expected_rank.items() <= observation.watch_rank.items()
-            assert observation.watch_rank.get("group")
-            # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
-            assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
-                observation=observation
-            ).exists() == (outcome == "ranked")
+        rank = ReplayObservationRank.objects.for_team(self.team.id).filter(observation_id=observation.id).first()
+        if expected_category is None:
+            assert rank is None
+            return
+        assert rank is not None
+        assert rank.category == expected_category
+        assert rank.feed_group_id is not None and (rank.feed_group_id == kept_group) == bool(existing_category)
+        # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
+        assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
+            observation=observation
+        ).exists() == (outcome == "ranked")
 
     @parameterized.expand(
         [

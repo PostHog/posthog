@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -35,7 +36,7 @@ from products.business_knowledge.backend.models.knowledge_source import Knowledg
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -170,6 +171,12 @@ class TestIntegrations(BaseTest):
         Integration.objects.create(team=self.team, kind="slack", config={})
         result = _integrations(self.team)
         assert sorted(r["kind"] for r in result) == ["github", "slack"]
+
+    def test_skips_warehouse_source_rows(self) -> None:
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        Integration.objects.create(team=self.team, kind="github", config={SOURCE_MARKER_CONFIG_KEY: "Github"})
+        result = _integrations(self.team)
+        assert [r["kind"] for r in result] == ["slack"]
 
     def test_does_not_leak_config_or_sensitive_config(self) -> None:
         # Defensive: integration config/sensitive_config can hold tokens; only kind + created_at
@@ -633,19 +640,22 @@ class TestRecentExperiments(BaseTest):
 
     def test_running_count_only_counts_started_unfinished_unarchived(self) -> None:
         now = timezone.now()
-        Experiment.objects.create(
-            team=self.team, name="running", feature_flag=self._flag("ff-r"), start_date=now - timedelta(days=1)
+        create_experiment(
+            team_id=self.team.id,
+            name="running",
+            feature_flag_id=self._flag("ff-r").id,
+            start_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(team=self.team, name="draft", feature_flag=self._flag("ff-d"))
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(team_id=self.team.id, name="draft", feature_flag_id=self._flag("ff-d").id)
+        create_experiment(
+            team_id=self.team.id,
             name="stopped",
-            feature_flag=self._flag("ff-s"),
+            feature_flag_id=self._flag("ff-s").id,
             start_date=now - timedelta(days=10),
             end_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(
-            team=self.team, name="archived", feature_flag=self._flag("ff-a"), start_date=now, archived=True
+        create_experiment(
+            team_id=self.team.id, name="archived", feature_flag_id=self._flag("ff-a").id, start_date=now, archived=True
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 4
@@ -659,14 +669,16 @@ class TestRecentExperiments(BaseTest):
         }
 
     def test_carries_feature_flag_key_for_cross_reference(self) -> None:
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=self._flag("my-exp-flag"))
+        create_experiment(team_id=self.team.id, name="exp", feature_flag_id=self._flag("my-exp-flag").id)
         result = _recent_experiments(self.team)
         assert result["recent"][0]["feature_flag_key"] == "my-exp-flag"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Experiment.objects.create(
-            team=other, name="x", feature_flag=FeatureFlag.objects.create(team=other, key="o", created_by=self.user)
+        create_experiment(
+            team_id=other.id,
+            name="x",
+            feature_flag_id=FeatureFlag.objects.create(team=other, key="o", created_by=self.user).id,
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 0

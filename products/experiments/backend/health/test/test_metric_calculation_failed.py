@@ -359,7 +359,7 @@ class TestMetricCalculationFailed(TestCase):
             outcome,
             CheckSkip(
                 status=ExperimentHealthCheckStatus.NOT_APPLICABLE,
-                reason="The metric queries check reports the metric that failed",
+                reason='Reported under "Invalid metric definitions"',
             ),
         )
 

@@ -8,12 +8,15 @@ between the experiments product and the rest of the system.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from posthog.schema import MaxExperimentSummaryContext
 
 # Metrics per section (primary/secondary) included in the AI results summary
@@ -42,6 +45,35 @@ class StoredPrimaryResult:
 
 
 @frozen
+class ExperimentUnfurlVariant:
+    """One variant of the experiment's flag and its share of the rollout."""
+
+    key: str
+    # As the flag stores it, so a whole number stays an int and prints as `50`, not `50.0`.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentUnfurl:
+    """What a link preview shows for an experiment."""
+
+    id: int
+    # An object access check reads the creator. The preview does not show it.
+    created_by_id: int | None
+    name: str
+    description: str | None
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    updated_at: datetime
+    # The name of the first inline primary metric, when that metric has one.
+    primary_metric_name: str | None
+    # The variants of the experiment's flag, in the flag's order. Empty when the flag config can't be read.
+    variants: tuple[ExperimentUnfurlVariant, ...]
+
+
+@frozen
 class ExperimentSummaryData:
     """Result of fetching experiment data for the AI results summary."""
 
@@ -49,6 +81,47 @@ class ExperimentSummaryData:
     last_refresh: datetime | None
     pending_calculation: bool
     omitted_metric_count: int
+
+
+@frozen
+class ExperimentResultsWidgetMetric:
+    """One metric of the dashboard experiment results widget."""
+
+    uuid: str | None
+    name: str
+    # The metric that the query ran, as JSON. None when the metric has no result.
+    metric: dict[str, Any] | None
+    # The query response as JSON, without the SQL and the per-variant session payloads.
+    result: dict[str, Any] | None
+    # A message that is safe to show to the viewer. None when the metric has a result.
+    error: str | None
+
+
+@frozen
+class ExperimentResultsWidgetMetrics:
+    """The metrics of a launched experiment, per section, in display order."""
+
+    primary: tuple[ExperimentResultsWidgetMetric, ...]
+    secondary: tuple[ExperimentResultsWidgetMetric, ...]
+    # The metric count of each section. Only the first metrics of a section run, so a total can be larger than the
+    # metrics above.
+    primary_total: int
+    secondary_total: int
+
+
+@frozen
+class ExperimentResultsWidget:
+    """One experiment, as the dashboard experiment results widget shows it."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    # None for a draft, which has no exposures to compute results from.
+    metrics: ExperimentResultsWidgetMetrics | None
 
 
 @frozen
@@ -130,6 +203,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
+    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
@@ -209,6 +284,8 @@ class ExperimentHealthFinding:
 
     code: ExperimentHealthFindingCode
     subcode: str | None
+    # pinned: the page sends it as `finding_reason` on the health finding events. Never customer text.
+    reason: str | None = None
     severity: ExperimentHealthFindingSeverity
     title: str
     detail: str
@@ -234,6 +311,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
@@ -276,6 +354,13 @@ class ExperimentHealthReaderAccess:
 class ExperimentValidationError(Exception):
     """Raised when the facade refuses an experiment write for its input. The message is written for the person who
     sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        # The input field that the message is about, so that an HTTP boundary can report the error on that field.
+        # None when the message is about the input as a whole.
+        self.field = field
 
 
 class LegacyMigrationError(Exception):
@@ -410,6 +495,56 @@ class FeatureFlag:
     name: str | None = None
 
 
+@frozen
+class ExperimentCreator:
+    """The user who created an experiment, with the fields that core's `UserBasicSerializer` renders. A caller
+    serializes it through that serializer, so the response keeps the `UserBasic` shape."""
+
+    id: int
+    uuid: "UUID"
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    # The stored value. `UserBasicSerializer` shapes it when it renders.
+    hedgehog_config: dict[str, Any] | None
+    role_at_organization: str | None
+
+
+@frozen
+class ExperimentActionReference:
+    """An experiment whose stored metrics, filters or configuration reference an action."""
+
+    id: int
+    name: str
+    created_at: datetime
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetRow:
+    """One experiment in the dashboard experiments list widget."""
+
+    id: int
+    name: str
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    conclusion: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    feature_flag_key: str
+    created_by: ExperimentCreator | None
+
+
+@frozen
+class ExperimentListWidgetPage:
+    rows: tuple[ExperimentListWidgetRow, ...]
+    # True when more experiments match than the page holds.
+    has_more: bool
+
+
 @dataclass(frozen=True)
 class Experiment:
     """Experiment output."""
@@ -424,6 +559,15 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class ExperimentRef:
+    """The fields that an object access check reads from one experiment."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
 
 
 @frozen
@@ -508,3 +652,114 @@ class RunningExperiment:
     name: str
     started_at: datetime
     flag_key: str
+
+
+@frozen
+class RecentExperiment:
+    """One of a team's most recently modified experiments."""
+
+    id: int
+    name: str
+    archived: bool
+    start_date: datetime | None
+    end_date: datetime | None
+    feature_flag_key: str
+    updated_at: datetime
+
+
+@frozen
+class ExperimentOrientation:
+    """A team's experiment counts and its most recently modified experiments. Deleted experiments are left out."""
+
+    total_count: int
+    # Started, not ended, and not archived.
+    running_count: int
+    # Most recently modified first.
+    recent: tuple[RecentExperiment, ...]
+
+
+@frozen
+class ExperimentChanged:
+    """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
+
+    team_id: int
+    experiment_id: int
+    # True only on the save that inserted the row.
+    created: bool
+    # True on every save that leaves the experiment soft-deleted, and on every hard delete of the row.
+    deleted: bool
+    # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
+    # Vercel sync, does not read the row back.
+    name: str
+    description: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class DigestLaunchedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime
+
+
+@frozen
+class DigestCompletedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime | None
+    end_date: datetime
+
+
+@frozen
+class TeamExperimentsSettings:
+    """A team's experiment settings, as the project settings show them."""
+
+    # Times of day (UTC) as 'HH:00:00' strings. None means the default time.
+    experiment_recalculation_times: tuple[str, ...] | None
+    default_experiment_confidence_level: Decimal | None
+    default_experiment_stats_method: str | None
+    experiment_precomputation_enabled: bool
+    default_only_count_matured_users: bool
+    default_cuped_enabled: bool
+    default_cuped_lookback_days: int | None
+    default_minimum_detectable_effect: int | None
+    default_sequential_testing_enabled: bool
+    default_sequential_tuning_parameter: int | None
+    flag_cleanup_repository: str | None
+
+
+class Unset:
+    """Marks a setting that an update leaves as it is, because None is a valid value."""
+
+
+UNSET = Unset()
+
+
+@frozen
+class TeamExperimentsSettingsUpdate:
+    """The settings that an update changes. UNSET leaves a setting as it is. Precomputation is not here, because
+    PostHog manages it."""
+
+    experiment_recalculation_times: tuple[str, ...] | None | Unset = UNSET
+    default_experiment_confidence_level: Decimal | None | Unset = UNSET
+    default_experiment_stats_method: str | None | Unset = UNSET
+    default_only_count_matured_users: bool | Unset = UNSET
+    default_cuped_enabled: bool | Unset = UNSET
+    default_cuped_lookback_days: int | None | Unset = UNSET
+    default_minimum_detectable_effect: int | None | Unset = UNSET
+    default_sequential_testing_enabled: bool | Unset = UNSET
+    default_sequential_tuning_parameter: int | None | Unset = UNSET
+    flag_cleanup_repository: str | None | Unset = UNSET
+
+
+@frozen
+class LinkedExperiment:
+    """An experiment that is not deleted, as the flag it uses lists it."""
+
+    id: int
+    name: str
+    is_running: bool
