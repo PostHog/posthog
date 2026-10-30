@@ -161,14 +161,19 @@ def test_validate_cimd_url_accepts_valid(_mock):
     "mock_return,url,expected_error",
     [
         (
-            (False, "Private IP address not allowed"),
-            "https://10.0.0.1/metadata.json",
-            "URL blocked: Private IP address not allowed",
+            (False, "Disallowed target IP: 10.0.0.1"),
+            "https://internal.example.com/metadata.json",
+            "CIMD client_id host is not a public internet address",
         ),
         (
             (False, "Local/metadata host"),
             "https://169.254.169.254/metadata.json",
-            "URL blocked: Local/metadata host",
+            "CIMD client_id host is not a public internet address",
+        ),
+        (
+            (False, "Could not resolve host"),
+            "https://missing.example.com/metadata.json",
+            "CIMD client_id host name does not resolve",
         ),
     ],
 )
@@ -286,6 +291,15 @@ class TestFetchCimdMetadata(SimpleTestCase):
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertIn(auth_method, str(ctx.exception))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_internal_jwks_uri_is_refused_without_naming_its_address(self, mock_get, _url_mock):
+        metadata = _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=CIMD_JWKS_URI)
+        mock_get.return_value = _mock_response(metadata)
+        with patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(False, "Disallowed target IP: 10.9.8.7")):
+            with self.assertRaises(CIMDValidationError) as ctx:
+                fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(str(ctx.exception), "jwks_uri is not allowed: jwks_uri host is not a public internet address")
 
     @parameterized.expand([("missing_jwks_uri", None), ("non_https_jwks_uri", "http://app.example.com/jwks.json")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -509,10 +523,12 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         [
             ("lookalike_domain", "https://evilposthog.com/client-metadata.json"),
             ("posthog_as_subdomain_label", "https://posthog.com.example.com/client-metadata.json"),
+            ("customer_webhook_host", "https://webhooks.us.posthog.com/public/webhooks/abc123"),
+            ("customer_webhook_path_on_app_host", "https://app.dev.posthog.dev/public/webhooks/abc123"),
         ]
     )
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_lookalike_domain_may_not_use_posthog_in_name(self, _name, url, mock_get, _url_mock):
+    def test_customer_controlled_url_may_not_use_posthog_in_name(self, _name, url, mock_get, _url_mock):
         mock_get.return_value = _mock_response(_make_metadata(url=url, client_name="PostHog Artifacts"), headers={})
 
         with self.assertRaisesRegex(CIMDValidationError, "client_name is not allowed"):

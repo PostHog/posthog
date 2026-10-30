@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from posthog.api.oauth.client_name import (
     CLIENT_NAME_MAX_LENGTH,
-    is_posthog_owned_host,
+    is_posthog_controlled_url,
     sanitize_client_name,
     validate_cimd_client_name,
     validate_client_name,
@@ -82,40 +82,44 @@ class TestValidateCimdClientName(TestCase):
     )
     def test_rejects_on_other_domains(self, _name, value):
         with self.assertRaises(serializers.ValidationError):
-            validate_cimd_client_name(value, "app.example.com")
+            validate_cimd_client_name(value, "https://app.example.com/client.json")
 
-    @parameterized.expand(
-        [
-            ("apex", "posthog.com"),
-            ("subdomain", "artifacts.posthog.com"),
-            ("net", "posthog.net"),
-            ("dev", "x.posthog.dev"),
-        ]
-    )
-    def test_allows_posthog_on_posthog_owned_domains(self, _name, host):
-        validate_cimd_client_name("PostHog Artifacts", host)
+    def test_error_does_not_reveal_the_exemption(self):
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            validate_cimd_client_name("Claude for PostHog", "https://app.example.com/client.json")
+        self.assertEqual(str(ctx.exception.detail[0]), "Client name cannot contain 'PostHog'")
 
-    def test_blocked_words_apply_on_posthog_owned_domains(self):
+    def test_allows_posthog_on_posthog_controlled_urls(self):
+        validate_cimd_client_name("PostHog Artifacts", "https://artifacts.posthog.com/oauth/client-metadata.json")
+
+    def test_blocked_words_apply_on_posthog_controlled_urls(self):
         with self.assertRaises(serializers.ValidationError):
-            validate_cimd_client_name("PostHog Official", "posthog.com")
+            validate_cimd_client_name("PostHog Official", "https://posthog.com/client.json")
 
     def test_accepts_unrelated_name(self):
-        validate_cimd_client_name("Acme Analytics", "app.example.com")
+        validate_cimd_client_name("Acme Analytics", "https://app.example.com/client.json")
 
 
-class TestIsPosthogOwnedHost(TestCase):
+class TestIsPosthogControlledUrl(TestCase):
     @parameterized.expand(
         [
-            ("apex", "posthog.com", True),
-            ("subdomain", "artifacts.posthog.com", True),
-            ("uppercase_and_trailing_dot", "Artifacts.PostHog.com.", True),
-            ("net", "posthog.net", True),
-            ("dev", "posthog.dev", True),
-            ("lookalike", "evilposthog.com", False),
-            ("posthog_label_on_other_domain", "posthog.com.example.com", False),
-            ("other_tld", "posthog.io", False),
-            ("missing", None, False),
+            ("apex", "https://posthog.com/.well-known/oauth/hogli/client-metadata.json", True),
+            ("subdomain", "https://artifacts.posthog.com/oauth/client-metadata.json", True),
+            ("uppercase_and_trailing_dot", "https://Artifacts.PostHog.com./client.json", True),
+            ("net", "https://tools.posthog.net/client.json", True),
+            ("dev", "https://posthog.dev/client.json", True),
+            ("webhooks_host", "https://webhooks.us.posthog.com/public/webhooks/abc", False),
+            ("webhooks_host_other_path", "https://webhooks.eu.posthog.com/client.json", False),
+            ("hooks_host", "https://hooks.posthog.com/client.json", False),
+            ("public_path_on_app_host", "https://app.dev.posthog.dev/public/webhooks/abc", False),
+            ("public_path_mixed_case", "https://us.posthog.com/Public/webhooks/abc", False),
+            ("public_path_percent_encoded", "https://us.posthog.com/%70ublic/webhooks/abc", False),
+            ("public_path_after_dot_segments", "https://us.posthog.com/a/../public/webhooks/abc", False),
+            ("public_path_double_slash", "https://us.posthog.com//public/webhooks/abc", False),
+            ("lookalike", "https://evilposthog.com/client.json", False),
+            ("posthog_label_on_other_domain", "https://posthog.com.example.com/client.json", False),
+            ("other_tld", "https://posthog.io/client.json", False),
         ]
     )
-    def test_host(self, _name, host, expected):
-        self.assertEqual(is_posthog_owned_host(host), expected)
+    def test_url(self, _name, url, expected):
+        self.assertEqual(is_posthog_controlled_url(url), expected)

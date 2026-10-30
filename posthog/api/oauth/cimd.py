@@ -142,6 +142,17 @@ CIMDMetadataDocument = TypedDict(
 )
 
 
+def _public_block_reason(what: str, reason: str | None) -> str:
+    """The client-facing reason an SSRF check refused a client-controlled URL.
+
+    Never the raw reason: it can name the address a host resolved to, which would make
+    these errors an oracle for DNS answers inside our network.
+    """
+    if reason == UNRESOLVED_HOST_REASON:
+        return f"{what} host name does not resolve"
+    return f"{what} host is not a public internet address"
+
+
 def validate_fetchable_https_url(
     url: str | None, *, perform_dns_check: bool = False, what: str = "URL"
 ) -> tuple[bool, str | None]:
@@ -172,7 +183,7 @@ def validate_fetchable_https_url(
     if perform_dns_check:
         allowed, reason = is_url_allowed(url)
         if not allowed:
-            return False, f"URL blocked: {reason}"
+            return False, _public_block_reason(what, reason)
 
     return True, None
 
@@ -272,11 +283,7 @@ def fetch_client_json_document(
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
     verdict = validate_url_and_pin_ips(url)
     if not verdict.allowed:
-        # These messages reach the client, so they never echo the resolved address: that would
-        # make this fetch an oracle for what a host resolves to inside our network.
-        if verdict.reason == UNRESOLVED_HOST_REASON:
-            raise CIMDValidationError(f"{what} host name does not resolve")
-        raise CIMDValidationError(f"{what} host is not a public internet address")
+        raise CIMDValidationError(_public_block_reason(what, verdict.reason))
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
@@ -404,7 +411,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
             raise CIMDValidationError("jwks_uri must be an https URL")
         # A second client-controlled URL we will dereference, so it gets the same SSRF
         # screening as the metadata document itself.
-        jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True)
+        jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True, what="jwks_uri")
         if not jwks_allowed:
             raise CIMDValidationError(f"jwks_uri is not allowed: {jwks_error}")
     elif jwks_uri is not None:
@@ -653,7 +660,7 @@ def _create_cimd_application(
         client_name = "CIMD Client"
     else:
         try:
-            validate_cimd_client_name(client_name, urlparse(url).hostname)
+            validate_cimd_client_name(client_name, url)
         except serializers.ValidationError as e:
             raise CIMDValidationError(f"client_name is not allowed: {' '.join(str(d) for d in e.detail)}") from e
     # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
@@ -744,7 +751,7 @@ def _update_cimd_application(
     client_name = metadata.get("client_name")
     if client_name:
         try:
-            validate_cimd_client_name(client_name, urlparse(app.client_id).hostname)
+            validate_cimd_client_name(client_name, app.client_id)
             app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
