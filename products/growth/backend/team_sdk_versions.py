@@ -22,6 +22,7 @@ from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS,
 
 default_logger: BoundLogger = structlog.get_logger(__name__)
 
+# HogQL returns 100 rows unless the query sets a LIMIT. A team can have more SDK versions than that.
 QUERY = parse_select("""
     SELECT
         properties.$lib AS lib,
@@ -34,6 +35,8 @@ QUERY = parse_select("""
         AND lib IS NOT NULL
         AND (lib = 'posthog-java' OR (lib_version IS NOT NULL AND lib_version != ''))
     GROUP BY lib, lib_version
+    ORDER BY event_count DESC
+    LIMIT 10000
 """)
 
 

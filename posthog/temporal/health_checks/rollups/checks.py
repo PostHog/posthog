@@ -10,8 +10,9 @@ from posthog.temporal.health_checks.rollups.freshness import RollupWindow, rollu
 if TYPE_CHECKING:
     from django.db import models
 
-# A batch reads Postgres rollup rows, not raw events, so it can hold many more teams than a ClickHouse check.
-ROLLUP_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=2500, max_concurrent=2)
+# A batch reads Postgres rollup rows, not raw events, so it holds as many teams as a Postgres check.
+# That size also bounds the issue upserts, which take one advisory lock per team in one transaction.
+ROLLUP_EXECUTION_POLICY = HealthExecutionPolicy(batch_size=1000, max_concurrent=2)
 
 
 class RollupHealthCheck(HealthCheck):
