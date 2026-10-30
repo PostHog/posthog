@@ -326,11 +326,11 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        client, identity, _user = self._support()
-        query = cast(dict[str, Any], request.validated_query_data)  # type: ignore[attr-defined]
+        caller = self._support()
+        query = cast(dict[str, Any], request.validated_query_data)
         try:
-            result = client.list_tickets(
-                identity, status=query.get("status"), limit=query["limit"], offset=query["offset"]
+            result = caller.client.list_tickets(
+                caller.identity, status=query.get("status"), limit=query["limit"], offset=query["offset"]
             )
         except PostHogSupportRequestFailed:
             raise SupportInboxFailed()
@@ -352,10 +352,10 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         ),
     )
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        client, identity, _user = self._support()
+        caller = self._support()
+        query = cast(dict[str, Any], request.validated_query_data)
         try:
-            query = cast(dict[str, Any], request.validated_query_data)  # type: ignore[attr-defined]
-            result = client.get_ticket(identity, kwargs["pk"], after=query.get("after"))
+            result = caller.client.get_ticket(caller.identity, kwargs["pk"], after=query.get("after"))
         except PostHogSupportRequestFailed as e:
             # The inbox answers 403 for a ticket of another person, so both mean "not yours" here.
             if e.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND):
