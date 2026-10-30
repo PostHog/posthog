@@ -269,6 +269,23 @@ tools:
             rejected when the view's lineage cannot support it: no more often than its sources deliver new data, and no
             less often than a downstream view or endpoint needs. Materialized views are faster to query but use storage.
             Use 'view-unmaterialize' to undo. Rate limited.
+    view-resume:
+        operation: warehouse_saved_queries_resume_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={params.id}
+        title: Resume suspended materialization
+        description: >
+            Resume a saved query whose materialization was suspended after repeated failures. Scheduled runs skip a
+            suspended view and everything downstream of it until it is resumed. Set engine to 'clickhouse' or 'trino' to
+            resume only that engine; omit it to resume all. The view runs again at its next scheduled run; use
+            'view-run' to run it now. Returns resumed=false when the view was not suspended. Check the 'suspended' field
+            from 'view-get' to see which engines are suspended and why.
     view-run:
         operation: warehouse_saved_queries_run_create
         enabled: true
@@ -285,23 +302,6 @@ tools:
             Set direction to upstream to also run all dependencies. Set direction to downstream to also run all
             dependents. Both options include the selected view and run the views in dependency order. Do not set
             full_refresh when you set direction. Use 'view-run-history' to check each view's status.
-    view-resume:
-        operation: warehouse_saved_queries_resume_create
-        enabled: true
-        scopes:
-            - warehouse_view:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: ?open_view={params.id}
-        title: Resume suspended materialization
-        description: >
-            Resume a saved query whose materialization was suspended after repeated failures. Scheduled runs skip a
-            suspended view and everything downstream of it until it is resumed. Set engine to 'clickhouse' or 'trino'
-            to resume only that engine; omit it to resume all. The view runs again at its next scheduled run; use
-            'view-run' to run it now. Returns resumed=false when the view was not suspended. Check the 'suspended'
-            field from 'view-get' to see which engines are suspended and why.
     view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true

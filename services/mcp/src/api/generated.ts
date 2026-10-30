@@ -107910,6 +107910,17 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `resume` action.
+     */
+    export interface SavedQueryResumeRequest {
+      /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
+    }
+
+    /**
      * Body of the `resume_schedules` action.
      */
     export interface SavedQueryResumeSchedulesRequest {

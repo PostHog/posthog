@@ -15121,6 +15121,21 @@
             "readOnlyHint": false
         }
     },
+    "view-resume": {
+        "description": "Resume a saved query whose materialization was suspended after repeated failures. Scheduled runs skip a suspended view and everything downstream of it until it is resumed. Set engine to 'clickhouse' or 'trino' to resume only that engine; omit it to resume all. The view runs again at its next scheduled run; use 'view-run' to run it now. Returns resumed=false when the view was not suspended. Check the 'suspended' field from 'view-get' to see which engines are suspended and why.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Resume suspended materialization",
+        "title": "Resume suspended materialization",
+        "required_scopes": ["warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_saved_queries/{id}/resume/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "view-run": {
         "description": "Trigger a manual materialization run for a saved query. By default, this refreshes only the selected view. Set direction to upstream to also run all dependencies. Set direction to downstream to also run all dependents. Both options include the selected view and run the views in dependency order. Do not set full_refresh when you set direction. Use 'view-run-history' to check each view's status.",
         "category": "Data warehouse",
