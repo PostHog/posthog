@@ -94,7 +94,7 @@ class TestValidateCimdClientName(TestCase):
     def test_error_does_not_reveal_the_exemption(self):
         with self.assertRaises(serializers.ValidationError) as ctx:
             validate_cimd_client_name("Claude for PostHog", "https://app.example.com/client.json")
-        self.assertEqual(str(ctx.exception.detail[0]), "Client name cannot contain 'PostHog'")
+        self.assertEqual(ctx.exception.detail, ["Client name cannot contain 'PostHog'"])
 
     def test_allows_posthog_on_posthog_controlled_urls(self):
         validate_cimd_client_name("PostHog Artifacts", "https://artifacts.posthog.com/oauth/client-metadata.json")
