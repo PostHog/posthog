@@ -75,6 +75,10 @@ images:
                 repository: posthog-temporal-workers/experiments-recalculation-activity
                 filter: experimentsRecalculationActivity
                 bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
+            experiments-recalculation-precompute:
+                repository: posthog-temporal-workers/experiments-recalculation-precompute
+                filter: experimentsRecalculationActivity
+                bootstrapPolicyDigest: a06fc277bfb801b6da6406ac2a8d0ed82ac09c13e1ac37234c8a4e01b44b1313
             data-warehouse-metadata:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
