@@ -27,6 +27,7 @@ from products.batch_exports.backend.facade.contracts import (
     DestinationTestStep,
     DestinationTestStepResult,
 )
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedDestination
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
@@ -1314,13 +1315,18 @@ class TestDestinationConnectLink(DestinationAPITestBase):
             vendor_service="postgres",
             name="shop",
             verdict=WarehouseMigrationItem.Verdict.AS_IS,
-            proposal={
-                "prefix": "shop",
-                "destination": {
-                    "type": "Postgres",
-                    "config": {"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
-                },
-            },
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.POSTGRES,
+                prefix="shop",
+                prefill={},
+                schemas=None,
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=ProposedDestination(
+                    type="Postgres",
+                    config={"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
+                ),
+            ).to_json(),
         )
 
         response = self.client.get(
