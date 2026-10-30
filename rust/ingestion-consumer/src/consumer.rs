@@ -433,9 +433,13 @@ impl IngestionConsumer {
         else {
             return Ok(());
         };
+        let release = Release {
+            consumer: Arc::clone(&self.consumer),
+            unassign: Some(unassign),
+        };
         let committed = self.commit_drained(poller, &drained, timeout).await;
         self.settlement.on_revoked(&drained);
-        self.unassign(unassign);
+        drop(release);
         let elapsed = started.elapsed();
         counter!("ingestion_consumer_revoke_drains_total", "outcome" => outcome).increment(1);
         histogram!("ingestion_consumer_revoke_drain_seconds").record(elapsed.as_secs_f64());
@@ -449,9 +453,7 @@ impl IngestionConsumer {
     }
 
     fn unassign(&self, unassign: Unassign) {
-        if let Err(err) = unassign.apply(&*self.consumer) {
-            error!(error = %err, "Could not unassign the revoked partitions");
-        }
+        apply_unassign(&self.consumer, unassign);
     }
 
     async fn commit_drained<P: PollingStrategy>(
@@ -687,14 +689,33 @@ impl IngestionConsumer {
     }
 }
 
+fn apply_unassign(consumer: &StreamConsumer<RebalanceContext>, unassign: Unassign) {
+    if let Err(err) = unassign.apply(consumer) {
+        error!(error = %err, "Could not unassign the revoked partitions");
+    }
+}
+
+/// Applied on drop, so a task cancelled during the drain's commit still
+/// releases the partitions.
+struct Release {
+    consumer: Arc<StreamConsumer<RebalanceContext>>,
+    unassign: Option<Unassign>,
+}
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        if let Some(unassign) = self.unassign.take() {
+            apply_unassign(&self.consumer, unassign);
+        }
+    }
+}
+
 /// A dropped task never reaches the end of `run`. The rdkafka close that
-/// follows revokes every partition and waits for each unassign, also for a
-/// drain's partitions.
+/// follows waits for every unassign the loop still owes.
 impl Drop for IngestionConsumer {
     fn drop(&mut self) {
-        let drain = self.rebalance().on_stopped();
-        if let Some(drain) = drain {
-            self.unassign(drain.unassign);
+        for unassign in self.rebalance().abandon() {
+            self.unassign(unassign);
         }
     }
 }
@@ -780,6 +801,34 @@ fn emit_poll_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use rdkafka::config::ClientConfig;
+
+    #[tokio::test]
+    async fn a_release_cancelled_during_its_commit_still_unassigns() {
+        let consumer: StreamConsumer<RebalanceContext> = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .set("group.id", "test")
+            .create_with_context(RebalanceContext::new())
+            .expect("a client needs no broker to be built");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("events", 0);
+        consumer.assign(&tpl).expect("an assign needs no broker");
+        let consumer = Arc::new(consumer);
+        let release = Release {
+            consumer: Arc::clone(&consumer),
+            unassign: Some(Unassign::new(tpl, false)),
+        };
+
+        let commit = tokio::spawn(async move {
+            let _release = release;
+            std::future::pending::<()>().await;
+        });
+        commit.abort();
+        let _ = commit.await;
+
+        assert_eq!(consumer.assignment().expect("assignment").count(), 0);
+    }
 
     #[rstest::rstest]
     #[case::below_a_second(200, 200)]

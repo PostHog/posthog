@@ -167,6 +167,23 @@ impl RebalanceState {
         }
     }
 
+    pub(crate) fn abandon(&mut self) -> Vec<Unassign> {
+        let mut unassigns: Vec<Unassign> = self
+            .on_stopped()
+            .map(|drain| drain.unassign)
+            .into_iter()
+            .collect();
+        unassigns.extend(
+            self.take_events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    Event::Revoked { unassign, .. } => Some(unassign),
+                    Event::Assigned(_) | Event::Draining { .. } => None,
+                }),
+        );
+        unassigns
+    }
+
     fn finish_drain(&mut self) -> Option<Drain> {
         match std::mem::replace(&mut self.phase, Phase::Stopped) {
             Phase::Draining { drain } => {
@@ -321,5 +338,42 @@ mod tests {
 
         let drain = state.on_stopped().expect("the drain in progress");
         assert_eq!(drain.partitions, vec![p(9)]);
+    }
+
+    fn revoked_and_never_taken() -> RebalanceState {
+        let mut state = without_drains();
+        state.on_revoked(vec![p(0)], unassign(), false, Instant::now());
+        state
+    }
+
+    fn draining_then_revoked_and_never_taken() -> RebalanceState {
+        let mut state = draining();
+        state.on_revoked(vec![p(0)], unassign(), false, Instant::now());
+        state
+    }
+
+    struct AbandonCase {
+        state: fn() -> RebalanceState,
+        unassigns: usize,
+    }
+
+    #[rstest::rstest]
+    #[case::nothing_pending(AbandonCase { state: consuming, unassigns: 0 })]
+    #[case::a_revoke_the_loop_never_took(AbandonCase { state: revoked_and_never_taken, unassigns: 1 })]
+    #[case::a_drain_in_progress(AbandonCase { state: draining, unassigns: 1 })]
+    #[case::a_drain_and_a_revoke_the_loop_never_took(AbandonCase { state: draining_then_revoked_and_never_taken, unassigns: 2 })]
+    #[case::after_the_loop_stopped(AbandonCase { state: stopped, unassigns: 0 })]
+    fn abandoning_the_loop_hands_back_every_unapplied_unassign(#[case] case: AbandonCase) {
+        let mut state = (case.state)();
+
+        assert_eq!(state.abandon().len(), case.unassigns);
+
+        assert_eq!(state.take_events(), vec![]);
+        assert!(
+            state
+                .on_revoked(vec![p(1)], unassign(), false, Instant::now())
+                .is_some(),
+            "stopped: the callback applies the next unassign itself"
+        );
     }
 }
