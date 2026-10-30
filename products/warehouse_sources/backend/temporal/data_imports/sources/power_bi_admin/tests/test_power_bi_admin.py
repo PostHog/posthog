@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_a
     ACTIVITY_EVENTS_ENDPOINT,
     ODATA_PAGE_SIZE,
     POWER_BI_ADMIN_ENDPOINTS,
+    REFRESHABLES_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source import PowerBiAdminSource
 
@@ -372,14 +373,44 @@ class TestInventoryEndpoints:
         assert len(_api_requests(result.requests)) == 1
         assert _activity_params(result) == [{"$top": str(ODATA_PAGE_SIZE), "$skip": "0"}]
 
-    def test_full_page_advances_skip_until_a_short_page(self) -> None:
-        full_page = [{"id": str(i)} for i in range(ODATA_PAGE_SIZE)]
+    @parameterized.expand(
+        [
+            ("groups", ODATA_PAGE_SIZE),
+            ("refreshables", REFRESHABLES_PAGE_SIZE),
+            # A full page of dashboards with no tiles yields no rows but must not end the walk.
+            ("dashboard_tiles", ODATA_PAGE_SIZE),
+        ]
+    )
+    def test_full_page_advances_skip_until_a_short_page(self, endpoint: str, page_size: int) -> None:
+        full_page = [{"id": str(i)} for i in range(page_size)]
 
-        result = _run("groups", [_body(200, {"value": full_page}), _body(200, {"value": [{"id": "last"}]})])
+        result = _run(endpoint, [_body(200, {"value": full_page}), _body(200, {"value": [{"id": "last"}]})])
 
-        assert len(result.items) == 2
-        assert _skips(result) == ["0", str(ODATA_PAGE_SIZE)]
-        assert result.saved_states[0] == PowerBiAdminResumeConfig(skip=ODATA_PAGE_SIZE)
+        assert _skips(result) == ["0", str(page_size)]
+        assert {request.param("$top") for request in _api_requests(result.requests)} == {str(page_size)}
+        assert result.saved_states[0] == PowerBiAdminResumeConfig(skip=page_size)
+
+    @parameterized.expand(
+        [
+            ("dashboard_tiles", "tiles", "dashboard_id", {"id": "tile-1"}),
+        ]
+    )
+    def test_expanded_children_become_rows_stamped_with_their_parent(
+        self, endpoint: str, child_key: str, parent_column: str, child: dict[str, Any]
+    ) -> None:
+        result = _run(
+            endpoint,
+            [_body(200, {"value": [{"id": "p1", child_key: [child]}, {"id": "p2", child_key: []}, {"id": "p3"}]})],
+        )
+
+        assert result.items == [[{**child, parent_column: "p1"}]]
+        assert _api_requests(result.requests)[0].param("$expand") == child_key
+
+    def test_refreshables_expand_their_capacity_and_workspace(self) -> None:
+        result = _run("refreshables", [_body(200, {"value": [{"id": "r1"}]})])
+
+        assert result.items == [[{"id": "r1"}]]
+        assert _api_requests(result.requests)[0].param("$expand") == "capacity,group"
 
     def test_resume_starts_from_the_saved_skip(self) -> None:
         result = _run(
