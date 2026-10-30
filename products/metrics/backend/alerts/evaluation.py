@@ -35,8 +35,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
-from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_checks, has_incident_destination, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     GroupingMode,
@@ -424,17 +423,12 @@ def _request(
     A firing that opens or closes needs a delivery even when cooldown or mute held the message,
     because a paging destination needs one resolve for every trigger.
     """
-    destination_alert_id = str(check.destination_alert_id)
     actions = {
         key: action
         for key, (before, after) in moves.items()
         if (action := decide_incident_action(before, after, policy=POLICY)) is not None
     }
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=destination_alert_id,
-        allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not has_incident_destination(team_id=check.team_id, configuration_id=check.id):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -443,7 +437,7 @@ def _request(
         team_id=check.team_id,
         configuration_id=str(check.id),
         evaluation_key=recorded.evaluation_key,
-        destination_alert_id=destination_alert_id,
+        destination_alert_id=str(check.destination_alert_id),
         event_ids_by_kind=EVENT_IDS_BY_KIND,
         event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
