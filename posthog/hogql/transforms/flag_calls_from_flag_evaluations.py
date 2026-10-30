@@ -988,14 +988,16 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
 
 
 def _posthog_events_qualifiers_read_scans(node: ast.AST) -> bool:
-    """Whether each field that starts with `posthog.events` reads an events or flag_evaluations scan.
+    """Whether each field that starts with `posthog.events` in the SELECT of a swapped `posthog.events` scan reads an
+    events or flag_evaluations scan.
 
     The swap counts such a field as a read of the scan. A joined table can still take that name, for example with a
     column named `posthog`. The field then reads that table in both queries, so `_swap_keeps_bindings` does not see it.
+    A field in another SELECT reads whatever it names there, and the swap does not count it.
     """
-    collector = _PosthogEventsQualifiedFieldCollector()
-    collector.visit(node)
-    return all(_reads_scan(field.type) for field in collector.fields)
+    finder = _SwappedPosthogEventsScopeFinder()
+    finder.visit(node)
+    return all(_reads_scan(field.type) for field in finder.fields)
 
 
 def _reads_scan(current: ast.Type | None) -> bool:
@@ -1014,10 +1016,37 @@ def _reads_scan(current: ast.Type | None) -> bool:
     return isinstance(current, ast.TableType) and isinstance(current.table, (EventsTable, FlagEvaluationsTable))
 
 
-class _PosthogEventsQualifiedFieldCollector(_SyntaxVisitor):
+class _SwappedPosthogEventsScopeFinder(_SyntaxVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.fields: list[ast.Field] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        join = node.select_from
+        if (
+            join is not None
+            and isinstance(join.type, ast.TableAliasType)
+            and join.type.alias == "posthog__events"
+            and isinstance(join.type.table_type.table, FlagEvaluationsTable)
+        ):
+            collector = _PosthogEventsQualifiedFieldCollector(node)
+            collector.visit(node)
+            self.fields.extend(collector.fields)
+        super().visit_select_query(node)
+
+
+class _PosthogEventsQualifiedFieldCollector(_SyntaxVisitor):
+    def __init__(self, root: ast.SelectQuery) -> None:
+        super().__init__()
+        self.root = root
+        self.fields: list[ast.Field] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is self.root:
+            super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        pass
 
     def visit_field(self, node: ast.Field) -> None:
         if node.chain and _below_posthog_events(node.chain) is not None:

@@ -767,6 +767,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("element_column", f"SELECT elements_chain FROM events WHERE {FLAG_CALL_CONJUNCTS}", [("",)]),
             ("subquery_in_from", f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})", [(1,)]),
             (
+                "beside_a_qualified_read_of_a_cte_named_posthog_events",
+                f"WITH `posthog.events` AS (SELECT uuid FROM events WHERE {PAGEVIEW_CONJUNCTS}) "
+                f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                "AND uuid NOT IN (SELECT posthog.events.uuid FROM posthog.events)",
+                [(1,)],
+            ),
+            (
                 "cte",
                 f"WITH calls AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM calls",
                 [(1,)],
