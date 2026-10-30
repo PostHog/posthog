@@ -82,8 +82,6 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
-    /** Gates each business knowledge search line on content the project holds. A project without
-     *  sources or repositories gets no business knowledge line, so the agent never searches an empty store. */
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
 }
 
@@ -94,8 +92,6 @@ const REPLAY_VISION =
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 
-/** Business knowledge is the user's own company knowledge, so the topic is the user's company and
- *  never PostHog in general. When the user's company is PostHog, a PostHog question matches both lines. */
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
         return `- The user's own company, product, terms, or policies: run \`call ${BUSINESS_KNOWLEDGE_SEARCH_TOOL} <json_input>\` with a short, broad query.`
@@ -103,9 +99,7 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
     return `- The user's own company, product, internal terms, policies, or decisions: call \`${BUSINESS_KNOWLEDGE_SEARCH_TOOL}\` with a short, broad query. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
 }
 
-/** Document search does not read GitHub, so code and docs kept in a repository need the repo tools.
- *  Without document content the repositories are the only business knowledge, and the line takes the company topic.
- *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
+/** The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
 function businessKnowledgeRepoSearchLine(execSyntax: boolean, hasDocumentSearch: boolean): string {
     if (execSyntax) {
         const topic = hasDocumentSearch ? "The user's own code, or doc misses" : "The user's own company, code, or docs"

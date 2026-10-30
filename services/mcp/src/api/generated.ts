@@ -66645,6 +66645,13 @@ export namespace Schemas {
       expansion: string[];
     }
 
+    export interface KnowledgeAvailability {
+      /** True when the project has at least one business knowledge source. */
+      readonly has_sources: boolean;
+      /** True when this environment has at least one GitHub repository selected. */
+      readonly has_repositories: boolean;
+    }
+
     /**
      * One chunk in a drill-down window over a single knowledge document.
      *

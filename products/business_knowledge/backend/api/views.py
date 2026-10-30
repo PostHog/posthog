@@ -34,6 +34,7 @@ from ..constants import (
     BK_SEARCH_MAX_LIMIT,
 )
 from ..file_parse import FileParseError
+from ..github_repos import connection_status
 from ..libraries import LibraryNotFound
 from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
@@ -48,6 +49,7 @@ from .serializers import (
     GapActionSerializer,
     GapTopicActionResultSerializer,
     GapTopicActionSerializer,
+    KnowledgeAvailabilitySerializer,
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
@@ -453,6 +455,28 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
+
+    @extend_schema(
+        responses={200: KnowledgeAvailabilitySerializer},
+        summary="Check whether business knowledge has content",
+        description="Whether the project has any source and whether this environment has any selected GitHub repository.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="availability",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def availability(self, request: Request, **kwargs) -> Response:
+        return Response(
+            KnowledgeAvailabilitySerializer(
+                {
+                    "has_sources": logic.has_sources(self.team_id),
+                    "has_repositories": bool(connection_status(self.team)["repos"]),
+                }
+            ).data
+        )
 
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(

@@ -228,8 +228,6 @@ describe('InstructionsFormatter', () => {
         })
     })
 
-    // A business knowledge line sends the agent to a search, so it must appear only when the
-    // project holds content that search can return. An unread field keeps its line.
     describe('business knowledge content gating', () => {
         const bothTools = [
             { name: 'docs-search', category: 'Docs' },

@@ -37,8 +37,6 @@ export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // The integration list only adds a line to the environment prompt, so a slow response must not
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
-// The business knowledge lookup runs while the request state resolves, so a slow read must not hold
-// every call. An unread field keeps the search guidance.
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
 // Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
 const UNKNOWN_WAREHOUSE_COUNT = -1
@@ -688,44 +686,28 @@ export class StateManager {
         })
     }
 
-    /**
-     * Whether the project has business knowledge sources and selected GitHub repositories.
-     * A field is undefined when its read failed. An empty project is re-read on the short TTL,
-     * so a source the user just added gets its search guidance within a minute.
-     */
+    /** An empty project is re-read on the short TTL, so a source the user just added gets its search guidance within a minute. */
     async getOrFetchBusinessKnowledgeContent(projectId: string): Promise<BusinessKnowledgeContent | undefined> {
-        const base = `/api/projects/${encodeURIComponent(projectId)}/business_knowledge`
         return this.getOrFetchCached({
             name: 'business_knowledge_content',
             cacheKey: `businessKnowledgeContent:${projectId}` as const,
             fetchedAtKey: `businessKnowledgeContentFetchedAt:${projectId}` as const,
             fetcher: async () => {
-                const [sources, repositories] = await Promise.allSettled([
-                    this._api.request<{ count?: number }>({
-                        method: 'GET',
-                        path: `${base}/sources/`,
-                        query: { limit: 1 },
-                        timeoutMs: BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS,
-                    }),
-                    this._api.request<{ repos?: string[] }>({
-                        method: 'GET',
-                        path: `${base}/repositories/status/`,
-                        timeoutMs: BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS,
-                    }),
-                ])
+                const availability = await this._api.request<{ has_sources?: unknown; has_repositories?: unknown }>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/business_knowledge/sources/availability/`,
+                    timeoutMs: BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS),
+                })
                 return {
-                    hasSources:
-                        sources.status === 'fulfilled' && typeof sources.value.count === 'number'
-                            ? sources.value.count > 0
-                            : undefined,
+                    hasSources: typeof availability.has_sources === 'boolean' ? availability.has_sources : undefined,
                     hasRepositories:
-                        repositories.status === 'fulfilled' && Array.isArray(repositories.value.repos)
-                            ? repositories.value.repos.length > 0
-                            : undefined,
+                        typeof availability.has_repositories === 'boolean' ? availability.has_repositories : undefined,
                 }
             },
             ttlMs: (cached) =>
                 cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
+            expectTimeouts: true,
         })
     }
 

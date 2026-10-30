@@ -44,8 +44,7 @@ export type CachedUser = ApiUser
 export type CachedOrg = Schemas.Organization
 export type CachedProject = Schemas.ProjectBackwardCompat
 
-/** What the active project holds for business knowledge search. A field is undefined when it could not be read,
- *  and an unknown field keeps its search guidance, so a failed read never hides content the project has. */
+/** An unread field is undefined and keeps its search guidance, so a failed read never hides content. */
 export type BusinessKnowledgeContent = {
     hasSources?: boolean | undefined
     hasRepositories?: boolean | undefined

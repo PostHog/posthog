@@ -631,6 +631,11 @@ def list_for_team(
 
 
 @with_team_scope(canonical=True)
+def has_sources(team_id: int) -> bool:
+    return KnowledgeSource.objects.filter(team_id=team_id).exists()
+
+
+@with_team_scope(canonical=True)
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
         return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
