@@ -17,9 +17,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
+import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
+import { ReplaceFileModal } from '../SourceScene/tabs/ReplaceFileModal'
 import { SyncsTab } from '../SourceScene/tabs/SyncsTab'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
@@ -50,6 +52,8 @@ const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     'danger-zone': 'Danger zone',
 }
 
+const FILE_UPLOAD_HIDDEN_SECTIONS: readonly SchemaConfigurationSection[] = ['sync-method', 'schedule', 'destinations']
+
 export function SchemaScene({ sourceId, schemaId }: SchemaSceneProps): JSX.Element {
     if (!sourceId || !schemaId) {
         return <NotFound object="Data warehouse schema" />
@@ -74,8 +78,13 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     // Same gate as the source's Destinations tab. Without it a table offers a destination set that
     // the sync ignores, because a run only snapshots destinations when the flag is on.
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+    // A file upload table has one schema that PostHog imports itself: no sync method, schedule or destinations.
+    const isFileUpload = isFileUploadSource(source)
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
-        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'destinations' || showDestinations)
+        (key) =>
+            (key !== 'columns' || showColumnsSection) &&
+            (key !== 'destinations' || showDestinations) &&
+            !(isFileUpload && FILE_UPLOAD_HIDDEN_SECTIONS.includes(key))
     )
 
     useEffect(() => {
@@ -105,6 +114,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentSection('details')
         }
     }, [showColumnsSection, currentSection, setCurrentSection])
+
+    useEffect(() => {
+        if (isFileUpload && FILE_UPLOAD_HIDDEN_SECTIONS.includes(currentSection)) {
+            setCurrentSection('details')
+        }
+    }, [isFileUpload, currentSection, setCurrentSection])
 
     if (schemaDataLoading && !schema) {
         return (
@@ -205,6 +220,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                 resourceType={{ type: 'data_pipeline' }}
             />
             <LemonTabs activeKey={activeTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            {isFileUpload && <ReplaceFileModal sourceId={cleanedSourceId} />}
         </SceneContent>
     )
 }

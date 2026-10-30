@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
@@ -48,6 +49,7 @@ from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
+    DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
@@ -146,6 +148,43 @@ def source_syncs_on_demand(source_type: str) -> bool:
         capture_exception(e)
         return False
     return source.syncs_on_demand is True
+
+
+PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
+
+
+def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
+    """The live table each unlinked schema pins in its metadata, such as a migrated table before its first sync.
+
+    One team-scoped query for all schemas. A pin that names another team's table or a deleted one is left out.
+    """
+    pins: dict[uuid.UUID, uuid.UUID] = {}
+    for schema in schemas:
+        ref = self_managed_table_ref(schema) if schema.table_id is None else None
+        if ref is None:
+            continue
+        try:
+            pins[schema.pk] = uuid.UUID(ref.table_id)
+        except ValueError:
+            continue
+    if not pins:
+        return {}
+    live = set(
+        DataWarehouseTable.objects.filter(team_id=team_id, pk__in=set(pins.values()), deleted=False).values_list(
+            "pk", flat=True
+        )
+    )
+    return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
+
+
+def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
+    """The schema's table id: its linked table, else the live table its metadata pins."""
+    if schema.table_id is not None:
+        return None if schema.table is None or schema.table.deleted else schema.table_id
+    pinned = context.get(PINNED_TABLE_IDS_CONTEXT_KEY)
+    if pinned is None:
+        pinned = pinned_table_ids([schema], schema.team_id)
+    return pinned.get(schema.pk)
 
 
 def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
@@ -552,6 +591,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
     table = serializers.SerializerMethodField(read_only=True)
+    table_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The id of the warehouse table this schema syncs into. Set before the first sync for a table "
+            "the schema already names, such as a migrated one. Null when there is none."
+        ),
+    )
     pending_self_managed_table = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this schema is linked to an existing self-managed table that its first sync will import. "
@@ -738,6 +784,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "table_id",
             "should_sync",
             "last_synced_at",
             "latest_error",
@@ -774,6 +821,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "table_id",
             "last_synced_at",
             "latest_error",
             "status",
@@ -849,6 +897,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "user_access_level": {"type": "string", "nullable": True},
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
+                "file_name": {"type": "string", "nullable": True},
             },
         }
     )
@@ -868,9 +917,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # The version the schema falls back to without an override, and the picker's options.
             source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
             supported_api_versions = list(source_impl.supported_versions)
+            file_name = source_impl.uploaded_file_name(source)
         except ValueError:
             source_api_version = None
             supported_api_versions = []
+            file_name = None
         return {
             "id": str(source.id),
             "source_type": source.source_type,
@@ -882,6 +933,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "user_access_level": user_access_level,
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
+            "file_name": file_name,
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
@@ -963,6 +1015,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
+        return linked_table_id(schema, self.context)
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
@@ -2092,6 +2148,13 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(
         read_only=True, help_text="The synced warehouse table (id, name, row_count), or null if not yet synced."
     )
+    table_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The id of the warehouse table this schema syncs into. Set before the first sync for a table "
+            "the schema already names, such as a migrated one. Null when there is none."
+        ),
+    )
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
     pending_self_managed_table = serializers.SerializerMethodField(
         read_only=True,
@@ -2116,6 +2179,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "sync_frequency",
             "latest_error",
             "table",
+            "table_id",
             "pending_self_managed_table",
         ]
         read_only_fields = fields
@@ -2136,6 +2200,10 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         if table is None or table.deleted:
             return None
         return {"id": str(table.id), "name": table.name, "row_count": table.row_count}
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
+        return linked_table_id(schema, self.context)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
