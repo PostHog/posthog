@@ -11,9 +11,11 @@ import {
   type ModelChoice,
   modelSheet,
   modelWithEffort,
+  modeSheet,
   type PiControl,
   type RunCommand,
 } from "../models";
+import { savePrefs } from "../prefs";
 import type { Sheet } from "../sheet";
 import { indicatorFor } from "../sidebar";
 import { type HeldPick, heldPick, type StartingOptions } from "../starting";
@@ -24,6 +26,8 @@ export interface Models {
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   // Opens /effort, which works the same way.
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  // Opens /mode on a running Claude Code chat; the pick also becomes the mode new Claude Code chats start in.
+  openModeSheet: (paneId: string, task: Task | undefined) => void;
   // /compact: summarises a live chat's older messages, focused by the instructions if given.
   compact: (
     paneId: string,
@@ -256,6 +260,34 @@ export function useModels({
     );
   };
 
+  const openModeSheet = (paneId: string, task: Task | undefined): void => {
+    const live = liveTarget(paneId, task)?.control;
+    const modes = live?.modes;
+    const setMode = live?.setMode;
+    if (!modes || !setMode) {
+      flashNotice("Only a running Claude Code chat has modes", { paneId });
+      return;
+    }
+    modes().then(
+      ({ available, current }) =>
+        openModal(paneId, modeSheet(available, current), (index) => {
+          const mode = available[index];
+          setMode(mode.id).then(
+            () => {
+              savePrefs({ claudeMode: mode.id });
+              flashNotice(`${mode.name} on`, { paneId });
+            },
+            (error: unknown) =>
+              flashNotice(`Couldn't switch mode: ${messageOf(error)}`, {
+                paneId,
+              }),
+          );
+        }),
+      (error: unknown) =>
+        flashNotice(`Couldn't load modes: ${messageOf(error)}`, { paneId }),
+    );
+  };
+
   // Each live run's slash commands, fetched once and handed to the composer of the pane showing it.
   const runCommands = useRef(new Map<string, RunCommand[] | "loading">());
   const commandsShown = useRef(new Map<string, string>());
@@ -355,6 +387,7 @@ export function useModels({
   return {
     openModelSheet,
     openEffortSheet,
+    openModeSheet,
     compact,
     onRunLive,
     onChatStarted,

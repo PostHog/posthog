@@ -27,6 +27,9 @@ const APP_KEYS: KeyId[] = [
   "super+\\",
   "super+shift+\\",
   "super+|",
+  "alt+\\",
+  "alt+shift+\\",
+  "alt+|",
   "ctrl+c",
   "ctrl+d",
   "ctrl+n",
@@ -62,6 +65,7 @@ export function isTyping(sequence: string): boolean {
 export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
   { name: "effort", description: "Set how much this chat's model thinks" },
+  { name: "mode", description: "Switch a Claude Code chat's permission mode" },
   {
     name: "compact",
     description: "Summarize older messages to free up context",

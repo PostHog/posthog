@@ -14,6 +14,8 @@ export interface Prefs {
   paneRepositories: Record<string, string[]>;
   // Who pays for new chats, from /billing.
   billing: Billing;
+  // The permission mode new Claude Code chats start in, from /mode.
+  claudeMode: string;
 }
 
 const PREFS_PATH = join(homedir(), ".config", "posthog-tui", "prefs.json");
@@ -23,6 +25,7 @@ const DEFAULT_PREFS: Prefs = {
   narrowSidebar: false,
   paneRepositories: {},
   billing: "posthog",
+  claudeMode: "auto",
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -45,6 +48,8 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       paneRepositories: repositoriesOf(saved.paneRepositories),
       billing:
         BILLINGS.find((billing) => billing === saved.billing) ?? "posthog",
+      claudeMode:
+        typeof saved.claudeMode === "string" ? saved.claudeMode : "auto",
     };
   } catch {
     return DEFAULT_PREFS;

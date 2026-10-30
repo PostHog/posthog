@@ -222,6 +222,7 @@ export function App({
   const {
     openModelSheet,
     openEffortSheet,
+    openModeSheet,
     pickFor,
     compact,
     onRunLive,
@@ -269,6 +270,7 @@ export function App({
     openModal,
     openModelSheet,
     openEffortSheet,
+    openModeSheet,
     pickFor,
     compact,
     openSearch: search.toggle,

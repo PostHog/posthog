@@ -16,7 +16,14 @@ export interface ClaudeLocalInput {
   projectId: number;
   model?: string;
   effort?: string;
+  // Claude Code's permission mode to start in.
+  mode?: string;
 }
+
+type Choice = { value: string; name: string };
+type ConfigOptions = Awaited<
+  ReturnType<AgentService["startSession"]>
+>["configOptions"];
 
 const NOT_ON_CLAUDE = "Not available on a Claude Code chat";
 const unavailable = (): Promise<never> =>
@@ -28,6 +35,7 @@ export class ClaudeLocalSession implements LocalAgent {
   readonly plan = true;
   readonly control: PiControl;
   private sessionId: string | null = null;
+  private configOptions: ConfigOptions;
   private turn: Promise<unknown> | null = null;
   private readonly listeners = new Set<(view: RunView) => void>();
   private view: RunView = emptyRunView;
@@ -54,6 +62,21 @@ export class ClaudeLocalSession implements LocalAgent {
       },
       compact: unavailable,
       bash: unavailable,
+      modes: async () => {
+        const option = this.modeOption();
+        return {
+          available: (option.options as (Choice | { options: Choice[] })[])
+            .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
+            .map(({ value, name }) => ({ id: value, name })),
+          current: option.currentValue,
+        };
+      },
+      setMode: async (id) => {
+        if (!this.sessionId) throw new Error("The agent has not started");
+        const option = this.modeOption();
+        await this.agent.setSessionConfigOption(this.sessionId, option.id, id);
+        option.currentValue = id;
+      },
     };
   }
 
@@ -126,6 +149,7 @@ export class ClaudeLocalSession implements LocalAgent {
       projectId: this.input.projectId,
       adapter: "claude" as const,
       claudeModelAccess: "own-subscription" as const,
+      permissionMode: this.input.mode ?? "auto",
       ...(this.input.model && { model: this.input.model }),
       ...(this.input.effort && {
         effort: this.input.effort as
@@ -142,10 +166,11 @@ export class ClaudeLocalSession implements LocalAgent {
           .reconnectSession({ ...params, sessionId: saved.sessionId })
           .catch(() => null)
       : null;
-    const { sessionId } =
+    const { sessionId, configOptions } =
       resumed ??
       (await this.agent.startSession({ ...params, runMode: "local" }));
     this.sessionId = sessionId;
+    this.configOptions = configOptions;
     this.publish({
       ...this.view,
       loaded: true,
@@ -203,6 +228,15 @@ export class ClaudeLocalSession implements LocalAgent {
     for (const off of this.unsubscribe.splice(0)) off();
     if (this.sessionId) await this.agent.cancelSession(this.sessionId);
     this.publish({ ...this.view, status: "completed" });
+  }
+
+  private modeOption() {
+    const option = this.configOptions?.find(
+      (candidate) => candidate.id === "mode" && candidate.type === "select",
+    );
+    if (!option || option.type !== "select")
+      throw new Error("This chat has no modes");
+    return option;
   }
 
   private setPrompts(prompts: AgentPrompt[]): void {

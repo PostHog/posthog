@@ -46,6 +46,14 @@ export interface PiControl {
   compact(instructions?: string): Promise<Compaction>;
   // Runs a command where the agent runs and adds its output to the agent's context, like ! in pi.
   bash(command: string): Promise<ShellResult>;
+  // Claude Code's permission modes (plan, auto, ...), on a chat that has them.
+  modes?: () => Promise<{ available: Mode[]; current: string }>;
+  setMode?: (id: string) => Promise<void>;
+}
+
+export interface Mode {
+  id: string;
+  name: string;
 }
 
 export interface Compaction {
@@ -238,6 +246,19 @@ export function modelWithEffort(
   const level =
     effort === "off" ? "thinking off" : EFFORT_LABELS[effort].toLowerCase();
   return model ? `${model} (${level})` : level;
+}
+
+export function modeSheet(available: Mode[], current: string): Sheet {
+  return {
+    title: "Select mode",
+    description:
+      "Switches this chat's permission mode now, and for new Claude Code chats.",
+    items: available.map((mode) => ({
+      label: mode.name,
+      current: mode.id === current,
+    })),
+    footer: "Enter to select · Esc to cancel",
+  };
 }
 
 export function effortSheet(
