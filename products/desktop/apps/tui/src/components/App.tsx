@@ -75,6 +75,8 @@ export function App({
   const layoutFrom = useRef(layoutFile);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
+  // Names given with /rename, shown at once and kept until the work list shows them too.
+  const [titles, setTitles] = useState<Map<string, string>>(new Map());
   const {
     isLocal,
     localFor,
@@ -214,6 +216,7 @@ export function App({
     openEffortSheet,
     openSearch: search.toggle,
     onChatStarted,
+    setTitles,
     runShell,
     notice,
     login,
@@ -232,6 +235,19 @@ export function App({
     loadMore,
     working: turns.working,
     waiting: turns.waiting,
+    titles,
+  });
+  const caughtUp = [...titles].filter(
+    ([taskId, title]) => taskOf(taskId)?.title === title,
+  );
+  useEffect(() => {
+    if (caughtUp.length === 0) return;
+    setTitles((current) => {
+      const next = new Map(current);
+      for (const [taskId, title] of caughtUp)
+        if (next.get(taskId) === title) next.delete(taskId);
+      return next;
+    });
   });
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
@@ -271,7 +287,12 @@ export function App({
 
   const titleOf = (pane: PaneNode): string => {
     if (pane.taskId === null) return "New chat";
-    return taskOf(pane.taskId)?.title || pane.title || "Untitled";
+    return (
+      titles.get(pane.taskId) ||
+      taskOf(pane.taskId)?.title ||
+      pane.title ||
+      "Untitled"
+    );
   };
 
   const renderPane = (node: PaneNode): ReactElement => (

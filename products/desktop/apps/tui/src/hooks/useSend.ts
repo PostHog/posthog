@@ -33,6 +33,7 @@ export function useSend({
   layout,
   setLayout,
   setFresh,
+  setTitles,
   chats,
   taskOf,
   resetWork,
@@ -53,6 +54,7 @@ export function useSend({
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   setFresh: Dispatch<SetStateAction<Map<string, Task>>>;
+  setTitles: Dispatch<SetStateAction<Map<string, string>>>;
   chats: PiChats | undefined;
   taskOf: (taskId: string | null) => Task | undefined;
   resetWork: () => void;
@@ -158,16 +160,26 @@ export function useSend({
         flashNotice("A new chat gets its name from its first message");
       else if (!title) composerFor(paneId).setText(`/rename ${shown}`);
       else if (!chats) flashNotice("Sign in to rename a chat: type /login");
-      else
+      else {
+        // Shown at once; a failed rename puts the old name back, unless a later rename has replaced it.
+        setTitles((titles) => new Map(titles).set(taskId, title));
         chats.rename(taskId, title).then(
           (task) => {
             setFresh((tasks) => new Map(tasks).set(task.id, task));
             setLayout((state) => renameTask(state, taskId, taskId, title));
             flashNotice(`Renamed to ${title}`);
           },
-          (error: unknown) =>
-            flashNotice(`Couldn't rename this chat: ${messageOf(error)}`),
+          (error: unknown) => {
+            setTitles((titles) => {
+              if (titles.get(taskId) !== title) return titles;
+              const next = new Map(titles);
+              next.delete(taskId);
+              return next;
+            });
+            flashNotice(`Couldn't rename this chat: ${messageOf(error)}`);
+          },
         );
+      }
       return;
     }
     if (slash?.command === "rename-workspace") {

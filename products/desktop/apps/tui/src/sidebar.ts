@@ -135,6 +135,7 @@ export function sidebarRows({
   working,
   waiting = new Set(),
   known = new Map(),
+  titles = new Map(),
   signedIn = true,
   local = NO_LOCAL_CHATS,
 }: {
@@ -145,6 +146,8 @@ export function sidebarRows({
   waiting?: Set<string>;
   /** Open tasks outside the recent page, fetched on their own. */
   known?: Map<string, Task>;
+  /** Names given with /rename that the work list has not caught up with yet. */
+  titles?: Map<string, string>;
   signedIn?: boolean;
   local?: LocalChatState;
 }): SidebarRow[] {
@@ -170,7 +173,9 @@ export function sidebarRows({
       taskId,
       paneId,
       title:
-        taskId === null ? "New chat" : task?.title || savedTitle || "Untitled",
+        taskId === null
+          ? "New chat"
+          : titles.get(taskId) || task?.title || savedTitle || "Untitled",
       indicator:
         taskId === null
           ? null
