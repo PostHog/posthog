@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { featureFlagLogic, getFeatureFlagPayload } from './featureFlagLogic'
+import { featureFlagSummaryLogic } from './featureFlagSummaryLogic'
 import { membersLogic } from './membersLogic'
 import { sceneLogic } from './sceneLogic'
 import { surveyQuestionLabelsLogic } from './surveyQuestionLabelsLogic'
@@ -22,6 +23,11 @@ describe('toolbar shims', () => {
             ['teamLogic', teamLogic, { currentTeam: null, timezone: 'UTC', weekStartDay: 0 }],
             ['featureFlagLogic', featureFlagLogic, { featureFlags: {} }],
             ['surveyQuestionLabelsLogic', surveyQuestionLabelsLogic, { surveyQuestionLabels: {} }],
+            [
+                'featureFlagSummaryLogic',
+                featureFlagSummaryLogic({ flagKey: 'my-flag' }),
+                { summary: null, flagLoading: false },
+            ],
         ])('%s provides expected defaults', (_name, logic, expected) => {
             logic.mount()
             expectLogic(logic).toMatchValues(expected)
@@ -56,6 +62,7 @@ describe('toolbar shims', () => {
         teamLogic.mount()
         featureFlagLogic.mount()
         surveyQuestionLabelsLogic.mount()
+        featureFlagSummaryLogic({ flagKey: 'my-flag' }).mount()
 
         expect(fetchSpy).not.toHaveBeenCalled()
     })
