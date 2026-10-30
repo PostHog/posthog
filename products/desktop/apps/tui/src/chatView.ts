@@ -20,7 +20,7 @@ import { inverseCells } from "./highlight";
 import { savedImage } from "./images";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
-import { orange, userMessageBackground } from "./theme";
+import { blue, orange, userMessageBackground } from "./theme";
 import {
   type ShellLine,
   type ToolLine,
@@ -282,7 +282,11 @@ class CodeBlocks implements Component {
 }
 
 function componentFor(line: TranscriptLine): Component {
-  const markdown = getMarkdownTheme();
+  const markdown = {
+    ...getMarkdownTheme(),
+    code: blue,
+    link: blue,
+  };
   switch (line.kind) {
     case "user":
       return new UserMessage(line.text, markdown);

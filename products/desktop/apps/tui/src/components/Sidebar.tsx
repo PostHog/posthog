@@ -1,6 +1,7 @@
 import { Box, type DOMElement, Text } from "ink";
 import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
+import { posthogBlue } from "../theme";
 import { Spinner } from "./Spinner";
 
 // The chat area draws the sidebar's right edge, so its lines can join it.
@@ -159,7 +160,11 @@ export function Sidebar({
         </Box>
       ))}
       <Box flexGrow={1} />
-      <Text dimColor={!notice} wrap="truncate-end">
+      <Text
+        dimColor={!notice}
+        color={notice ? posthogBlue() : undefined}
+        wrap="truncate-end"
+      >
         {notice ?? "^N new · ^S split · ^Q quit"}
       </Text>
     </Box>

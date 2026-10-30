@@ -65,3 +65,16 @@ export const userMessageBackground = (): string =>
   kept.__posthogTuiTheme === "light"
     ? "\u001b[48;2;242;242;242m"
     : "\u001b[48;2;38;39;46m";
+
+// PostHog blue (#1D4AFF), for what should catch the eye: notices, inline code and links.
+// Dark terminals get a lighter step of it, since the brand blue is hard to read on black.
+export const posthogBlue = (): string =>
+  kept.__posthogTuiTheme === "light" ? "#1D4AFF" : "#6384FF";
+
+export const blue = (text: string): string => {
+  const hex = posthogBlue();
+  const [red, green, blueValue] = [1, 3, 5].map((at) =>
+    Number.parseInt(hex.slice(at, at + 2), 16),
+  );
+  return `\u001b[38;2;${red};${green};${blueValue}m${text}\u001b[39m`;
+};
