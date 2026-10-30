@@ -6239,11 +6239,11 @@ snapshots:
     mcp-apps-experiments--running--light:
         hash: v1.k794b7964.f7ae67feb87956b98204afeb00f52012a62fc090b18d186d0575110924e5cb69.lWvegECniqeejO8WWNUVam5X0NQTkwxq2iifV-mN5JI
     mcp-apps-explain-chart--chapter-beside-the-chart--light:
-        hash: v1.k794b7964.1b3a4ae5d4f98f938dda78e7339e93624825472835fce63a58f960d535986fe6.fM-kwGLy2mjTyMtlHv_or2Sxi83wlTcjjs4xOPz_Ldo
+        hash: v1.k794b7964.f22cfd254180901662be46141f1ea92d45772a8ce872d06e93da94c0f009c194.MEhp6vICxGBWYTtSUVeowxPvGR_FvdjE1UzNej1Y3zY
     mcp-apps-explain-chart--evidence-chart--light:
-        hash: v1.k794b7964.850e4f7171b0ba2dc7a44928d12787534ec33bff3f8d7108a8022690a166150c.Q0BhB8TGCyT0vAZK4wlYvG7qORDvCZaMQWMoHGZsmSw
+        hash: v1.k794b7964.f6017c01f6a2077c52fe185b21fd64f5759d67db65a582bd455b3d109435b177.aAgucmeGEuPyMncKt-ZETRpZZ4CCoEnG7F-j4yx7yBk
     mcp-apps-explain-chart--single-chapter--light:
-        hash: v1.k794b7964.8d0d4e81255c25acbe114b45d698a66d4b3ff5be122c97eea1f5cc2066711a72.jx6b5OO_YEIBQZHEUccM0lJ6vaRZBUUWxs3dJgxxwKw
+        hash: v1.k794b7964.9925b1072fdd0d84e4c6b2c1130182bb5be985f388323a55c12d86a75d5bd94e.tIYnyucaKDUR3kOT-DUcavWJ9OgqETjYm938-zSaVyQ
     mcp-apps-explain-chart--summary--light:
         hash: v1.k794b7964.8e544f3f6c9e2e43bf03efd6bf30e402e2f24a41ec060922b5e3068643ce4c86.BQcCbMIGeBusavfXWYInYZD6jMZfnN4zr-HV9oOAFHg
     mcp-apps-explain-chart-evidence-chart--line--light:
@@ -14971,7 +14971,7 @@ snapshots:
     scenes-app-replay-vision--observation-detail-inline-scan--light:
         hash: v1.k794b7964.58c261c32ebe4877009c5f758aea489ac52f9afea88b3fb7e528f06beb12baee.yLN7cpDKxLxc4oOyubpLEzKTHWFBFtsZbMZxdUKgS1A
     scenes-app-replay-vision--observation-detail-monitor--dark:
-        hash: v1.k794b7964.deb691222dbfac3ac026fe5fd3e22fc1ca4282d3cea77339a453e6f89a737698.vLBiLKOhkrF7r5hcf4_w7vYAJqB7bE9avnCOat5nGRQ
+        hash: v1.k794b7964.e07b6a45529b531d5765d3f5ee7c35d8815553a2bf4c5d435e7c423e63756053.kqzoYEMHXLugfzC1wTLGfKLSGeOnIRqTqBHJhf_Y1MM
     scenes-app-replay-vision--observation-detail-monitor--light:
         hash: v1.k794b7964.7a3f583432dafb78a1712b3b526dc23a71e0f5aca25fe249caeb91542f743530.ZQJ6IbAigy-fkKYwESiijE75Pe3rGKU1tiK9nokMpZE
     scenes-app-replay-vision--observation-detail-monitor-inconclusive--dark:
