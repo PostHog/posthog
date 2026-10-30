@@ -2095,6 +2095,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             shallow_clone=prepared.shallow_clone,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
+                        schedule_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:

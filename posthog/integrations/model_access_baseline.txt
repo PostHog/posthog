@@ -74,7 +74,6 @@ products/messaging/backend/services/customerio_webhook.py 1
 products/messaging/backend/services/transactional_email.py 2
 products/review_hog/backend/activity_logging.py 2
 products/review_hog/backend/automatic_reviews.py 3
-products/review_hog/backend/label_reviews.py 2
 products/review_hog/backend/ownership.py 2
 products/review_hog/backend/repository_settings.py 2
 products/review_hog/backend/reviewer/status_comment.py 2
@@ -89,7 +88,7 @@ products/signals/backend/scout_harness/profile/builders.py 2
 products/signals/backend/scout_harness/serializers.py 2
 products/signals/backend/scout_harness/slack_delivery.py 2
 products/signals/backend/serializers.py 2
-products/signals/backend/slack_inbox_notifications.py 4
+products/signals/backend/slack_inbox_notifications.py 2
 products/signals/backend/slack_notification_targets.py 2
 products/signals/backend/temporal/agentic/select_repository.py 2
 products/signals/backend/tracker_issues.py 4

@@ -93,7 +93,7 @@ describe('todayShellLogic', () => {
         ['home', false, '/home'],
         ['spaces', true, '/spaces/new'],
         ['spaces', false, '/ai'],
-        ['analytics', false, '/analytics/product-analytics'],
+        ['analytics', false, '/analytics/all'],
         ['products', false, '/airplane'],
     ] as const)('opens the %s section when its rail item is picked, sandbox %s', (pane, sandbox, pathname) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: sandbox })
@@ -122,7 +122,7 @@ describe('todayShellLogic', () => {
         ['home', 'new', urls.projectHomepage()],
         ['spaces', 'new', urls.taskNewSession()],
         ['spaces', 'legacy', urls.ai()],
-        ['analytics', 'new', urls.analyticsProductHome()],
+        ['analytics', 'new', urls.analyticsList()],
         ['products', 'new', undefined],
         ['settings', 'new', urls.settings('project')],
     ] as const)('a rail pick on %s with the %s PostHog AI view opens %s', (pane, phaiView, href) => {

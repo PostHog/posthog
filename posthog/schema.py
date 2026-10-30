@@ -16,6 +16,7 @@ from posthog.schema_enums import (
     AccountsTableAccountField as AccountsTableAccountField,
     AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
+    AccountsTableCustomPropertyDisplayType as AccountsTableCustomPropertyDisplayType,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableRelationshipOperator as AccountsTableRelationshipOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
@@ -335,6 +336,7 @@ from posthog.schema_enums import (
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
     ValueLabelPosition as ValueLabelPosition,
+    ValueLabels as ValueLabels,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -441,6 +443,22 @@ class AccountsTableCustomPropertyHistoryPoint(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    id: str | None = None
+    label: str
+
+
+class AccountsTableCustomPropertySource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+
+
 class AccountsTableNoteCountColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -457,6 +475,17 @@ class AccountsTableRelationshipColumn(BaseModel):
         description="Team-scoped relationship definition to return for each account.",
     )
     kind: Literal["relationship"] = "relationship"
+
+
+class AccountsTableRelationshipDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: str
+    is_controlled: bool
+    is_single_holder: bool | None = None
+    name: str
 
 
 class AccountsTableSearchFilter(BaseModel):
@@ -539,6 +568,14 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
     )
     displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=(
+            "Keep this series out of the tooltip's total row, e.g. a target line over"
+            " stacked bars. A bar series still stacks, so set `displayType` to `line`"
+            " for a series drawn over the stack."
+        ),
+    )
     label: str | None = Field(
         default=None,
         description="Series label in legends and tooltips; replaces the column name.",
@@ -546,6 +583,14 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     trendLine: bool | None = Field(
         default=None,
         description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
+    )
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            "Per-series override of chart-level `showValuesOnSeries`. `show` labels"
+            " this series even when the chart setting is off, `hide` leaves it"
+            " unlabeled when the setting is on, `auto` follows the chart."
+        ),
     )
     yAxisPosition: YAxisPosition | None = Field(
         default=None,
@@ -609,6 +654,16 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
     xAxisColumn: str | None = Field(
         default=None,
         description=("X-axis category column. Set to `null` for one overall distribution or one box per series."),
+    )
+
+
+class AssistantDataVisualizationColumnSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    formatting: AssistantDataVisualizationAxisFormatting | None = Field(
+        default=None,
+        description="Number-formatting settings for the values in this column.",
     )
 
 
@@ -1167,8 +1222,19 @@ class ChartSettingsDisplay(BaseModel):
     )
     color: str | None = None
     displayType: DisplayType | None = None
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=("Keep this series out of the tooltip's total row, e.g. a target line over stacked bars."),
+    )
     label: str | None = None
     trendLine: bool | None = None
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            'Overrides the chart\'s "Show values on series" for this series. Unset or'
+            " 'auto' follows the chart setting."
+        ),
+    )
     yAxisPosition: YAxisPosition | None = None
 
 
@@ -3156,6 +3222,14 @@ class ResolvedDateRangeResponse(BaseModel):
     )
     date_from: AwareDatetime
     date_to: AwareDatetime
+    read_from: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "The earliest timestamp the query reads, when only its first interval"
+            " depends on rows from before date_from. Lifecycle sets it to the start of"
+            " the interval before the range."
+        ),
+    )
 
 
 class ResultCustomizationBase(BaseModel):
@@ -3713,6 +3787,21 @@ class AccountsTableCountThresholdMetric(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    display_type: AccountsTableCustomPropertyDisplayType
+    has_workflow_reference: bool
+    id: str
+    is_big_number: bool | None = None
+    is_canonical: bool
+    name: str
+    options: list[AccountsTableCustomPropertyOption] | None = None
+    source: AccountsTableCustomPropertySource | None = None
+
+
 class AccountsTableCustomPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3906,72 +3995,13 @@ class AssistantDataVisualizationAxis(BaseModel):
     )
 
 
-class AssistantDataVisualizationChartSettings(BaseModel):
+class AssistantDataVisualizationColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
-        default=None,
-        description=(
-            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
-        ),
-    )
-    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
-        default=None, description="Horizontal goal lines drawn across the chart."
-    )
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None, description="Settings for the left Y axis."
-    )
-    legendPosition: LegendPosition | None = Field(
-        default=None,
-        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
-    )
-    metric: AssistantDataVisualizationMetricSettings | None = Field(
-        default=None,
-        description="Settings for `Metric`. `summary` defaults to `latest`.",
-    )
-    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
-        default=None,
-        description=(
-            "Settings for the right Y axis. Only applies when a Y series uses"
-            ' `settings.display.yAxisPosition: "right"`.'
-        ),
-    )
-    seriesBreakdownColumn: str | None = Field(
-        default=None,
-        description=(
-            "Column that splits a single Y series into multiple colored series — e.g."
-            " breaking down a line chart by `country`. Set to `null` or omit to"
-            " disable. A breakdown buckets rows by x value, so it is ignored when"
-            " `display` is `ScatterPlot`."
-        ),
-    )
-    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
-    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
-    showTotalRow: bool | None = Field(
-        default=None,
-        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
-    )
-    showValuesOnSeries: bool | None = Field(
-        default=None,
-        description="Render each data point's value as a label directly on the series.",
-    )
-    stackBars100: bool | None = Field(
-        default=None,
-        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
-    )
-    xAxis: AssistantDataVisualizationAxis | None = Field(
-        default=None,
-        description=(
-            "Column used as the X axis. Typically a time bucket or categorical column,"
-            " but `ScatterPlot` plots two measures against each other, so it needs a"
-            " numeric column here too."
-        ),
-    )
-    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
-    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
-        default=None, description="One or more numeric columns plotted as Y series."
+    column: str = Field(..., description="Name of a column returned by the SQL query.")
+    settings: AssistantDataVisualizationColumnSettings | None = Field(
+        default=None, description="Optional number formatting for this column."
     )
 
 
@@ -3979,7 +4009,7 @@ class AssistantDataVisualizationTableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list[AssistantDataVisualizationAxis] | None = Field(
+    columns: list[AssistantDataVisualizationColumn] | None = Field(
         default=None,
         description=("Columns to display and their order. Omit to show every column returned by the query."),
     )
@@ -10109,6 +10139,18 @@ class AccountsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10129,6 +10171,7 @@ class AccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -10387,6 +10430,75 @@ class AssistantBehavioralPropertyFilter(BaseModel):
 class AssistantDataTableNode(BaseModel):
     kind: Literal["DataTableNode"] = "DataTableNode"
     source: AssistantEventsQuery
+
+
+class AssistantDataVisualizationChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
+        default=None,
+        description=(
+            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+        ),
+    )
+    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
+        default=None, description="Horizontal goal lines drawn across the chart."
+    )
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None, description="Settings for the left Y axis."
+    )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None,
+        description=(
+            "Settings for the right Y axis. Only applies when a Y series uses"
+            ' `settings.display.yAxisPosition: "right"`.'
+        ),
+    )
+    seriesBreakdownColumn: str | None = Field(
+        default=None,
+        description=(
+            "Column that splits a single Y series into multiple colored series — e.g."
+            " breaking down a line chart by `country`. Set to `null` or omit to"
+            " disable. A breakdown buckets rows by x value, so it is ignored when"
+            " `display` is `ScatterPlot`."
+        ),
+    )
+    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
+    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    showTotalRow: bool | None = Field(
+        default=None,
+        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
+    )
+    showValuesOnSeries: bool | None = Field(
+        default=None,
+        description="Render each data point's value as a label directly on the series.",
+    )
+    stackBars100: bool | None = Field(
+        default=None,
+        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
+    )
+    xAxis: AssistantDataVisualizationColumn | None = Field(
+        default=None,
+        description=(
+            "Column used as the X axis. Typically a time bucket or categorical column,"
+            " but `ScatterPlot` plots two measures against each other, so it needs a"
+            " numeric column here too."
+        ),
+    )
+    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
+    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None, description="One or more numeric columns plotted as Y series."
+    )
 
 
 class AssistantDataVisualizationNode(BaseModel):
@@ -11796,6 +11908,18 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11824,6 +11948,7 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -18159,6 +18284,18 @@ class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -18179,6 +18316,7 @@ class Response20(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -23921,6 +24059,18 @@ class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -23941,6 +24091,7 @@ class QueryResponseAlternative59(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -25135,6 +25286,18 @@ class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -25155,6 +25318,7 @@ class QueryResponseAlternative89(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -27232,6 +27396,10 @@ class AccountsTableQuery(BaseModel):
         default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
     )
+    ignoreMissingDefinitions: bool | None = Field(
+        default=None,
+        description=("Omit missing definitions and custom-property filters incompatible with their current types."),
+    )
     includeChurned: bool | None = Field(
         default=None,
         description="Include churned accounts. Churned accounts are hidden by default.",
@@ -27253,6 +27421,7 @@ class AccountsTableQuery(BaseModel):
     response: AccountsTableQueryResponse | None = None
     sort: AccountsTableSort | None = None
     tags: QueryLogTags | None = None
+    useDefaultColumns: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
