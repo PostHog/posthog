@@ -12,6 +12,9 @@ INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
 # "billing". The acting human is audited in ActivityLog, not here.
 ADMIN_ACTOR = "posthog-admin"
 BILLING_ACTOR = "billing"
+# A bad body, or an Idempotency-Key the gateway holds with another amount. Every other
+# failure, including 401, 403, 404 and 429, can pass once the gateway or its config recovers.
+REJECTED_STATUS_CODES = frozenset({400, 409})
 
 
 class AIGatewayInternalError(Exception):
@@ -23,7 +26,7 @@ class AIGatewayNotConfigured(AIGatewayInternalError):
 
 
 class AIGatewayRequestRejected(AIGatewayInternalError):
-    """The gateway answered with a 4xx: the request itself is wrong, so sending it again fails the same way."""
+    """The gateway refused the request itself (400 or 409), so sending it again fails the same way."""
 
     def __init__(self, message: str, status_code: int) -> None:
         super().__init__(message)
@@ -189,9 +192,9 @@ def _post_org_ledger_entry(
     except httpx.HTTPError as exc:
         raise AIGatewayInternalError(f"org ledger request failed: {exc}") from exc
 
-    if 400 <= response.status_code < 500:
+    if response.status_code in REJECTED_STATUS_CODES:
         raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
-    if response.status_code >= 500:
+    if response.status_code >= 400:
         raise AIGatewayInternalError(_error_detail(response))
 
     try:
