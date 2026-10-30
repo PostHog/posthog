@@ -70,7 +70,7 @@ export function WizardInstallStep(props: VariantProps): JSX.Element {
     const { setManualModalOpen } = useActions(wizardInstallStepLogic)
     const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const projectId = currentTeam?.id ? String(currentTeam.id) : null
+    const projectId = !props.wizardOverrides?.subcommand && currentTeam?.id ? String(currentTeam.id) : null
     const { run } = useValues(onboardingWizardRunLogic({ projectId: projectId ?? '', userId: user?.id ?? 0 }))
     const canContinue = props.installationComplete || (!!run && (wizardRunIsActive(run) || run.status === 'completed'))
     return (

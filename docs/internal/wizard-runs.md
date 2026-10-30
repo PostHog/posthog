@@ -64,16 +64,20 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
-The browser checks every page of project runs every 30 seconds without a date or status cutoff.
-While the page is visible, it also checks the newest page every two seconds and on tab return, merging discoveries without dropping older runs.
+The browser loads project history once without a date or status cutoff.
+While the page is visible, it checks the newest page every five seconds and on tab return, merging discoveries without dropping older runs.
 Starting a cloud run from the Library adds the creation response to shared state immediately, without waiting for a poll.
 Onboarding shows only runs created by the signed-in user.
-Each active user run has its own event stream; terminal runs do not open streams.
+Only runs watched by a visible consumer can open event streams, with at most one run stream per tab.
+Every 30 seconds, a bounded fallback refreshes one watched active run and its tasks, rotating through the watched runs.
+Hidden tabs pause polling and streams; terminal runs do not open streams.
 Opening run details or restoring an onboarding run loads its task snapshot and artifacts, including after completion.
+Active streamed updates reuse their task snapshots instead of downloading tasks and artifacts on each update.
 
 ### Onboarding state
 
 Entering onboarding records its start time in local storage, scoped to the project and user.
+The initial time uses the server's HTTP Date header to avoid browser clock skew, falling back to browser time when unavailable.
 Only `posthog-integration` runs created at or after that time can replace the installation instructions.
 The selected ID and creation timestamp are stored in `<project_id>.<user_id>.onboarding_wizard_run_id`.
 The start time is stored in `<project_id>.<user_id>.onboarding_wizard_started_at`.
@@ -82,6 +86,8 @@ Status updates to an older run do not make it a new installation.
 
 Users can continue onboarding while the setup agent runs.
 Failed runs show the reported error, and local success asks users to review their local changes.
+Failed and canceled runs keep the install command and manual setup available.
+Dedicated program steps, such as AI observability, do not use the base integration run to replace their instructions or enable Continue.
 Cloud success lists the artifacts and links to the first pull request for review.
 Onboarding does not link to the runs scene; pull-request links open in a new tab so onboarding stays open.
 

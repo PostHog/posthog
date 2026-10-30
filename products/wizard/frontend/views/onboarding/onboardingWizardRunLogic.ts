@@ -16,6 +16,7 @@ import posthog from 'posthog-js'
 
 import type { WizardRunApi, WizardRunArtifactApi } from '../../generated/api.schemas'
 import { wizardRunEventProperties } from '../../lib/wizardAnalytics'
+import { loadWizardOnboardingStartTime } from '../../lib/wizardApi'
 import { selectWizardInstallRun } from '../../lib/wizardRunDisplay'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 
@@ -35,10 +36,12 @@ export interface onboardingWizardRunLogicValues {
 }
 
 export interface onboardingWizardRunLogicActions {
+    initializeOnboarding: () => { value: true }
     syncRun: () => { value: true }
     startOnboarding: (timestamp: string) => { timestamp: string }
     saveRun: (run: SavedOnboardingWizardRun) => { run: SavedOnboardingWizardRun }
     loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
+    watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
     clickArtifact: (
         artifact: WizardRunArtifactApi,
         clickSource: WizardOnboardingArtifactClickSource
@@ -57,9 +60,10 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
     path((key) => ['products', 'wizard', 'onboardingWizardRunLogic', key]),
     connect(({ projectId }: OnboardingWizardRunProps) => ({
         values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
-        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData']],
+        actions: [wizardRunSyncLogic({ projectId }), ['loadRunData', 'watchRuns']],
     })),
     actions({
+        initializeOnboarding: true,
         syncRun: true,
         startOnboarding: (timestamp: string) => ({ timestamp }),
         saveRun: (run: SavedOnboardingWizardRun) => ({ run }),
@@ -102,6 +106,12 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
         ],
     })),
     listeners(({ actions, values, props: { projectId }, cache }) => ({
+        initializeOnboarding: async (_, breakpoint) => {
+            const timestamp = await loadWizardOnboardingStartTime(projectId)
+            await breakpoint()
+            actions.startOnboarding(timestamp)
+            actions.syncRun()
+        },
         clickArtifact: ({ artifact, clickSource }) => {
             if (values.run) {
                 posthog.capture('wizard onboarding state artifact clicked', {
@@ -116,6 +126,7 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
         [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncRun(),
         syncRun: () => {
             const run = values.run
+            actions.watchRuns('onboarding', run ? [run.id] : [])
             if (!run) {
                 return
             }
@@ -129,13 +140,16 @@ export const onboardingWizardRunLogic: LogicWrapper<onboardingWizardRunLogicType
             actions.loadRunData(run)
         },
     })),
-    afterMount(({ actions, values, props }) => {
+    afterMount(({ actions, values, props, cache }) => {
         if (!props.projectId || !props.userId) {
             return
         }
         if (!values.onboardingStartedAt || !Number.isFinite(Date.parse(values.onboardingStartedAt))) {
-            actions.startOnboarding(new Date().toISOString())
+            actions.initializeOnboarding()
         }
-        actions.syncRun()
+        cache.disposables.add(() => {
+            actions.syncRun()
+            return () => actions.watchRuns('onboarding', [])
+        }, 'onboarding-run-watch')
     }),
 ])

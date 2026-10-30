@@ -14,13 +14,15 @@ export function WizardRunSceneSyncDetailsDialog({
     onRunAgain: (run: WizardRunApi) => void
 }): JSX.Element {
     const { tasksByRunId } = useValues(wizardRunSyncLogic({ projectId }))
-    const { loadRunData } = useActions(wizardRunSyncLogic({ projectId }))
+    const { loadRunData, watchRuns } = useActions(wizardRunSyncLogic({ projectId }))
     const { selectedRun } = useValues(wizardRunDetailsLogic)
     useEffect(() => {
+        watchRuns('run-details', selectedRun ? [selectedRun.id] : [])
         if (selectedRun) {
             loadRunData(selectedRun)
         }
-    }, [selectedRun, loadRunData])
+        return () => watchRuns('run-details', [])
+    }, [selectedRun, loadRunData, watchRuns])
 
     return (
         <WizardRunDetailsDialog

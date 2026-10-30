@@ -108,6 +108,19 @@ describe('WizardInstallStep with wizardOverrides', () => {
     })
 
     it('shows the ai-observability command and blocks Continue until installation completes', async () => {
+        const sync = wizardRunSyncLogic({ projectId: String(MOCK_DEFAULT_TEAM.id) })
+        sync.mount()
+        await expectLogic(sync).toFinishAllListeners()
+        sync.actions.runsLoaded([
+            {
+                id: 'base-installation',
+                team_id: MOCK_DEFAULT_TEAM.id,
+                created_by_id: MOCK_DEFAULT_USER.id,
+                program: { id: 'posthog-integration' },
+                status: 'completed',
+                created_at: new Date(Date.now() + 60_000).toISOString(),
+            } as WizardRunApi,
+        ])
         render(
             <Provider>
                 <WizardInstallStep {...AIO_PROPS} />
@@ -116,6 +129,8 @@ describe('WizardInstallStep with wizardOverrides', () => {
 
         expect(await screen.findByText((t) => t.includes('ai-observability') && t.includes('npx'))).toBeInTheDocument()
         expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('[data-attr="wizard-install-sync"]')).toBeNull()
+        sync.unmount()
     })
 
     it.each([false, true])(
@@ -123,7 +138,11 @@ describe('WizardInstallStep with wizardOverrides', () => {
         async (compact) => {
             render(
                 <Provider>
-                    <WizardInstallStep {...AIO_PROPS} compact={compact} />
+                    <WizardInstallStep
+                        {...AIO_PROPS}
+                        wizardOverrides={{ ...AIO_PROPS.wizardOverrides!, subcommand: '' }}
+                        compact={compact}
+                    />
                 </Provider>
             )
             const sync = wizardRunSyncLogic({ projectId: String(MOCK_DEFAULT_TEAM.id) })
@@ -168,12 +187,29 @@ describe('WizardInstallStep with wizardOverrides', () => {
 
             await act(async () => {
                 sync.actions.runsLoaded([
-                    { ...run, status: 'failed', error_message: 'Permission denied while writing the config.' },
+                    {
+                        ...run,
+                        status: 'failed',
+                        error_code: 'PHW_DETECT_UNSUPPORTED_VERSION',
+                        error_message: 'The project uses an unsupported framework version.',
+                    },
                 ])
                 await expectLogic(sync).toFinishAllListeners()
             })
-            expect(screen.getByText('Permission denied while writing the config.')).toBeInTheDocument()
+            expect(screen.getByText('The project uses an unsupported framework version.')).toBeInTheDocument()
+            expect(screen.getByText('Update the framework, then run the program again.')).toBeInTheDocument()
+            expect(screen.getByLabelText('Copy wizard command')).toBeInTheDocument()
+            fireEvent.click(document.querySelector('[data-attr="sdk-continue"]')!)
+            expect(screen.getByText('Manual SDK setup')).toBeInTheDocument()
+            fireEvent.click(screen.getByLabelText('close'))
             expect(document.querySelector('[data-attr="mock-continue"]')).toHaveAttribute('aria-disabled', 'true')
+
+            await act(async () => {
+                sync.actions.runsLoaded([{ ...run, status: 'cancelled' }])
+                await expectLogic(sync).toFinishAllListeners()
+            })
+            expect(screen.getByLabelText('Copy wizard command')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="sdk-continue"]')).toBeInTheDocument()
 
             await act(async () => {
                 sync.actions.runsLoaded([
