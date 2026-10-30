@@ -272,6 +272,8 @@ The shadow run has a fixed workflow id per DAG and cadence tier: `execute-dag-tr
 If the previous shadow run with that id is still running, the new one is skipped, so a slow Trino never builds a backlog.
 Shadow runs record their outcomes in managed warehouse job rows and metrics only: they run no data quality checks and send no failure notifications.
 Preemption is scoped to the run's engine, so the ClickHouse and Trino runs of a tier never cancel each other's jobs.
+A Trino run never cancels a running build, because cancelling a Trino build does not stop its SQL. It only reaps job rows whose workflow has ended.
+Each Trino build of a node has a fixed workflow id, so Temporal starts at most one build of that node at a time. A run that reaches a node another run is building skips it and its Trino dependents.
 A single-model materialization started outside a DAG run does not start a Trino shadow.
 Within the shadow run, the DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or is ineligible for shadowing.
 Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous behavior, including the shadow inside the ClickHouse materialization.

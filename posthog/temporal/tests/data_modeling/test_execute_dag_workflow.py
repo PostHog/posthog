@@ -1,11 +1,14 @@
 import uuid
 import asyncio
+import logging
 import datetime as dt
+from collections.abc import Callable, Iterator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
+import temporalio.client
 import temporalio.worker
 import temporalio.exceptions
 from temporalio import (
@@ -30,6 +33,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
+    TRINO_CHILD_LOCK_PATCH,
     EmptyDAGOrCycleError,
     ExecuteDAGInputs,
     ExecuteDAGResult,
@@ -1338,3 +1342,210 @@ class TestTrinoShadowRun:
             if call.args[0] == preempt_dag_run_activity
         )
         assert preempt_inputs.engine == engine.value
+
+
+@frozen(slots=False)
+class HeldChild:
+    node_id: str
+    parent_workflow_id: str
+
+
+# Keyed by child workflow id. The stub writes it from workflow code and the test reads it, which
+# works because the unsandboxed runner runs workflows in this process.
+_held_children: dict[str, HeldChild] = {}
+_child_starts: list[HeldChild] = []
+_peak_builds_per_node: dict[str, int] = {}
+
+
+@temporal_workflow.defn(name="data-modeling-materialize-view")
+class HeldMockMaterializeViewWorkflow:
+    def __init__(self) -> None:
+        self._released = False
+
+    @temporal_workflow.signal
+    def release(self) -> None:
+        self._released = True
+
+    @temporal_workflow.run
+    async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
+        info = temporal_workflow.info()
+        assert info.parent is not None
+        child = HeldChild(node_id=inputs.node_id, parent_workflow_id=info.parent.workflow_id)
+        _held_children[info.workflow_id] = child
+        _child_starts.append(child)
+        building = sum(1 for held in _held_children.values() if held.node_id == inputs.node_id)
+        _peak_builds_per_node[inputs.node_id] = max(_peak_builds_per_node.get(inputs.node_id, 0), building)
+        try:
+            await temporal_workflow.wait_condition(lambda: self._released)
+        finally:
+            _held_children.pop(info.workflow_id, None)
+        return MaterializeViewWorkflowResult(
+            job_id=f"job-{inputs.node_id}",
+            node_id=inputs.node_id,
+            rows_materialized=1,
+            duration_seconds=1,
+            trino_materialized=True,
+        )
+
+
+async def _wait_until(predicate: Callable[[], bool], timeout_seconds: float = 20) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, "condition not reached"
+        await asyncio.sleep(0.05)
+
+
+class TestTrinoModelLock:
+    @pytest.fixture(autouse=True)
+    def reset_state(self, caplog: pytest.LogCaptureFixture) -> Iterator[None]:
+        caplog.set_level(logging.INFO, logger="temporalio.workflow")
+        caplog.set_level(logging.INFO, logger="temporalio.activity")
+        for state in (_held_children, _child_starts, _peak_builds_per_node, _recorded_skipped_nodes):
+            state.clear()
+        yield
+        for state in (_held_children, _child_starts, _peak_builds_per_node, _recorded_skipped_nodes):
+            state.clear()
+
+    @pytest.mark.parametrize(
+        "winner_nodes,loser_nodes,edges,built_side_by_side,expected_loser_skips",
+        [
+            pytest.param(
+                ["a", "b"],
+                ["b", "c"],
+                [],
+                {"a", "b", "c"},
+                {"b": "Being built by another run"},
+                id="overlapping_models",
+            ),
+            pytest.param(
+                ["a"],
+                ["a", "b"],
+                [("a", "b")],
+                {"a"},
+                {"a": "Being built by another run", "b": "Upstream Trino materialization unavailable"},
+                id="downstream_of_a_model_another_run_builds",
+            ),
+        ],
+    )
+    async def test_two_trino_runs_never_build_the_same_model_at_once(
+        self,
+        winner_nodes: list[str],
+        loser_nodes: list[str],
+        edges: list[tuple[str, str]],
+        built_side_by_side: set[str],
+        expected_loser_skips: dict[str, str],
+    ) -> None:
+        dag_id = str(uuid.uuid4())
+        winner_id = f"execute-dag-trino-{dag_id}:3600"
+        loser_id = f"execute-dag-trino-{dag_id}-manual"
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=["a", "b", "c"], executable_nodes=["a", "b", "c"], edges=edges)
+
+        def held_by(parent_workflow_id: str) -> list[str]:
+            return [
+                child_id for child_id, held in _held_children.items() if held.parent_workflow_id == parent_workflow_id
+            ]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, HeldMockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+
+                async def start(workflow_id: str, node_ids: list[str]) -> temporalio.client.WorkflowHandle:
+                    return await env.client.start_workflow(
+                        ExecuteDAGWorkflow.run,
+                        ExecuteDAGInputs(
+                            team_id=1, dag_id=dag_id, node_ids=node_ids, managed_warehouse_only=True, shadow=True
+                        ),
+                        id=workflow_id,
+                        task_queue="test-queue",
+                        execution_timeout=dt.timedelta(hours=1),
+                    )
+
+                async def release(child_ids: list[str]) -> None:
+                    for child_id in child_ids:
+                        await env.client.get_workflow_handle(child_id).signal(HeldMockMaterializeViewWorkflow.release)
+
+                # Nothing here waits on a timer. With time skipping on, the server jumps to the
+                # winner's execution timeout as soon as every workflow waits for a signal.
+                with env.auto_time_skipping_disabled():
+                    winner = await start(winner_id, winner_nodes)
+                    await _wait_until(lambda: len(held_by(winner_id)) == len(winner_nodes))
+                    loser = await start(loser_id, loser_nodes)
+                    await _wait_until(lambda: {held.node_id for held in _held_children.values()} == built_side_by_side)
+
+                    await release(held_by(loser_id))
+                    loser_result: ExecuteDAGResult = await asyncio.wait_for(loser.result(), timeout=20)
+                    await release(held_by(winner_id))
+                    winner_result: ExecuteDAGResult = await asyncio.wait_for(winner.result(), timeout=20)
+
+        assert max(_peak_builds_per_node.values()) == 1
+        assert winner_result.successful_nodes == len(winner_nodes)
+        assert loser_result.failed_nodes == 0
+        assert {r.node_id: r.skip_reason for r in loser_result.node_results if r.skipped} == expected_loser_skips
+        assert [child.node_id for child in _child_starts if child.parent_workflow_id == loser_id] == sorted(
+            set(loser_nodes) - set(expected_loser_skips)
+        )
+        [recorded] = _recorded_skipped_nodes
+        assert recorded.engine == DataModelingJobEngine.MANAGED_WAREHOUSE.value
+        assert sorted(skipped.node_id for skipped in recorded.skipped_nodes) == sorted(expected_loser_skips)
+
+    async def test_a_history_from_before_the_lock_replays(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original_patched = temporal_workflow.patched
+
+        def legacy_patched(patch_id: str) -> bool:
+            return False if patch_id == TRINO_CHILD_LOCK_PATCH else original_patched(patch_id)
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[("a", "b")])
+
+        workflow_id = f"execute-dag-trino-{uuid.uuid4()}"
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                monkeypatch.setattr(temporal_workflow, "patched", legacy_patched)
+                await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="dag", managed_warehouse_only=True, shadow=True),
+                    id=workflow_id,
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(minutes=5),
+                )
+                history = await env.client.get_workflow_handle(workflow_id).fetch_history()
+                monkeypatch.setattr(temporal_workflow, "patched", original_patched)
+
+        child_ids = [
+            event.start_child_workflow_execution_initiated_event_attributes.workflow_id
+            for event in history.events
+            if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+        ]
+        assert len(child_ids) == 2
+        assert not any(child_id.endswith("-trino") for child_id in child_ids)
+        await temporalio.worker.Replayer(
+            workflows=[ExecuteDAGWorkflow],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)

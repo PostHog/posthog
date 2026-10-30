@@ -59,7 +59,16 @@ async def adag_local(ateam):
 
 
 class TestRecordSkippedDataModelingJobs:
-    async def test_writes_a_skip_row_naming_every_blocking_upstream(self, ateam, adag_local):
+    @pytest.mark.parametrize(
+        "built_by_another_run,expected_error",
+        [
+            (False, "Skipped because upstream views orders_daily and customers_daily are failing."),
+            (True, "Skipped because another run is already building this view."),
+        ],
+    )
+    async def test_writes_a_skip_row_naming_why_it_was_skipped(
+        self, ateam, adag_local, built_by_another_run: bool, expected_error: str
+    ):
         blocked, blocked_query = await _make_node(ateam, adag_local, "rollup_daily")
         parent_a, _ = await _make_node(ateam, adag_local, "orders_daily")
         parent_b, _ = await _make_node(ateam, adag_local, "customers_daily")
@@ -68,7 +77,9 @@ class TestRecordSkippedDataModelingJobs:
             ateam,
             adag_local,
             [
-                SkippedDataModelingNode(
+                SkippedDataModelingNode(node_id=str(blocked.id), built_by_another_run=True)
+                if built_by_another_run
+                else SkippedDataModelingNode(
                     node_id=str(blocked.id),
                     failed_upstream_node_ids=[str(parent_a.id), str(parent_b.id)],
                     failed_upstream_total=2,
@@ -83,7 +94,7 @@ class TestRecordSkippedDataModelingJobs:
         assert job.status == DataModelingJobStatus.SKIPPED
         assert job.rows_materialized == 0
         assert job.parent_workflow_id == WORKFLOW_ID
-        assert job.error == "Skipped because upstream views orders_daily and customers_daily are failing."
+        assert job.error == expected_error
 
     async def test_counts_the_upstreams_it_cannot_name(self, ateam, adag_local):
         blocked, blocked_query = await _make_node(ateam, adag_local, "rollup_daily")

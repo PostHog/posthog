@@ -73,20 +73,23 @@ async def _run_activity(
 ) -> list[str]:
     """Run the activity against a stubbed Temporal client, returning the workflows it cancelled.
 
-    `workflow_status` maps a workflow id to what describe() does: a status to report, or an
-    exception to raise. Anything unlisted is reported as still RUNNING.
+    `workflow_status` maps a workflow id, or `{workflow_id}:{run_id}` for one run of it, to what
+    describe() does: a status to report, or an exception to raise. Anything unlisted is reported
+    as still RUNNING.
     """
     cancelled: list[str] = []
     statuses: dict[str, WorkflowExecutionStatus | Exception] = workflow_status or {}
 
-    def get_workflow_handle(workflow_id: str) -> unittest.mock.MagicMock:
+    def get_workflow_handle(workflow_id: str, run_id: str | None = None) -> unittest.mock.MagicMock:
         handle = unittest.mock.MagicMock()
 
         async def cancel() -> None:
             cancelled.append(workflow_id)
 
         async def describe() -> unittest.mock.MagicMock:
-            outcome = statuses.get(workflow_id, WorkflowExecutionStatus.RUNNING)
+            outcome = statuses.get(
+                f"{workflow_id}:{run_id}", statuses.get(workflow_id, WorkflowExecutionStatus.RUNNING)
+            )
             if isinstance(outcome, Exception):
                 raise outcome
             description = unittest.mock.MagicMock()
@@ -123,7 +126,7 @@ async def _run_activity(
         (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE),
     ],
 )
-async def test_preempt_only_cancels_the_runs_own_engine(
+async def test_preempt_only_touches_the_runs_own_engine(
     preempting_engine: DataModelingJobEngine, spared_engine: DataModelingJobEngine, ateam
 ) -> None:
     jobs = {
@@ -137,13 +140,78 @@ async def test_preempt_only_cancels_the_runs_own_engine(
         for engine in (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
     }
 
-    cancelled = await _run_activity(ateam.pk, [NODE_HOURLY], engine=preempting_engine)
+    await _run_activity(
+        ateam.pk,
+        [NODE_HOURLY],
+        workflow_status={job.workflow_id or "": WorkflowExecutionStatus.COMPLETED for job in jobs.values()},
+        engine=preempting_engine,
+    )
 
     for job in jobs.values():
         await database_sync_to_async(job.refresh_from_db)()
-    assert cancelled == [jobs[preempting_engine].workflow_id]
     assert jobs[preempting_engine].status == DataModelingJobStatus.FAILED
     assert jobs[spared_engine].status == DataModelingJobStatus.RUNNING
+
+
+@pytest.mark.parametrize(
+    "engine,workflow_status,expect_cancelled,expected_status,expected_error",
+    [
+        pytest.param(
+            DataModelingJobEngine.CLICKHOUSE,
+            WorkflowExecutionStatus.RUNNING,
+            True,
+            DataModelingJobStatus.FAILED,
+            PREEMPTED_ERROR,
+            id="clickhouse_build_is_preempted",
+        ),
+        # Cancelling a Trino build does not stop its SQL, so the old build would keep writing the
+        # table while the new run writes it too.
+        pytest.param(
+            DataModelingJobEngine.MANAGED_WAREHOUSE,
+            WorkflowExecutionStatus.RUNNING,
+            False,
+            DataModelingJobStatus.RUNNING,
+            None,
+            id="running_trino_build_is_left_alone",
+        ),
+        pytest.param(
+            DataModelingJobEngine.MANAGED_WAREHOUSE,
+            WorkflowExecutionStatus.TERMINATED,
+            False,
+            DataModelingJobStatus.FAILED,
+            ABANDONED_ERROR,
+            # A later build of the node runs under the same fixed id, so only the row's own run
+            # shows that this row is a corpse.
+            id="abandoned_trino_build_is_reaped",
+        ),
+    ],
+)
+async def test_an_owned_build_is_preempted_only_on_clickhouse(
+    engine: DataModelingJobEngine,
+    workflow_status: WorkflowExecutionStatus,
+    expect_cancelled: bool,
+    expected_status: DataModelingJobStatus,
+    expected_error: str | None,
+    ateam,
+) -> None:
+    workflow_id = f"materialize-view-{DAG_ID}-{NODE_HOURLY}-trino"
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        status=DataModelingJobStatus.RUNNING,
+        engine=engine,
+        workflow_id=workflow_id,
+        workflow_run_id="run-1",
+        parent_workflow_id=PARENT_HOURLY,
+    )
+
+    cancelled = await _run_activity(
+        ateam.pk, [NODE_HOURLY], workflow_status={f"{workflow_id}:run-1": workflow_status}, engine=engine
+    )
+
+    await database_sync_to_async(job.refresh_from_db)()
+    assert cancelled == ([workflow_id] if expect_cancelled else [])
+    assert job.status == expected_status
+    assert job.error == expected_error
 
 
 @pytest.mark.parametrize(
