@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     AsyncClient,
@@ -3020,6 +3021,50 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
     request = RequestFactory().get(path)
 
     assert middleware._should_instrument(request) is expected
+
+
+def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
+    assert len(connection.execute_wrappers) == 1
+    return HttpResponse()
+
+
+class _PgQueryCountRoutes:
+    urlpatterns = [path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail")]
+
+
+@override_settings(ROOT_URLCONF=_PgQueryCountRoutes, MIDDLEWARE=["posthog.middleware.QueryTimeCountingMiddleware"])
+class TestQueryTimeCountingMiddlewarePgQueryMetric(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("server_timing_on", True, "GET", "GET"),
+            ("server_timing_off", False, "POST", "POST"),
+            ("unknown_method", False, "PURGE", "other"),
+        ]
+    )
+    def test_records_route_name_not_path(
+        self, _name: str, capture_time_to_see_data: bool, method: str, expected_method_label: str
+    ) -> None:
+        client = MagicMock()
+        with (
+            override_settings(CAPTURE_TIME_TO_SEE_DATA=capture_time_to_see_data),
+            patch("posthog.middleware.posthoganalytics.default_client", client),
+        ):
+            self.client.generic(method, "/api/projects/2/insights/7/")
+
+        client.metrics.histogram.assert_called_once_with(
+            "api.request.pg_queries",
+            0,
+            unit="{query}",
+            attributes={"route": "insight-detail", "method": expected_method_label, "status_class": "2xx"},
+        )
+
+    @parameterized.expand([("unresolved_api_path", "/api/unknown/"), ("non_api_path", "/insights/7/")])
+    def test_skips_requests_without_an_api_route(self, _name: str, path_: str) -> None:
+        client = MagicMock()
+        with patch("posthog.middleware.posthoganalytics.default_client", client):
+            self.client.get(path_)
+
+        client.metrics.histogram.assert_not_called()
 
 
 class TestPerRequestLoggingContextMiddlewareMcpHeaders(SimpleTestCase):
