@@ -225,9 +225,11 @@ posthog/hogql/scripts/.local/
 rust/cohort-store/
 rust/cohort-stream-processor/cohort-store/
 
-# Build output of a local cyclotron-node addon build
-rust/cyclotron-node/index.node
-rust/cyclotron-node/dist/
+# Build output of Rust node addons. Each addon also ignores its own output.
+# This root rule keeps a local leftover ignored after an addon is deleted
+# together with its .gitignore, so `git add -A` cannot commit it.
+rust/**/*.node
+rust/**/dist/
 
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem
