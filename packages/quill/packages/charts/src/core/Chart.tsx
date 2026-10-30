@@ -199,39 +199,12 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
-        valueFormatter: tooltipValueFormatter,
-        labelFormatter: tooltipLabelFormatter,
-        showTotal: tooltipShowTotal,
-        totalLabel: tooltipTotalLabel,
-        totalFormatter: tooltipTotalFormatter,
-        sortedByValue: tooltipSortedByValue,
+        ...defaultTooltipOptions
     } = tooltipConfig ?? {}
 
-    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
-    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
-        () =>
-            renderTooltipProp ??
-            ((ctx: TooltipContext<Meta>) => (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={tooltipValueFormatter}
-                    labelFormatter={tooltipLabelFormatter}
-                    showTotal={tooltipShowTotal}
-                    totalLabel={tooltipTotalLabel}
-                    totalFormatter={tooltipTotalFormatter}
-                    sortedByValue={tooltipSortedByValue}
-                />
-            )),
-        [
-            renderTooltipProp,
-            tooltipValueFormatter,
-            tooltipLabelFormatter,
-            tooltipShowTotal,
-            tooltipTotalLabel,
-            tooltipTotalFormatter,
-            tooltipSortedByValue,
-        ]
-    )
+    // No render prop: render DefaultTooltip with config.tooltip's content options.
+    const renderTooltip =
+        renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} {...defaultTooltipOptions} />)
 
     const margins = useChartMargins({
         series,

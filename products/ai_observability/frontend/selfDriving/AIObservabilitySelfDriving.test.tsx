@@ -31,6 +31,7 @@ jest.mock('products/alerts/frontend/generated/api', () => ({
 jest.mock('lib/utils/newInternalTab')
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    ...jest.requireActual('products/signals/frontend/generated/api'),
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
 }))

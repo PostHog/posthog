@@ -67,13 +67,13 @@ export interface TimeSeriesLineChartConfig {
      *  ascending time order. Defaults to `index`. */
     xScale?: 'index' | 'time'
     /** Time scale only: the x-axis span as `[from, to]` epoch milliseconds, for example a dashboard
-     *  time range wider than the data. Defaults to the first and last label. */
+     *  time range wider than the data. Defaults to the earliest and latest label. */
     xDomain?: readonly [number, number]
     /** Draw lines and areas across missing (non-finite) values instead of breaking them. With
      *  `xScale: 'time'`, a number bridges only gaps up to that many milliseconds and breaks the line
      *  across longer ones, even where no label falls. See {@link LineChartConfig.connectNulls}. */
     connectNulls?: boolean | number
-    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig

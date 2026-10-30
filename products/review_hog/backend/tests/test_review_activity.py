@@ -887,20 +887,18 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
 
 
 @pytest.mark.parametrize(
-    "trigger_source,commands_on,review_mode,expected_hint,note_names_deep",
+    "trigger_source,commands_on,review_mode,note_names_deep",
     [
-        # The label footer names the Deep command, so the first review note does not repeat it.
-        pytest.param("label", True, REVIEW_MODE_FLASH, "@posthog review --deep", False, id="label_with_commands"),
-        pytest.param("label", False, REVIEW_MODE_FLASH, None, False, id="label_without_commands"),
-        pytest.param("automatic", True, REVIEW_MODE_FLASH, None, True, id="automatic_standard"),
-        pytest.param("automatic", False, REVIEW_MODE_FLASH, None, False, id="automatic_without_commands"),
-        pytest.param("comment", True, REVIEW_MODE_FULL, None, False, id="deep_review"),
+        pytest.param("stamphog", True, REVIEW_MODE_FLASH, True, id="stamphog_standard"),
+        pytest.param("automatic", True, REVIEW_MODE_FLASH, True, id="automatic_standard"),
+        pytest.param("automatic", False, REVIEW_MODE_FLASH, False, id="automatic_without_commands"),
+        pytest.param("comment", True, REVIEW_MODE_FULL, False, id="deep_review"),
     ],
 )
 def test_a_review_points_to_the_review_ui_and_the_comment_commands(
-    trigger_source: str, commands_on: bool, review_mode: str, expected_hint: str | None, note_names_deep: bool
+    trigger_source: str, commands_on: bool, review_mode: str, note_names_deep: bool
 ) -> None:
-    # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
+    # The note advertises `@posthog` commands, so it must not appear where they do not run.
     publish = MagicMock(return_value=PublishOutcome(posted=True))
     with (
         patch(f"{_MODULE}._installation_auth", return_value=("token", "1")),
@@ -922,8 +920,6 @@ def test_a_review_points_to_the_review_ui_and_the_comment_commands(
             )
         )
 
-    footer = publish.call_args.kwargs["footer"]
-    assert (expected_hint in footer) if expected_hint else footer == ""
     note = publish.call_args.kwargs["first_review_note"]
     assert "/project/1/code-review?review=rep-1" in note
     assert ("@posthog review --deep" in note) is note_names_deep

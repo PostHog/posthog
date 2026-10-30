@@ -8,6 +8,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo, Mocks } from '~/mocks/utils'
+import {
+    AccountsTableAccountField,
+    type AccountsTableQuery,
+    type AccountsTableResolvedColumn,
+} from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
@@ -17,7 +22,7 @@ import type {
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias, relationshipAlias } from './accountsColumnConfigLogic'
 
 const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const COLUMN_CONFIGURATIONS_ENDPOINT = 'api/projects/:team_id/column_configurations/'
@@ -79,9 +84,28 @@ const RELATIONSHIP_DEFINITIONS = {
 
 function buildAccountsTableQueryResponse(
     rows: AccountRow[],
-    customProperties: Record<string, string> = {}
+    customProperties: Record<string, string> = {},
+    definitions: CustomPropertyDefinitionApi[] = [],
+    query?: AccountsTableQuery
 ): Record<string, unknown> {
+    const columns: AccountsTableResolvedColumn[] =
+        query?.useDefaultColumns || !query
+            ? [
+                  { kind: 'account_field', field: AccountsTableAccountField.Name },
+                  { kind: 'tags' },
+                  { kind: 'note_count' },
+                  ...RELATIONSHIP_DEFINITIONS.results.map(
+                      ({ id }): AccountsTableResolvedColumn => ({ kind: 'relationship', definitionId: id })
+                  ),
+              ]
+            : query.columns
     return {
+        columns,
+        customPropertyDefinitions: definitions,
+        relationshipDefinitions: RELATIONSHIP_DEFINITIONS.results.map((definition) => ({
+            ...definition,
+            is_controlled: false,
+        })),
         kind: 'AccountsTableQuery',
         results: rows.map(([account, tags, noteCount, csm, accountExecutive, accountOwner]) => ({
             id: account.id,
@@ -286,10 +310,11 @@ const EXPANDED_ROW_TEST_OPTIONS = {
 
 function mockAccountsTableQuery(
     rows: AccountRow[],
-    customProperties: Record<string, string> = {}
+    customProperties: Record<string, string> = {},
+    definitions: CustomPropertyDefinitionApi[] = []
 ): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
-        const body = (await request.json()) as { query?: { kind?: string; metrics?: unknown[] } }
+        const body = (await request.json()) as { query?: AccountsTableQuery }
         const query = body?.query
         if (query?.kind === 'AccountsTableQuery') {
             return query.metrics
@@ -304,7 +329,7 @@ function mockAccountsTableQuery(
                           metricsResults: [rows.length],
                       },
                   ]
-                : [200, buildAccountsTableQueryResponse(rows, customProperties)]
+                : [200, buildAccountsTableQueryResponse(rows, customProperties, definitions, query)]
         }
         return undefined
     }
@@ -409,7 +434,7 @@ export const ManyColumns: Story = {
             JSON.stringify({
                 columns: [
                     ...ACCOUNTS_DEFAULT_COLUMNS,
-                    'csm',
+                    `accounts.relationships.values.\`${RELATIONSHIP_DEFINITIONS.results[0].id}\` AS ${relationshipAlias(RELATIONSHIP_DEFINITIONS.results[0].id)}`,
                     'external_id',
                     ...ADDITIONAL_COLUMN_DEFINITIONS.map(
                         ({ id }) => `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
@@ -435,7 +460,11 @@ export const ManyColumns: Story = {
                 },
             },
             post: {
-                [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS, ADDITIONAL_COLUMN_VALUES),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(
+                    SAMPLE_ROWS,
+                    ADDITIONAL_COLUMN_VALUES,
+                    ADDITIONAL_COLUMN_DEFINITIONS
+                ),
             },
         }),
     ],
@@ -577,7 +606,7 @@ export const ClearCustomProperties: Story = {
                     },
                 },
                 post: {
-                    [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW, values),
+                    [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW, values, CLEARABLE_PROPERTY_DEFINITIONS),
                     [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: async ({ request }) => {
                         const body = (await request.json()) as { definition: string; value: unknown }
                         if (body.value !== null) {

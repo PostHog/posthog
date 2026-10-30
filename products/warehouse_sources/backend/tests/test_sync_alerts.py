@@ -17,15 +17,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts.backend.facade.destinations import (
-    MAX_DESTINATIONS_PER_ALERT,
-    list_alert_destination_groups,
-    list_delivery_destination_groups,
-)
+from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
     delete_configuration,
+    list_alert_destinations,
     list_configurations,
     record_outcomes,
     slot_of,
@@ -33,7 +30,6 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
-    DestinationType,
     Grouping,
     GroupingMode,
     IncidentAction,
@@ -42,14 +38,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
-from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.presentation.views import warehouse_alert_destinations as destinations_view
-from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS, EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.destinations import EVENT_IDS_BY_KIND
+from products.warehouse_sources.backend.sync_alerts.email_recipients import project_member_emails
 from products.warehouse_sources.backend.sync_alerts.evaluation import evaluate_warehouse_alert_batch
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
@@ -132,15 +126,14 @@ class TestWarehouseAlerts(APIBaseTest):
             self.cutoff += timedelta(minutes=5)
             platform_testing.set_due_at(configuration_id, self.cutoff - timedelta(minutes=1))
 
-    def _add_pagerduty(self, configuration_id: UUID) -> list[str]:
-        sync_template_to_db(template_pagerduty)
+    def _add_pagerduty(self, configuration_id: UUID) -> str:
         added = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/",
             {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
             format="json",
         )
         assert added.status_code == status.HTTP_201_CREATED, added.json()
-        return added.json()["hog_function_ids"]
+        return added.json()["id"]
 
     def _create_on_the_platform(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/platform_alerts/", body, format="json")
@@ -423,7 +416,6 @@ class TestWarehouseAlerts(APIBaseTest):
         assert response.status_code == expected, response.json()
 
     def test_an_alert_and_its_slack_destination_route_a_failure_to_that_channel(self) -> None:
-        sync_template_to_db(template_slack)
         schema = self._schema(self._source(), "charges", Status.FAILED)
 
         created = self._create_on_the_platform(
@@ -442,16 +434,24 @@ class TestWarehouseAlerts(APIBaseTest):
         destinations_url = f"/api/projects/{self.team.id}/warehouse_alerts/{alert['id']}/destinations/"
         added = self.client.post(
             destinations_url,
-            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "data"},
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "data",
+                "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
+            },
             format="json",
         )
         assert added.status_code == status.HTTP_201_CREATED, added.json()
-        hog_function_ids = added.json()["hog_function_ids"]
         (listed,) = self.client.get(destinations_url).json()
-        assert (listed["type"], listed["slack_channel_id"], sorted(listed["hog_function_ids"])) == (
+        assert listed == added.json()
+        # A Slack row keeps no PagerDuty setting, neither the defaults nor a key sent alongside.
+        assert not {key for key in listed if key.startswith("pagerduty_")}
+        assert (listed["type"], listed["slack_channel_id"], listed["event_kinds"]) == (
             "slack",
             "C123",
-            sorted(hog_function_ids),
+            ["firing", "resolved"],
         )
 
         with team_scope(self.team.id):
@@ -464,14 +464,26 @@ class TestWarehouseAlerts(APIBaseTest):
         assert delivery.destination_alert_id == alert["id"]
         firing_event_id = delivery.event_ids_by_kind[AlertEventKind.FIRING.value]
         assert firing_event_id == EVENT_IDS_BY_KIND[SourceKind.WAREHOUSE_SOURCE]["firing"]
-        (routed,) = list_alert_destination_groups(
-            team_id=self.team.id, alert_id=delivery.destination_alert_id, allowed_event_ids=[firing_event_id]
-        )
-        assert routed.data["slack_channel_id"] == "C123"
 
         deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{alert['id']}/")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
-        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=UUID(alert["id"])) == ()
+
+    def test_deleting_a_destination_refuses_an_id_of_another_alert(self) -> None:
+        mine = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+        other = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+        kept, theirs = self._add_pagerduty(mine), self._add_pagerduty(other)
+        delete_url = f"/api/projects/{self.team.id}/warehouse_alerts/{mine}/destinations/delete/"
+
+        refused = self.client.post(delete_url, {"destination_ids": [kept, theirs]}, format="json")
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
+        assert [len(list_alert_destinations(team_id=self.team.id, configuration_id=id_)) for id_ in (mine, other)] == [
+            1,
+            1,
+        ]
+
+        assert self.client.post(delete_url, {"destination_ids": [kept]}, format="json").status_code == 204
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=mine) == ()
 
     @parameterized.expand(
         [
@@ -503,23 +515,22 @@ class TestWarehouseAlerts(APIBaseTest):
     def test_deleting_a_firing_alert_resolves_its_incident_before_the_destination_goes(self) -> None:
         schema = self._schema(self._source(), "charges", Status.FAILED)
         configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {"group_by": "schema"}, "schema_id")
-        hog_function_ids = self._add_pagerduty(configuration_id)
+        self._add_pagerduty(configuration_id)
         self._next_check(configuration_id, self._only_outcome(self._evaluate(SourceKind.WAREHOUSE_SOURCE)))
         sent: list[tuple[str, dict[str, IncidentAction], int]] = []
 
         def deliver(request: Any) -> None:
-            live = HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count()
+            live = len(list_alert_destinations(team_id=self.team.id, configuration_id=configuration_id))
             sent.append((request.destination_alert_id, request.incident_actions, live))
 
         with patch("products.alerts_platform.backend.temporal.web_start.deliver_evaluation", side_effect=deliver):
             deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{configuration_id}/")
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
-        assert sent == [(str(configuration_id), {str(schema.id): IncidentAction.RESOLVE}, len(hog_function_ids))]
-        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+        assert sent == [(str(configuration_id), {str(schema.id): IncidentAction.RESOLVE}, 1)]
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration_id) == ()
 
     def test_an_alert_takes_only_a_few_destinations(self) -> None:
-        sync_template_to_db(template_slack)
         configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
         destinations_url = f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/"
 
@@ -539,7 +550,6 @@ class TestWarehouseAlerts(APIBaseTest):
         assert len(self.client.get(destinations_url).json()) == MAX_DESTINATIONS_PER_ALERT
 
     def test_a_destination_added_while_its_alert_is_deleted_is_refused(self) -> None:
-        sync_template_to_db(template_slack)
         configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
         real_get_configuration = destinations_view.get_configuration
 
@@ -561,7 +571,7 @@ class TestWarehouseAlerts(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
-        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration_id) == ()
 
     @parameterized.expand(
         [
@@ -675,20 +685,9 @@ class TestWarehouseAlerts(APIBaseTest):
         configuration_id = self._alert(kind, {"email_project_members": email_project_members}, grouping_key)
         expected = sorted([self.user.email, person.email] if reached else [self.user.email])
 
-        groups_by_event = {
-            event_id: list_delivery_destination_groups(
-                team_id=self.team.id, alert_id=str(configuration_id), allowed_event_ids=[event_id]
-            )
-            for event_id in EVENT_IDS[kind]
-        }
-
-        message_event_ids = set(EVENT_IDS_BY_KIND[kind].values())
-        assert {event_id: [group.data for group in groups] for event_id, groups in groups_by_event.items()} == {
-            event_id: [{"type": DestinationType.EMAIL, "email_addresses": expected}]
-            if email_project_members and event_id in message_event_ids
-            else []
-            for event_id in EVENT_IDS[kind]
-        }
+        assert project_member_emails(team_id=self.team.id, configuration_id=configuration_id) == (
+            expected if email_project_members else []
+        )
 
     def test_a_failing_table_emails_the_project_members_of_an_alert_that_emails_them(self) -> None:
         self._person("member")

@@ -10,6 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, User
 from posthog.temporal.common.client import sync_connect
 
@@ -291,7 +292,7 @@ def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization
     # A leaked run or backfill would get past the lookup and reach Temporal instead of raising.
     for read_run in (api.get_batch_export_run, api.retry_batch_export_run, api.cancel_batch_export_run):
         with pytest.raises(contracts.BatchExportRunNotFoundError):
-            read_run(team_id, scoped_export_id, run_id, filters=every_run)
+            read_run(team_id, scoped_export_id, run_id)
     for read_backfill in (api.get_batch_export_backfill, api.cancel_batch_export_backfill):
         with pytest.raises(contracts.BatchExportBackfillNotFoundError):
             read_backfill(team_id, scoped_export_id, backfill_id)
@@ -427,7 +428,7 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
 
     with (
         mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
-        pytest.raises(Integration.DoesNotExist),
+        pytest.raises(IntegrationNotFound),
     ):
         api.run_destination_test_step(
             team.pk,
