@@ -13,11 +13,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
+from . import task_profiles
 from .constants import BK_MCP_SCOPES
 from .github_repos import repository_tools_enabled
 from .logic import KnowledgeSearchResult, get_always_on_context
@@ -233,11 +234,6 @@ def open_sandbox_task_ids(*, team_id: int, user_id: int) -> set[UUID]:
     )
 
 
-def _distinct_id_for(user_id: int) -> str:
-    distinct_id = User.objects.filter(pk=user_id).values_list("distinct_id", flat=True).first()
-    return str(distinct_id)
-
-
 def start_sandbox_run(
     *,
     team: Team,
@@ -252,38 +248,35 @@ def start_sandbox_run(
     its own lock. The default allows one open run per person. `on_admitted` runs in the same
     transaction, so a playground turn is stored with the task or not at all.
     """
-    origin = tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE
     with transaction.atomic():
         if admit is None:
             _admit_one_run_per_owner(team.id, user_id)
         else:
             admit()
+        network = task_profiles.BUSINESS_KNOWLEDGE.network
         env_id = tasks_facade.upsert_internal_sandbox_env(
             team.id,
             BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
             private=False,
             internal=True,
-            allowed_domains=[],
-            include_default_domains=False,
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
         always_on = format_always_on_context(get_always_on_context(team.id))
         created = tasks_facade.create_and_run_task(
             team=team,
             title=_title_for(question),
-            description=build_sandbox_prompt(
-                question, always_on, repo_tools=repository_tools_enabled(team, _distinct_id_for(user_id))
-            ),
-            origin_product=origin,
+            description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
+            profile=task_profiles.BUSINESS_KNOWLEDGE,
             user_id=user_id,
-            repository=None,
-            create_pr=False,
-            internal=True,
             sandbox_environment_id=str(env_id),
-            posthog_mcp_scopes=BK_MCP_SCOPES,
-            model=SANDBOX_MODEL,
-            runtime_adapter=SANDBOX_RUNTIME_ADAPTER,
-            output_schema=SandboxAnswer,
+            options=TaskRunOptions(
+                model=SANDBOX_MODEL,
+                adapter=SANDBOX_RUNTIME_ADAPTER,
+                mcp_scopes=BK_MCP_SCOPES,
+                output_schema=SandboxAnswer.model_json_schema(),
+            ),
             extra_run_state={
                 "mcp_exclude_tools": BK_HIDDEN_TOOLS,
                 "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

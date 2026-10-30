@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Online trace and session evaluations run as project workflows. Their event reads include all
+properties regardless of default, role, or member property access rules and AI observability
+product access. Evaluation previews and interactive trace/session queries continue to apply
+the requesting user's permissions.
+
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
@@ -253,7 +258,7 @@ The editor updates the untouched Hog example when its category key changes, is r
 Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
-Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+Categorical events always set `$ai_evaluation_applicable`.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
 Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
@@ -274,6 +279,28 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
+Online evaluations and report result queries run as project workflows with complete event properties. Evaluation editors
+are trusted to configure workflows that read properties hidden from ordinary users. Grant Evaluations editor access only
+to people authorized to process the full inputs. AI Observability and Evaluations have separate RBAC settings.
+
+Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
+
+- Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- Restrict `$ai_clusters` when evaluation cluster titles and descriptions may contain private content.
+- For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
+- If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
+  `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
+- Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
+  property rules on report events protect the event copy, not the stored report narrative.
+- Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
+  not check each recipient's PostHog property permissions.
+- Evaluation-report Inbox summaries are suppressed when the project has any event-property denial or a denial of access
+  to the evaluation, including default, member, and role rules. Inbox copies cannot enforce those source permissions.
+
+User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
+results even when the project's default rules hide those result properties from users.
+Report agents also read complete source conversations when inspecting trace or session evaluation results.
+
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
@@ -287,8 +314,12 @@ Large results reduce the number of examples returned; each returned example keep
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
 
 The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
 Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
-The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

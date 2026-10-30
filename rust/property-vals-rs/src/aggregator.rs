@@ -17,6 +17,12 @@ impl Aggregator {
         *self.counts.entry(tuple).or_insert(0) += count;
     }
 
+    pub fn merge(&mut self, other: Aggregator) {
+        for (tuple, count) in other.counts {
+            self.add(tuple, count);
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.counts.len()
     }

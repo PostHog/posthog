@@ -30,10 +30,11 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
-import { isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
+import { SessionRecordingPreviewFeed } from 'scenes/session-recordings/playlist/SessionRecordingPreviewFeed'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
@@ -91,6 +92,7 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const newLayout = watchLayout && isNewReplayLayout(replayLayout)
+    const feedLayout = newLayout && isFeedReplayLayout(replayLayout)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -115,7 +117,8 @@ export function Playlist({
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
     const watchListHeader = newLayout && !notebookNode
-    const watchFilterBar = watchListHeader && type !== 'collection'
+    // The feed layout hosts the filter bar above both columns, so the list only keeps its header.
+    const watchFilterBar = watchListHeader && type !== 'collection' && !feedLayout
 
     // bound outside here
     const {
@@ -159,7 +162,9 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        newLayout ? (
+        feedLayout ? (
+            <SessionRecordingPreviewFeed recording={item} isActive={isActive} selectable={selectMode} />
+        ) : newLayout ? (
             <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
@@ -314,7 +319,7 @@ export function Playlist({
                     />
                 </div>
             )}
-            {!watchFilterBar && !notebookNode && type !== 'collection' && (
+            {!watchListHeader && !notebookNode && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton

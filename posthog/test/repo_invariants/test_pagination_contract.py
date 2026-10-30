@@ -34,6 +34,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.EndpointsHealthViewSet",
     # Returns one bounded object (capped at MAP_EDGES_LIMIT edges over a bounded trace sample), not a page of rows.
     "products.apm.backend.presentation.views.ServiceMapViewSet",
+    # Returns the team's 20 most recent import runs, not a page of rows.
+    "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
@@ -219,6 +221,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
     "products.product_analytics.backend.presentation.events_retention.EventsRetentionViewSet",
+    # Returns the organization's one retention setting, not a page of rows.
+    "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",

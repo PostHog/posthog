@@ -80,7 +80,7 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Organization, Team, User
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -490,19 +490,16 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
 APP_EVALUATION_CONTEXT = "posthog-web-app"
 
 
-def flags_for_app_evaluation_context(
-    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
-) -> dict[str, Any] | None:
+def app_flag_keys(definitions: list[dict[str, Any]] | None) -> list[str] | None:
     """
-    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    The flags /flags returns for the app, which sends `evaluation_contexts: ['posthog-web-app']`
     from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
     also returns disabled flags and server-only flags, which /flags never sends to a browser.
+    None means the definitions have not loaded yet.
     """
-    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
-    if flags is None:
+    if definitions is None:
         return None
-    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
-    return {key: value for key, value in flags.items() if key not in excluded}
+    return [definition["key"] for definition in definitions if _app_evaluates_flag(definition)]
 
 
 def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
@@ -515,53 +512,70 @@ def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
 
 
 @frozen
-class _FlagIdentity:
+class FlagIdentity:
+    """The inputs the web app sends to /flags for a signed-in user, for a local evaluation of the app's flags."""
+
+    distinct_id: str
     person_properties: dict[str, Any]
     groups: dict[str, str]
     group_properties: dict[str, dict[str, Any]]
 
 
-def _flag_identity(current_user: dict[str, Any], joined_at: str) -> _FlagIdentity:
+def flag_identity(
+    user: "User",
+    team: "Team | None",
+    organization: "Organization | None",
+    *,
+    member_count: int | None = None,
+    project_count: int | None = None,
+) -> FlagIdentity | None:
     """
     Mirrors `userIdentity()` in `frontend/src/lib/utils/posthogIdentity.ts`, which sends these inputs to /flags.
     Local evaluation drops any flag it cannot decide from them, and decides a flag differently when they differ.
+    The organization serializer computes `member_count` and `project_count`, so a caller without it leaves them
+    out, and a flag that reads them stays undecided. None for a user without a distinct id, who gets no flags.
     """
+    # A worker loads the user with the fields it needs, and Django reads each other field in a query of its own.
+    deferred = {"distinct_id", "email", "anonymize_data", "date_joined"} & user.get_deferred_fields()
+    if deferred:
+        user.refresh_from_db(fields=sorted(deferred))
+    if not user.distinct_id:
+        return None
     groups: dict[str, str] = {}
     group_properties: dict[str, dict[str, Any]] = {}
-    organization = current_user.get("organization")
-    team = current_user.get("team")
-    metadata = (organization.get("metadata") or {}) if organization else {}
-    if team:
-        groups["project"] = team["uuid"]
+    if team is not None:
+        groups["project"] = str(team.uuid)
         group_properties["project"] = {
-            "id": team["id"],
-            "uuid": team["uuid"],
-            "name": team["name"],
-            "ingested_event": team["ingested_event"],
-            "is_demo": team["is_demo"],
-            "timezone": team["timezone"],
-            "instance_tag": metadata.get("instance_tag"),
+            "id": team.id,
+            "uuid": str(team.uuid),
+            "name": team.name,
+            "ingested_event": team.ingested_event,
+            "is_demo": team.is_demo,
+            "timezone": team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
         }
-    if organization:
-        groups["organization"] = organization["id"]
+    if organization is not None:
+        groups["organization"] = str(organization.id)
         group_properties["organization"] = {
-            "id": organization["id"],
-            "name": organization["name"],
-            "slug": organization["slug"],
-            "created_at": organization["created_at"],
-            "available_product_features": organization["available_product_features"],
-            "member_count": organization["member_count"],
-            "project_count": len(organization["teams"]),
-            **metadata,
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            # The serializer's datetime format.
+            "created_at": organization.created_at.isoformat().replace("+00:00", "Z"),
+            "available_product_features": organization.available_product_features,
+            **({"member_count": member_count} if member_count is not None else {}),
+            **({"project_count": project_count} if project_count is not None else {}),
+            "instance_tag": settings.INSTANCE_TAG,
         }
-        if organization.get("customer_id"):
-            groups["customer"] = organization["customer_id"]
+        if organization.customer_id:
+            groups["customer"] = organization.customer_id
     groups["instance"] = settings.SITE_URL
     group_properties["instance"] = {"site_url": settings.SITE_URL}
-    return _FlagIdentity(
+    return FlagIdentity(
+        distinct_id=user.distinct_id,
         person_properties={
-            "email": None if current_user["anonymize_data"] else current_user["email"],
-            "joined_at": joined_at,
+            "email": None if user.anonymize_data else user.email,
+            "joined_at": user.date_joined.isoformat(),
         },
         groups=groups,
         group_properties=group_properties,
@@ -704,7 +718,10 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-            if template_name == "index.html" and should_defer_app_context(request, user):
+            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
+            if variant:
+                posthog_app_context["deferred_app_context_variant"] = variant
+            if variant == "test":
                 # The page fetches the user's data from `app_context` while its JS loads.
                 posthog_app_context["deferred"] = True
                 posthog_distinct_id = user.distinct_id
@@ -813,14 +830,15 @@ DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
 DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
 
 
-def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
+def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
     """
-    Whether the app page leaves out the user's data and fetches it from `app_context` instead.
+    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
+    None means the user is outside the experiment.
     The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
     """
     param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
     if param is not None:
-        return param == "1"
+        return "test" if param == "1" else "control"
     try:
         variant = posthoganalytics.get_feature_flag(
             DEFERRED_APP_CONTEXT_FLAG,
@@ -836,26 +854,40 @@ def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
                 distinct_id=str(user.distinct_id),
                 properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
             )
-        return variant == "test"
+            return variant
+        return None
     except Exception as e:
         capture_exception(e)
-        return False
+        return None
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
-    distinct_id = current_user.get("distinct_id")
-    if not distinct_id:
+    organization = current_user.get("organization")
+    identity = flag_identity(
+        user,
+        user.team if current_user.get("team") else None,
+        user.organization if organization else None,
+        member_count=organization["member_count"] if organization else None,
+        project_count=len(organization["teams"]) if organization else None,
+    )
+    if identity is None:
         return None
-    identity = _flag_identity(current_user, user.date_joined.isoformat())
+    flag_keys = app_flag_keys(posthoganalytics.feature_flag_definitions())
+    # Without definitions the SDK loads them and evaluates every flag, server-only flags included.
+    if flag_keys is None:
+        return None
+    # The SDK reads an empty list as "evaluate every flag".
+    if not flag_keys:
+        return {}
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
-        feature_flags = posthoganalytics.get_all_flags(
-            distinct_id,
+        return posthoganalytics.get_all_flags(
+            identity.distinct_id,
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,
             group_properties=identity.group_properties,
+            flag_keys_to_evaluate=flag_keys,
         )
-    return flags_for_app_evaluation_context(feature_flags, posthoganalytics.feature_flag_definitions())
 
 
 def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, Any]) -> None:
@@ -1231,7 +1263,7 @@ def invalidate_has_person_email_cache(project_id: int) -> None:
 
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
+    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile, get_secret_fields
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
@@ -1253,9 +1285,7 @@ def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
     frontend_apps = {}
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
-        config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
-        for key in secret_fields:
+        for key in get_secret_fields(p["config_schema"] or {}):
             if key in config:
                 config[key] = "** SECRET FIELD **"
         frontend_apps[p["pluginconfig__id"]] = {
@@ -2567,8 +2597,7 @@ def to_json(obj: dict) -> bytes:
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)
 
 
 def get_current_user_from_thread() -> Optional["User"]:

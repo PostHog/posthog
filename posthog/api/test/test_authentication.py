@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, get_user, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
@@ -22,6 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
+import requests
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -38,6 +39,7 @@ from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
+from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -54,6 +56,7 @@ from posthog.auth import (
     mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
+from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS, seed_dev_oauth_connectors
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -782,10 +785,31 @@ class TestDevLoginAPI(APIBaseTest):
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
+        for url in DEV_OAUTH_CONNECTOR_CIMD_URLS:
+            OAuthApplication.objects.create(
+                name=f"Connector {url}",
+                client_id=url,
+                client_type="public",
+                authorization_grant_type="authorization-code",
+                redirect_uris="https://connector.example.com/callback",
+                algorithm="RS256",
+                is_cimd_client=True,
+            )
+
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         emails = {user["email"] for user in response.json()["users"]}
         self.assertIn(self.user.email, emails)
+
+        authorize_paths = {
+            connector["client_id"]: connector["authorize_path"] for connector in response.json()["oauth_connectors"]
+        }
+        self.assertEqual(set(authorize_paths), set(DEV_OAUTH_CONNECTOR_CIMD_URLS))
+        self.assertIn(
+            "redirect_uri=https%3A%2F%2Fconnector.example.com%2Fcallback",
+            authorize_paths[DEV_OAUTH_CONNECTOR_CIMD_URLS[0]],
+        )
 
         self.client.logout()
         response = self.client.post("/api/login/dev", {"email": self.user.email})
@@ -805,6 +829,19 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         emails = [user["email"] for user in response.json()["users"]]
         self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
+
+    @parameterized.expand(
+        [
+            ("rejected_document", CIMDFetchError("Metadata document endpoint returned HTTP 503")),
+            ("dropped_connection", requests.exceptions.ChunkedEncodingError("Connection broken")),
+        ]
+    )
+    def test_dev_connector_seed_records_unreachable_documents(self, _name, error):
+        with patch("posthog.helpers.dev_oauth_connectors.get_or_create_cimd_application", side_effect=error):
+            result = seed_dev_oauth_connectors()
+
+        self.assertEqual(result.created, [])
+        self.assertEqual(result.failed, list(DEV_OAUTH_CONNECTOR_CIMD_URLS))
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
@@ -901,6 +938,32 @@ class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
         User.objects.filter(pk=self.user.pk).update(is_active=False)
 
         assert backend.get_user(self.user.pk) is None
+
+
+class TestLegacySessionBackends(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_restores_an_existing_session(self, _name: str, legacy_path: str) -> None:
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.session[SESSION_KEY] = str(self.user.pk)
+        request.session[BACKEND_SESSION_KEY] = legacy_path
+        request.session[HASH_SESSION_KEY] = self.user.get_session_auth_hash()
+
+        assert get_user(request) == self.user
+
+    @parameterized.expand(
+        [
+            ("saml", "ee.api.authentication.MultitenantSAMLAuth"),
+            ("google", "ee.api.authentication.CustomGoogleOAuth2"),
+        ]
+    )
+    def test_legacy_backend_refuses_new_authentication(self, _name: str, legacy_path: str) -> None:
+        assert load_backend(legacy_path).authenticate(RequestFactory().get("/")) is None
 
 
 class TestLogoutRedirect(APIBaseTest):
@@ -1692,7 +1755,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Reset your PostHog password")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         self.validate_basic_html(
             html_message,
             "https://my.posthog.net",
@@ -1764,7 +1827,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         self.validate_basic_html(
             html_message,
             "https://my.posthog.net",
@@ -1912,7 +1975,7 @@ class TestPasswordResetAPI(APIBaseTest):
         # check password was changed
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(VALID_TEST_PASSWORD))
-        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertEqual(self.user.requested_password_reset_at, None)
 
         # old password is gone
@@ -1966,7 +2029,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertFalse(self.user.check_password("123"))
 
     def test_cant_reset_password_with_no_token(self):
@@ -1988,7 +2051,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_invalid_token(self):
@@ -2025,7 +2088,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
             # password was not changed
             self.user.refresh_from_db()
-            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
             self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_invalid_user_id(self):
@@ -2049,7 +2112,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_non_uuid_user_id(self):

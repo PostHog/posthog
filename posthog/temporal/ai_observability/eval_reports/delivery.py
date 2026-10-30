@@ -16,6 +16,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
@@ -395,7 +396,8 @@ def deliver_slack_report(
     Main message = agent title (Block Kit header) + metrics context + first section.
     Thread replies = sections[1:]. If there's only one section, no thread replies.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.integrations import IntegrationManager, IntegrationNotFound
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.facade.api import slack_followup_invite
 
@@ -411,6 +413,10 @@ def deliver_slack_report(
     period_line = (
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
     )
+
+    team = Team.objects.select_related("organization").get(id=team_id)
+    # Read rather than assumed: nothing on this path enforces consent before generation.
+    ai_enabled = bool(team.organization.is_ai_data_processing_approved)
 
     for target in targets:
         if target.get("type") != "slack":
@@ -429,17 +435,7 @@ def deliver_slack_report(
             continue
 
         try:
-            # The organization comes along because the follow-up invite below reads its AI consent
-            # flag, and this query already runs once per target.
-            integration = (
-                Integration.objects.select_related("team__organization")
-                .filter(id=integration_id, team_id=team_id, kind="slack")
-                .first()
-            )
-            # delivery_targets is a JSON field, so a deleted Slack integration leaves its id behind.
-            if integration is None:
-                failures.append(_slack_config_failure(channel, _SLACK_RECONNECT_HINT))
-                continue
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
             client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)
@@ -467,8 +463,6 @@ def deliver_slack_report(
                     }
                 )
 
-            # Read rather than assumed: nothing on this path enforces consent before generation.
-            ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
             if invite := slack_followup_invite(integration, utm_tags=_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
                 blocks.append(invite)
 
@@ -489,6 +483,9 @@ def deliver_slack_report(
                         text=mrkdwn_text[:3000],
                     )
 
+        except IntegrationNotFound:
+            # delivery_targets is a JSON field, so a deleted Slack integration leaves its id behind.
+            failures.append(_slack_config_failure(channel, _SLACK_RECONNECT_HINT))
         except Exception as e:
             failures.append(_slack_delivery_failure(channel, e))
 

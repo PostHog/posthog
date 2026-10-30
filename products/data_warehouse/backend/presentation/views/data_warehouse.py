@@ -870,17 +870,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 )
 
-                external_lookup = {result["day"]: result for result in external_by_day}
-                modeling_lookup = {result["day"]: result for result in modeling_by_day}
+                external_day_lookup = {result["day"]: result for result in external_by_day}
+                modeling_day_lookup = {result["day"]: result for result in modeling_by_day}
 
                 for i in range(days):
                     day_date = (now - timedelta(days=i)).date()
-                    external_data = external_lookup.get(day_date, {"successful": 0, "failed": 0})
-                    modeling_data = modeling_lookup.get(day_date, {"successful": 0, "failed": 0})
+                    external_day = external_day_lookup.get(day_date, {"successful": 0, "failed": 0})
+                    modeling_day = modeling_day_lookup.get(day_date, {"successful": 0, "failed": 0})
 
                     breakdown[str(day_date)] = {
-                        "successful": external_data["successful"] + modeling_data["successful"],
-                        "failed": external_data["failed"] + modeling_data["failed"],
+                        "successful": external_day["successful"] + modeling_day["successful"],
+                        "failed": external_day["failed"] + modeling_day["failed"],
                     }
 
             running_external_data_jobs = ExternalDataJob.objects.filter(

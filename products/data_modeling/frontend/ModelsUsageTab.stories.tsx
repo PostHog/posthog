@@ -113,7 +113,7 @@ const populated: ModelUsageApi = {
     }),
 }
 
-const getUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
+const getUnsortedUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
     const savedQueryIds = new Set(
         (new URL(request.url).searchParams.get('saved_query_ids') ?? '').split(',').filter(Boolean)
     )
@@ -143,6 +143,46 @@ const getUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
         },
     ]
 }
+const getUsage = (info: MockResolverInfo): [number, ModelUsageApi] => {
+    const [status, usage] = getUnsortedUsage(info)
+    const params = new URL(info.request.url).searchParams
+    const sortBy = params.get('sort_by') ?? 'read_bytes'
+    const direction = params.get('sort_direction') === 'asc' ? 1 : -1
+    const value = (row: ModelUsageRowApi): number | string | null => {
+        switch (sortBy) {
+            case 'name':
+                return row.name.toLowerCase()
+            case 'clickhouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'clickhouse')?.read_bytes ?? null
+            case 'managed_warehouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'managed_warehouse')?.read_bytes ?? null
+            case 'cpu_microseconds':
+                return row.cpu_microseconds
+            case 'runs':
+                return row.runs
+            default:
+                return row.read_bytes
+        }
+    }
+    return [
+        status,
+        {
+            ...usage,
+            models: [...usage.models].sort((a, b) => {
+                const left = value(a)
+                const right = value(b)
+                if (left === null) {
+                    return right === null ? 0 : 1
+                }
+                if (right === null) {
+                    return -1
+                }
+                return (left < right ? -1 : left > right ? 1 : 0) * direction
+            }),
+        },
+    ]
+}
+
 const unknown: ModelUsageTotalsApi = {
     runs: 8,
     measured_runs: 0,
