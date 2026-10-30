@@ -263,6 +263,12 @@ describe('hog-charts scales', () => {
             expect(scale(10)).toBeCloseTo((scale(1) + scale(100)) / 2)
         })
 
+        it('maps a value past a pinned log domain off the plot, so overlays can hide it', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { min: 1, max: 100 } })
+            expect(scale(1000)).toBeLessThan(dimensions.plotTop)
+        })
+
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })
