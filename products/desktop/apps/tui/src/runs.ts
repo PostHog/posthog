@@ -155,10 +155,11 @@ export function runNotice(
         ? last
         : null;
     const parts = [formatDuration(Date.now() - turnStartedAt)];
-    if (call?.detail) parts.unshift(call.detail.split("\n")[0]);
     if (tools > 0) parts.push(`${tools} tool${tools === 1 ? "" : "s"}`);
+    const subject = call?.detail.split("\n")[0];
     return {
       text: call ? activityOf(call.title) : `${idleWord(Date.now())}…`,
+      ...(subject ? { subject } : {}),
       detail: parts.join(" · "),
       tone: "working",
     };
