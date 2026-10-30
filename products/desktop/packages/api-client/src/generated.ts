@@ -9228,6 +9228,7 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
                         reasoning_level?:
                             | (("minimal" | "low" | "medium" | "high") | null)
                             | undefined;
@@ -19483,6 +19484,7 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
                   reasoning_level?:
                       | (("minimal" | "low" | "medium" | "high") | null)
                       | undefined;
