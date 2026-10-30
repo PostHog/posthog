@@ -29,6 +29,7 @@ describe('AlertLeadingActions', () => {
                 onSnoozeAlert={() => {}}
                 onClearSnooze={() => {}}
                 clearSnoozeLoading={false}
+                snoozeLoading={false}
                 onSendTestDelivery={() => {}}
                 testDeliveryLoading={false}
                 showTestDelivery={false}
@@ -62,6 +63,7 @@ describe('AlertLeadingActions', () => {
                 onSnoozeAlert={() => {}}
                 onClearSnooze={() => {}}
                 clearSnoozeLoading={loading}
+                snoozeLoading={false}
                 onSendTestDelivery={() => {}}
                 testDeliveryLoading={false}
                 showTestDelivery={false}

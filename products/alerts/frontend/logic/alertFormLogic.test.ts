@@ -389,6 +389,67 @@ describe('alertFormLogic', () => {
         })
     })
 
+    function mountExistingForm(onEditSuccess: jest.Mock = jest.fn()): ReturnType<typeof alertFormLogic.build> {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        return logic
+    }
+
+    it('keeps the modal open after a snooze and lets the toast undo it after the modal closes', async () => {
+        const snoozedUntil = '2026-08-21T14:30:00.000Z'
+        const snoozeSpy = jest
+            .spyOn(generatedApi, 'alertsPartialUpdate')
+            .mockResolvedValueOnce(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: snoozedUntil }) as any)
+            .mockResolvedValueOnce(makeSavedAlert({ id: 'alert-existing-id' }) as any)
+        const onEditSuccess = jest.fn()
+        const logic = mountExistingForm(onEditSuccess)
+
+        await expectLogic(logic, () => {
+            logic.actions.snoozeAlert(snoozedUntil)
+        })
+            .toDispatchActions([
+                logic.actionCreators.setSnoozeLoading(true),
+                logic.actionCreators.setSnoozeLoading(false),
+            ])
+            .toFinishAllListeners()
+
+        expect(snoozeSpy).toHaveBeenCalledWith(expect.any(String), 'alert-existing-id', { snoozed_until: snoozedUntil })
+        expect(onEditSuccess).not.toHaveBeenCalled()
+        expect(successToastSpy).toHaveBeenCalledWith(
+            expect.stringMatching(/^Alert snoozed until /),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Undo' }) })
+        )
+
+        logic.unmount()
+        await successToastSpy.mock.calls[0][1].button.action()
+
+        expect(snoozeSpy).toHaveBeenLastCalledWith(expect.any(String), 'alert-existing-id', { snoozed_until: null })
+        expect(successToastSpy).toHaveBeenLastCalledWith('Alert unsnoozed.')
+        expect(captureSpy).toHaveBeenCalledWith('alert unsnoozed', { alert_type: 'insight', source: 'toast_undo' })
+    })
+
+    it('shows an error toast and stays open when the snooze request fails', async () => {
+        jest.spyOn(generatedApi, 'alertsPartialUpdate').mockRejectedValueOnce(new Error('Network request failed'))
+        const onEditSuccess = jest.fn()
+        const logic = mountExistingForm(onEditSuccess)
+
+        await expectLogic(logic, () => {
+            logic.actions.snoozeAlert('+1h')
+        }).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith("We couldn't snooze this alert. Please try again.")
+        expect(successToastSpy).not.toHaveBeenCalled()
+        expect(onEditSuccess).not.toHaveBeenCalled()
+        expect(logic.values.snoozeLoading).toBe(false)
+    })
+
     it('blocks save when threshold alert has no lower or upper bound', async () => {
         const logic = mountForm()
         logic.actions.setAlertFormValues({

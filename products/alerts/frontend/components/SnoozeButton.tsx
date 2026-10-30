@@ -12,12 +12,19 @@ interface SnoozeButtonProps {
     onClear?: () => void
     value?: string
     disabledReason?: string
+    loading?: boolean
 }
 
-export function SnoozeButton({ onChange, onClear, value, disabledReason }: SnoozeButtonProps): JSX.Element {
-    if (disabledReason) {
+export function SnoozeButton({ onChange, onClear, value, disabledReason, loading }: SnoozeButtonProps): JSX.Element {
+    if (disabledReason || loading) {
         return (
-            <LemonButton type="secondary" size="medium" icon={<IconCalendar />} disabledReason={disabledReason}>
+            <LemonButton
+                type="secondary"
+                size="medium"
+                icon={<IconCalendar />}
+                disabledReason={disabledReason}
+                loading={loading}
+            >
                 Snooze until
             </LemonButton>
         )
