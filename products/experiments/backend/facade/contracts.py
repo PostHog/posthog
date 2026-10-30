@@ -437,6 +437,15 @@ class Experiment:
 
 
 @frozen
+class ExperimentRef:
+    """The fields that an object access check reads from one experiment."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+
+
+@frozen
 class MetricCalculationKeys:
     """The calculation key of each metric on an experiment. Result rows and the stored metric
     `fingerprint` fields hold these keys."""
