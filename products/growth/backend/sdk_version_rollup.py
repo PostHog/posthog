@@ -64,6 +64,12 @@ TeamSdkVersions = dict[str, list[SdkVersionEntry]]
 
 
 @frozen
+class _SdkVersion:
+    lib: str
+    lib_version: str
+
+
+@frozen
 class _VersionUsage:
     count: int
     max_timestamp: dt.datetime
@@ -73,28 +79,28 @@ def sdk_versions_window() -> RollupWindow | None:
     return rollup_window(SdkVersionsDaily, SDK_VERSIONS_WINDOW_DAYS)
 
 
-def _read_usage(team_ids: list[int], window: RollupWindow) -> dict[int, dict[tuple[str, str], _VersionUsage]]:
+def _read_usage(team_ids: list[int], window: RollupWindow) -> dict[int, dict[_SdkVersion, _VersionUsage]]:
     rows = (
         window_rows(SdkVersionsDaily, team_ids, window)
         .values("team_id", "lib", "lib_version")
         .annotate(count=Sum("event_count"), max_timestamp=Max("max_timestamp"))
     )
-    usage: defaultdict[int, dict[tuple[str, str], _VersionUsage]] = defaultdict(dict)
+    usage: defaultdict[int, dict[_SdkVersion, _VersionUsage]] = defaultdict(dict)
     for row in rows:
-        usage[row["team_id"]][(row["lib"], row["lib_version"])] = _VersionUsage(
+        usage[row["team_id"]][_SdkVersion(lib=row["lib"], lib_version=row["lib_version"])] = _VersionUsage(
             count=row["count"], max_timestamp=ensure_utc(row["max_timestamp"]).astimezone(dt.UTC)
         )
     return dict(usage)
 
 
-def _to_entries(usage: dict[tuple[str, str], _VersionUsage]) -> TeamSdkVersions:
+def _to_entries(usage: dict[_SdkVersion, _VersionUsage]) -> TeamSdkVersions:
     entries: defaultdict[str, list[SdkVersionEntry]] = defaultdict(list)
-    for (lib, lib_version), version_usage in usage.items():
-        if lib not in SDK_TYPES:
+    for version, version_usage in usage.items():
+        if version.lib not in SDK_TYPES:
             continue
-        entries[lib].append(
+        entries[version.lib].append(
             {
-                "lib_version": lib_version,
+                "lib_version": version.lib_version,
                 "max_timestamp": str(version_usage.max_timestamp),
                 "count": version_usage.count,
             }
@@ -114,7 +120,7 @@ def merge_live_usage(
     usage = _read_usage([team_id], window).get(team_id, {}) if window else {}
     for lib, lib_version, live_max_timestamp, count in live_rows:
         max_timestamp = ensure_utc(live_max_timestamp).astimezone(dt.UTC)
-        key = (lib, lib_version or "")
+        key = _SdkVersion(lib=lib, lib_version=lib_version or "")
         previous = usage.get(key, _VersionUsage(count=0, max_timestamp=max_timestamp))
         usage[key] = _VersionUsage(
             count=previous.count + count, max_timestamp=max(previous.max_timestamp, max_timestamp)
