@@ -209,6 +209,32 @@ _GO_MOD_BLOCK = _GO_MOD + "\nreplace (\n\texample.com/a => example.com/a v1.0.0\
             True,
             id="replace-uncommented-by-a-vertical-tab-swap",
         ),
+        pytest.param(
+            _GO_MOD.replace("require example.com/lib v1.0.0", 'require (\n\texample.com/lib v1.0.0\n) // "deps"'),
+            _GO_MOD.replace("require example.com/lib v1.0.0", 'require (\n\texample.com/lib v1.0.0\n) // "deps"')
+            + "replace example.com/lib => ../evil\n",
+            True,
+            id="replace-after-a-block-closed-with-a-quoted-comment",
+        ),
+        pytest.param(
+            _GO_MOD,
+            _GO_MOD + '// "note" (\nreplace example.com/lib => ../evil\n',
+            True,
+            id="replace-after-a-quoted-comment-ending-in-a-paren",
+        ),
+        pytest.param(
+            _GO_MOD + 'replace example.com/lib => "./local  lib"\n',
+            _GO_MOD + 'replace example.com/lib => "./local lib"\n',
+            True,
+            id="whitespace-inside-a-quoted-path-kept",
+        ),
+        pytest.param(_GO_MOD, _GO_MOD + "bogus (\n)\n", True, id="unknown-directive-fails-closed"),
+        pytest.param(
+            _GO_MOD.replace("\n", "\r\n"),
+            _GO_MOD.replace("\n", "\r\n").replace("v1.0.0", "v1.2.3"),
+            False,
+            id="crlf-require-bump-clean",
+        ),
     ],
 )
 def test_go_mod_compares_replace_directives(base: str, head: str, risky: bool) -> None:
@@ -236,6 +262,18 @@ _TSCONFIG = '{\n  // comment\n  "compilerOptions": {\n    "strict": true,\n  },\
             '{"extends": "./base,}.json"}', '{"extends": "./base}.json"}', True, id="comma-inside-a-string-kept"
         ),
         pytest.param(_TSCONFIG, '{\n  "compilerOptions": {\n\v"plugins": []\n}}', True, id="unparseable-fails-closed"),
+        pytest.param(
+            '{\n  // note\r  "extends": "./base.json",\n  "compilerOptions": {}\n}\n',
+            '{\n  // note\r  "extends": "./evil.json",\n  "compilerOptions": {}\n}\n',
+            True,
+            id="extends-after-a-comment-ended-by-a-lone-cr",
+        ),
+        pytest.param(
+            '{\n  // note   "extends": "./base.json",\n  "compilerOptions": {}\n}\n',
+            '{\n  // note   "extends": "./evil.json",\n  "compilerOptions": {}\n}\n',
+            True,
+            id="extends-after-a-comment-ended-by-a-line-separator",
+        ),
     ],
 )
 def test_tsconfig_compares_jsonc_structurally(base: str, head: str, risky: bool) -> None:
