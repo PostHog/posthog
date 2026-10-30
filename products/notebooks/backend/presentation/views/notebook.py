@@ -32,6 +32,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.hogql.direct_connection import get_direct_connection_source
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
@@ -1206,16 +1207,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         try:
             result = list_widget_versions(
                 notebook=self.get_object(),
                 node_id=node_id,
-                offset=query.validated_data["offset"],
-                limit=query.validated_data["limit"],
+                offset=offset,
+                limit=limit,
             )
         except WidgetError as error:
             return self._widget_error_response(error)
-        return Response(WidgetVersionPageSerializer(result).data)
+        data = WidgetVersionPageSerializer(result).data
+        data["next"] = page_link(request, "offset", result.next_offset)
+        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        return Response(data)
 
     @extend_schema(
         operation_id="notebooks_widget_source",

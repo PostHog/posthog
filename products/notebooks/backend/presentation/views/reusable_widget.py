@@ -9,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
@@ -96,13 +97,18 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_user()
         query = ReusableWidgetCatalogQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         result = list_reusable_widgets(
             team_id=self.team_id,
             search=query.validated_data["search"],
-            offset=query.validated_data["offset"],
-            limit=query.validated_data["limit"],
+            offset=offset,
+            limit=limit,
         )
-        return Response(ReusableWidgetPageSerializer(result).data)
+        data = ReusableWidgetPageSerializer(result).data
+        data["next"] = page_link(request, "offset", result.next_offset)
+        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        return Response(data)
 
     @extend_schema(
         operation_id="reusable_widgets_retrieve",
@@ -126,16 +132,21 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_user()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         try:
             result = list_reusable_widget_versions(
                 team_id=self.team_id,
                 widget_id=self._widget_id(),
-                offset=query.validated_data["offset"],
-                limit=query.validated_data["limit"],
+                offset=offset,
+                limit=limit,
             )
         except WidgetError as error:
             return self._error_response(error)
-        return Response(ReusableWidgetVersionPageSerializer(result).data)
+        data = ReusableWidgetVersionPageSerializer(result).data
+        data["next"] = page_link(request, "offset", result.next_offset)
+        data["previous"] = page_link(request, "offset", previous_offset(offset, limit))
+        return Response(data)
 
     @extend_schema(
         operation_id="reusable_widgets_restore",
