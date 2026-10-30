@@ -4,7 +4,7 @@
 //! The index rows go to the index topic, and the Parquet sink writes them to S3. The flush does not wait for their
 //! delivery: the data is stored by then, and a lost row is counted.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ use tokio::sync::Semaphore;
 use crate::batch::Block;
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
-use crate::urls::{fetch_jobs, records};
+use crate::urls::{fetch_jobs, records, FetchJobs};
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
     session_keyed_frames, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
@@ -300,12 +300,7 @@ pub async fn write_flush(
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.
 /// A send that fails does not fail the flush, because its blocks are stored by then. The references it did not send
 /// stay unmarked, so a later flush that sees them sends them again.
-async fn produce_jobs(
-    writer: &Writer,
-    jobs: BTreeMap<String, Vec<serde_json::Value>>,
-    day: &str,
-    now_ms: i64,
-) {
+async fn produce_jobs(writer: &Writer, jobs: FetchJobs, day: &str, now_ms: i64) {
     let captured_at = now_ms.to_string();
     let deliveries: Vec<_> = records(jobs)
         .into_iter()

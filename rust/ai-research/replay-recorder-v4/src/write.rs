@@ -715,6 +715,7 @@ mod tests {
     use super::*;
     use crate::batch::{Origin, Tp};
     use replay_core_v4::inspect::dom::{RemoteKind, RemoteUrl, MAX_BLOCK_REMOTE_URLS};
+    use replay_core_v4::refs::UrlAsset;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -1153,20 +1154,20 @@ mod tests {
         let (id, key) = session_key("kept");
         keys.sessions.insert(id, key);
         keys.team_months.insert(7, [6; 32]);
-        let jobs_and_lines = |block: &Block| {
-            let mut stats = BlockStats::default();
-            let jobs =
-                crate::urls::fetch_jobs([(block, &mut stats)], &keys, "2026-10", 1, &|_| false);
-            let (lines, _, _) = write_block(block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-            let references: Vec<String> = jobs["example.com"]
-                .iter()
-                .map(|job| job["originalRef"].as_str().unwrap().to_owned())
-                .collect();
-            (references, String::from_utf8(lines).unwrap())
-        };
-
-        let (references, lines) = jobs_and_lines(&block);
-        let [image_reference, font_reference] = references.as_slice() else {
+        let mut stats = BlockStats::default();
+        let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
+        let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
+        let lines = String::from_utf8(lines).unwrap();
+        let references: Vec<_> = jobs
+            .iter()
+            .flat_map(|((_, asset), jobs)| {
+                jobs.iter()
+                    .map(move |job| (*asset, job["originalRef"].as_str().unwrap()))
+            })
+            .collect();
+        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference)] =
+            references.as_slice()
+        else {
             panic!("a job each for the image and the fetched font, none for the bundled font: {references:?}");
         };
         assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
@@ -1182,11 +1183,6 @@ mod tests {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
         assert!(!lines.contains("example.com/"), "{lines}");
-
-        block.keep_font_urls_raw();
-        let (references, lines) = jobs_and_lines(&block);
-        assert_eq!(references, std::slice::from_ref(image_reference));
-        assert!(lines.contains(&css), "{lines}");
     }
 
     fn session_key(session: &str) -> (SessionId, Key) {

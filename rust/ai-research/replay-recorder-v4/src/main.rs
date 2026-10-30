@@ -173,7 +173,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_state_max_bytes: config.session_state_max_bytes,
         redirecting_topic: (config.ingestion_overflow_mode == "redirect")
             .then(|| config.kafka_topic.clone()),
-        font_urls_enabled: config.font_urls_enabled,
     };
     let writer = if let Some((producer_handle, index_producer_handle)) = producer_handles {
         // The SDK's default HTTP client reads HTTPS_PROXY, which would send every S3, KMS and DynamoDB call through the

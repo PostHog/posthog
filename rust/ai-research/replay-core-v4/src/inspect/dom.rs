@@ -32,7 +32,7 @@ pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
 /// the build takes memory in proportion to their bytes.
 pub const MAX_BLOCK_REMOTE_URLS: usize = 10_000;
 pub const MAX_BLOCK_REMOTE_URL_BYTES: usize = 2 * 1024 * 1024;
-/// Font URLs have a budget of their own and never set the block's URL limit, so with fonts turned off they change nothing.
+/// Font URLs have a budget of their own and never set the block's URL limit, so many font faces never make the writer scrub the block's unnamed remote URLs.
 pub const MAX_BLOCK_FONT_URLS: usize = 4096;
 pub const MAX_BLOCK_FONT_URL_BYTES: usize = 256 * 1024;
 /// Windows tracked per session. A new window past this evicts the window used least recently.

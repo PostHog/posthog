@@ -25,7 +25,7 @@ pub fn image_ref(team_id: i64, key_month: &str, hash: &str) -> String {
 }
 
 /// The prefix of a URL's reference tells the fetcher what to check the response for and where to store it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UrlAsset {
     Image,
     Font,

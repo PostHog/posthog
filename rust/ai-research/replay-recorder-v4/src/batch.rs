@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
-use replay_core_v4::inspect::dom::{RemoteKind, RemoteUrl, Srcset, UrlLimit};
+use replay_core_v4::inspect::dom::{RemoteUrl, Srcset, UrlLimit};
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::cv::{Expansion, MESSAGE_DECODE_BUDGET};
@@ -103,14 +103,6 @@ pub struct Block {
     pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
     pub captured_at_ms: Option<i64>,
-}
-
-impl Block {
-    pub fn keep_font_urls_raw(&mut self) {
-        self.font_urls.clear();
-        self.remote_urls
-            .retain(|remote| remote.kind == RemoteKind::Image);
-    }
 }
 
 /// The decoded `cv` strings one flush keeps, on top of the decoded payloads that the flush size counts.
