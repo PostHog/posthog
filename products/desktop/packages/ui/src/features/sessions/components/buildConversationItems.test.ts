@@ -349,27 +349,68 @@ describe("buildConversationItems", () => {
     },
   );
 
-  it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
-    // A successful compaction sends a terminal `status: compacting, isComplete:
-    // true`. It must flip the existing status row, not append a second one.
+  it.each([
+    { name: "one start signal", starts: 1 },
+    { name: "a repeated start signal", starts: 3 },
+  ])(
+    "clears the compacting spinner on a successful completion status, without duplicating the row, for $name",
+    ({ starts }) => {
+      // A successful compaction sends a terminal `status: compacting, isComplete:
+      // true`. It must flip the existing status row, not append a second one.
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "hi"),
+          ...Array.from({ length: starts }, (_, i) =>
+            statusMsg(2 + i, "compacting"),
+          ),
+          statusMsg(10, "compacting", true),
+        ],
+        null,
+      );
+
+      const statusItems = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statusItems).toHaveLength(1);
+      expect(
+        (statusItems[0].update as { isComplete?: boolean }).isComplete,
+      ).toBe(true);
+      expect(result.isCompacting).toBe(false);
+    },
+  );
+
+  it("shows a new compaction after a turn was cancelled during compaction", () => {
+    const cancelledResponse: AcpMessage = {
+      type: "acp_message",
+      ts: 3,
+      message: { jsonrpc: "2.0", id: 1, result: { stopReason: "cancelled" } },
+    };
     const result = buildConversationItems(
       [
-        userPromptMsg(1, 1, "hi"),
+        userPromptMsg(1, 1, "first"),
         statusMsg(2, "compacting"),
-        statusMsg(3, "compacting", true),
+        cancelledResponse,
+        userPromptMsg(4, 2, "second"),
+        statusMsg(5, "compacting"),
       ],
       null,
     );
 
-    const statusItems = result.items.filter(
-      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
-        i.type === "session_update" && i.update.sessionUpdate === "status",
-    );
-    expect(statusItems).toHaveLength(1);
-    expect((statusItems[0].update as { isComplete?: boolean }).isComplete).toBe(
-      true,
-    );
-    expect(result.isCompacting).toBe(false);
+    const statusRows = result.items
+      .filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      )
+      .map((i) => ({
+        turn: i.id.split("-item-")[0],
+        isComplete: (i.update as { isComplete?: boolean }).isComplete,
+      }));
+    expect(statusRows).toEqual([
+      { turn: "turn-1-1", isComplete: true },
+      { turn: "turn-4-2", isComplete: undefined },
+    ]);
+    expect(result.isCompacting).toBe(true);
   });
 
   it("builds a compact boundary without optional metadata", () => {

@@ -9,11 +9,21 @@ from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
+# pinned: the finding's `reason`.
+TEST_ACCOUNT_FILTER = "test_account_filter"
+
+
+def reads_exposed_without_test_account_filter(ctx: HealthContext) -> bool:
+    """Whether `zero_exposures` reports flag calls that count as no exposure, which the test account filter can
+    explain. The exposure query counts the exposures without the filter only then, because the count scans the
+    exposure events."""
+    outcome = zero_exposures(ctx)
+    return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode == CALLS_NOT_COUNTED
 
 
 def zero_exposures(ctx: HealthContext) -> CheckOutcome:
@@ -22,13 +32,13 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
+    if sum(exposures.total_exposures.values()) > 0:
+        return None
     # Criteria that no event can match leave nobody exposed, and the exposure criteria check names that cause. This
     # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
     if isinstance(exposure_criteria_cannot_match(ctx), ExperimentHealthFinding):
         return not_applicable("The exposure criteria check reports why no users are exposed")
-    if sum(exposures.total_exposures.values()) > 0:
-        return None
-    evidence = {"hours_since_launch": int(exposures.hours_since_launch)}
+    evidence: dict[str, int | str] = {"hours_since_launch": int(exposures.hours_since_launch)}
     # A group experiment counts groups, by the rule the exposure query uses.
     unit = "group" if exposures.counts_groups else "user"
     # The cause reads the flag besides the cached exposure answer. The page recomputes that answer on each load while it
@@ -122,6 +132,13 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             actions=(),
         )
     if ctx.flag_called_during_run is True:
+        exposed_without_filter = exposures.exposed_without_test_account_filter
+        if exposed_without_filter is not None:
+            evidence["exposed_without_test_account_filter"] = exposed_without_filter
+        if exposed_without_filter:
+            return _test_accounts_filtered_out(
+                exposed_without_filter, flag_key, unit, ended=ctx.has_ended, evidence=evidence
+            )
         activation = (
             f' With the activation "{events.activation}" set, a {unit} also needs a matching event after the flag call.'
             if events.activation
@@ -165,7 +182,37 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     return _cause_unknown(evidence, unit, ended=ctx.has_ended)
 
 
-def _cause_unknown(evidence: dict[str, int], unit: str, *, ended: bool) -> ExperimentHealthFinding:
+def _test_accounts_filtered_out(
+    exposed: int, flag_key: str, unit: str, *, ended: bool, evidence: dict[str, int | str]
+) -> ExperimentHealthFinding:
+    exposed_units = f"the only {unit}" if exposed == 1 else f"all {exposed:,} {unit}s"
+    served = f'{exposed_units} that got a variant of the feature flag "{flag_key}"'
+    fix = 'Turn off "Filter out internal and test users" in the exposure criteria'
+    if ended:
+        title = f"No {unit}s exposed: the test account filter removed all of them"
+        detail = (
+            f"No {unit}s were exposed while the experiment ran, because the exposure criteria filter out test "
+            f"accounts, and the project's test account filters matched {served}. {fix} to count them."
+        )
+    else:
+        title = f"No {unit}s exposed: the test account filter removes all of them"
+        detail = (
+            f"The exposure criteria filter out test accounts, and the project's test account filters match {served} "
+            f"during the experiment, so nobody is counted as exposed. {fix}, or change the project's test account "
+            f"filters so that they don't match your {unit}s."
+        )
+    return _finding(
+        subcode=CALLS_NOT_COUNTED,
+        reason=TEST_ACCOUNT_FILTER,
+        severity=ExperimentHealthFindingSeverity.WARNING,
+        title=title,
+        detail=detail,
+        evidence=evidence,
+        actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,),
+    )
+
+
+def _cause_unknown(evidence: dict[str, int | str], unit: str, *, ended: bool) -> ExperimentHealthFinding:
     if ended:
         detail = (
             f"No {unit}s were exposed while the experiment ran, so it shows no results. "
@@ -192,15 +239,17 @@ def _cause_unknown(evidence: dict[str, int], unit: str, *, ended: bool) -> Exper
 def _finding(
     *,
     subcode: str | None,
+    reason: str | None = None,
     severity: ExperimentHealthFindingSeverity,
     title: str,
     detail: str,
-    evidence: dict[str, int],
+    evidence: dict[str, int | str],
     actions: tuple[ExperimentHealthFindingActionKind, ...],
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.ZERO_EXPOSURES,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,

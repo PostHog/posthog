@@ -937,7 +937,11 @@ def _installation_repository_names(github_integration: GitHubIntegrationBase, re
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
-    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
+    # Same rule as TaskProcessingContext.github_access_repositories: what the run clones, plus any
+    # repositories its creator granted on top. Never wider, so an empty grant keeps the clone scope.
+    access = (state or {}).get("github_access_repositories")
+    if isinstance(access, list) and access and all(isinstance(r, str) for r in access):
+        return access
     pinned = (state or {}).get("repositories")
     if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
         return pinned

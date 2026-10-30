@@ -3841,6 +3841,8 @@ export interface CredentialApi {
  * * `Beacons` - Beacons
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
+ * * `Nango` - Nango
+ * * `Fathom` - Fathom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5258,6 +5260,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Beacons: 'Beacons',
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
+    Nango: 'Nango',
+    Fathom: 'Fathom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5330,6 +5334,11 @@ export interface TableApi {
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
@@ -5409,6 +5418,11 @@ export interface PatchedTableApi {
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id?: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
@@ -6048,6 +6062,10 @@ export type WarehouseTablesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean
     /**
      * A search term.
      */

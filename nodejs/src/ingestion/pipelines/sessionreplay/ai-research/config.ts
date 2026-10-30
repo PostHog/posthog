@@ -83,11 +83,26 @@ export type AiResearchV4Config = {
      * Wall time the fetch pass of one poll batch may take.
      *
      * A batch can hold more URLs for one registrable domain than a polite rate carries in this
-     * time. What the pass does not reach goes to a delay topic without spending a hop. The value
-     * sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round trips
-     * share.
+     * time. What the pass does not reach goes back to the frontier without spending a hop, or to a
+     * delay topic while its registrable domain backs off. The value sits well inside Kafka's
+     * max.poll.interval.ms of 300s, which the crawl history round trips share.
      */
     AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: number
+    /**
+     * Time since capture after which a URL that is not done finishes as `url_too_old`.
+     *
+     * A republish keeps the capture time, and the capture watermark is the oldest capture time the
+     * lane holds. A URL that a domain refuses for days would hold the watermark back for all of them.
+     */
+    AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS: number
+    /**
+     * Epoch milliseconds. The age limit applies only to URLs captured at or after this time.
+     *
+     * URLs captured before it keep republishing without the limit. Without this, every URL older
+     * than the limit would finish in the first minutes after a deploy and write its crawl history
+     * at once. Set it to the deploy time or later.
+     */
+    AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS: number
     /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
     AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES: number
     /** Covers one URL including its redirects, separate from the connect timeout of the shared request layer. */
@@ -174,6 +189,8 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
+        AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS: 24 * 60 * 60 * 1000,
+        AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS: Date.parse('2026-10-30T00:00:00Z'),
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_REDIRECTS: 3,

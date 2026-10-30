@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import (
 )
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
-# `finding_variant` on the health finding events.
+# `finding_subcode` on the health finding events.
 NOT_CHECKED = "not_checked"
 
 EvidenceValue = str | int | float | bool | None
@@ -120,7 +120,8 @@ def flag_history_not_readable(ctx: HealthContext) -> CheckOutcome:
                 else "Review the flag history."
             )
         ),
-        evidence={"reason": history.reason.value},
+        reason=history.reason.value,
+        evidence={},
         # The flag history is the page this caller can't open.
         actions=() if no_access else (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref="E3",
@@ -139,10 +140,12 @@ def change_finding(
     sentences: Sequence[str],
     kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
+    reason: str | None = None,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=code,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=" ".join(sentences),
@@ -201,6 +204,7 @@ def not_checked_finding(
     return ExperimentHealthFinding(
         code=code,
         subcode=NOT_CHECKED,
+        reason=history.reason.value,
         severity=ExperimentHealthFindingSeverity.INFO,
         title=title,
         detail=" ".join(
@@ -211,10 +215,7 @@ def not_checked_finding(
                 not_checked_next_step(history.reason, change),
             ]
         ),
-        evidence={
-            "reason": history.reason.value,
-            **change_evidence(history, effect, kind_evidence=kind_evidence, exposed_before_change=None),
-        },
+        evidence=change_evidence(history, effect, kind_evidence=kind_evidence, exposed_before_change=None),
         actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
         diagnostic_ref=diagnostic_ref,
     )

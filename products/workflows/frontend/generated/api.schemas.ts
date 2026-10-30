@@ -2501,6 +2501,29 @@ export interface DataSuggestionBuildResponseApi {
     missing_inputs: DataSuggestionMissingInputApi[]
 }
 
+export interface EventWorkflowsBuildRequestApi {
+    /**
+     * The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.
+     * @minItems 1
+     * @maxItems 5
+     * @items.maxLength 400
+     */
+    events: string[]
+    /** Start a new build when the last one for these events failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
+}
+
+export interface EventWorkflowsBuildResponseApi {
+    /** ready when at least one draft was saved, building while the background build runs (call again with the same events to check), failed when no event produced a valid workflow. A failed result stays until a call sends retry.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed */
+    status: DataSuggestionBuildStatusEnumApi
+    /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
+    workflow_ids: string[]
+}
+
 /**
  * * `signup` - Signup
  * * `onboarding` - Onboarding
@@ -2686,7 +2709,7 @@ export interface EmailDraftApi {
 }
 
 /**
- * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+ * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
  */
 export type WorkflowImportRequestApiSnippets = { [key: string]: string }
 
@@ -2750,7 +2773,7 @@ export interface WorkflowImportRequestApi {
     source: ImportProviderKeyEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
-    /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+    /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
     snippets?: WorkflowImportRequestApiSnippets
     /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
     segment_cohorts?: WorkflowImportRequestApiSegmentCohorts

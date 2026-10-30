@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
-from posthog.models.integration import Integration, OauthIntegration
+from posthog.integrations import IntegrationKind
+from posthog.models.integration import OauthIntegration
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -89,7 +90,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             caption="Sync your Help Scout conversations, customers, and mailboxes into the PostHog Data warehouse.",
             iconPath="/static/services/helpscout.png",
             docsUrl="https://posthog.com/docs/cdp/sources/helpscout",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -108,7 +109,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
         # The lookup only scopes to the team, so a config pointing at some other provider's
         # integration in the same team would otherwise send that provider's access token to the
         # Help Scout API. Reject it before the token is read or refreshed.
-        if integration.kind != Integration.IntegrationKind.HELPSCOUT:
+        if integration.kind != IntegrationKind.HELPSCOUT:
             raise ValueError(f"Integration not found: {config.helpscout_integration_id}")
 
         oauth_integration = OauthIntegration(integration)
