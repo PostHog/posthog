@@ -1,3 +1,4 @@
+import io
 import json
 import threading
 from datetime import date, datetime
@@ -11,6 +12,8 @@ from django.db.models import Q
 from django.test import TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from posthog.models import Organization, PropertyDefinition, Team
@@ -156,10 +159,12 @@ class TestRunOrchestration:
             order.append("produce")
             return 2
 
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", rows)
         with (
+            _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}) as existing,
             patch(f"{_MODULE}._produce_intents", side_effect=_record_produce) as produce,
@@ -198,10 +203,43 @@ class TestRunOrchestration:
         assert order == ["reconcile", "produce", "snapshot"]
 
     @pytest.mark.asyncio
+    async def test_streams_staged_files_into_one_projected_bundle_per_distinct_id(self):
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier", "seats": "seat_count"},
+        )
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000001", [{"distinct_id": "a", "plan": "pro", "seats": 3, "notes": "unmapped"}])
+        _stage(fake, "chunk_1_000000", [{"distinct_id": "a", "plan": "free"}, {"distinct_id": "b", "plan": "pro"}])
+        with (
+            _fake_s3_patch(fake),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.build_bundles", wraps=pps.build_bundles) as build,
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _team, _source, ids: set(ids)),
+            patch(f"{_MODULE}._produce_intents", return_value=2) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert sorted(produce.call_args.args[3]) == [
+            ("a", {"plan_tier": "pro", "seat_count": 3}),
+            ("b", {"plan_tier": "pro"}),
+        ]
+        assert result.rows_read == 3
+        assert all("notes" not in row for call in build.call_args_list for row in call.args[0])
+
+    @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=None),
-            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock()) as read,
+            patch(f"{_MODULE}._read_staged_bundles", new=AsyncMock()) as read,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
@@ -464,7 +502,7 @@ class _FakeS3:
     async def _ls(self, path, detail=True):
         prefix = pps._s3_key(path).rstrip("/") + "/"
         entries = [
-            {"Key": key, "type": "file", "LastModified": self.times[key]}
+            {"Key": key, "type": "file", "LastModified": self.times[key], "size": len(self.store[key])}
             for key in self.store
             if key.startswith(prefix)
         ]
@@ -477,6 +515,12 @@ class _FakeS3:
         if key not in self.store:
             raise FileNotFoundError(path)
         return self.store[key]
+
+    def open(self, path, mode="rb", **_kwargs):
+        key = pps._s3_key(path)
+        if key not in self.store:
+            raise FileNotFoundError(path)
+        return io.BytesIO(self.store[key])
 
     async def _pipe_file(self, path, data):
         self._clock += 1
@@ -498,7 +542,18 @@ def _fake_s3_patch(fake):
     async def _cm():
         yield fake
 
-    return patch(f"{_MODULE}.aget_s3_client", lambda: _cm())
+    stack = contextlib.ExitStack()
+    stack.enter_context(patch(f"{_MODULE}.aget_s3_client", lambda: _cm()))
+    stack.enter_context(patch(f"{_MODULE}.get_s3_client", lambda: fake))
+    return stack
+
+
+def _stage(fake, name, rows, job_id="job-1"):
+    buffer = io.BytesIO()
+    pq.write_table(pa.Table.from_pylist(rows), buffer)
+    key = f"{pps._s3_key(pps.job_staged_prefix(1, _SCHEMA, job_id))}/{name}.parquet"
+    fake.store[key] = buffer.getvalue()
+    fake.times[key] = 0
 
 
 class TestSnapshotCompaction:
@@ -591,11 +646,12 @@ class TestGroupTarget:
         # If the group type can't be resolved (deleted/misconfigured), the consumer would DLQ every
         # $groupidentify missing a group_type — so the source must be skipped, not produced.
         team = MagicMock(api_token="tok", uuid="team-uuid")
-        rows = [{"group_key": "acme", "plan": "pro"}]
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", [{"group_key": "acme", "plan": "pro"}])
         with (
+            _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
             patch(f"{_MODULE}._group_type_name", return_value=None),
@@ -618,12 +674,13 @@ class TestGroupTarget:
         # a child environment has no rows under its own team id. Resolving by team id found nothing
         # there, which skipped every group source on that team and produced no intents at all.
         team = MagicMock(api_token="tok", uuid="team-uuid", project_id=77)
-        rows = [{"group_key": "acme", "plan": "pro"}]
         by_project = {77: [{"group_type_index": 0, "group_type": "organization"}]}
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", [{"group_key": "acme", "plan": "pro"}])
         with (
+            _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
             patch(f"{_MODULE}.Team") as team_cls,
-            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
             patch(
