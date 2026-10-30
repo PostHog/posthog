@@ -238,7 +238,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'priority' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
