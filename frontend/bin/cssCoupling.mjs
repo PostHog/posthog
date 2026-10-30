@@ -88,7 +88,16 @@ function readExpressionStrings(source, start, strings) {
     let depth = 0
     for (let i = start; i < source.length; i++) {
         const char = source[i]
-        if (char === '"' || char === "'") {
+        if (char === '/' && source[i + 1] === '/') {
+            const end = source.indexOf('\n', i)
+            if (end === -1) {
+                return source.length
+            }
+            i = end
+        } else if (char === '/' && source[i + 1] === '*') {
+            const end = source.indexOf('*/', i + 2)
+            i = end === -1 ? source.length - 1 : end + 1
+        } else if (char === '"' || char === "'") {
             const { text, end } = readQuoted(source, i)
             strings.push(text)
             i = end
@@ -167,13 +176,18 @@ const isSource = (file) => !file.includes('node_modules/')
 /**
  * Every component that uses a block class but does not statically reach a stylesheet that defines it.
  * `files` is the import graph from importGraph.mjs, and `readSource` returns a file's text.
+ *
+ * `stylesheetFiles` lists every stylesheet to index for block classes. It defaults to the stylesheets
+ * already in `files`, but a stylesheet with no remaining importer drops out of that graph entirely, so a
+ * caller checking a real build passes the full on-disk list instead.
  */
-export function findCouplings(files, readSource) {
+export function findCouplings(
+    files,
+    readSource,
+    stylesheetFiles = Object.keys(files).filter((file) => isSource(file) && /\.s?css$/.test(file))
+) {
     const sheetsByClass = new Map()
-    for (const file of Object.keys(files)) {
-        if (!isSource(file) || !/\.s?css$/.test(file)) {
-            continue
-        }
+    for (const file of stylesheetFiles) {
         for (const name of rootClassesOf(readSource(file))) {
             sheetsByClass.set(name, [...(sheetsByClass.get(name) ?? []), file])
         }

@@ -35,6 +35,29 @@ function writeBaseline(keys) {
     fs.writeFileSync(baselinePath, BASELINE_HEADER + keys.map((key) => `${key}\n`).join(''))
 }
 
+const STYLESHEET_ROOTS = ['frontend/src', 'products']
+const IGNORED_DIRS = new Set(['node_modules', 'dist', 'generated', '.turbo', '.layer-check-out'])
+
+// Walks the filesystem rather than the import graph, so a stylesheet with no remaining importer is
+// still indexed (see findCouplings in cssCoupling.mjs).
+function walkStylesheets(dir, out = []) {
+    const abs = path.join(repoRoot, dir)
+    if (!fs.existsSync(abs)) {
+        return out
+    }
+    for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+        const rel = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            if (!IGNORED_DIRS.has(entry.name)) {
+                walkStylesheets(rel, out)
+            }
+        } else if (/\.s?css$/.test(entry.name)) {
+            out.push(rel)
+        }
+    }
+    return out
+}
+
 function describe({ file, className, stylesheets }) {
     return [
         `  ${file} uses .${className}, but does not import ${stylesheets.join(' or ')}.`,
@@ -44,7 +67,8 @@ function describe({ file, className, stylesheets }) {
 
 const args = process.argv.slice(2)
 const files = await readImportGraph()
-const couplings = findCouplings(files, (file) => fs.readFileSync(path.join(repoRoot, file), 'utf8'))
+const stylesheetFiles = STYLESHEET_ROOTS.flatMap((root) => walkStylesheets(root))
+const couplings = findCouplings(files, (file) => fs.readFileSync(path.join(repoRoot, file), 'utf8'), stylesheetFiles)
 const current = [...new Set(couplings.map(couplingKey))].sort()
 const baseline = readBaseline()
 const added = couplings.filter((coupling) => !baseline.includes(couplingKey(coupling)))
