@@ -452,6 +452,13 @@ describe("App", () => {
     };
     try {
       await vi.waitFor(() => expect(output()).toContain("Old name"));
+      // With no notice, the row is kept blank, so a notice never moves the chat.
+      await vi.waitFor(() => {
+        const rows = stripTerminalSequences(output()).split("\n");
+        const rule = rows.findLastIndex((row) => /│ ─+ │/.test(row));
+        expect(rows[rule - 2]).toContain("Loading chat");
+        expect(rows[rule - 1].split("│")[1].trim()).toBe("");
+      });
       type("/rename-workspace Infra");
       await vi.waitFor(() =>
         expect(activeWorkspace(loadLayout()).name).toBe("Infra"),
@@ -482,7 +489,8 @@ describe("App", () => {
       await vi.waitFor(() => {
         const rows = stripTerminalSequences(output()).split("\n");
         const end = rows.findLastIndex((row) => row.includes("forbidden"));
-        expect(rows[end - 1]).toContain("│  Couldn't rename this chat:");
+        expect(rows[end - 1]).toContain("Couldn't rename this chat: │");
+        expect(rows[end]).toContain("forbidden │");
         expect(rows[end + 1]).toMatch(/│ ─+ │/);
         expect(rows[end + 2]).toContain("^N new");
       });
