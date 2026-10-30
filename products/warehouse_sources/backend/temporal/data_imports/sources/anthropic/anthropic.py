@@ -48,11 +48,12 @@ ENTITY_PAGE_SIZE = 1000
 # a transient blip without letting a genuinely broken endpoint retry for long.
 MAX_RETRY_ATTEMPTS = 8
 # The usage/cost/analytics report endpoints share one organization-level rate limit on Anthropic's
-# Admin API, which answers 429 with no `Retry-After`. The `anthropic-ratelimit-requests-reset`
-# instant is often already stale when we read it, so the client falls back to exponential backoff.
-# A per-minute limit needs a budget that outlasts the window, so give the report endpoints more
-# attempts and a higher backoff ceiling than the entity lists — each wait still stays capped, so a
-# sync never stalls indefinitely.
+# Admin API. Some of them, such as the Claude Code usage report, answer 429 with a `Retry-After` of
+# up to an hour, and a retry before that time also gets a 429. Such a request fails at once with the
+# server delay, and the import activity retries after that delay, so no worker waits out the hour.
+# A 429 without a usable delay falls back to exponential backoff. Give the report endpoints more
+# attempts and a higher backoff ceiling than the entity lists. Each wait stays capped, so a sync
+# never stalls indefinitely.
 REPORT_MAX_RETRY_ATTEMPTS = 12
 REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
 # The waits of the report attempts above add up to about 1,100 seconds, which is more than the

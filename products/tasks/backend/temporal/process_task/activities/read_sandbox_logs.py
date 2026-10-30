@@ -8,15 +8,19 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotRunningError
-from products.tasks.backend.logic.services.memory_watchdog import (
-    build_memory_watchdog_read_command,
-    parse_memory_watchdog_read_output,
-)
+from products.tasks.backend.logic.services.memory_watchdog import parse_memory_watchdog_read_output
 from products.tasks.backend.logic.services.sandbox import SandboxBase, get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox_teardown_stats import (
+    build_sandbox_teardown_read_command,
+    parse_sandbox_teardown_stats,
+    split_sandbox_teardown_read_output,
+)
 from products.tasks.backend.temporal.metrics import (
     increment_memory_watchdog_events,
     increment_memory_watchdog_teardown,
     record_memory_peak_ratio,
+    record_sandbox_cpu_pressure_ratio,
+    record_sandbox_network_bytes,
 )
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -34,9 +38,8 @@ class ReadSandboxLogsInput:
 SANDBOX_TERMINATED_MESSAGE = "Sandbox terminated before logs could be captured; no agent-server logs available."
 
 
-def _report_memory_watchdog(sandbox: SandboxBase, sandbox_id: str, run_id: str | None) -> None:
-    result = sandbox.execute(build_memory_watchdog_read_command(), timeout_seconds=10)
-    summary = parse_memory_watchdog_read_output(result.stdout, time.time())
+def _report_memory_watchdog(stdout: str, sandbox_id: str, run_id: str | None) -> None:
+    summary = parse_memory_watchdog_read_output(stdout, time.time())
     logger.info(
         f"Sandbox memory watchdog summary run_id={run_id} sandbox_id={sandbox_id} kills={summary.kill_count} "
         f"no_target={summary.no_target} pressure_episodes={summary.pressure_episodes} "
@@ -48,6 +51,27 @@ def _report_memory_watchdog(sandbox: SandboxBase, sandbox_id: str, run_id: str |
     increment_memory_watchdog_events("pressure", summary.pressure_episodes)
     if summary.peak_ratio is not None:
         record_memory_peak_ratio(summary.peak_ratio)
+
+
+def _report_teardown_stats(stdout: str, sandbox_id: str, run_id: str | None) -> None:
+    stats = parse_sandbox_teardown_stats(stdout)
+    logger.info(
+        f"Sandbox teardown stats run_id={run_id} sandbox_id={sandbox_id} rx_bytes={stats.rx_bytes} "
+        f"tx_bytes={stats.tx_bytes} cpu_pressure_ratio={stats.cpu_pressure_ratio}"
+    )
+    if stats.rx_bytes is not None:
+        record_sandbox_network_bytes("rx", stats.rx_bytes)
+    if stats.tx_bytes is not None:
+        record_sandbox_network_bytes("tx", stats.tx_bytes)
+    if stats.cpu_pressure_ratio is not None:
+        record_sandbox_cpu_pressure_ratio(stats.cpu_pressure_ratio)
+
+
+def _report_teardown(sandbox: SandboxBase, sandbox_id: str, run_id: str | None) -> None:
+    result = sandbox.execute(build_sandbox_teardown_read_command(), timeout_seconds=10)
+    output = split_sandbox_teardown_read_output(result.stdout)
+    _report_memory_watchdog(output.watchdog_output, sandbox_id, run_id)
+    _report_teardown_stats(output.stats_output, sandbox_id, run_id)
 
 
 @activity.defn
@@ -108,9 +132,9 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
                 logger.debug("agentsh audit query failed for sandbox %s", input.sandbox_id, exc_info=True)
 
             try:
-                _report_memory_watchdog(sandbox, input.sandbox_id, input.run_id)
+                _report_teardown(sandbox, input.sandbox_id, input.run_id)
             except Exception:
-                logger.warning("Memory watchdog summary failed for sandbox %s", input.sandbox_id, exc_info=True)
+                logger.warning("Teardown stats failed for sandbox %s", input.sandbox_id, exc_info=True)
 
             return logs
         except SandboxNotRunningError:

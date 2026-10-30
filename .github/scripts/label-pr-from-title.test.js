@@ -13,6 +13,7 @@ const {
     docsLabelApplies,
     labelsForTitle,
     labelsForFiles,
+    staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
@@ -149,6 +150,53 @@ test('labelsForFiles', async (t) => {
     for (const { files, expected, description } of LABELS_FOR_FILES_CASES) {
         await t.test(description, () => {
             assert.deepEqual(labelsForFiles(files, PATH_RULES), expected)
+        })
+    }
+})
+
+const labelEvent = (event, name, login) => ({ event, label: { name }, actor: { login } })
+
+const STALE_LABELS_CASES = [
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: [],
+        expected: ['feature/agent-infra'],
+        description: 'a label this workflow added that no longer matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]')],
+        wanted: ['feature/agent-infra'],
+        expected: [],
+        description: 'a label this workflow added that still matches',
+    },
+    {
+        events: [labelEvent('labeled', 'feature/agent-infra', 'someuser')],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added',
+    },
+    {
+        events: [
+            labelEvent('labeled', 'feature/agent-infra', 'github-actions[bot]'),
+            labelEvent('unlabeled', 'feature/agent-infra', 'someuser'),
+            labelEvent('labeled', 'feature/agent-infra', 'someuser'),
+        ],
+        wanted: [],
+        expected: [],
+        description: 'a label a person added back after this workflow added it',
+    },
+    {
+        events: [labelEvent('labeled', 'docs', 'github-actions[bot]')],
+        wanted: [],
+        expected: [],
+        description: 'a label this workflow added that no rule maps to',
+    },
+]
+
+test('staleLabels', async (t) => {
+    for (const { events, wanted, expected, description } of STALE_LABELS_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(staleLabels(events, wanted, PATH_RULES), expected)
         })
     }
 })

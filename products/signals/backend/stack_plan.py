@@ -62,6 +62,8 @@ _STACKABLE_PR_STATES = (
 
 
 def _layer_summary(*, parent: SignalReport, layer: ReportLayer, index: int, total: int) -> str:
+    # The inbox hides this section behind its plan block by matching the sentence, so keep it in sync
+    # with `isGeneratedPlanSection` in products/signals/frontend/inbox/utils/reportSummary.ts.
     return f"{layer.scope}\n\n## Plan\n\nThis is layer {index + 1} of {total} of the plan '{parent.title}'."
 
 
@@ -125,6 +127,7 @@ def create_layer_reports(
             # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
+            tags=list(parent.tags),
         )
         child_id = str(child.id)
         for judgment in judgments:

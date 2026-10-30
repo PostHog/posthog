@@ -9,6 +9,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -114,9 +115,17 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                     resourceType={AccessControlResourceType.LlmAnalytics}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
-                        Edit dashboard
-                    </LemonButton>
+                    <Shortcut
+                        name="AIObservabilityEditDashboard"
+                        scope={Scene.AIObservability}
+                        keybind={[keyBinds.edit]}
+                        intent="Edit dashboard"
+                        interaction="click"
+                    >
+                        <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                            Edit dashboard
+                        </LemonButton>
+                    </Shortcut>
                 </AccessControlAction>
             )}
             {activeTab !== 'sentiment' && <AIObservabilityReloadAction />}

@@ -23,9 +23,15 @@ from posthog.dataclasses import frozen
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT
 
-from products.alerts.backend.logic.insight_alert_destinations import INSIGHT_CHART_BLOCK, SLACK_TEMPLATE_ID
-from products.cdp.backend.facade.models import HogFunction
-from products.cdp.backend.validation import generate_template_bytecode
+from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
+from products.alerts.backend.logic.insight_alert_destinations import (
+    INSIGHT_CHART_BLOCK,
+    SLACK_TEMPLATE_ID,
+    hog_slack_attachments,
+    hog_slack_blocks,
+)
+from products.cdp.backend.facade.models import HogFunction, HogFunctionTemplate
+from products.cdp.backend.validation import compile_hog, generate_template_bytecode
 
 logger = structlog.get_logger(__name__)
 
@@ -72,13 +78,28 @@ def blocks_with_chart(blocks: Any) -> list[Any] | None:
     return [*blocks[: actions_index - 1], INSIGHT_CHART_BLOCK, *blocks[actions_index:]]
 
 
+def blocks_with_readable_message(blocks: Any) -> list[Any] | None:
+    if blocks != hog_slack_blocks() and blocks not in STOCK_INPUT_VALUES[SLACK_TEMPLATE_ID]["blocks"]:
+        return None
+    return hog_slack_blocks()
+
+
 def backfill_insight_alert_chart_blocks(
     *,
     team_ids: Sequence[int] | None = None,
     limit: int | None = None,
     batch_size: int = 100,
     apply: bool = False,
+    format_messages: bool = False,
 ) -> ChartBlockBackfill:
+    template = HogFunctionTemplate.get_template(SLACK_TEMPLATE_ID) if format_messages else None
+    known_codes: set[str] = set()
+    if format_messages:
+        if template is None or not any(item.get("key") == "attachments" for item in template.inputs_schema):
+            raise ValueError("Sync Slack templates before updating alert message formatting.")
+        known_codes = set(
+            HogFunctionTemplate.objects.filter(template_id=SLACK_TEMPLATE_ID).values_list("code", flat=True)
+        )
     destinations = insight_alert_slack_destinations(team_ids)
     if limit is not None:
         destinations = destinations[:limit]
@@ -93,14 +114,32 @@ def backfill_insight_alert_chart_blocks(
         blocks_input: dict[str, Any] = raw_blocks_input if isinstance(raw_blocks_input, dict) else {}
         blocks = blocks_input.get("value")
 
-        if mentions_chart(blocks):
+        if (
+            format_messages
+            and template is not None
+            and blocks == []
+            and ((destination.inputs or {}).get("attachments") or {}).get("value") == hog_slack_attachments()
+            and destination.hog == template.code
+        ) or (not format_messages and mentions_chart(destination.inputs)):
             already_current += 1
             continue
 
         # Liquid blocks are rendered by the worker rather than compiled, so the hog expression the
         # chart block is written in would reach Slack as literal text.
         is_hog_templated = blocks_input.get("templating", "hog") == "hog"
-        upgraded = blocks_with_chart(blocks) if is_hog_templated else None
+        upgrade = blocks_with_readable_message if format_messages else blocks_with_chart
+        upgraded = upgrade(blocks) if is_hog_templated else None
+        if format_messages:
+            text_input = (destination.inputs or {}).get("text", {})
+            attachments_input = (destination.inputs or {}).get("attachments", {})
+            stock_text = (
+                isinstance(text_input, dict)
+                and text_input.get("templating", "hog") == "hog"
+                and text_input.get("value") in [None, "", *STOCK_INPUT_VALUES[SLACK_TEMPLATE_ID]["text"]]
+            )
+            no_attachments = isinstance(attachments_input, dict) and attachments_input.get("value") in (None, [])
+            if destination.hog not in known_codes or not stock_text or not no_attachments:
+                upgraded = None
         if upgraded is None:
             left_alone += 1
             logger.info(
@@ -115,6 +154,9 @@ def backfill_insight_alert_chart_blocks(
             # The worker renders the stored bytecode, not the value, so a value written without a
             # matching recompile would keep posting the old blocks.
             bytecode = generate_template_bytecode(upgraded, set(), function_type=destination.type)
+            attachments = hog_slack_attachments() if format_messages else []
+            attachment_bytecode = generate_template_bytecode(attachments, set(), function_type=destination.type)
+            sender_bytecode = compile_hog(template.code, "internal_destination") if template is not None else None
         except Exception:
             # Recompiling covers the whole block list, so an edit elsewhere in it that the compiler
             # now rejects lands here. One destination must not stop the sweep.
@@ -130,12 +172,28 @@ def backfill_insight_alert_chart_blocks(
             **(destination.inputs or {}),
             "blocks": {**blocks_input, "value": upgraded, "bytecode": bytecode},
         }
+        if format_messages and template is not None:
+            destination.inputs["blocks"] = {"value": []}
+            destination.inputs["text"] = {"value": ""}
+            destination.inputs["attachments"] = {
+                "value": attachments,
+                "bytecode": attachment_bytecode,
+            }
+            destination.hog = template.code
+            destination.bytecode = sender_bytecode
+            destination.inputs_schema = [
+                item for item in (destination.inputs_schema or []) if item.get("key") != "attachments"
+            ] + [item for item in template.inputs_schema if item.get("key") == "attachments"]
         repaired.append(destination)
         ids_by_team.setdefault(destination.team_id, []).append(destination.id)
 
     if apply and repaired:
         with transaction.atomic():
-            HogFunction.objects.bulk_update(repaired, ["inputs"], batch_size=batch_size)
+            HogFunction.objects.bulk_update(
+                repaired,
+                ["inputs", "hog", "bytecode", "inputs_schema"] if format_messages else ["inputs"],
+                batch_size=batch_size,
+            )
             for team_id, hog_function_ids in ids_by_team.items():
                 # bulk_update skips post_save, so the running workers need telling by hand.
                 _reload_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)

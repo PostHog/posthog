@@ -11,7 +11,6 @@
 // not compared, the publisher does not project it.
 import { ConsumerGlobalConfig, KafkaConsumer, LibrdKafkaError, Message, Metadata, WatermarkOffsets } from 'node-rdkafka'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Pool } from 'pg'
@@ -45,7 +44,7 @@ import { Hub } from '~/types'
 import { waitForExpect } from '../helpers/expectations'
 import { DEFAULT_TEAM, EventBuilder, createKafkaMessage } from '../helpers/ingestion-e2e'
 import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '../helpers/kafka'
-import { ServiceProcess, getFreePort } from '../helpers/service-process'
+import { ServiceProcess, getFreePort, getFreeWorkerPort } from '../helpers/service-process'
 import { createOrganization, createTeam } from '../helpers/sql'
 
 jest.setTimeout(300_000)
@@ -647,7 +646,7 @@ async function startNodeIngestionApiWorker(
     extraEnv: Record<string, string>,
     register: Register
 ): Promise<string> {
-    const port = await getFreeWorkerPort()
+    const port = await getFreeWorkerPort(GRPC_PORT_OFFSET)
     const service = new ServiceProcess('node-worker', 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
         cwd: NODEJS_ROOT,
         env: {
@@ -744,25 +743,6 @@ function dependencyEnv(hub: Hub): NodeJS.ProcessEnv {
         REDIS_URL: hub.REDIS_URL,
         SITE_URL: 'https://example.com',
     }
-}
-
-// A worker needs two adjacent free ports: HTTP, and HTTP + GRPC_PORT_OFFSET for the stream.
-async function getFreeWorkerPort(): Promise<number> {
-    for (let attempt = 0; attempt < 20; attempt++) {
-        const port = await getFreePort()
-        if (await isPortFree(port + GRPC_PORT_OFFSET)) {
-            return port
-        }
-    }
-    throw new Error('could not find adjacent free ports for a worker')
-}
-
-function isPortFree(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-        const server = net.createServer()
-        server.once('error', () => resolve(false))
-        server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
-    })
 }
 
 function foldFeed(distinctIdRows: Buffer[], mergeEvents: Buffer[], teamId: number): FeedState {

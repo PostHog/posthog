@@ -17,7 +17,7 @@ from rest_framework.request import Request
 
 from posthog.schema import EndpointRequest, HogQLQuery
 
-from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import Product
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -30,6 +30,7 @@ from products.data_modeling.backend.facade.api import HasDependentsError, delete
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
@@ -41,10 +42,9 @@ def apply_tags(endpoint: Endpoint, tags: list[str] | None) -> None:
     """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
     if tags is None:
         return
-    # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
+    # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / replace_tags_on_object;
     # it's not declared on the Endpoint model.
-    endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
-    cleanup_orphan_tags(endpoint.team_id)
+    endpoint.prefetched_tags = replace_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,6 +65,7 @@ class EndpointCrudService:
         self.request = request
         self.user = cast(User, request.user)
         self.materialization = EndpointMaterializationService(team, request)
+        self.materialization_dependencies = EndpointMaterializationDependencyService(team.pk)
 
     def _log_activity(self, *, item_id: str, scope: str, activity: str, detail: Detail) -> None:
         log_activity(
@@ -117,7 +118,7 @@ class EndpointCrudService:
                     version=1,
                     query=query_dict,
                     description=data.description or "",
-                    data_freshness_seconds=(
+                    cache_ttl_seconds=(
                         data.data_freshness_seconds
                         if data.data_freshness_seconds is not None
                         else DEFAULT_DATA_FRESHNESS_SECONDS
@@ -198,7 +199,11 @@ class EndpointCrudService:
             # get_version raises when no versions exist, so target_version is never None.
             target_version = target_version_override or current_version
             version_before_update = EndpointVersion.objects.get(pk=target_version.pk)
+            previous_data_freshness_seconds = version_before_update.data_freshness_seconds
             was_materialized = current_version.saved_query_id is not None
+
+            # Before any write, so a refused update leaves the endpoint as it was.
+            self._check_disable_breaks_no_reader(endpoint, data, target_version, version_targeted)
 
             step = "endpoint_activation"
             # Endpoint-level activation only — deactivating a single version must never
@@ -212,6 +217,9 @@ class EndpointCrudService:
                 # version, not just the current one.
                 for materialized_version in endpoint.versions.filter(saved_query__isnull=False):
                     self.materialization.disable_materialization(endpoint, materialized_version)
+                # target_version was loaded before the teardown and still points at the removed saved
+                # query, which would make the freshness write below skip the direct query cache duration.
+                target_version.refresh_from_db()
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
@@ -221,25 +229,32 @@ class EndpointCrudService:
                 endpoint, data, target_version, was_materialized
             )
 
-            step = "version_fields"
-            self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
+            # A rejected enable must also roll back changes to the direct query cache duration.
+            with transaction.atomic():
+                step = "version_fields"
+                self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
-            step = "materialization"
-            materialization_error = self._reconcile_materialization(
-                endpoint,
-                data,
-                raw_data,
-                target_version,
-                version_targeted,
-                was_materialized=was_materialized,
-                version_was_created=version_was_created,
-                old_bucket_overrides=old_bucket_overrides,
-            )
+                step = "materialization"
+                materialization_error = self._reconcile_materialization(
+                    endpoint,
+                    data,
+                    raw_data,
+                    target_version,
+                    version_targeted,
+                    was_materialized=was_materialized,
+                    version_was_created=version_was_created,
+                    old_bucket_overrides=old_bucket_overrides,
+                )
 
             step = "tags_and_activity"
             apply_tags(endpoint, data.tags)
             self._log_update_activity(
-                endpoint, endpoint_before_update, target_version, version_before_update, version_was_created
+                endpoint,
+                endpoint_before_update,
+                target_version,
+                version_before_update,
+                version_was_created,
+                previous_data_freshness_seconds,
             )
 
             return EndpointUpdateResult(
@@ -249,9 +264,7 @@ class EndpointCrudService:
                 materialization_error=materialization_error,
             )
 
-        except APIException:
-            raise
-        except ValidationError:
+        except (APIException, ValidationError, HasDependentsError):
             raise
         except Exception as e:
             current_version = endpoint.get_version()
@@ -281,6 +294,32 @@ class EndpointCrudService:
                 {"query": "Cannot change query when targeting a specific version. Query changes create a new version."}
             )
         return target_version_override
+
+    def _check_disable_breaks_no_reader(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRequest,
+        target_version: EndpointVersion,
+        version_targeted: bool,
+    ) -> None:
+        """Raise HasDependentsError if the update would disable a saved query that other queries read.
+
+        Disabling soft-deletes the saved query, so every view or endpoint that selects from it fails.
+        Mirrors the disable decisions in `update` and `_reconcile_materialization`.
+        """
+        versions_to_disable: list[EndpointVersion] = []
+        if version_targeted:
+            if data.is_active is False or data.is_materialized is False:
+                versions_to_disable = [target_version]
+        elif data.is_active is False or (data.is_active is None and not endpoint.is_active):
+            versions_to_disable = list(endpoint.versions.filter(saved_query__isnull=False))
+        elif data.is_materialized is False and (
+            data.query is None or not endpoint.has_query_changed(data.query.model_dump())
+        ):
+            versions_to_disable = [target_version]
+
+        for version in versions_to_disable:
+            self.materialization_dependencies.check_deletable(version)
 
     def _apply_query_change(
         self,
@@ -316,13 +355,13 @@ class EndpointCrudService:
         if data.description is not None:
             target_version.description = data.description
             update_fields.append("description")
-        if "data_freshness_seconds" in raw_data:
-            target_version.data_freshness_seconds = (
+        if "data_freshness_seconds" in raw_data and target_version.saved_query_id is None:
+            target_version.cache_ttl_seconds = (
                 data.data_freshness_seconds
                 if data.data_freshness_seconds is not None
                 else DEFAULT_DATA_FRESHNESS_SECONDS
             )
-            update_fields.append("data_freshness_seconds")
+            update_fields.append("cache_ttl_seconds")
         if "optional_breakdown_properties" in raw_data:
             target_version.optional_breakdown_properties = list(data.optional_breakdown_properties or [])
             update_fields.append("optional_breakdown_properties")
@@ -333,9 +372,14 @@ class EndpointCrudService:
         if update_fields:
             update_fields.append("updated_at")
             target_version.save(update_fields=update_fields)
-        if {"data_freshness_seconds", "optional_breakdown_properties"} & set(update_fields):
+        if {"cache_ttl_seconds", "optional_breakdown_properties"} & set(update_fields):
             # Both fields are part of the cached serving snapshot the throttle classifies from.
-            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[target_version.version])
+            transaction.on_commit(
+                lambda: clear_endpoint_materialization_cache(
+                    self.team.pk, endpoint.name, versions=[target_version.version]
+                ),
+                robust=True,
+            )
 
     def _reconcile_materialization(
         self,
@@ -354,11 +398,18 @@ class EndpointCrudService:
         Returns a materialization error message when enabling failed after a new
         version was already committed (the update itself still succeeds).
         """
+        requested_freshness = (
+            (data.data_freshness_seconds if data.data_freshness_seconds is not None else DEFAULT_DATA_FRESHNESS_SECONDS)
+            if "data_freshness_seconds" in raw_data
+            else None
+        )
         if version_targeted and not target_version.is_active:
             # Deactivating a version: tear down its own materialization, never enable.
             # Checked before the endpoint-active guard so this holds even on an inactive endpoint.
             if target_version.saved_query_id is not None:
-                self.materialization.disable_materialization(endpoint, target_version)
+                self.materialization.disable_materialization(
+                    endpoint, target_version, cache_ttl_seconds=requested_freshness
+                )
             return None
 
         if not endpoint.is_active:
@@ -371,7 +422,9 @@ class EndpointCrudService:
 
         should_enable = data.is_materialized is True or (data.is_materialized is None and check_was_materialized)
         if data.is_materialized is False:
-            self.materialization.disable_materialization(endpoint, target_version)
+            self.materialization.disable_materialization(
+                endpoint, target_version, cache_ttl_seconds=requested_freshness
+            )
             return None
         if not should_enable:
             return None
@@ -386,7 +439,7 @@ class EndpointCrudService:
             self.materialization.enable_materialization(
                 endpoint,
                 target_version,
-                target_version.data_freshness_seconds,
+                requested_freshness if requested_freshness is not None else target_version.data_freshness_seconds,
                 bucket_overrides=bucket_overrides,
             )
             if (
@@ -396,16 +449,21 @@ class EndpointCrudService:
             ):
                 # enable only triggers an immediate Temporal run when it creates the schedule;
                 # changed bucketing on an existing materialization needs an explicit refresh.
-                try:
-                    materialize_saved_query(target_version.saved_query)
-                except Exception:
-                    logger.warning(
-                        "failed_to_trigger_materialization_refresh",
-                        team_id=self.team.pk,
-                        endpoint_name=endpoint.name,
-                        saved_query_id=str(target_version.saved_query_id),
-                        bucket_overrides=bucket_overrides,
-                    )
+                saved_query = target_version.saved_query
+
+                def refresh_materialization() -> None:
+                    try:
+                        materialize_saved_query(saved_query)
+                    except Exception:
+                        logger.warning(
+                            "failed_to_trigger_materialization_refresh",
+                            team_id=self.team.pk,
+                            endpoint_name=endpoint.name,
+                            saved_query_id=str(saved_query.id),
+                            bucket_overrides=bucket_overrides,
+                        )
+
+                transaction.on_commit(refresh_materialization)
         except Exception as e:
             if not version_was_created:
                 raise
@@ -435,6 +493,7 @@ class EndpointCrudService:
         target_version: EndpointVersion,
         version_before_update: EndpointVersion,
         version_was_created: bool,
+        previous_data_freshness_seconds: int,
     ) -> None:
         endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
         if endpoint_changes:
@@ -464,7 +523,22 @@ class EndpointCrudService:
                 ),
             )
         else:
-            version_changes = changes_between("EndpointVersion", previous=version_before_update, current=target_version)
+            version_changes = [
+                change
+                for change in changes_between("EndpointVersion", previous=version_before_update, current=target_version)
+                if change.field != "cache_ttl_seconds"
+            ]
+            data_freshness_seconds = target_version.data_freshness_seconds
+            if data_freshness_seconds != previous_data_freshness_seconds:
+                version_changes.append(
+                    Change(
+                        type="EndpointVersion",
+                        action="changed",
+                        field="data_freshness_seconds",
+                        before=previous_data_freshness_seconds,
+                        after=data_freshness_seconds,
+                    )
+                )
             if version_changes:
                 self._log_activity(
                     item_id=str(endpoint.id),
@@ -492,6 +566,7 @@ class EndpointCrudService:
             for version in endpoint.versions.filter(saved_query__isnull=False):
                 try:
                     if version.saved_query:
+                        self.materialization_dependencies.check_deletable(version)
                         delete_node_from_dag(version.saved_query)
                 except HasDependentsError:
                     raise

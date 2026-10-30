@@ -21,6 +21,7 @@ from products.alerts.backend.facade.destinations import (
     unbound_alert_destinations,
 )
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
+from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
 from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -356,26 +357,49 @@ class TestDestinationEligibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_blocks", {}, False, ()),
-            ("text_edited_before_the_first_save", {"text": "Look at this"}, True, (DestinationHoldBack.MESSAGE,)),
-            ("text_edited_with_no_revision", {"text": "Look at this"}, False, (DestinationHoldBack.MESSAGE,)),
-            ("an_emptied_text", {"text": ""}, False, ()),
+            ("stock_message", {}, None, ()),
+            ("custom_attachments", {"attachments": [{"text": "Custom message"}]}, None, (DestinationHoldBack.MESSAGE,)),
+            (
+                "legacy_stock_blocks",
+                {"blocks": STOCK_INPUT_VALUES["template-slack"]["blocks"][0]},
+                None,
+                (),
+            ),
+            ("text_edited_before_the_first_save", {"text": "Look at this"}, {}, (DestinationHoldBack.MESSAGE,)),
+            ("text_edited_with_no_revision", {"text": "Look at this"}, None, (DestinationHoldBack.MESSAGE,)),
+            ("an_emptied_text", {"text": ""}, None, ()),
             (
                 "stock_text_rendered_as_liquid",
                 {"text": {"value": "Alert triggered: {event.properties.insight_name}", "templating": "liquid"}},
-                False,
+                None,
                 (DestinationHoldBack.MESSAGE,),
             ),
             (
                 "an_agent_chosen_emoji",
                 {"icon_emoji": ":rotating_light:"},
-                True,
+                {},
                 (DestinationHoldBack.MESSAGE_COSMETIC,),
+            ),
+            (
+                "text_moved_to_another_default_after_the_first_save",
+                {"text": "*{person.name}* triggered event: '{event.event}'"},
+                {"text": "Alert triggered: {event.properties.insight_name}"},
+                (),
+            ),
+            (
+                "text_edited_after_the_first_save",
+                {},
+                {"text": "Look at this"},
+                (DestinationHoldBack.MESSAGE,),
             ),
         ]
     )
     def test_an_insight_destination_is_compared_with_the_shipped_defaults(
-        self, _name: str, changes: dict[str, Any], revised: bool, expected: tuple[DestinationHoldBack, ...]
+        self,
+        _name: str,
+        changes: dict[str, Any],
+        later: dict[str, str] | None,
+        expected: tuple[DestinationHoldBack, ...],
     ) -> None:
         (event,) = INSIGHT_ALERT_EVENT_IDS
         stock = build_insight_alert_slack_config(
@@ -391,9 +415,11 @@ class TestDestinationEligibility(APIBaseTest):
             },
         )
         HogFunction.objects.filter(pk=function.pk).update(filters=stock["filters"])
-        if revised:
+        if later is not None:
             function.refresh_from_db()
-            self._edited(function)
+            self._edited(
+                function, inputs={**(function.inputs or {}), **{key: {"value": value} for key, value in later.items()}}
+            )
 
         (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[event])
         assert eligibility.hold_backs == expected

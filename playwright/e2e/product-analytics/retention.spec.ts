@@ -123,7 +123,7 @@ test.describe('Retention', () => {
         await test.step('close modal and verify table is intact', async () => {
             await insight.retention.closePersonsModal()
             await expect(insight.retention.table).toBeVisible()
-            expect(await insight.retention.tableRows.count()).toBe(10)
+            expect(await insight.retention.tableRows.count()).toBe(9)
         })
     })
 
@@ -157,12 +157,12 @@ test.describe('Retention', () => {
             const headerTexts = await insight.retention.getColumnHeaderTexts()
             expect(headerTexts).toContain('Day 0')
             expect(headerTexts.some(isDayHeader)).toBe(true)
-            expect(await insight.retention.tableRows.count()).toBe(10)
+            expect(await insight.retention.tableRows.count()).toBe(9)
         })
 
         await test.step('disable custom brackets and verify default columns return', async () => {
             await insight.retention.disableCustomBrackets()
-            expect(await insight.retention.tableHeaders.count()).toBe(10)
+            expect(await insight.retention.tableHeaders.count()).toBe(8)
         })
     })
 })

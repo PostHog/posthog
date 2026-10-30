@@ -1,6 +1,8 @@
 @layer components {
     .quill-skeleton {
-        background-color: var(--muted);
+        /* `--muted` sits too close to `--background` and `--card` to read as a placeholder. A foreground
+           overlay gets darker on light surfaces and lighter on dark ones, so it shows on any surface. */
+        background-color: color-mix(in oklab, var(--foreground) 12%, transparent);
         border-radius: var(--radius-md, 0.375rem);
         animation: var(--animate-pulse, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite);
     }

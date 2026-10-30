@@ -182,7 +182,7 @@ describe('navProductsTabLogic', () => {
     it('saves staged stars in one request without touching files, folders, or other shortcuts', async () => {
         const saved = [
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
-            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' },
         ]
         const bulkUpdate = jest.fn(async ({ request }: { request: Request }) => {
             bulkUpdate.body = await request.json()
@@ -209,7 +209,7 @@ describe('navProductsTabLogic', () => {
             .toMatchValues({ customizeSidebarOpen: false, starredProductsSaving: false })
         expect(bulkUpdate).toHaveBeenCalledTimes(1)
         expect(bulkUpdate.body).toEqual({
-            add: [{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }],
+            add: [{ path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' }],
             remove_ids: ['analytics'],
         })
         expect(projectTreeDataLogic.values.shortcutData).toEqual(saved)

@@ -118,3 +118,13 @@
     outline: 2px solid var(--color-text-tertiary);
     outline-offset: 3px;
 }
+
+.TileCanvas__edge {
+    transition:
+        stroke 200ms ease-out,
+        stroke-width 200ms ease-out;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}

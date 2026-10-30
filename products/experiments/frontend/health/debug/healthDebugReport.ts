@@ -151,13 +151,14 @@ function share(value: unknown): string | null {
 function serverOnlyCheck(
     input: HealthDebugInput,
     check: ExperimentHealthFindingApi['code'],
-    note: ((finding: ExperimentHealthFindingApi) => string) | null
+    note: ((finding: ExperimentHealthFindingApi) => string) | null,
+    reads: HealthDebugDomain[] = ['experiment', 'flag']
 ): HealthDebugCheck {
     const finding = findingOf(input, check)
     return {
         check,
         source: 'health endpoint',
-        reads: ['experiment', 'flag'],
+        reads,
         ...serverResult(check, input.health, (code) => code === check),
         browser: null,
         browserLabel: BROWSER_RULES,
@@ -176,8 +177,8 @@ function splitChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     if (finding.subcode === 'not_checked') {
         return evidence.change_count == null
-            ? `Not checked: ${evidence.reason}.`
-            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+            ? `Not checked: ${finding.reason}.`
+            : `Not checked: ${finding.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
     }
     return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. ${exposedBeforeFirst(finding)}`
 }
@@ -186,7 +187,7 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} saves changed ${evidence.changed_settings}.`
     return finding.subcode === 'not_checked'
-        ? `Not checked: ${evidence.reason}. ${changed}`
+        ? `Not checked: ${finding.reason}. ${changed}`
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
@@ -194,13 +195,13 @@ function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
     if (finding.subcode === 'not_checked') {
-        return `Not checked: ${evidence.reason}. ${changed}`
+        return `Not checked: ${finding.reason}. ${changed}`
     }
     const pinnedShare = share(evidence.pinned_share)
     const removedOverride = pinnedShare
         ? `Removed override share ${pinnedShare}.`
-        : typeof evidence.reason === 'string'
-          ? `Removed override share unknown: ${evidence.reason}.`
+        : finding.reason
+          ? `Removed override share unknown: ${finding.reason}.`
           : null
     return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
 }
@@ -219,10 +220,65 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     if (remoteShare) {
         parts.push(`${remoteShare} of calls evaluated by the flag service.`)
     }
-    if (typeof evidence.reason === 'string') {
-        parts.push(`Share unknown: ${evidence.reason}.`)
+    if (finding.reason) {
+        parts.push(`Share unknown: ${finding.reason}.`)
     }
     return parts.join(' ')
+}
+
+function metricEventNote({ evidence }: ExperimentHealthFindingApi): string {
+    const events = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_events$/.test(key))
+        .map(([, value]) => value)
+    return `Not received: ${events.join(', ')}.`
+}
+
+function metricCompileNote({ evidence }: ExperimentHealthFindingApi): string {
+    const errors = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_error$/.test(key))
+        .map(([, value]) => value)
+    return `Doesn't compile: ${errors.join(', ')}.`
+}
+
+function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string {
+    const failures = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_failure$/.test(key))
+        .map(([, value]) => value)
+    return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
+}
+
+function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
+    if (subcode === 'filter_on_another_flag') {
+        return `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
+    }
+    if (subcode === 'filter_on_property_not_ingested') {
+        return `Property not received: ${evidence.properties}.`
+    }
+    return `Not received: ${evidence.event}.`
+}
+
+const EXPOSURE_FILTERS_FINDING_CODES: ReadonlySet<ExperimentHealthFindingApi['code']> = new Set([
+    'exposure_filter_on_dynamic_cohort',
+    'exposure_filter_excludes_events',
+])
+
+function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
+    const finding = input.health?.findings.find(({ code }) => EXPOSURE_FILTERS_FINDING_CODES.has(code)) ?? null
+    return {
+        check: 'exposure_filters',
+        source: 'health endpoint',
+        reads: ['experiment', 'flag', 'project'],
+        ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
+        browser: null,
+        browserLabel: BROWSER_RULES,
+        ...NO_TIMES,
+        difference: null,
+        note: !finding
+            ? null
+            : finding.code === 'exposure_filter_on_dynamic_cohort'
+              ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.`
+              : `Leaves out events by: ${finding.evidence.properties}.`,
+    }
 }
 
 function noMetricCheck(input: HealthDebugInput): HealthDebugCheck {
@@ -295,8 +351,12 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
-        exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
-        exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
+        exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
+        exposureCheck(
+            'srm',
+            ['exposures', 'flag'],
+            'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
             'multiple_variants_share',
@@ -315,7 +375,14 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),
         serverOnlyCheck(input, 'flag_variants_mismatch', null),
         serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
+        serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
+        serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
+        serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
+        serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
+        exposureFiltersCheck(input),
+        serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

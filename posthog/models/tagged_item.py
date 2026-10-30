@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
@@ -43,7 +43,8 @@ class TaggedItemQuerySet(models.QuerySet):
         # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
         return self.for_model(model).filter(**{object_column_for(model): OuterRef(outer_field)})
 
-    def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:
+    # The django-stubs plugin rebinds this subclass to its own TypeVar, so a concrete signature cannot match.
+    def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:  # type: ignore[override]
         """Fill the generic pointer on each row, because bulk_create never calls save()."""
         objs = list(objs)
         uncached_tag_ids = {obj.tag_id for obj in objs if not TaggedItem.tag.is_cached(obj)}
@@ -52,7 +53,7 @@ class TaggedItemQuerySet(models.QuerySet):
             if obj.tag_id in tags:
                 obj.tag = tags[obj.tag_id]
             obj.sync_team()
-        return super().bulk_create(objs, *args, **kwargs)
+        return cast(list[TaggedItem], super().bulk_create(cast(Iterable[Any], objs), *args, **kwargs))
 
 
 class TaggedItem(ModelActivityMixin, UUIDTModel):

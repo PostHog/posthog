@@ -4,13 +4,18 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    cohortAnnotations,
+    cohortFilterName,
+    isCohortPropertyFilter,
     isGroupPropertyFilter,
     isPropertyGroupFilterLike,
     propertyFilterTypeToTaxonomicFilterType,
@@ -18,7 +23,6 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -26,11 +30,6 @@ import {
     TaxonomicFilterValue,
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
-import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
-import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
@@ -88,7 +87,6 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
-    triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
     propertyDefinitionsOverride,
@@ -133,6 +131,7 @@ export function TaxonomicPropertyFilter({
     // A group row has no key, operator or value, so everything below it reads the leaf filter only.
     const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
     const filter = isPropertyGroupFilterLike(row) ? null : row
+    const flagKey = featureFlagKeyFromProperty(filter?.key)
     const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
@@ -148,9 +147,6 @@ export function TaxonomicPropertyFilter({
     const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
-    const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -234,7 +230,7 @@ export function TaxonomicPropertyFilter({
                         type: filter?.type,
                         label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
-                        ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
+                        ...(isCohortPropertyFilter(filter) ? cohortAnnotations(filter) : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
@@ -271,7 +267,11 @@ export function TaxonomicPropertyFilter({
     // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
     // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
     // tooltip inside the button's. So the tooltip gets the plain string.
-    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+    const cohortLabel = isCohortPropertyFilter(filter)
+        ? filter.cohort_deleted
+            ? cohortFilterName(filter, cohort?.name)
+            : cohortName || `Cohort #${filter.value}`
+        : undefined
 
     const nestedGroupLabel = nestedGroup ? propertyGroupSummary(nestedGroup, cohortsById) : undefined
 
@@ -279,6 +279,10 @@ export function TaxonomicPropertyFilter({
         <span className="truncate">{nestedGroupLabel || 'Grouped filters'}</span>
     ) : filter?.type === 'cohort' ? (
         <span className="flex items-center gap-2 min-w-0">
+            {/* The label truncates from the end and can hide its "(deleted)" or "(missing)" suffix. The icon stays visible. */}
+            {isCohortPropertyFilter(filter) && filter.cohort_deleted && (
+                <IconWarning className="shrink-0 text-danger" data-attr="property-filter-deleted-cohort-icon" />
+            )}
             <span className="truncate">{cohortLabel}</span>
             {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
         </span>
@@ -302,7 +306,7 @@ export function TaxonomicPropertyFilter({
         )
     )
 
-    const legacyDropdown = (
+    const editablePicker = (
         <LemonDropdown
             overlay={taxonomicFilter}
             placement="bottom-start"
@@ -320,6 +324,11 @@ export function TaxonomicPropertyFilter({
                 tooltip={
                     <>
                         {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
+                        {flagKey && (
+                            <div className="mt-2">
+                                <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                            </div>
+                        )}
                         {addFilterDocLink && (
                             <>
                                 <br />
@@ -334,56 +343,6 @@ export function TaxonomicPropertyFilter({
                 {filterContent ?? (addText || 'Add filter')}
             </LemonButton>
         </LemonDropdown>
-    )
-
-    // The rebuilt menu is a self-contained popover, so it only replaces the
-    // row-branch dropdown variant. The truly inline mode is already routed
-    // away via `showInitialSearchInline`; `disablePopover` still renders a
-    // button + dropdown here, so it's fine to swap.
-    //
-    // Key-only rows route through the rebuilt menu too — the picker fires
-    // the same `taxonomicOnChange` callback in either mode, so the commit
-    // shape is identical (cohort id → `setFilter` with `type: 'cohort'`).
-    //
-    // The rebuilt menu carries its own toggle inside its trigger wrapper, so
-    // it needs no extra DOM and inherits the row's layout exactly. The
-    // legacy path gets a thin positioned wrapper to host the floating toggle.
-    const editablePicker = !menuRebuildEnabled ? (
-        legacyDropdown
-    ) : useNewMenu ? (
-        <TaxonomicPopoverMenu
-            groupType={filterTaxonomicGroupType ?? groupTypes[0]}
-            value={cohortOrOtherValue}
-            groupTypes={groupTypes}
-            onChange={(value, _groupType, item, group) => taxonomicOnChange(group, value, item)}
-            renderValue={() => <span className="truncate">{filterContent}</span>}
-            placeholder={addText || 'Add filter'}
-            metadataSource={metadataSource}
-            eventNames={eventNames}
-            schemaColumns={schemaColumns}
-            excludedProperties={excludedProperties}
-            propertyAllowList={propertyAllowList}
-            optionsFromProp={taxonomicFilterOptionsFromProp}
-            hideBehavioralCohorts={hideBehavioralCohorts}
-            showCohortFlagTargeting={showCohortFlagTargeting}
-            endpointFilters={endpointFilters}
-            hogQLGlobals={hogQLGlobals}
-            enableKeywordShortcuts
-            triggerVariant={triggerVariant}
-            triggerButtonProps={{
-                type: 'secondary',
-                size,
-                truncate: true,
-                sideIcon: null,
-                fullWidth: triggerVariant === 'input',
-                icon: !valuePresent ? <IconPlusSmall /> : undefined,
-            }}
-        />
-    ) : (
-        <span className={taxonomicTriggerWrapperClassName()}>
-            {legacyDropdown}
-            <TaxonomicMenuToggle />
-        </span>
     )
 
     return (

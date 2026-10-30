@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 33 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -32,6 +32,12 @@ export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
+    latest_send_first: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
@@ -43,12 +49,22 @@ export const HogFlowsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
+            'Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
         ),
+    source_record: zod
+        .string()
+        .optional()
+        .describe("Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`."),
     status: zod
         .enum(['active', 'archived', 'draft'])
         .optional()
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names, e.g. [\"growth\", \"onboarding\"]. Returns workflows that carry at least one of these tags.'
+        ),
     trigger: zod
         .string()
         .optional()
@@ -75,6 +91,13 @@ export const HogFlowsCreateParams = () => zod.object({
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
+export const hogFlowsCreateBodyTagsItemMax = 255
+
+export const hogFlowsCreateBodyTagsMax = 10
+
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -97,6 +120,13 @@ export const HogFlowsCreateBody = () => zod
     .object({
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsCreateBodyTagsItemMax))
+            .max(hogFlowsCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         status: zod
             .enum(['draft', 'active', 'archived'])
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
@@ -116,6 +146,14 @@ export const HogFlowsCreateBody = () => zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRecordMax)
+            .regex(hogFlowsCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([
@@ -221,7 +259,7 @@ export const HogFlowsCreateBody = () => zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -459,7 +497,7 @@ export const HogFlowsCreateBody = () => zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -501,6 +539,10 @@ export const HogFlowsPartialUpdateParams = () => zod.object({
 
 export const hogFlowsPartialUpdateBodyNameMax = 400
 
+export const hogFlowsPartialUpdateBodyTagsItemMax = 255
+
+export const hogFlowsPartialUpdateBodyTagsMax = 10
+
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -516,6 +558,13 @@ export const HogFlowsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
+        tags: zod
+            .array(zod.string().max(hogFlowsPartialUpdateBodyTagsItemMax))
+            .max(hogFlowsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                'Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
+            ),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -622,7 +671,7 @@ export const HogFlowsPartialUpdateBody = () => zod
             )
             .optional()
             .describe(
-                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
             ),
         email_sending_rate_limit: zod
             .union([
@@ -741,6 +790,19 @@ export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
 })
 
 export const HogFlowsBatchJobsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Move a workflow to broadcasts. It keeps its id, runs and metrics, leaves the workflows list and opens
+ * in the broadcast editor. This cannot be undone.
+ */
+export const HogFlowsConvertToBroadcastParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1300,6 +1362,29 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
+ */
+export const HogFlowsReputationRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsReputationRetrieveQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.'
+        ),
+})
+
+/**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
 export const WorkflowDataSuggestionsBuildParams = () => zod.object({
@@ -1319,6 +1404,45 @@ export const WorkflowDataSuggestionsBuildBody = () => zod.object({
         .default(workflowDataSuggestionsBuildBodyRetryDefault)
         .describe(
             "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
+})
+
+/**
+ * Build and save draft email workflows for events the team picked, such as the events it was about to send
+ * to an email tool. Free for the customer. Needs the feature flag and AI data processing approved for the organization.
+ */
+export const WorkflowDataSuggestionsBuildForEventsParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowDataSuggestionsBuildForEventsBodyEventsItemMax = 400
+
+export const workflowDataSuggestionsBuildForEventsBodyEventsMax = 5
+
+export const workflowDataSuggestionsBuildForEventsBodyRetryDefault = false
+
+export const WorkflowDataSuggestionsBuildForEventsBody = () => zod.object({
+    events: zod
+        .array(
+            zod
+                .string()
+                .max(workflowDataSuggestionsBuildForEventsBodyEventsItemMax)
+                .describe('An event name, exactly as the project sends it.')
+        )
+        .min(1)
+        .max(workflowDataSuggestionsBuildForEventsBodyEventsMax)
+        .describe(
+            'The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.'
+        ),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildForEventsBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one for these events failed. Leave it false when asking for a running build's status."
         ),
 })
 
@@ -1351,6 +1475,112 @@ export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
         .boolean()
         .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
         .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const WorkflowImportsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodyDryRunDefault = false
+
+export const WorkflowImportsCreateBody = () => zod.object({
+    source: zod
+        .enum(['customerio'])
+        .describe('\* `customerio` - Customer.io')
+        .describe('The tool the automations come from.\n\n\* `customerio` - Customer.io'),
+    campaigns: zod
+        .array(
+            zod.object({
+                campaign: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        "The `campaign` object from Customer.io's `GET \/v1\/environments\/{environment_id}\/campaigns\/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields."
+                    ),
+                actions: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .describe('The top-level `actions` array from the same response, every step of the automation.'),
+                templates: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'The message templates the actions point at, from `GET \/v1\/environments\/{environment_id}\/templates\/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content.'
+                    ),
+            })
+        )
+        .describe('The automations to import, at most 50. People are never read from these objects.'),
+    snippets: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.'
+        ),
+    segment_cohorts: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.'
+        ),
+    layouts: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Customer.io layout id to the layout's `body`, from `GET \/v1\/environments\/{environment_id}\/layouts\/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`."
+        ),
+    sender_identities: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The sender identity's id, which templates name in `from_identity_id`."),
+                email: zod.email().describe('The address the sender sends from.'),
+                name: zod
+                    .string()
+                    .default(workflowImportsCreateBodySenderIdentitiesItemNameDefault)
+                    .describe("The sender's display name."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io sender identities, from `GET \/v1\/environments\/{environment_id}\/identities?type=email`. Each email gets the PostHog sender with the same address.'
+        ),
+    segments: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The segment's id."),
+                name: zod.string().describe("The segment's name."),
+                type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(workflowImportsCreateBodyDryRunDefault)
+        .describe('When true, translate and check the automations but save nothing, to preview the import.'),
+})
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const WorkflowImportsForWorkflowRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WorkflowImportsForWorkflowRetrieveQueryParams = () => zod.object({
+    hog_flow_id: zod.string().describe('The workflow to read the import of.'),
 })
 
 /**

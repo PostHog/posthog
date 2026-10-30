@@ -181,19 +181,22 @@ A wiped store does the same.
 
 ## Ownership and the single-pod deployment
 
-State never moves between pods.
-A pod's store holds the slices of the partitions it owns, and nothing hands a slice to another pod.
+A pod's store holds the slices of the partitions it owns, and only a reshard hands a slice to another pod.
 The store records the split it was written under in `cf_meta[pod_partitions]`: the pod count, the ordinal and the partition count.
 A store from before that record takes the configured split as its own the first time it opens.
-A store written under another split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
+A split covers another when it owns every partition the other owns.
+A store opens when its recorded split covers the pod's split, and then records the pod's split.
+Any other store refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
 With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
 The store record cannot stop a pod on an empty volume, so the **ownership fence** keeps a second record on the broker.
-Every offset commit on every input group carries the committer's split as Kafka commit metadata, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
+Every offset commit on every input group carries the committer's split as Kafka commit metadata, its stamp, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
 The pod reads these stamps three times:
 
 1. Before the store opens, it reads the last commit of every group on each partition it owns.
-   A stamp from another split, or metadata it cannot read, holds the boot.
+   A stamp from another split, or metadata it cannot read, holds the boot, because the pods of that split may still run.
+   During [a reshard](#raising-the-pod-count), the parent's stamp passes too.
+   On a follower group, the stamp of a split that covers the pod's also passes, because a pod of that split that still runs also commits the events group.
    The pod retries after 30 seconds, doubling the wait up to 5 minutes, and meanwhile `/_ready` reads not ready and `ownership_fence_blocked{reason}` is 1.
    A commit without a stamp passes, because older builds and standard Kafka tools, such as an offset reset, write none.
    A checkpoint restore waits for the same check again before it commits the follower positions.
@@ -208,15 +211,46 @@ Two processes of the same split, such as two pods with the same ordinal, write t
 Builds from before stamps commit without one, so the fence cannot see them either.
 Change `COHORT_POD_COUNT` only after every pod runs a build with stamps.
 
-So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
-That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
+### Raising the pod count
+
+`COHORT_RESHARD_FROM_POD_COUNT` marks a reshard and names the old pod count.
+`COHORT_POD_COUNT` must be a larger whole multiple of it, or the pod refuses to start.
+With durable restore enabled, the pod also refuses to start without checkpoints, because each parent deletes the slices it gives away and its child would start without them.
+
+- A pod whose ordinal is below the old count is a parent.
+  It reopens its store, and boot deletes the slices it gave away and drops their files.
+- Every other pod is a child, and takes its partitions over from the parent at its ordinal modulo the old count.
+  It waits, with the `parent_running` reason, until the parent has stamped a partition under the new split.
+  It then deletes a live store that holds no pending restore, and restores the newest checkpoint in the parent's S3 lineage that covers it, counted in `checkpoint_restore_total{source="parent_s3"}`.
+  With no usable checkpoint, it creates its store behind the coverage fence.
+- Once one of a child's events partitions carries the child's stamp, the takeover is over, and later boots open its store as usual.
+
+To reshard:
+
+1. On each parent, run `kill -USR1 1` from a shell in the pod, and wait for `checkpoint uploaded to S3` with `trigger` `requested`.
+   If a warning with that `trigger` comes instead, the upload failed, so send the signal again.
+   Within a minute or two, scale the processor to 0, and wait until every pod has stopped.
+   A stop's final checkpoint stays local, so each child replays only what its parent processed after that upload.
+2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
+3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
+4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change, and before any offset reset of the events group.
+   While it is set, a reset that clears the stamp from every events partition of a child makes the child take its partitions over again and delete its store.
+
+Scaling to 0 is required.
+The StatefulSet updates from the highest ordinal and waits for each pod to turn ready, and a child is not ready while it waits for its parent, so a reshard applied in one edit deadlocks.
+After its takeover, a child searches only its own lineage.
+So a child that loses its volume before its first upload finishes creates its store behind the coverage fence, even though its parent's checkpoint still covers it.
+That upload waits until the child is ready and has compacted the partitions it does not own.
+
+### Lowering the pod count
+
+Nothing merges two stores, so lowering `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
+That volume keeps its old record, so when a later change brings back that split or one it covers, it opens with slices another pod has moved past.
 With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
-A checkpoint from the old split restores and then refuses to open, so every boot fails the same way.
-The old split's stamps also hold every pod of the new split at boot.
-An offset reset of each input group to its current offsets clears them, because it commits without a stamp.
-Run it only after every pod of the old split has stopped, or the fence admits the new split while the old one still commits.
+While no pod runs, reset every group's offsets to their current positions, because the stamps of the larger split hold every boot and a standard offset reset writes no stamp.
 Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
-Nothing moves a slice between pods yet, so one pod that owns every partition is the supported deployment.
+
+More than one pod needs chart changes that are not done yet, so one pod that owns every partition is the supported deployment.
 
 ## Startup
 
@@ -229,9 +263,9 @@ At boot the processor:
 5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
 6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
-   A store written under another split of the partitions refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
+   A store written under a split that does not cover the pod's refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
 7. stamps every owned partition on every input group, and reads the stamps back,
-8. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
+8. starts the timer loops and the events consumer, starts the followers once the catalog has loaded and boot recovery has ended, and takes the first checkpoint once the pod is ready.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 
@@ -268,9 +302,10 @@ They commit only for the partitions recorded at the drain.
 A follower that waits longer than 35 seconds commits for the partitions it owned when shutdown began.
 
 With checkpoints enabled, a final checkpoint follows once every consumer and follower has finished.
-It captures positions for the partitions recorded at the drain and uploads within `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS` of the drain, after shutdown cancels any periodic upload in flight.
-A plan that would upload in full stays local, because it cannot finish in that budget, and the next start uploads in full anyway.
+It captures positions for the partitions recorded at the drain, after shutdown cancels any upload in flight.
+It stays local, and the next start's first upload covers what changed since the last upload.
 It is skipped when boot never ended or the drain never finished, because positions are not settled then.
+The binary must run as PID 1, from an exec-form command, so that SIGTERM and SIGUSR1 reach it.
 
 The events consumer gets 30 seconds to drain, each follower 45 seconds, and the final checkpoint 60 seconds after them, inside the process's 110-second ceiling.
 Kubernetes kills the pod when its termination grace period ends, and that period also covers the chart's 5-second preStop sleep before the shutdown starts.

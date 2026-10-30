@@ -502,6 +502,7 @@ export interface sourceWizardLogicValues {
     nextButtonDisabledReason: string | null
     nextButtonText: string
     oauthRedirectUrl: string | undefined
+    objectStorageSourcesEnabled: boolean
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
@@ -988,6 +989,11 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
+        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
+            name: string
+            type: ManualLinkSourceType
+        }[]
         isSelfManagedSource: (
             manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
         ) => boolean
@@ -1823,13 +1829,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }))
             },
         ],
+        // The managed object storage sources replace self-managed tables, so no new ones are created.
+        objectStorageSourcesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES],
+        ],
         manualConnectors: [
-            () => [],
-            (): { name: string; type: ManualLinkSourceType }[] =>
-                manualLinkSources.map((source) => ({
-                    name: MANUAL_LINK_SOURCE_LABELS[source],
-                    type: source,
-                })),
+            (s) => [s.objectStorageSourcesEnabled],
+            (objectStorageSourcesEnabled: boolean): { name: string; type: ManualLinkSourceType }[] =>
+                objectStorageSourcesEnabled
+                    ? []
+                    : manualLinkSources.map((source) => ({
+                          name: MANUAL_LINK_SOURCE_LABELS[source],
+                          type: source,
+                      })),
         ],
         isSelfManagedSource: [
             (s) => [s.manualLinkingProvider],
@@ -2505,6 +2519,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
+                        } else if (schema.prefers_full_refresh) {
+                            schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
                             schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available || schema.append_available) {
@@ -2688,6 +2704,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
                 actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
                 actions.setStep(2)
+                return
+            }
+
+            if (values.objectStorageSourcesEnabled && manualLinkSources.some((type) => type === kind)) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+                router.actions.replace(urls.dataWarehouseSourceNew())
                 return
             }
 

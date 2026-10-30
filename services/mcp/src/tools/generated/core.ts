@@ -593,7 +593,6 @@ const ProjectCreateSchema = () => {
         timezone: true,
         data_attributes: true,
         person_display_name_properties: true,
-        correlation_config: true,
         autocapture_opt_out: true,
         autocapture_exceptions_opt_in: true,
         autocapture_web_vitals_opt_in: true,
@@ -784,9 +783,6 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.person_display_name_properties !== undefined) {
             body['person_display_name_properties'] = params.person_display_name_properties
-        }
-        if (params.correlation_config !== undefined) {
-            body['correlation_config'] = params.correlation_config
         }
         if (params.autocapture_opt_out !== undefined) {
             body['autocapture_opt_out'] = params.autocapture_opt_out

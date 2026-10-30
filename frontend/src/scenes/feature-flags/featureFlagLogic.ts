@@ -19,13 +19,13 @@ import type { BreakPointFunction } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router, urlToAction } from 'kea-router'
+import { beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse, isAbortError } from 'lib/api'
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError, isRollbackReasonRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -34,7 +34,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -45,7 +45,13 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import {
+    FeatureFlagsTab,
+    carriedListFilterParams,
+    featureFlagsLogic,
+    isFeatureFlagsTab,
+    listFilterParamsFromCarried,
+} from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -62,6 +68,7 @@ import {
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
+    CohortPropertyFilter,
     CohortType,
     EarlyAccessFeatureType,
     FeatureFlagBucketingIdentifier,
@@ -93,6 +100,7 @@ import { cohortsList, cohortsRetrieve } from 'products/cohorts/frontend/generate
 import { cohortsActivityRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { deletedCohortFilters, withCohortAnnotationsFrom } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
@@ -102,6 +110,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -116,8 +125,15 @@ import type {
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
 import {
+    RollbackReasonAnswer,
+    RollbackReasonRequestFields,
+    rollbackReasonRequestFields,
+} from 'products/feature_flags/frontend/rollbackReason'
+import { openRollbackReasonDialog } from 'products/feature_flags/frontend/rollbackReasonDialog'
+import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
+    messageAudienceAccessDisabledReason,
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
@@ -175,6 +191,8 @@ const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
 const FLAG_COHORT_MAX_FILL_MS = 4 * 60 * 60 * 1000
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
 const FLAG_BROADCAST_SOURCE = 'feature_flag'
+// pinned: the toast offered when a save turns a flag on for everyone
+const FLAG_LIVE_BROADCAST_SOURCE = 'feature_flag_live'
 export const FINDING_FLAG_PEOPLE_MESSAGE = 'Finding the people who have this flag…'
 
 function flagCohortNamePrefix(flagKey: string): string {
@@ -243,6 +261,82 @@ export function broadcastNoOneReason(
     return undefined
 }
 
+function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined): boolean {
+    if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
+        return false
+    }
+    // The matcher checks enrollment before release conditions, so a person who opted out never reaches them.
+    if (flag.filters.feature_enrollment || flag.filters.super_groups?.length) {
+        return false
+    }
+    const flagAggregation = flag.filters.aggregation_group_type_index ?? null
+    // A set that aggregates by group matches only requests that carry that group, so it can't cover everyone.
+    const reachesEveryPerson = (group: FeatureFlagGroupType): boolean =>
+        !group.properties?.length &&
+        (group.aggregation_group_type_index === undefined ? flagAggregation : group.aggregation_group_type_index) ===
+            null
+    const groups = flag.filters.groups ?? []
+    if (!flag.filters.early_exit) {
+        return groups.some((group) => reachesEveryPerson(group) && (group.rollout_percentage ?? 100) === 100)
+    }
+    // With early exit, a person who matches a set's properties but falls outside its rollout stops there
+    // with no match, so a partial set ahead of the untargeted one leaves some people without the flag.
+    for (const group of groups) {
+        if ((group.rollout_percentage ?? 100) !== 100) {
+            return false
+        }
+        if (reachesEveryPerson(group)) {
+            return true
+        }
+    }
+    return false
+}
+
+/** True when this save is the one that turned the flag on for everyone, so the launch is worth announcing. */
+export function flagWentLive(
+    before: Pick<FeatureFlagType, 'id' | 'active' | 'filters'> | null | undefined,
+    after: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'>
+): boolean {
+    // A never-saved baseline holds the form's starting config, which no one has received yet.
+    const savedBefore = before?.id != null ? before : null
+    return isOnForEveryone(after) && !broadcastNoOneReason(after) && !isOnForEveryone(savedBefore)
+}
+
+function liveFlagToastOptions(
+    before: FeatureFlagType | null,
+    after: FeatureFlagType,
+    cohortCreationEnabled: boolean
+): { button: ToastButton; toastId: string } | undefined {
+    const flagId = after.id
+    if (
+        flagId === null ||
+        !cohortCreationEnabled ||
+        messageAudienceAccessDisabledReason() ||
+        !flagWentLive(before, after)
+    ) {
+        return undefined
+    }
+    const button: ToastButton = {
+        label: "Tell people it's live",
+        dataAttr: 'feature-flag-live-broadcast',
+        action: () => {
+            // The toast outlives the logic that showed it: a create redirects from the 'new' key to the saved ID,
+            // and leaving the page unmounts the logic. Bind to the saved ID and hold it mounted for the whole search.
+            const logic = featureFlagLogic({ id: flagId })
+            const unmount = logic.mount()
+            // A search started from the flag's menu is still running. A second one could pass the same reuse
+            // check and fill a second cohort.
+            if (logic.values.broadcastCohortLoading) {
+                unmount()
+                return
+            }
+            void logic.asyncActions.findOrCreateBroadcastCohort(FLAG_LIVE_BROADCAST_SOURCE).finally(unmount)
+        },
+    }
+    // Toasts with the same message share an id and a visible one swallows the next, which would drop this button.
+    return { button, toastId: `feature-flag-live-${flagId}` }
+}
+
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
 }
@@ -253,6 +347,25 @@ function reportFeatureFlagCopyFailure(error: string): void {
 
 function reportFeatureFlagScheduleSuccess(): void {
     posthog.capture('feature flag scheduled')
+}
+
+// A flag opened from the list arrives through refreshFeatureFlag, not loadFeatureFlag.
+// Clicking Edit loads the flag again. The cache entry limits the event to one capture per mount.
+function reportFlagWithDeletedCohortLoaded(featureFlag: FeatureFlagType | null, cache: Record<string, any>): void {
+    if (!featureFlag?.id || cache.hasCapturedDeletedCohortLoad) {
+        return
+    }
+    const filters = deletedCohortFilters(featureFlag.filters)
+    if (filters.length === 0) {
+        return
+    }
+    cache.hasCapturedDeletedCohortLoad = true
+    posthog.capture('feature flag with deleted cohort loaded', {
+        active: featureFlag.active,
+        archived: featureFlag.archived,
+        deleted: featureFlag.deleted,
+        deleted_cohort_count: filters.length,
+    })
 }
 
 // A collapsed condition-set panel renders none of its children, so an inline release-condition
@@ -716,7 +829,12 @@ async function waitForFlagCohort(projectId: string, cohortId: number): Promise<C
     return status
 }
 
-function showFlagCohortOutcome(cohort: CohortApi, flagId: FeatureFlagLogicProps['id'], flagKey: string): void {
+function showFlagCohortOutcome(
+    cohort: CohortApi,
+    flagId: FeatureFlagLogicProps['id'],
+    flagKey: string,
+    source: string
+): void {
     if (cohort.errors_calculating > 0) {
         lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
         return
@@ -735,7 +853,7 @@ function showFlagCohortOutcome(cohort: CohortApi, flagId: FeatureFlagLogicProps[
     }
     const broadcastUrl = messageAudienceUrl(
         {
-            source: FLAG_BROADCAST_SOURCE,
+            source,
             properties: cohortAudienceProperties(cohort),
             broadcastName: `${flagKey} announcement`,
         },
@@ -1042,6 +1160,24 @@ function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>):
     return request
 }
 
+// pinned: the `source` property value of the rollback reason events.
+export type RollbackReasonSource = 'save' | 'toggle'
+
+/**
+ * The answer from the rollback reason question rides on every save from the same source until one succeeds, so a
+ * retry after a failed save does not ask again. The success listeners clear it, and so do the listeners that discard
+ * the refused edit, so it never rides on an unrelated edit.
+ */
+function rollbackReasonFields(
+    cache: Record<string, any>,
+    source: RollbackReasonSource,
+    ask: boolean
+): RollbackReasonRequestFields {
+    const pending: { source: RollbackReasonSource; answer: RollbackReasonAnswer } | undefined =
+        cache.rollbackReasonAnswer
+    return rollbackReasonRequestFields(pending?.source === source ? pending.answer : undefined, ask)
+}
+
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
     if (cleanedFlag.filters && !isV1FeatureFlagConfig(cleanedFlag.filters)) {
@@ -1117,6 +1253,7 @@ export interface featureFlagLogicValues {
     aggregationTargetName: string
     alsoCreateInProjectOptions: ProjectSelectOption[]
     alsoCreateInProjects: number[]
+    asksRollbackReason: boolean
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     broadcastCohort: CohortApi | null
@@ -1137,6 +1274,7 @@ export interface featureFlagLogicValues {
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
     customPairEnableCronPreview: string | null
+    deletedCohortFilters: CohortPropertyFilter[]
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
     disableCopiedFlag: boolean
@@ -1369,6 +1507,9 @@ export interface featureFlagLogicActions {
     applyUrlTemplate: (templateId: string) => {
         templateId: string
     }
+    askRollbackReason: (source: RollbackReasonSource) => {
+        source: RollbackReasonSource
+    }
     checkKeyConflict: (key: string) => string
     checkKeyConflictFailure: (
         error: string,
@@ -1513,7 +1654,7 @@ export interface featureFlagLogicActions {
         editing: boolean
         expandAdvanced: boolean
     }
-    findOrCreateBroadcastCohort: (_: void) => void
+    findOrCreateBroadcastCohort: (source?: string) => string
     findOrCreateBroadcastCohortFailure: (
         error: string,
         errorObject?: any
@@ -1523,10 +1664,10 @@ export interface featureFlagLogicActions {
     }
     findOrCreateBroadcastCohortSuccess: (
         broadcastCohort: CohortApi | null,
-        payload?: void
+        payload?: string
     ) => {
         broadcastCohort: CohortApi | null
-        payload?: void
+        payload?: string
     }
     loadCopyDependencyRequirements: () => {
         value: true
@@ -2371,6 +2512,7 @@ export interface featureFlagLogicMeta {
         props: (arg: any) => any
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
+        asksRollbackReason: (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat) => boolean
         editorKind: (
             props: any,
             isEditingFlag: boolean,
@@ -2405,7 +2547,7 @@ export interface featureFlagLogicMeta {
             featureFlag: FeatureFlagType,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => string
-        breadcrumbs: (featureFlag: FeatureFlagType) => Breadcrumb[]
+        breadcrumbs: (featureFlag: FeatureFlagType, searchParams: Record<string, any>) => Breadcrumb[]
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
@@ -2432,6 +2574,7 @@ export interface featureFlagLogicMeta {
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
+        deletedCohortFilters: (featureFlag: FeatureFlagType) => CohortPropertyFilter[]
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         savedVariantKeys: (originalFeatureFlag: FeatureFlagType | null) => string[]
@@ -2588,6 +2731,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        askRollbackReason: (source: RollbackReasonSource) => ({ source }),
         toggleProjectFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
         projectFlagActiveUpdated: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
         projectFlagActiveUpdateFailed: (teamId: number, flagId: number) => ({ teamId, flagId }),
@@ -3565,6 +3709,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
+                                ...rollbackReasonFields(cache, 'save', values.asksRollbackReason),
                             }
                         )
                     }
@@ -3633,7 +3778,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
-                        { active, ...values.rowVersionToken }
+                        {
+                            active,
+                            ...values.rowVersionToken,
+                            // Turning a flag on never lowers its exposure, so only turning it off asks.
+                            ...rollbackReasonFields(cache, 'toggle', values.asksRollbackReason && !active),
+                        }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
@@ -3826,7 +3976,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         broadcastCohort: [
             null as CohortApi | null,
             {
-                findOrCreateBroadcastCohort: async (_: void, breakpoint) => {
+                findOrCreateBroadcastCohort: async (source: string = FLAG_BROADCAST_SOURCE, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
                         return null
                     }
@@ -3874,7 +4024,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
                     const status = await waitForFlagCohort(projectId, cohortId)
                     dismissBroadcastProgress(cache)
-                    showFlagCohortOutcome(status, props.id, flag.key)
+                    showFlagCohortOutcome(status, props.id, flag.key, source)
                     return status
                 },
             },
@@ -4347,6 +4497,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
+            if (isRollbackReasonRequiredError(errorObject)) {
+                actions.askRollbackReason('toggle')
+                return
+            }
             if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
@@ -4357,7 +4511,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
-            lemonToast.success('Feature flag saved')
+            delete cache.rollbackReasonAnswer
+            forgetFlagLookup(featureFlag.key)
+            lemonToast.success(
+                'Feature flag saved',
+                liveFlagToastOptions(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
+                )
+            )
             dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
@@ -4365,7 +4528,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
-                router.actions.replace(urls.featureFlag(featureFlag.id))
+                // Keep the list filter params from the flag URL through the post-save redirect,
+                // so the breadcrumb still returns to the filtered list. Only `list_`-prefixed
+                // params are carried, so a new flag's creation presets (`type`, `properties`)
+                // fall away here on their own.
+                const listParams = carriedListFilterParams(router.values.searchParams)
+                router.actions.replace(combineUrl(urls.featureFlag(featureFlag.id), listParams).url)
             }
             actions.editFeatureFlag(false)
 
@@ -4400,6 +4568,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: async ({ errorObject }) => {
+            if (isRollbackReasonRequiredError(errorObject)) {
+                actions.askRollbackReason('save')
+                return
+            }
             if (isApprovalRequiredError(errorObject)) {
                 const changeRequestId: string = errorObject.data.change_request_id
                 showApprovalRequiredToast(changeRequestId, undefined, errorObject.data.code)
@@ -4413,7 +4585,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (flagId) {
                     // The unsaved-changes guard compares against the router's pathname, which carries the
                     // project prefix that urls.featureFlag() lacks. Reuse it so the guard sees the same page.
-                    router.actions.replace(router.values.location.pathname)
+                    // Keep the carried list filter params, so the breadcrumb still returns to the filtered list.
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        carriedListFilterParams(router.values.searchParams)
+                    )
                     actions.editFeatureFlag(false)
                     // The edit waits in the change request, so the page shows the stored flag again.
                     actions.loadFeatureFlag()
@@ -4496,8 +4672,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
+            delete cache.rollbackReasonAnswer
             if (featureFlagActiveUpdate) {
-                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                lemonToast.success(
+                    `Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`,
+                    liveFlagToastOptions(
+                        values.originalFeatureFlag,
+                        featureFlagActiveUpdate,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
+                    )
+                )
                 // Only active/version were persisted, so fold just those onto the working copy and
                 // the baseline. Taking the whole server flag would drop any in-progress edit and
                 // re-baseline over it, leaving the guard clean.
@@ -4561,6 +4745,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!featureFlagRefresh) {
                 return
             }
+            reportFlagWithDeletedCohortLoaded(featureFlagRefresh, cache)
             const afterAgentChange = !!payload?.afterAgentChange
             if (afterAgentChange && cache.agentRefreshFailedToastId) {
                 // This response carries what the failed one missed, so its notice is now wrong.
@@ -4592,8 +4777,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ...(isEditedLocally('archived') ? {} : { archived: featureFlagRefresh.archived }),
                     ...(afterAgentChange ? {} : { version: featureFlagRefresh.version }),
                 }
-                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
-                actions.setOriginalFeatureFlag({ ...baseline, ...persisted })
+                // A list-cached flag can carry cohort markers from before a cohort was deleted or restored.
+                actions.setFeatureFlag(
+                    withCohortAnnotationsFrom({ ...values.featureFlag, ...persisted }, featureFlagRefresh)
+                )
+                actions.setOriginalFeatureFlag(
+                    withCohortAnnotationsFrom({ ...baseline, ...persisted }, featureFlagRefresh)
+                )
                 if (afterAgentChange) {
                     lemonToast.info(
                         'PostHog AI changed this flag. The page kept your unsaved edits, so it does not show the saved version.',
@@ -4742,11 +4932,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             })
         },
-        // The payload a non-form save retries with. Read in saveFeatureFlagFailure.
+        // The payload a non-form save retries with. Read in saveFeatureFlagFailure and askRollbackReason.
         saveFeatureFlag: (updatedFlag) => {
             cache.lastSaveAttempt = updatedFlag
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            // The page now shows the stored flag, so a refused edit and its answer are gone.
+            delete cache.rollbackReasonAnswer
             dismissAgentNotices(props.id, cache)
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
@@ -4771,6 +4963,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
             // Auto-apply template from URL param on first load
@@ -4889,8 +5082,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        findOrCreateBroadcastCohort: () => {
-            captureMessageAudienceClicked(FLAG_BROADCAST_SOURCE, 'broadcast')
+        findOrCreateBroadcastCohort: (source = FLAG_BROADCAST_SOURCE) => {
+            captureMessageAudienceClicked(source, 'broadcast')
             dismissBroadcastProgress(cache)
             cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
                 // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.
@@ -5167,6 +5360,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
+            } else {
+                // Leaving the editor discards a refused save, and its answer with it.
+                delete cache.rollbackReasonAnswer
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
@@ -5197,6 +5393,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 action as any,
                 previousState
             )
+        },
+        askRollbackReason: ({ source }) => {
+            // pinned: analytics event names. The server captures `feature flag rollback reason given`.
+            posthog.capture('feature flag rollback reason asked', { source })
+            // Read now: a save dispatched while the question is open overwrites lastSaveAttempt.
+            const refusedSave = cache.lastSaveAttempt
+            openRollbackReasonDialog({
+                onAnswer: (answer) => {
+                    if (answer === 'skipped') {
+                        posthog.capture('feature flag rollback reason skipped', { source })
+                    }
+                    cache.rollbackReasonAnswer = { source, answer }
+                    if (source === 'toggle') {
+                        actions.updateFeatureFlagActive(false)
+                    } else {
+                        actions.saveFeatureFlag(refusedSave)
+                    }
+                },
+                onCancel: () => posthog.capture('feature flag rollback reason canceled', { source }),
+            })
         },
         toggleFeatureFlagActive: async ({ active }, breakpoint, action, previousState) => {
             const updatedFlag = { ...values.featureFlag, active }
@@ -5249,6 +5465,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         configFormat: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
+        ],
+        // The server ignores the question for a flag in another config version.
+        asksRollbackReason: [
+            (s) => [s.enabledFeatures, s.configFormat],
+            (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat): boolean =>
+                !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_ROLLBACK_REASON] && configFormat === 'v1',
         ],
         editorKind: [
             (s) => [s.props, s.isEditingFlag, s.featureFlag, s.enabledFeatures, router.selectors.searchParams],
@@ -5357,12 +5579,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): Breadcrumb[] => [
+            (s) => [s.featureFlag, router.selectors.searchParams],
+            (featureFlag: FeatureFlagType, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
-                    path: urls.featureFlags(),
+                    // A flag's URL carries the list's filter params (`list_`-prefixed) when opened
+                    // from the list. Hand them back, so this crumb (and the scene back arrow, which
+                    // follows the same path) returns to the view the user left. A new flag's URL
+                    // params are unprefixed creation presets (`type`, `properties`), so they stay
+                    // out of the crumb on their own.
+                    path: combineUrl(urls.featureFlags(), listFilterParamsFromCarried(searchParams)).url,
                     iconType: 'feature_flag',
                 },
                 {
@@ -5504,6 +5731,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     !featureFlag.is_remote_configuration
                 )
             },
+        ],
+        deletedCohortFilters: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): CohortPropertyFilter[] => deletedCohortFilters(featureFlag.filters),
         ],
         isDraftExperiment: [
             (s) => [s.experiment],

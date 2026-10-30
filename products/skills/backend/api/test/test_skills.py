@@ -1,5 +1,6 @@
 import uuid
 import hashlib
+import contextlib
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -17,6 +18,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -30,6 +32,7 @@ from ...api.community_publish_services import (
     CommunitySkillPublishNotConfiguredError,
     CommunitySkillPublishValidationError,
 )
+from ...api.skill_search import SKILL_SEARCH_RESULT_LIMIT
 from ...api.skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     LLMSkillCreateSerializer,
@@ -48,11 +51,11 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
-from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
+SKILL_ANALYTICS_REPORT = "products.skills.backend.api.skill_analytics.report_user_action"
 
 
 class TestLLMSkillAPI(APIBaseTest):
@@ -93,7 +96,7 @@ class TestLLMSkillAPI(APIBaseTest):
         )
         # The create endpoint seeds the creator as owner, so a fixture built straight from the ORM
         # has to as well. Publishing to the community is owner-only.
-        set_skill_owners(self.team, name, [owner])
+        set_skill_owners(self.team, name, [owner], acting_user=None)
         return skill
 
     # --- Create ---
@@ -129,7 +132,13 @@ class TestLLMSkillAPI(APIBaseTest):
                 "license": "Apache-2.0",
                 "compatibility": "Requires Python 3.12+",
                 "allowed_tools": ["Bash", "Read"],
-                "metadata": {"author": "test-org", "version": "1.0"},
+                "metadata": {
+                    "author": "test-org",
+                    "version": "1.0",
+                    "seeded_by": "example-harness",
+                    "canonical_hash": "example-hash",
+                    "source": "example-source",
+                },
             },
             format="json",
         )
@@ -140,6 +149,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["compatibility"] == "Requires Python 3.12+"
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
+        assert LLMSkill.objects.get(team=self.team, name="full-skill").metadata == data["metadata"]
 
     @parameterized.expand(
         [
@@ -489,7 +499,9 @@ class TestLLMSkillAPI(APIBaseTest):
             # skills version alone cannot see it, and the list serializes owners.
             (
                 "owner_change",
-                lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
+                lambda self: set_skill_owners(
+                    self.team, "skill-a", [self._create_user("newowner@example.com")], acting_user=None
+                ),
             ),
             ("category", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").update(category="scout")),
             ("hard_delete", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").delete()),
@@ -508,9 +520,9 @@ class TestLLMSkillAPI(APIBaseTest):
     )
     def test_list_etag_changes_after_a_store_change(self, _label, change):
         self.create_skill(name="skill-a", description="Does A things.")
-        set_skill_owners(self.team, "skill-a", [])
+        set_skill_owners(self.team, "skill-a", [], acting_user=None)
         self.create_skill(name="skill-b", description="Does B things.")
-        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")])
+        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")], acting_user=None)
         first = self.client.get(self._url())
 
         change(self)
@@ -880,7 +892,7 @@ class TestLLMSkillAPI(APIBaseTest):
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
-            patch(f"products.skills.backend.api.skills.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
+            patch(f"products.skills.backend.api.skill_throttles.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
             patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000) as timer,
         ):
             url = self._url("search?query=throttle")
@@ -1118,6 +1130,8 @@ class TestLLMSkillAPI(APIBaseTest):
         [
             ("missing_skill", "name/nonexistent/skill-md"),
             ("missing_version", "name/rendered/skill-md?version=9"),
+            ("manifest_missing_skill", "name/nonexistent/manifest"),
+            ("manifest_missing_version", "name/rendered/manifest?version=9"),
         ]
     )
     def test_skill_md_not_found(self, _label, path):
@@ -1126,6 +1140,145 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url(path))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Resource manifests ---
+
+    def test_manifest_digests_match_the_served_bytes(self):
+        skill = self.create_skill(
+            name="served",
+            body="# Guía ✅\r\nDo the thing.",
+            allowed_tools=["Read"],
+            metadata={"author": "posthog", "nested": {"z": "1", "a": "2"}},
+        )
+        LLMSkillFile.objects.create(skill=skill, path="scripts/run.bat", content="echo hi\r\necho bye\r\n")
+        LLMSkillFile.objects.create(
+            skill=skill, path="references/guía.md", content="# Guía ✅\n", content_type="text/markdown"
+        )
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url("name/served/manifest"))
+
+        assert response.status_code == status.HTTP_200_OK
+        manifest = response.json()
+        skill_md = self.client.get(self._url("name/served/skill-md")).json()
+        served = {"SKILL.md": skill_md["content"]}
+        for path in ("references/guía.md", "scripts/run.bat"):
+            served[path] = self.client.get(self._url(f"name/served/files/{path}")).json()["content"]
+        assert [resource["path"] for resource in manifest["resources"]] == list(served)
+        for resource in manifest["resources"]:
+            content = served[resource["path"]].encode("utf-8")
+            assert resource["sha256"] == hashlib.sha256(content).hexdigest(), resource["path"]
+            assert resource["size"] == len(content), resource["path"]
+        assert manifest["frontmatter"] == skill_md["frontmatter"]
+        assert manifest["version"] == 1
+        assert manifest["file_count"] == 3
+        assert manifest["total_size"] == sum(len(content.encode("utf-8")) for content in served.values())
+        assert (manifest["servable"], manifest["unservable_reasons"]) == (True, [])
+        loaded_content = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if '"llm_analytics_llmskill"."body"' in query["sql"]
+            or '"llm_analytics_llmskillfile"."content"' in query["sql"]
+        ]
+        assert loaded_content == []
+
+        listed = self.client.get(self._url("manifests")).json()["results"]
+        assert listed == [manifest]
+
+    def test_manifest_pins_to_a_requested_version(self):
+        first = self.create_skill(name="pinned", body="# v1", version=1, is_latest=False)
+        self.create_skill(name="pinned", body="# v2", version=2)
+
+        data = self.client.get(self._url("name/pinned/manifest?version=1")).json()
+
+        assert data["version"] == 1
+        assert data["frontmatter"]["metadata"]["version"] == "1"
+        assert data["resources"][0]["sha256"] == first.skill_md_sha256
+
+    @parameterized.expand(
+        [
+            ("too_many_files", "MCP_MAX_SKILL_FILES", "file_count", -1, {}, ["too_many_files"]),
+            ("files_at_limit", "MCP_MAX_SKILL_FILES", "file_count", 0, {}, []),
+            ("too_large", "MCP_MAX_SKILL_BYTES", "total_size", -1, {}, ["too_large"]),
+            ("bytes_at_limit", "MCP_MAX_SKILL_BYTES", "total_size", 0, {}, []),
+            ("digest_missing", None, None, 0, {"content_sha256": None, "content_size": None}, ["digest_missing"]),
+            # Bypasses the serializer validation so the row looks like one that predates it.
+            ("spec_problems", None, None, 0, {"path": "references\\guide.md"}, ["spec_problems"]),
+        ]
+    )
+    def test_manifest_reports_whether_a_skill_is_servable(
+        self, _label, limit_name, measured_field, limit_delta, file_update, expected_reasons
+    ):
+        skill = self.create_skill(name="limited")
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
+        LLMSkillFile.objects.filter(skill=skill).update(**file_update)
+        limit_patch: contextlib.AbstractContextManager = contextlib.nullcontext()
+        if limit_name:
+            measured = self.client.get(self._url("name/limited/manifest")).json()[measured_field]
+            limit_patch = patch(f"products.skills.backend.api.skill_manifest.{limit_name}", measured + limit_delta)
+
+        with limit_patch:
+            response = self.client.get(self._url("name/limited/manifest"))
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert (data["servable"], data["unservable_reasons"]) == (not expected_reasons, expected_reasons)
+
+    def test_manifests_query_count_does_not_grow_with_the_page(self):
+        def add_skills(names: list[str], file_count: int) -> None:
+            for name in names:
+                skill = self.create_skill(name=name)
+                for index in range(file_count):
+                    LLMSkillFile.objects.create(skill=skill, path=f"references/{index}.md", content="x")
+
+        add_skills(["skill-a"], file_count=1)
+        # The first request warms per-request caches, so it would count queries the page does not cost.
+        self.client.get(self._url("manifests"))
+        with CaptureQueriesContext(connection) as small_page:
+            self.client.get(self._url("manifests"))
+        add_skills(["skill-b", "skill-c", "skill-d"], file_count=3)
+        with CaptureQueriesContext(connection) as large_page:
+            response = self.client.get(self._url("manifests"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(entry["file_count"] for entry in response.json()["results"]) == [2, 4, 4, 4]
+        assert len(large_page.captured_queries) == len(small_page.captured_queries)
+        loaded_content = [
+            query["sql"]
+            for query in large_page.captured_queries
+            if '"llm_analytics_llmskill"."body"' in query["sql"]
+            or '"llm_analytics_llmskillfile"."content"' in query["sql"]
+        ]
+        assert loaded_content == []
+
+    @parameterized.expand(
+        [
+            ("exclude_category", lambda self: "?exclude_category=scout", ["ordinary-skill", "theirs"]),
+            ("owner_id", lambda self: f"?owner_id={self.user.id}", ["ordinary-skill", "signals-scout-errors"]),
+        ]
+    )
+    def test_manifests_filter_like_the_list(self, _label, query_suffix, expected_names):
+        self.create_skill(name="ordinary-skill")
+        self.create_skill(name="signals-scout-errors", category="scout")
+        self.create_skill(name="theirs", created_by=self._create_user("manifest-other@example.com"))
+
+        response = self.client.get(self._url("manifests") + query_suffix(self))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(entry["name"] for entry in response.json()["results"]) == expected_names
+
+    def test_manifests_answer_304_until_a_publish(self):
+        self.create_skill(name="skill-a")
+        first = self.client.get(self._url("manifests"))
+
+        unchanged = self.client.get(self._url("manifests"), HTTP_IF_NONE_MATCH=first["ETag"])
+        publish_skill_version(self.team, user=self.user, skill_name="skill-a", body="# Changed", base_version=1)
+        changed = self.client.get(self._url("manifests"), HTTP_IF_NONE_MATCH=first["ETag"])
+
+        assert unchanged.status_code == status.HTTP_304_NOT_MODIFIED
+        assert changed.status_code == status.HTTP_200_OK
+        assert changed["ETag"] != first["ETag"]
+        assert [entry["version"] for entry in changed.json()["results"]] == [2]
 
     # --- Publish new version ---
 
@@ -1661,7 +1814,7 @@ class TestLLMSkillAPI(APIBaseTest):
         v2 = self.create_skill(name="typoo", version=2)
         LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
         member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
-        set_skill_owners(self.team, "typoo", [member])
+        set_skill_owners(self.team, "typoo", [member], acting_user=None)
         updated_at_before = v2.updated_at
 
         response = self.client.post(
@@ -2088,7 +2241,7 @@ class TestLLMSkillAPI(APIBaseTest):
     # --- Publish to community ---
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
         mock_publish.return_value = {
             "pr_url": "https://github.com/PostHog/community-skills/pull/7",
@@ -2141,7 +2294,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_tags(
         self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
     ):
@@ -2164,7 +2317,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish, _mock_flag):
         skill = self.create_skill(name="signals-scout-feed", category="scout")
 
@@ -2178,7 +2331,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
@@ -2186,7 +2339,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2203,7 +2356,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_skill_registered_as_a_scout_after_review(self, mock_publish, _mock_flag):
         # Registering a skill as a scout stamps `category` without raising the version, so version
         # alone would let a skill reviewed as an ordinary one publish as a scout on a schedule.
@@ -2224,7 +2377,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_accepts_the_category_the_publisher_reviewed(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://github.com/PostHog/community-skills/pull/1", "pr_number": 1}
         skill = self.create_skill(name="make-pr")
@@ -2243,7 +2396,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_called_once()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish, _mock_flag):
         reviewed_skill = self.create_skill(name="make-pr")
         archive_skill(self.team, "make-pr", acting_user=None)
@@ -2267,7 +2420,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2281,7 +2434,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=False)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2295,7 +2448,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         skill = self.create_skill(name="make-pr")
@@ -2309,7 +2462,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
         # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
         # tell the publisher to retry an upstream request that was never the problem.
@@ -2326,7 +2479,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["detail"] == "that slug is reserved"
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         skill = self.create_skill(name="make-pr")
@@ -2343,6 +2496,198 @@ class TestLLMSkillAPI(APIBaseTest):
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
 # products/access_control/backend/facade/user_access_control.py) - same as TestSkillMarketplaceRBAC in
 # test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillWriteAnalytics(APIBaseTest):
+    # Every skill write reports one product event, and the properties on it power the internal
+    # skills adoption dashboards — a renamed event or a dropped property breaks them silently.
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="tracked-skill",
+            description="A tracked skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "tracked-skill", [self.user], acting_user=None)
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "post",
+                "",
+                {"name": "new-skill", "description": "A new skill.", "body": "# New"},
+                "llma skill created",
+            ),
+            (
+                "publish",
+                "patch",
+                "name/tracked-skill",
+                {"body": "# V2", "base_version": 1},
+                "llma skill version published",
+            ),
+            ("archive", "post", "name/tracked-skill/archive", None, "llma skill archived"),
+            (
+                "duplicate",
+                "post",
+                "name/tracked-skill/duplicate",
+                {"new_name": "copied-skill"},
+                "llma skill duplicated",
+            ),
+            ("rename", "post", "name/tracked-skill/rename", {"new_name": "renamed-skill"}, "llma skill renamed"),
+            (
+                "create file",
+                "post",
+                "name/tracked-skill/files",
+                {"path": "notes.md", "content": "hi"},
+                "llma skill file created",
+            ),
+            (
+                "rename file",
+                "post",
+                "name/tracked-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "llma skill file renamed",
+            ),
+        ]
+    )
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_each_write_reports_its_own_event(self, _label, method, path, data, expected_event, mock_report) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        assert mock_report.call_count == 1
+        reported_user, reported_event, reported_props = mock_report.call_args.args
+        assert reported_user == self.user
+        assert reported_event == expected_event
+        assert reported_props["skill_name"]
+
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_publish_reports_which_parts_of_the_skill_the_caller_changed(self, mock_report) -> None:
+        response = self.client.patch(
+            self._url("name/tracked-skill"),
+            data={"body": "# V2", "description": "Now described.", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        props = mock_report.call_args.args[2]
+        assert props["base_version"] == 1
+        assert props["skill_version"] == 2
+        assert props["body_changed"] is True
+        assert props["description_changed"] is True
+        assert props["files_replaced"] is False
+        assert props["owners_changed"] is False
+        assert props["edits_used"] is False
+
+
+class TestSkillActivityLog(APIBaseTest):
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="logged-skill",
+            description="A logged skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "logged-skill", [self.user], acting_user=None)
+        ActivityLog.objects.filter(team_id=self.team.id).delete()
+
+    def _skill_rows(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMSkill"))
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "new-skill", "description": "New.", "body": "# New"}, "created", False),
+            ("publish", "patch", "name/logged-skill", {"body": "# V2", "base_version": 1}, "updated", True),
+            ("archive", "post", "name/logged-skill/archive", None, "deleted", True),
+            ("duplicate", "post", "name/logged-skill/duplicate", {"new_name": "copied-skill"}, "created", False),
+            ("rename", "post", "name/logged-skill/rename", {"new_name": "renamed-skill"}, "updated", True),
+            ("create file", "post", "name/logged-skill/files", {"path": "notes.md", "content": "hi"}, "updated", True),
+            (
+                "rename file",
+                "post",
+                "name/logged-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "updated",
+                True,
+            ),
+            ("delete file", "delete", "name/logged-skill/files/old.md", None, "updated", True),
+        ]
+    )
+    def test_each_write_logs_one_row_for_the_logical_skill(
+        self, _label, method, path, data, expected_activity, keeps_item_id
+    ) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        rows = self._skill_rows()
+        assert [row.activity for row in rows] == [expected_activity]
+        assert rows[0].user == self.user
+        assert (rows[0].item_id == str(self.skill.pk)) is keeps_item_id
+
+    def test_publish_records_the_version_note_and_what_changed(self) -> None:
+        response = self.client.patch(
+            self._url("name/logged-skill"),
+            data={
+                "body": "# V2",
+                "description": "Now described.",
+                "files": [{"path": "added.md", "content": "new"}],
+                "base_version": 1,
+                "version_description": "Tighten the instructions",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        changes = {change["field"]: change for change in rows[0].detail["changes"]}
+        assert changes["version"]["before"] == 1
+        assert changes["version"]["after"] == 2
+        assert changes["version_description"]["after"] == "Tighten the instructions"
+        assert changes["body"]["before"] is None and changes["body"]["after"] is None
+        assert changes["description"]["after"] == "Now described."
+        assert changes["files"]["after"] == {"added": ["added.md"], "removed": ["old.md"], "edited": []}
+
+    def test_owner_change_logs_the_owner_ids_without_publishing(self) -> None:
+        member = self._create_user("owner2@example.com")
+
+        response = self.client.patch(self._url("name/logged-skill"), data={"owners": [str(member.uuid)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        assert rows[0].detail["changes"][0]["field"] == "owners"
+        assert rows[0].detail["changes"][0]["before"] == [self.user.id]
+        assert rows[0].detail["changes"][0]["after"] == [member.id]
+
+    def test_system_archive_logs_a_system_row(self) -> None:
+        archive_skill(self.team, "logged-skill", acting_user=None)
+
+        rows = self._skill_rows()
+        assert [(row.activity, row.is_system, row.item_id) for row in rows] == [("deleted", True, str(self.skill.pk))]
+
+
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2547,8 +2892,8 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             access_level="editor",
             organization_member=membership,
         )
-        set_skill_owners(self.team, theirs.name, [self.member])
-        set_skill_owners(self.team, self.skill.name, [self.user])
+        set_skill_owners(self.team, theirs.name, [self.member], acting_user=None)
+        set_skill_owners(self.team, self.skill.name, [self.user], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -2584,11 +2929,11 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == expected_status
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
         self._grant_llm_skill_access("editor")
-        set_skill_owners(self.team, self.skill.name, [self.member])
+        set_skill_owners(self.team, self.skill.name, [self.member], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -2656,7 +3001,11 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand(
-        [(access, endpoint) for access in ("none", "viewer") for endpoint in ("list", "body", "file", "id")]
+        [
+            (access, endpoint)
+            for access in ("none", "viewer")
+            for endpoint in ("list", "manifests", "body", "file", "manifest", "id")
+        ]
     )
     def test_list_and_reads_respect_individual_skill_grants(self, resource_access: str, endpoint: str) -> None:
         self._grant_llm_skill_access(resource_access)
@@ -2678,8 +3027,9 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             )
             LLMSkillFile.objects.create(skill=skill, path="reference.md", content=f"Reference for {skill.name}")
 
-        if endpoint == "list":
-            response = self.client.get(self._url(), {"limit": "1", "order_by": "name"})
+        if endpoint in ("list", "manifests"):
+            url = self._url() if endpoint == "list" else self._url("manifests")
+            response = self.client.get(url, {"limit": "1", "order_by": "name"})
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["count"] == 1
             assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
@@ -2690,9 +3040,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                     resource_id=str(restricted.id),
                     organization_member=membership,
                 ).update(access_level=access)
-                response = self.client.get(
-                    self._url(), {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"]
-                )
+                response = self.client.get(url, {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"])
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["count"] == expected_count
             return
@@ -2700,7 +3048,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
         for skill, expected_status in [(self.skill, allowed_status), (restricted, status.HTTP_403_FORBIDDEN)]:
             name = str(skill.id) if endpoint == "id" else skill.name
-            suffix = "/files/reference.md" if endpoint == "file" else ""
+            suffix = {"file": "/files/reference.md", "manifest": "/manifest"}.get(endpoint, "")
             version_params: list[dict[str, int]] = [{}, {"version": 1}]
             for params in version_params:
                 response = self.client.get(self._url(f"name/{name}{suffix}"), params)
@@ -2804,7 +3152,9 @@ class TestScoutTrialSkillAPI(APIBaseTest):
                 f"/api/projects/{self.team.id}/llm_skills/resolve/name/{self.source.name}?{query}"
             )
             exported = self.client.get(self._url(f"/export?{query}"))
+            manifest = self.client.get(self._url(f"/manifest?{query}"))
             listed = self.client.get(f"/api/projects/{self.team.id}/llm_skills/")
+            listed_manifests = self.client.get(f"/api/projects/{self.team.id}/llm_skills/manifests/")
             other = self.client.get(
                 f"/api/environments/{self.team.id}/llm_skills/name/another-skill?launch_id={uuid.uuid4()}"
             )
@@ -2825,6 +3175,12 @@ class TestScoutTrialSkillAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         listed_skill = next(skill for skill in listed.json()["results"] if skill["name"] == self.source.name)
         assert listed_skill["version"] == 1
+        rendered_sha256 = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        listed_manifest = next(m for m in listed_manifests.json()["results"] if m["name"] == self.source.name)
+        for served in (manifest.json(), listed_manifest):
+            assert served["version"] == 1
+            skill_md = served["resources"][0]
+            assert (skill_md["path"], skill_md["sha256"]) == ("SKILL.md", rendered_sha256)
         assert other.status_code == status.HTTP_200_OK
         assert other.json()["body"] == "other instructions"
         self.source.refresh_from_db()
@@ -2838,7 +3194,7 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             self.token.scope = "llm_skill:read signal_scout_internal:write"
             self.token.save(update_fields=["scope"])
         url = f"/api/projects/{self.team.id}/llm_skills/bundle/"
-        with patch("products.skills.backend.api.skills.posthog_feature_flag_value", return_value=True):
+        with patch("products.skills.backend.api.skill_view_transfer.posthog_feature_flag_value", return_value=True):
             full = self.client.get(url, {"content": "full"})
             stub = self.client.get(url)
         assert full.status_code == (status.HTTP_403_FORBIDDEN if is_trial else status.HTTP_200_OK)
@@ -3066,7 +3422,7 @@ class TestLLMSkillOwners(APIBaseTest):
         member = self._member("filterowner@example.com")
         create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
         create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
-        set_skill_owners(self.team, "theirs", [member])
+        set_skill_owners(self.team, "theirs", [member], acting_user=None)
 
         response = self.client.get(self._url() + f"?owner_id={member.id}")
 
@@ -3078,7 +3434,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # rather than surfacing the skills through a stale row.
         member = self._member("goneowner@example.com")
         create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
-        set_skill_owners(self.team, "orphaned", [member])
+        set_skill_owners(self.team, "orphaned", [member], acting_user=None)
 
         url = self._url() + f"?owner_id={member.id}"
         etag = self.client.get(url)["ETag"]
@@ -3094,7 +3450,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # former member's profile must not keep leaking through skill-get.
         member = self._member("leaving@example.com")
         create_skill(self.team, user=self.user, name="leaky", description="d", body="# b")
-        set_skill_owners(self.team, "leaky", [self.user, member])
+        set_skill_owners(self.team, "leaky", [self.user, member], acting_user=None)
 
         member.organization_memberships.filter(organization=self.organization).delete()
 
@@ -3112,8 +3468,8 @@ class TestLLMSkillOwners(APIBaseTest):
         alice = self._member("alice@example.com")
         bob = self._member("bob@example.com")
 
-        set_skill_owners(env_a, "shared-name", [alice])
-        set_skill_owners(env_b, "shared-name", [bob])
+        set_skill_owners(env_a, "shared-name", [alice], acting_user=None)
+        set_skill_owners(env_b, "shared-name", [bob], acting_user=None)
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
@@ -3151,12 +3507,18 @@ class TestSkillContentDigests(APIBaseTest):
             # A jsonb column keeps object keys sorted by length and then bytewise, so these come
             # back in neither the written order nor alphabetical order. The digest is stamped
             # before the insert, so it has to describe bytes that do not depend on that order.
-            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
+            metadata={
+                "seeded_by": "example-harness",
+                "canonical_hash": "example-hash",
+                "source": "example-source",
+                "nested": {"z": "1", "a": "2"},
+            },
             files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
         )
 
         # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
         assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
+        assert created.metadata == {"nested": {"z": "1", "a": "2"}}
         assert created.skill_md_size == len(created.rendered_skill_md().encode())
         created_file = LLMSkillFile.objects.get(skill=created)
         assert created_file.content_sha256 == self._digest_of("# Guía ✅")

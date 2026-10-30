@@ -332,10 +332,10 @@ To add one, create a JSON file there with `client_id` set to its own URL. The CI
 
 ## Self-registered client logos
 
-Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client that sends none gets the first letter of its name instead.
+Both self-registration paths accept a `logo_uri`, and PostHog shows it on the consent screen and on the login, signup, and email verification screens. A client without a logo gets the first letter of its name instead.
 
 - Dynamic client registration (`POST /oauth/register/`, RFC 7591): send `logo_uri` alongside `redirect_uris`. The response echoes it back.
-- Client ID metadata documents: put `logo_uri` in the document.
+- Client ID metadata documents: put `logo_uri` in the document. A document without one gets `https://<client_id host>/apple-touch-icon.png`, the touch icon of the host that serves the document. It never comes from `client_uri`, which the document asserts about itself, so a client cannot borrow another site's icon. Where the host has no such icon, the screens fall back to the first letter. A refresh keeps a stored logo when the document still has none.
 
 The URI must be `https` and must pass `is_url_allowed`, the same SSRF guard the rest of the codebase uses. That rejects a loopback, private, metadata or internal-domain host, and it resolves the name, so a public hostname pointing at a private address is rejected too. A URI that fails either check is dropped and left out of the registration response. It never fails the registration, since a client can complete every OAuth flow without a logo.
 
@@ -352,9 +352,13 @@ The redirect also sets the `ph_pending_oauth_connection` cookie so those screens
 - Cleared when the person grants or denies the authorization.
 - A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
 
-While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+An account created while the cookie is present skips in-app onboarding. Signup sets `onboarding_skipped_reason` to `connector`, pinned to the signup organization, so another organization the person joins later still shows onboarding. A delegated invitee keeps onboarding, because running it is the reason for the invite. Until the project ingests its first event, opening the project homepage sends that person to `/welcome`. Other pages open as linked, so a deep link from the connecting application still works.
 
-Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
+While the cookie is present, the auth page pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+
+To try these screens locally, run `generate_demo_data`. It registers the Claude and ChatGPT connectors from their public client ID metadata documents, the same way production registers them. Then open **Login tools** on `/login` and pick a connector under **Start an OAuth connection**. That sets the cookie and a `next` link to the consent screen, as the redirect above does. **Clear** deletes the cookie again.
+
+Analytics: `/login` and `/signup` render the same page, which asks for the email first and then opens the login or the signup password under it. The frontend captures `auth step viewed` for every step, with `step` (`email`, `login`, `login_code`, `signup_credentials`, `signup_profile`, `signup_pending_invite`, or `verify_email`), `entry` (`login` or `signup`), and `oauth_client_name` and `oauth_client_id` while the cookie is present. `auth email submitted` records the routing decision with `routed_to` and `account_exists`. `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
 
 ## Endpoints
 

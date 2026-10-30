@@ -1,15 +1,18 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import source_helpers
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
@@ -56,6 +59,19 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _to_utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            return _to_utc_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        except ValueError:
+            return None
+    return None
+
+
 # Shared with `RenderSource.get_non_retryable_errors` so the same rejection reads the same way
 # whether it surfaces while connecting the source or mid-sync.
 KEY_REJECTED_MESSAGE = (
@@ -88,7 +104,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     return False, PROBE_FAILED_MESSAGE
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             RenderRetryableError,
@@ -145,21 +161,36 @@ def _build_params(
     incremental_field: str | None,
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": config.page_size}
+    params: dict[str, Any] = {"limit": config.page_size} if config.paginated else {}
 
     if config.supports_owner_filter and owner_id:
         params["ownerId"] = owner_id
 
+    lower_bound: Any = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         field = incremental_field or config.default_incremental_field
         param = config.incremental_param_by_field.get(field) if field else None
         if param:
             params[param] = _format_incremental_value(db_incremental_field_last_value)
+            lower_bound = db_incremental_field_last_value
         else:
             logger.warning(
                 f"Render: incremental field {field} has no server-side filter for endpoint "
                 f"{config.name}, syncing the full endpoint instead"
             )
+
+    window_param = (
+        config.incremental_param_by_field.get(config.default_incremental_field)
+        if config.default_incremental_field
+        else None
+    )
+    if config.max_lookback_days and window_param:
+        # One day of margin: the server measures the span up to its own "now", which moves on
+        # while a fan-out works through its parents.
+        floor = datetime.now(UTC) - timedelta(days=config.max_lookback_days - 1)
+        lower_bound_dt = _to_utc_datetime(lower_bound) if lower_bound is not None else None
+        if lower_bound is None or (lower_bound_dt is not None and lower_bound_dt < floor):
+            params[window_param] = _format_incremental_value(floor)
 
     return params
 
@@ -201,6 +232,9 @@ def _walk_pages(
 
         yield rows, next_cursor
 
+        if not config.paginated:
+            return
+
         if next_cursor is None:
             # Unwrapped responses carry no cursor, so a full page here may mean truncation.
             if len(items) >= config.page_size:
@@ -235,6 +269,8 @@ def _iter_parent_rows(
         params["ownerId"] = owner_id
 
     for rows, _ in _walk_pages(session, headers, logger, parent_config, parent_config.path, params, cursor=None):
+        if parent_config.owner_id_field and owner_id:
+            rows = [row for row in rows if row.get(parent_config.owner_id_field) == owner_id]
         yield from rows
 
 
@@ -336,6 +372,8 @@ def _get_fan_out_rows(
             # domains on non-web/static services). Skip them instead of failing the sync.
             elif status == 400 and config.skip_parent_on_bad_request:
                 logger.warning(f"Render: {config.parent} {parent_id} cannot have {config.name}, skipping")
+            elif status == 403 and config.skip_parent_on_forbidden:
+                logger.warning(f"Render: no access to {config.name} for {config.parent} {parent_id}, skipping")
             else:
                 raise
 

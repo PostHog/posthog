@@ -16,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -48,6 +49,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
+from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
@@ -82,6 +84,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    groups,
     report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
@@ -94,6 +97,7 @@ from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -115,8 +119,11 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import (
     ROLE_CHOICES,
     Notifications,
@@ -246,7 +253,7 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
-def _person_properties_refresh_due(user: User) -> bool:
+def _reserve_person_properties_refresh_if_due(user: User) -> bool:
     # Store the last refreshed project, not one key per project. A project switch through
     # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
     # must refresh too.
@@ -256,6 +263,15 @@ def _person_properties_refresh_due(user: User) -> bool:
         return False
     safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
     return True
+
+
+@tracer.start_as_current_span("user_serializer.identify")
+def _refresh_person_properties(user: User) -> None:
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="update user properties",
+        properties={"$set": user.get_analytics_metadata()},
+    )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -334,9 +350,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
-            "application that can currently act as them, and has not yet acknowledged that access. "
-            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "True if the user belongs to an organization that a partner provisioned, has not yet "
+            "acknowledged the access on their account, and has at least one Personal API Key or passkey, "
+            "or a third-party OAuth application that can currently act as them. Used to gate a one-shot "
+            "review screen on first post-provisioning login. Becomes False "
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -345,6 +362,14 @@ class UserSerializer(serializers.ModelSerializer):
             "Notification settings an organization admin enforces on this user. The matching "
             "controls are read-only, and `notification_settings` still holds the user's own "
             "choice underneath. Read-only."
+        ),
+    )
+    personal_api_keys_limit = serializers.SerializerMethodField(
+        help_text=(
+            "How many personal API keys the user may hold, from the `personal_api_keys` billing "
+            "entitlement of the user's organizations. The highest limit across their organizations "
+            "applies, and 10 when no organization grants a limit. Creating a key beyond it is "
+            "rejected with a validation error. Read-only."
         ),
     )
 
@@ -405,6 +430,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_invites",
             "requires_credential_review",
             "notification_locks",
+            "personal_api_keys_limit",
         ]
 
         read_only_fields = [
@@ -456,6 +482,7 @@ class UserSerializer(serializers.ModelSerializer):
             # verification and so cannot rewrite the address a person signs in with.
             return self.instance.email
         reject_plus_addressed_email(value)
+        reject_lookalike_email_characters(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
@@ -537,12 +564,36 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @extend_schema_field(serializers.IntegerField())
+    def get_personal_api_keys_limit(self, instance: User) -> int:
+        return max_personal_api_keys_for_user(instance)
+
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
         # impersonating users shouldn't bounced into the credential review screen
         if is_impersonated(self.context.get("request")):
+            return False
+        # A self-signed-up user verifies their email before the first login, so nobody else can add
+        # credentials to the account first. TeamProvisioningConfig and a Vercel installation cover
+        # organizations provisioned before OrganizationProvisioning existed. A "connectable" Vercel
+        # integration links an organization the user already owned, so it does not count.
+        organization_id = OuterRef("organization_id")
+        if (
+            not OrganizationMembership.objects.filter(user=instance)
+            .filter(
+                Exists(OrganizationProvisioning.objects.filter(organization_id=organization_id))
+                | Exists(TeamProvisioningConfig.objects.filter(team__organization_id=organization_id))
+                | Exists(
+                    OrganizationIntegration.objects.filter(
+                        organization_id=organization_id,
+                        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    ).exclude(config__contains={"type": "connectable"})
+                )
+            )
+            .exists()
+        ):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
@@ -857,13 +908,8 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        if _person_properties_refresh_due(instance):
-            with tracer.start_as_current_span("user_serializer.identify"):
-                posthoganalytics.capture(
-                    distinct_id=instance.distinct_id,
-                    event="update user properties",
-                    properties={"$set": instance.get_analytics_metadata()},
-                )
+        if _reserve_person_properties_refresh_if_due(instance):
+            run_after_response(self.context.get("request"), lambda: _refresh_person_properties(instance))
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
@@ -1078,8 +1124,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    # Skipping onboarding only hides the onboarding redirect, so an older session may do it.
-    time_sensitive_allow_actions = ["hedgehog_config", "onboarding_skip"]
+    # These actions only dismiss a screen (the credential review, the onboarding redirect). Requiring a
+    # fresh session for them sends a user with an older session back to that screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete", "onboarding_skip"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
@@ -1251,7 +1298,7 @@ class UserViewSet(
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
 
         # A replay of a spent code (double submit) is not a failure: the address is verified.
@@ -1339,7 +1386,7 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
@@ -1347,7 +1394,7 @@ class UserViewSet(
             )
         try:
             user = User.objects.filter(is_active=True).get(uuid=uuid)
-        except User.DoesNotExist:
+        except (User.DoesNotExist, ValidationError):
             user = None
         if user:
             # Allow re-requests when there's a pending email change that still
@@ -1473,6 +1520,7 @@ class UserViewSet(
                 # Fire analytics only after the transaction commits, so a rolled-back
                 # request doesn't produce a skip event the DB doesn't back.
                 distinct_id = str(instance.distinct_id)
+                analytics_groups = groups(instance.organization, instance.team)
 
                 def _fire_skip_analytics() -> None:
                     try:
@@ -1486,6 +1534,7 @@ class UserViewSet(
                                 "reason": reason,
                                 "flow_variant": flow_variant,
                             },
+                            groups=analytics_groups,
                         )
                     except Exception as exc:
                         capture_exception(exc)

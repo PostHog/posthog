@@ -6,6 +6,10 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+Projects with a connected warehouse source or warehouse table use ordinary empty insight results, even before ingesting events. They do not show sample-data placeholders or the project-wide "This project has no events yet" notice. Both onboarding messages wait until the warehouse setup check confirms no sources or tables exist; an unavailable check does not imply an empty project.
+
+Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -15,6 +19,25 @@ Existing reserved-name rows remain queryable, editable, and deletable. Model val
 Direct-connection catalogs contain no authored models and are exempt from the reservation. Upstream tables and schemas named `models` remain available there, including case variants resolved by Snowflake and Trino.
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
+
+## Model materialization usage
+
+The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
+Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
+The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
+
+A daily partitioned Dagster job, `model_job_usage_job`, collects usage from the regional query log archive at 03:00 UTC for the previous day.
+It stores totals on `DataModelingJob`, keeping usage reads independent of query-log retention and leaving the streaming materialization path unchanged.
+The collector matches team, workflow ID, and workflow run ID, and leaves ambiguous or missing matches unmeasured.
+Re-running a partition replaces totals rather than adding them.
+Runs that start outside the supported 14-day archive backfill window remain unmeasured.
+Runs that cross midnight include queries from the full run.
+
+Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
+The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.
+The current UTC day is excluded because usage is updated daily.
+These measurements describe query work and are not billing amounts.
 
 ## SQL editor drafts
 
@@ -26,9 +49,13 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
+
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
 ## Choosing data in Business intelligence
+
+Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
 
 **Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
@@ -92,13 +119,17 @@ Direct connections group tables by schema. Search matches table and folder names
 
 ## Calculated measures in BI mode
 
+Choose **Edit measure expression** from a measure pill to edit its SQL and aggregation together. The editor shows the aggregation applied to each group. Choose **Custom SQL · no extra aggregation** when the expression already contains aggregate functions, such as `sum(revenue) / nullIf(count(), 0)`. This uses the expression directly without wrapping it in Count or Sum. Changes apply together when you select **Update SQL expression**; closing the editor discards the draft.
+
+Worksheet tables offer **Conditional formatting** beside the visualization settings button. It opens the same rule editor used by SQL insights. Rules apply to the table and persist with the worksheet, so copying its query into another insight is unnecessary. This control applies to tables, not pivot tables or charts.
+
 Chart settings offer **Reference lines** for BI line and bar charts. Add a constant target, or choose **Mean**, **Median**, **Minimum**, or **Maximum** across returned marks on the left axis. **Per series** calculates a separate reference for each color group or measure and includes its name in the label. Calculated lines update with the results, after aggregation and table calculations; they exclude missing values and respect result limits. They do not re-aggregate the underlying source rows or apply to the right axis. Calculated lines are hidden on 100% stacked charts, where constant percentage targets remain available.
 
 The **Marks** card offers table calculations per measure: percent of total, running total, difference or percent change from the preceding point, trailing moving average, and rank. **Compute using** selects the dimension to traverse, with the date dimension chosen by default; other dimensions partition the calculation. Moving averages use a trailing window including the current point, in ascending order. Partial windows average available non-null values; **Require a full window** leaves the result empty until every point in the window has a value. Calculations run before the result limit, and zero denominators produce empty cells.
 
 **Analysis → Missing dates** defaults to **Observed points only**. **Show gaps** creates empty buckets that occupy a point in the window but do not contribute to an average. **Fill with zero** makes those buckets contribute zero. Filling runs before calculations, separately for each series and comparison period, across the selected date range. It requires one bucketed date dimension matching the worksheet date column and a bounded range. It is available for project and warehouse tables in tables and time-series charts; direct connections do not support it. Saved worksheets and dashboard date overrides retain these semantics.
 
-Pivot tables display every measure beneath nested column headers. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
+**Table** automatically uses a pivot layout when **Columns** contains dimensions, including when **Rows** contains only measures. Row members run down the table; column members run across it. Measures placed on **Rows** appear vertically, and measures placed on **Columns** appear beneath each column header. Measures split between both shelves appear as columns with guidance to place them together. Move all dimensions onto **Rows** to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns and 100,000 displayed rows, including measures on Rows. Larger results ask you to reduce dimensions or measures, or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
 
 **Hierarchies** in the data pane names an ordered set of dimensions, such as Country → State → City. Create a hierarchy with 2–10 levels, then start it on rows or columns. The level list marks the current field and shows the next levels. Selecting a result offers **Drill to** the next level in the current editor worksheet, retaining parent filters, date range, measures, variables, and formatting. The path above the result offers **Drill up**, removing only filters introduced by that drill. Navigation participates in undo/redo and respects Auto update. Changed or removed hierarchy levels disable an incompatible return path. Outside the editor, the action explicitly opens a new worksheet. Leaf values and levels already on a shelf do not offer another drill action; nested pivot expansion remains available for those shelves. Definitions stay with the saved worksheet and survive **Clear sheet**. **Import from worksheet** copies a hierarchy from an accessible saved worksheet using the same table and connection. The copy is independent: edits do not change the source worksheet or create global fields. Deleting a local calculated field removes its uses from hierarchy levels, dropping definitions with fewer than two remaining levels.
 
@@ -106,7 +137,11 @@ The **Analysis** card ranks **Top N** categories by a selected measure across th
 
 Each measure's **Format and display** dialog sets its label, currency, decimal precision, abbreviation, percentage format, and suffix. Percentage formatting expects fractional values (0.25 displays as 25%); percent-of-total and percent-change calculations produce that scale automatically. Formats persist in saved insights and apply to charts, tables, and pivot cells. The **Charts** panel exposes series style and left/right axis selectors for each measure. Bar, line, and area charts support these mixed styles and axes. **Combine line + bar** assigns two measures to separate axes with bar and line styles.
 
-Click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
+In the worksheet editor, click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
+
+On authenticated dashboards in view mode, right-clicking a chart result opens a context menu beside the pointer. A left click keeps its usual action, such as opening the people modal, pinning a multi-series tooltip, or opening the BI drill-down dialog. Right-clicking a link or an input keeps the browser menu. Chart tooltips stay hidden until the menu closes. BI worksheets offer **View underlying rows**, then **Open in SQL editor**. Product analytics datapoints offer **View people**, **View recordings** when the existing drilldown selects matched recordings, then **Open in SQL editor**. Lifecycle results offer people and SQL only: their actor query identifies bucket members without projecting matched events. The people and SQL actions preserve the selected date, breakdown, and aggregation. SQL and recording links become available after the selected actor rows load. Selecting another result or closing the menu cancels any pending query. Recordings use matched session IDs; when no sessions match, the recordings action stays disabled. A left click, Escape, or a click outside closes the menu. Right-clicking another result moves the menu to it. Native links support opening actions in another tab. Exploration actions do not change dashboard filters or create saved insights. Public shares, embeds, exports, and layout editing retain their existing behavior.
+
+BI worksheet menus and the left-click **Explore this result** dialog offer **Filter dashboard by this result** for current-period dimension values. The dialog offers **Remove filter** when that result is already selected, and disables filtering for unsupported results. The selection filters other BI worksheets using the same table and connection, combining with their existing conditions before aggregation. The source worksheet retains its full results. Each insight card header shows its filter status beside the title, before the menu; the status stays visible when the title is truncated. Cards unaffected by the active BI filter dim to 30% opacity; the source and matching worksheets remain fully visible. Clearing the filter restores all cards. The BI selection appears beside the existing dashboard filters and unsaved-filter controls. Click it to see the source worksheet and affected count, or use **Clear BI filters** or **Remove filter** to restore the saved results. Selections persist in the dashboard URL without changing saved insights, including when dashboard dates or variables change. Changing the source worksheet's table, dimensions, comparison period, or Top N configuration clears the selection. Product analytics, raw SQL visualizations, query snapshots, public shares, embeds, exports, and layout editing do not participate. Grand totals, previous-period results, and Top N **Other** remain available for exploration only.
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
@@ -291,6 +326,29 @@ This changes setup recommendations and diagnostic actions, not report attributio
 3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table). For the Postgres-specific `xmin` (cursorless incremental) sync type and its limitations, see the [Postgres source README](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/postgres/README.md)
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
+## Validating ad source metric imports
+
+Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
+Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
+See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).
+Custom conversion counts and values remain in the `actions` and `action_values` arrays returned by Meta.
+
+Google Ads exposes daily Search and Display impression share through the optional `campaign_impression_share_stats` table.
+This table omits the click-type segmentation used by `campaign_stats` because impression share does not support that combination.
+The `campaign.labels` resource names in campaign metadata can be matched to `label.resource_name` in label metadata.
+
+TikTok Ads requests `total_landing_page_view`, `engaged_view_15s`, `cta_conversion`, and `cta_purchase` in its campaign, ad group, and ad BASIC reports.
+The CTA fields describe app conversions and purchases attributed to clicks; they do not establish a click-only website purchase metric.
+The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
+Cash spend can arrive later than other performance metrics.
+
+Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
+The conversion window still follows the account's attribution settings.
+
+When validating these changes locally, enable the optional tables and inspect the requested fields in a completed sync.
+Existing historical rows do not acquire newly requested fields until their date range is synced again.
+Unit tests cover request construction and response handling; a live sync is needed to check that the provider accepts each metric combination and returns data for the connected account.
+
 ## Accessing object storage
 
 All your data warehouse data is stored in your local object storage (SeaweedFS, S3-compatible, running at `http://localhost:19000`). Unlike MinIO, SeaweedFS has no web console, so inspect it with any S3 client. For example, with the AWS CLI:
@@ -356,15 +414,55 @@ BI chart settings preserve custom scatter axes and implicit count formatting. Nu
 
 ## Catalog metrics in BI mode
 
-Catalog SQL metrics can open as BI query snapshots. Opening a metric shows a loading state until its definition is ready, or an error if it cannot load. Press **Run** to query the snapshot. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+Catalog SQL metrics can open as BI query snapshots. Opening a metric shows a loading state until its definition is ready, or an error if it cannot load. Press **Run** to query the snapshot. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. For snapshots with bound string, number, or boolean values, **Edit parameters** changes those values for the worksheet without changing the SQL or catalog definition. Number parameters require a finite number. Other parameter types remain unchanged. Apply follows the worksheet auto-update setting; with auto-update off, press **Run**. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
 
-After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
+After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. When the name exists, confirm **Overwrite** to replace its definition for review. Cancel keeps the entered values so you can choose a different name. An overwritten metric remains proposed. Direct-connection worksheets cannot be proposed as catalog metrics.
 
-The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context keeps certification visible and groups descriptions and relationship review status under **Catalog details**, collapsed by default to leave room for fields. Neutral catalog buttons show an external-link icon to indicate that they leave the worksheet. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable. Browser Back returns from a starter to the worksheet library; confirming discarded edits does not replace that history entry with an empty worksheet.
+The worksheet library offers editable question starters for daily events, daily distinct people, events ranked by distinct people, and page views by referring domain. Each uses the last seven days of event data and opens as an unsaved worksheet; press **Run** to query it. The page-view starter requires captured `$pageview` events with `$referring_domain` for a useful breakdown. The worksheet library also suggests up to three certified sources. Metric suggestions were removed in [#120111](https://github.com/PostHog/posthog/pull/120111); SQL metrics remain accessible through **Explore in BI** in the catalog. Source context keeps certification visible and groups descriptions and relationship review status under **Catalog details**, collapsed by default to leave room for fields. Neutral catalog buttons show an external-link icon to indicate that they leave the worksheet. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable. Browser Back returns from a starter to the worksheet library; confirming discarded edits does not replace that history entry with an empty worksheet.
 
 The BI assistant receives the current worksheet draft, including its unsaved name, and shared catalog capabilities. Worksheet and catalog content remain untrusted context. Dismissing the saved worksheet attachment also removes its hidden draft and metric reference. Completed foreground insight tools refresh the worksheet library. Updates to the open worksheet refresh its saved version while preserving local edits. If both changed the query or name differently, saving over the worksheet is blocked until the local draft is discarded or saved as a copy. This conflict protection survives reloading a worksheet link. A failed refresh can be retried before saving.
 
+## BI and data catalog TODO
+
+Implementation audit, October 28, 2026. These are proposed integration contracts, not commitments from the owning teams. Business intelligence belongs to Data tools; Data catalog belongs to Data modeling. Catalog should own shared definitions and governance, the query platform should compile and execute them consistently, and BI should own interactive authoring and presentation.
+
+### Implemented foundations
+
+- [x] Worksheet-local calculated fields, groups, bins, member aliases, reusable hierarchy copies, comparisons, pivots, source previews, and SQL handoffs.
+- [x] Catalog SQL snapshots, worksheet-to-metric proposals, certified-source discovery, and relationship review handoffs.
+- [x] Dashboard cross-filtering for compatible BI worksheets on the same table and connection ([#123561](https://github.com/PostHog/posthog/pull/123561)).
+- [x] Pivot conditional formatting ([#124717](https://github.com/PostHog/posthog/pull/124717)), editable question starters ([#124730](https://github.com/PostHog/posthog/pull/124730)), and join-key investigation ([#124729](https://github.com/PostHog/posthog/pull/124729)).
+- [x] Bound string, number, and boolean parameter editing for metric snapshots ([#124721](https://github.com/PostHog/posthog/pull/124721)). This does not make grouping editable or create live catalog linkage.
+
+### BI-owned integration work
+
+- [x] Adopt the catalog overwrite-confirmation flow for worksheet metric proposals. Preserve entered values on cancel, allow retry, and keep overwritten metrics proposed.
+- [x] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Saved copies retain metadata from copy time, labeled **Catalog status when copied (unverified)** without positive approval styling. Only Proposed and Approved statuses are recorded. Older copies explicitly say no status was recorded. The metadata is editable worksheet content, not verified provenance or a live approval; authors are directed to the current catalog entry. Live version checks remain shared-layer work.
+- [x] Add deliberate, searchable metric discovery in BI using the existing catalog search API. The picker handles loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
+- [x] Surface existing table and view field descriptions in the data pane, including related tables. Show recorded data-quality check health separately from certification, with explicit unavailable, unchecked, and error states. Raw field identities remain unchanged.
+
+### Shared-layer requests
+
+| Priority | Request                                   | Acceptance boundary                                                                                                                                                                                                                                               |
+| -------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Composable metrics                        | A structured metric declares supported dimensions, date range, time grain, filters, output schema, and capabilities. BI can change these without rewriting SQL. Arbitrary SQL can remain snapshot-only.                                                           |
+| P0       | Aggregation semantics and dataset grain   | Declare measure aggregation, unit/scale, entity keys, base grain, valid dimensions, and time behavior. Ratios, distinct counts, and balances have explicit rollup rules.                                                                                          |
+| P0       | Governed relationship cardinality         | Persist expected cardinality, uniqueness and match-coverage evidence, validation time, and status. Query planning rejects, warns about, or correctly handles joins that would multiply measures. A configured join or one-off SQL check is insufficient evidence. |
+| P1       | Publish reusable semantic fields          | Publish/review/reference business calculations, groups, bins, aliases, and hierarchies while retaining worksheet-local experimentation and overrides. Use existing saved warehouse expressions where appropriate.                                                 |
+| P1       | Stable references and dependency tracking | Reference immutable metric IDs and definition versions/hashes. Offer explicit pin/refresh behavior, downstream worksheet/dashboard dependencies, and changed/deleted/unapproved warnings. Names alone are insufficient because they can be reused.                |
+| P1       | Shared metadata and health contract       | Expose permission-aware source/field descriptions, semantic defaults, owner, certification, freshness, quality results, and lineage links. A trust mark and passing checks communicate different facts.                                                           |
+| P1/P2    | Source coverage                           | Define capabilities and connection-scoped identity for direct connections, native tables, saved views, and managed views. Direct-connection metric proposals and managed-view certification remain gaps. Prioritize according to the supported BI audience.       |
+| P2       | Shared dimensions across datasets         | Give dimensions such as Customer, Country, and Date stable identities and explicit mappings so dashboard filtering can cross compatible datasets safely. Depends on grain and relationship contracts.                                                             |
+
+Reuse the existing data-quality checks (uniqueness, non-null, relationships, freshness, and custom SQL), metric lineage, insight drift detection, warehouse column annotations, saved expressions, and server-side catalog search. Extend these contracts rather than creating parallel BI stores. BI proposals currently submit resolved SQL without the source-insight linkage used by insight drift detection.
+
+Keep chart colors, shelf placement, pane layout, current drill position, and ad hoc table calculations local to BI. Publishing a reusable business definition should be explicit.
+
+First joint acceptance scenario: define Revenue once, add it to a worksheet, break it down by customer country, switch monthly/quarterly grain, and apply dates. BI and AI use the same definition. A join that duplicates revenue is detected. Saving preserves the definition version, and subsequent definition changes are visible to the worksheet author.
+
 ## Connected fields in BI mode
+
+**Check key uniqueness** opens an editable SQL check for repeated or null keys in a configured relationship's joined table. Press **Run** in the SQL editor to execute it. The check scans the full joined table, ignores worksheet filters, and returns at most 100 key groups. It does not check missing matches or prove that a join is safe for every aggregation. Expression-based keys require a custom SQL check.
 
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
 Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
@@ -378,3 +476,7 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
+
+### Pivot conditional formatting
+
+BI pivot tables use the same saved conditional formatting rules as ordinary tables. Open **Conditional formatting** to select a measure and a rule. The rule applies to that measure across column groups, including displayed subtotals, grand totals, and collapsed groups. Rules evaluate raw aggregate values before display formatting. Empty intersections and hidden parent values remain uncolored.

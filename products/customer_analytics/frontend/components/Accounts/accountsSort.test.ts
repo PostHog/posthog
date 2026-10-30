@@ -3,7 +3,7 @@ import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import type { AccountSortOrder } from './accountsLogic'
 import { sortAccountRows } from './accountsSort'
 
-const COLUMNS = ['name', 'notebook_count', 'csm']
+const COLUMNS = ['name', 'notebook_count', 'rel_11111111222233334444555555555555']
 
 const buildRow = ({
     name,
@@ -65,10 +65,9 @@ describe('sortAccountRows', () => {
 
     it('treats an empty relationship array as an empty cell (sorts last)', () => {
         const rows = [buildRow({ name: 'unassigned', csm: [] }), buildRow({ name: 'assigned', csm: [42] })]
-        expect(names(sortAccountRows(rows, { column: 'csm', direction: 'asc' }, getCell))).toEqual([
-            'assigned',
-            'unassigned',
-        ])
+        expect(
+            names(sortAccountRows(rows, { column: 'rel_11111111222233334444555555555555', direction: 'asc' }, getCell))
+        ).toEqual(['assigned', 'unassigned'])
     })
 
     it('keeps equal-keyed rows in their incoming order (stable)', () => {

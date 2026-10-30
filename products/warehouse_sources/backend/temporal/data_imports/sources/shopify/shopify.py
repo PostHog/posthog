@@ -10,13 +10,16 @@ import requests
 import structlog
 from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from tenacity.nap import sleep as retry_sleep
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     default_request_timeout,
 )
@@ -399,7 +402,7 @@ def iter_shopify_pages(
         else:
             stop.wait(seconds)
 
-    @retry(
+    @retry_with_deadline(
         # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
         # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
         # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
@@ -592,6 +595,11 @@ def _read_in_parallel(
 
 # A Shopify store subdomain is lowercase alphanumerics and hyphens.
 _SHOPIFY_SUBDOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# People often paste their store's custom domain here, so the message names that case.
+SHOPIFY_INVALID_STORE_ID_ERROR = (
+    "Your store id must be the subdomain of your myshopify.com address. Enter the 'my-store' "
+    "in 'my-store.myshopify.com', not your store's own domain."
+)
 
 
 def normalize_store_id(raw: str) -> str:
@@ -621,10 +629,7 @@ def normalize_store_id(raw: str) -> str:
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
     if not _SHOPIFY_SUBDOMAIN_RE.match(store_id):
-        raise ValueError(
-            f"Invalid Shopify store id {raw!r}. Enter just your store subdomain — the 'my-store' "
-            "in 'my-store.myshopify.com'."
-        )
+        raise ValueError(SHOPIFY_INVALID_STORE_ID_ERROR)
     return store_id
 
 
@@ -665,7 +670,7 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
-@retry(
+@retry_with_deadline(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,

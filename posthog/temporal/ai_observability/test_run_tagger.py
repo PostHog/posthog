@@ -38,6 +38,7 @@ from .run_tagger import (
     TagResult,
     build_tag_result_schema,
     build_tagger_system_prompt,
+    build_tagger_user_prompt,
     disable_tagger_activity,
     emit_tagger_event_activity,
     execute_hog_tagger_activity,
@@ -150,6 +151,23 @@ class TestBuildTaggerSystemPrompt:
             assert expected in prompt
         for excluded in expected_not_in:
             assert excluded not in prompt
+
+
+class TestBuildTaggerUserPrompt:
+    @pytest.mark.parametrize(
+        "text,expected_text",
+        [
+            pytest.param("Hello 👋", "Hello 👋", id="unicode"),
+            pytest.param("Hello \ud835", "Hello \ufffd", id="lone_high_surrogate"),
+            pytest.param("Hello \udc00", "Hello \ufffd", id="lone_low_surrogate"),
+            pytest.param("Hello \ud83d\ude00", "Hello 😀", id="surrogate_pair"),
+        ],
+    )
+    def test_prompt_is_utf8_encodable(self, text: str, expected_text: str) -> None:
+        user_prompt = build_tagger_user_prompt(text, text)
+
+        user_prompt.encode("utf-8")
+        assert user_prompt == f"Input: {expected_text}\n\nOutput: {expected_text}"
 
 
 class TestRunTaggerWorkflow:

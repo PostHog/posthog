@@ -20,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
     AmazonAdsEndpointConfig,
     AmazonAdsReportConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    request_deadline,
+    stop_at_request_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -242,7 +246,7 @@ class AmazonAdsClient:
         # Built per client rather than as a decorator, so a test can swap the wait policy out.
         self._retrying = Retrying(
             retry=retry_if_exception_type((AmazonAdsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-            stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+            stop=stop_after_attempt(MAX_RETRY_ATTEMPTS) | stop_at_request_deadline(),
             wait=wait_exponential_jitter(initial=2, max=120),
             reraise=True,
         )
@@ -307,7 +311,8 @@ class AmazonAdsClient:
         extra_headers: Optional[dict[str, str]] = None,
         http: Optional[requests.Session] = None,
     ) -> requests.Response:
-        return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
+        with request_deadline():
+            return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
 
     def list_profiles(self) -> list[dict[str, Any]]:
         body = self.request("GET", "/v2/profiles").json()

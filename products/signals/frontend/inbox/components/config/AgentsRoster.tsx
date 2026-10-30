@@ -7,15 +7,12 @@ import {
     LemonButton,
     LemonInput,
     LemonSkeleton,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
     Spinner,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
@@ -25,11 +22,11 @@ import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
-import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
-import { VirtualizedSourceList } from './VirtualizedSourceList'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
@@ -135,52 +132,6 @@ const SOURCES_WITHOUT_CONFIG_ROWS: ReadonlySet<AgentRosterSource> = new Set(['re
 
 const SOURCE_CONFIGS_LOADING_REASON = 'Loading your signal sources'
 const SOURCE_CONFIGS_FAILED_REASON = "Couldn't load your signal sources. Select Retry above to try again."
-
-function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element | null {
-    const meta = getSourceProductMeta(source.sourceProduct)
-    if (!meta?.Icon) {
-        return null
-    }
-    const Icon = meta.Icon
-    return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
-}
-
-/** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
-function StatusDot({
-    status,
-    product,
-    productOff,
-}: {
-    status: AgentRosterStatus
-    product?: SourceProductStatus
-    productOff: boolean
-}): JSX.Element {
-    let className = 'bg-border-bold'
-    let title = 'Standby'
-    if (productOff) {
-        title = `${product?.productName} is off, so this source has nothing to read`
-    } else if (status === 'sync_failed') {
-        className = 'bg-danger'
-        title = 'Sync failed'
-    } else if (status === 'syncing') {
-        className = 'bg-accent'
-        title = 'Syncing'
-    } else if (status === 'watching') {
-        // A hollow dot means watching but nothing has arrived, so the two read apart at a glance.
-        className = product?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
-        title =
-            product?.dataStatus === 'none'
-                ? 'Watching, no data in the last 30 days'
-                : product?.dataStatus === 'recent'
-                  ? 'Watching, receiving data'
-                  : 'Watching'
-    }
-    return (
-        <Tooltip title={title}>
-            <span className={`size-2 shrink-0 rounded-full ${className}`} />
-        </Tooltip>
-    )
-}
 
 /** Only the states worth interrupting a scan for. Everything healthy shows no tag at all. */
 function notableTag(
@@ -526,7 +477,6 @@ const AgentRow = memo(function AgentRow({
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const productOff = product?.enabled === false
@@ -549,7 +499,6 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                {!redesign && <StatusDot status={status} product={product} productOff={productOff} />}
                 <button
                     type="button"
                     className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
@@ -558,7 +507,7 @@ const AgentRow = memo(function AgentRow({
                     aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                     data-attr="signal-source-expand"
                 >
-                    <AgentIcon source={agent} />
+                    <SourceAgentIcon agent={agent} />
                     <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-center gap-2">
                             <span
@@ -577,8 +526,9 @@ const AgentRow = memo(function AgentRow({
                                 </LemonTag>
                             )}
                         </div>
-                        <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
-                        {agent.category && <span className="truncate text-xs text-muted">{agent.category}</span>}
+                        <span className="truncate text-xs leading-4 text-muted">
+                            {agent.category ? `${agent.category} · ${agent.watches}` : agent.watches}
+                        </span>
                     </div>
                 </button>
                 {tag && (
@@ -651,37 +601,19 @@ const AgentRow = memo(function AgentRow({
 })
 
 /**
- * Heading for one group of sources. Under the redesign it is set in the same type as the row titles
- * so it reads as a section of the Settings card; the legacy rail keeps a muted eyebrow over a
- * bordered list.
+ * Heading for one group of sources, set in the same type as the row titles so it reads as a section
+ * of the Settings card.
  */
-function AgentRosterGroupHeader({ group, redesign }: { group: AgentRosterGroup; redesign: boolean }): JSX.Element {
-    if (!redesign) {
-        return <span className="text-xs font-medium text-muted">{group.label}</span>
-    }
+function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Element {
     return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
-function agentGroupClassName(redesign: boolean): string {
-    return redesign ? 'flex flex-col gap-2 pt-2' : 'flex flex-col gap-1'
-}
-
-function agentListClassName(redesign: boolean): string {
-    return redesign
-        ? '-mx-2 divide-y divide-primary'
-        : 'divide-y divide-primary overflow-hidden rounded border border-primary'
-}
-
 export function AgentsRoster(): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
         externalSourceStates,
         rosterGroups,
-        filteredRosterGroups,
-        sourceSearchQuery,
-        sourceCategory,
-        sourceCategoryOptions,
         sourcesLoadError,
+        dataWarehouseSources,
         dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
@@ -710,8 +642,6 @@ export function AgentsRoster(): JSX.Element {
         linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
-        setSourceSearchQuery,
-        setSourceCategory,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -1007,9 +937,6 @@ export function AgentsRoster(): JSX.Element {
         ]
     )
 
-    const allAgents = rosterGroups.flatMap((group) => group.agents)
-    const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
-
     return (
         <div className="flex flex-col gap-3">
             {sourcesLoadError && (
@@ -1038,52 +965,24 @@ export function AgentsRoster(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {!redesign && (
-                <div className="flex items-center gap-1.5 text-xs text-muted">
-                    <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
-                    <span>
-                        {armedCount} of {allAgents.length} sources on
-                    </span>
-                </div>
-            )}
-
-            {filteredRosterGroups.map((group) => (
-                <div key={group.label} className={agentGroupClassName(redesign)}>
-                    <AgentRosterGroupHeader group={group} redesign={redesign} />
-                    {group.id === 'external' && (
-                        <div className="flex flex-wrap items-center gap-2 py-2">
-                            <LemonInput
-                                type="search"
-                                value={sourceSearchQuery}
-                                onChange={setSourceSearchQuery}
-                                placeholder="Search sources"
-                                aria-label="Search external sources"
-                                data-attr="signal-sources-search"
-                                className="min-w-40 flex-1"
-                                fullWidth
-                            />
-                            <LemonSelect
-                                value={sourceCategory}
-                                onChange={setSourceCategory}
-                                options={sourceCategoryOptions}
-                                data-attr="signal-sources-category"
-                            />
-                        </div>
+            {rosterGroups.map((group) => (
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
+                    {group.agents.length > 0 && (
+                        <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
-                    {group.agents.length === 0 && (
-                        <LemonBanner type="info">
-                            No sources match your search. Try another name or category.
-                        </LemonBanner>
-                    )}
-                    <div className={agentListClassName(redesign)}>
-                        {group.id === 'external' ? (
-                            <VirtualizedSourceList sources={group.agents} renderSource={renderAgent} />
-                        ) : (
-                            group.agents.map(renderAgent)
+                    {group.id === 'external' &&
+                        group.agents.length === 0 &&
+                        dataWarehouseSources !== null &&
+                        sourceConfigs !== null && (
+                            <p className="m-0 text-xs text-secondary">
+                                Connect external tools from the available sources below.
+                            </p>
                         )}
-                    </div>
                 </div>
             ))}
+
+            <DataSourceSetupModal />
 
             {linearTeamsPicker && (
                 <LinearTeamsModal
@@ -1122,14 +1021,13 @@ function AgentRowSkeleton(): JSX.Element {
 }
 
 export function AgentsRosterSkeleton(): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
         <div className="flex flex-col gap-3">
             <LemonSkeleton className="h-3 w-48" />
             {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className={agentGroupClassName(redesign)}>
-                    <AgentRosterGroupHeader group={group} redesign={redesign} />
-                    <div className={agentListClassName(redesign)}>
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
+                    <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
                         ))}

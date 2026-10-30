@@ -10,6 +10,8 @@ They compose as children of a chart:
 </TimeSeriesLineChart>
 ```
 
+`StackedBarList` also accepts overlay children. It places them in the chart area, which excludes the label and value cells.
+
 Trend lines, moving averages, and confidence bands are not overlays.
 They are derived `Series` entries (`overlay: true` for the first two), so the legend, the tooltip, and the axis already know about them.
 
@@ -60,6 +62,7 @@ Use it to mirror an external selection (the rows visible in a paired virtualized
 On band (bar) charts the box covers the endpoints' full bands; on point (line) charts it runs point to point.
 `color`, `fillOpacity`, and `borderOpacity` tune the look (`borderOpacity: 0` drops the edge border).
 It clamps to the plot area and renders null when an endpoint does not resolve.
+It draws no label. To name the range, such as an incident window, add a vertical `ReferenceLine` whose `value` is the range's start label, and give it a `label`.
 
 ### `AnomalyPointsLayer`
 

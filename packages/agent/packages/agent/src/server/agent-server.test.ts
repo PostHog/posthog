@@ -37,7 +37,10 @@ import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration"
 import { selectProduct } from "../boot/select-product";
 import type { ContextSelectionResponse } from "../context-selection/schemas";
 import type { PermissionMode } from "../execution-mode";
-import type { PostHogAPIClient } from "../posthog-api";
+import {
+  CodexSubscriptionTokenError,
+  type PostHogAPIClient,
+} from "../posthog-api";
 import { formatConversationForResume, type ResumeState } from "../resume";
 import type { ProductLaunchConfiguration, TaskSource } from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
@@ -59,6 +62,7 @@ import {
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
+import { CredentialRelayError } from "./credential-relay";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -597,6 +601,65 @@ it.each([false, true])(
   },
 );
 
+it.each([
+  ["request_failed", "transient"],
+  ["openai_unavailable", "transient"],
+  ["reauth_required", "requires_action"],
+  ["forbidden", "requires_action"],
+] as const)(
+  "classifies Codex credential failure %s",
+  async (code, retryability) => {
+    const server = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+      runtimeAdapter: "codex",
+    }) as unknown as {
+      _doInitializeSession(payload: JwtPayload): Promise<void>;
+      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+      app: { fetch(request: Request): Promise<Response> };
+    };
+    const error = new CodexSubscriptionTokenError(
+      code,
+      503,
+      "Synthetic token failure",
+    );
+    server._doInitializeSession = vi.fn().mockRejectedValue(error);
+    await expect(
+      server.initializeSession(
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "example",
+          mode: "interactive",
+        },
+        null,
+      ),
+    ).rejects.toBe(error);
+    const health = await server.app.fetch(
+      new Request("http://localhost/health"),
+    );
+    expect(await health.json()).toMatchObject({
+      readiness: "failed",
+      startupFailure: {
+        provider: "codex",
+        retryability,
+        reason:
+          retryability === "transient"
+            ? "credential_service_unavailable"
+            : "credential_unavailable",
+      },
+    });
+  },
+);
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
@@ -676,6 +739,115 @@ describe("AgentServer HTTP Mode", () => {
     );
   };
 
+  it.each(["typed", "unknown", "credential"])(
+    "keeps startup failures available to the worker and recovers on retry (%s)",
+    async (kind) => {
+      const typed = kind === "typed";
+      const failure = {
+        provider: "claude",
+        phase: typed ? "sdk_initialization" : "session_setup",
+        reason: typed
+          ? "proxy_invalid"
+          : kind === "credential"
+            ? "credential_unavailable"
+            : null,
+        retryability:
+          typed || kind === "credential" ? "requires_action" : "unknown",
+      };
+      const s = createServer({ runtimeAdapter: "claude" });
+      const internals = s as unknown as {
+        app: { fetch(request: Request): Promise<Response> };
+        _doInitializeSession(payload: JwtPayload): Promise<void>;
+        initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+        reportFatalError(error: unknown): Promise<void>;
+        reportSubscriptionTokenMissing(adapter: "claude", reason: string): void;
+        eventStreamSender: {
+          enqueue: ReturnType<typeof vi.fn>;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        posthogAPI: PostHogAPIClient;
+        logger: { error: (message: string, ...args: unknown[]) => void };
+      };
+      const logError = vi.spyOn(internals.logger, "error");
+      internals.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      const original = internals._doInitializeSession.bind(s);
+      const error = typed
+        ? RequestError.internalError({ startup_failure: failure })
+        : kind === "credential"
+          ? new CredentialRelayError("no_token")
+          : new Error("Instruction sync failed: ghp_syntheticSecretToken");
+      internals._doInitializeSession = vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          if (kind === "credential") {
+            internals.reportSubscriptionTokenMissing("claude", "no_token");
+          }
+          throw error;
+        })
+        .mockImplementation(original);
+      const payload: JwtPayload = {
+        task_id: "test-task-id",
+        run_id: "test-run-id",
+        team_id: 1,
+        user_id: 1,
+        distinct_id: "test-distinct-id",
+        mode: "interactive",
+      };
+
+      await s.start();
+      const health = await internals.app.fetch(
+        new Request("http://localhost/health"),
+      );
+      expect(await health.json()).toMatchObject({
+        readiness: "failed",
+        hasSession: false,
+        startupFailure: failure,
+      });
+
+      if (kind === "unknown") {
+        expect(logError).toHaveBeenCalledWith(
+          "Agent session initialization failed",
+          expect.stringContaining("Instruction sync failed"),
+        );
+        expect(JSON.stringify(logError.mock.calls)).not.toContain(
+          "ghp_syntheticSecretToken",
+        );
+      }
+      if (kind !== "credential") {
+        await internals.reportFatalError(error);
+        expect(updateTaskRunCalls).toContainEqual(
+          expect.objectContaining({ error_type: "agent_server_crash" }),
+        );
+      }
+      expect(updateTaskRunCalls).not.toContainEqual(
+        expect.objectContaining({ status: "failed" }),
+      );
+      await openProduct(s);
+      internals.eventStreamSender.enqueue.mockClear();
+      await internals.initializeSession(payload, null);
+      const recovered = await internals.app.fetch(
+        new Request("http://localhost/health"),
+      );
+      expect(await recovered.json()).toMatchObject({
+        readiness: "ready",
+        hasSession: true,
+      });
+      if (kind === "credential") {
+        expect(internals.eventStreamSender.stop).not.toHaveBeenCalled();
+        expect(internals.eventStreamSender.enqueue).toHaveBeenCalled();
+      }
+      expect(updateTaskRunCalls).toContainEqual(
+        expect.objectContaining({
+          status: "in_progress",
+          error_message: null,
+        }),
+      );
+    },
+  );
+
   it("replays ACP notifications emitted before cloud session assignment", () => {
     const testServer = createServer() as unknown as {
       session: { sseController: null } | null;
@@ -717,6 +889,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(response.status).toBe(200);
       expect(body).toEqual({
         status: "ok",
+        runId: "test-run-id",
         hasSession: true,
         readiness: "ready",
         bootMs: expect.any(Number),
@@ -4060,71 +4233,86 @@ describe("AgentServer HTTP Mode", () => {
       expect(body.error).toBe("No active session for this run");
     }, 20000);
 
-    it("continues a cloud task after a manual compact command", async () => {
-      const s = createServer();
-      await s.start();
-      const broadcastEvent = vi.fn();
-      let serverInternals!: {
-        session: { clientConnection: { prompt: typeof prompt } };
-        broadcastEvent: typeof broadcastEvent;
-        handleAcpTransportMessage(message: unknown): void;
-      };
-      const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => {
-        serverInternals.handleAcpTransportMessage({
-          jsonrpc: "2.0",
-          method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-          params: { sessionId: "session-1", stopReason: "end_turn" },
+    it.each([
+      { label: "continues a cloud task after", meta: undefined, prompts: 2 },
+      {
+        label: "does not continue a cloud task after a failed",
+        meta: { compactionFailed: true },
+        prompts: 1,
+      },
+    ])(
+      "$label manual compact command",
+      async ({ meta, prompts }) => {
+        const s = createServer();
+        await s.start();
+        const broadcastEvent = vi.fn();
+        let serverInternals!: {
+          session: { clientConnection: { prompt: typeof prompt } };
+          broadcastEvent: typeof broadcastEvent;
+          handleAcpTransportMessage(message: unknown): void;
+        };
+        const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => {
+          serverInternals.handleAcpTransportMessage({
+            jsonrpc: "2.0",
+            method: POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+            params: { sessionId: "session-1", stopReason: "end_turn" },
+          });
+          return prompt.mock.calls.length === 1 && meta
+            ? { stopReason: "end_turn", _meta: meta }
+            : { stopReason: "end_turn" };
         });
-        return { stopReason: "end_turn" };
-      });
-      serverInternals = s as unknown as typeof serverInternals;
-      serverInternals.session.clientConnection.prompt = prompt;
-      serverInternals.broadcastEvent = broadcastEvent;
+        serverInternals = s as unknown as typeof serverInternals;
+        serverInternals.session.clientConnection.prompt = prompt;
+        serverInternals.broadcastEvent = broadcastEvent;
 
-      const token = createToken();
-      const response = await fetch(`http://localhost:${port}/command`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "compact-and-continue",
-          method: "user_message",
-          params: {
-            content:
-              "/compact Continue with the task using the question tool and plan.",
+        const token = createToken();
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "compact-and-continue",
+            method: "user_message",
+            params: {
+              content:
+                "/compact Continue with the task using the question tool and plan.",
+            },
+          }),
+        });
 
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        result?: { stopReason?: string };
-      };
-      expect(body.result?.stopReason).toBe("end_turn");
-      expect(prompt).toHaveBeenCalledTimes(2);
-      expect(prompt.mock.calls[0]?.[0].prompt).toEqual([
-        {
-          type: "text",
-          text: "/compact Continue with the task using the question tool and plan.",
-        },
-      ]);
-      expect(prompt.mock.calls[1]?.[0].prompt).toEqual([
-        {
-          type: "text",
-          text: expect.stringContaining("Continue working on the task"),
-          _meta: { ui: { hidden: true } },
-        },
-      ]);
-      const turnCompleteEvents = broadcastEvent.mock.calls.filter(
-        ([event]) =>
-          (event as { notification?: { method?: string } }).notification
-            ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-      );
-      expect(turnCompleteEvents).toHaveLength(1);
-    }, 20000);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          result?: { stopReason?: string };
+        };
+        expect(body.result?.stopReason).toBe("end_turn");
+        expect(prompt).toHaveBeenCalledTimes(prompts);
+        expect(prompt.mock.calls[0]?.[0].prompt).toEqual([
+          {
+            type: "text",
+            text: "/compact Continue with the task using the question tool and plan.",
+          },
+        ]);
+        if (prompts === 2) {
+          expect(prompt.mock.calls[1]?.[0].prompt).toEqual([
+            {
+              type: "text",
+              text: expect.stringContaining("Continue working on the task"),
+              _meta: { ui: { hidden: true } },
+            },
+          ]);
+        }
+        const turnCompleteEvents = broadcastEvent.mock.calls.filter(
+          ([event]) =>
+            (event as { notification?: { method?: string } }).notification
+              ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+        );
+        expect(turnCompleteEvents).toHaveLength(1);
+      },
+      20000,
+    );
 
     it("honors cancellation while preparing a human follow-up", async () => {
       const s = createServer();

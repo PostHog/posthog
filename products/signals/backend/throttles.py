@@ -21,9 +21,9 @@ class ReportTaskActionRunBurstThrottle(UserRateThrottle):
     # Scope and rate match the tasks create throttle for report tasks, so a run started from the
     # API spends the same per-user budget as one started from the inbox.
     scope = "signal_report_task_create_burst"
-    rate = "10/hour"
+    rate = "20/hour"
 
 
 class ReportTaskActionRunSustainedThrottle(UserRateThrottle):
     scope = "signal_report_task_create_day"
-    rate = "30/day"
+    rate = "50/day"

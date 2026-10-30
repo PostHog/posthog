@@ -636,12 +636,12 @@ impl Instance {
 /// The ownership fence's admission of the split `config` names, which the processor runs before it
 /// opens the store.
 async fn admit(config: &Config, groups: &Arc<InputGroups>) -> AdmittedSplit {
-    let ownership = config
-        .partition_ownership()
+    let claim = config
+        .split_claim()
         .expect("the pod name ends in an ordinal");
     let groups = groups.clone();
     tokio::task::spawn_blocking(move || {
-        AdmittedSplit::try_admit(ownership, &groups).expect("the fence admits the split")
+        AdmittedSplit::try_admit(claim, &groups).expect("the fence admits the split")
     })
     .await
     .expect("the admission panicked")
@@ -945,12 +945,17 @@ async fn delete_s3_prefix(config: &Config) {
 
 /// Runs one checkpoint tick against the running dispatcher, with positions read from the broker,
 /// and uploads it: `upload_every_n` is 1.
-async fn checkpoint_to_s3(instance: &Instance, config: &Config, groups: &Arc<InputGroups>) {
+async fn checkpoint_to_s3(
+    instance: &Instance,
+    config: &Config,
+    groups: &Arc<InputGroups>,
+    claimed: ClaimedSplit,
+) {
     let sweeper = CheckpointSweeper::new(
         instance.store.clone(),
         instance.dispatcher.clone(),
         groups.clone(),
-        config.checkpoint_lineage().expect("ordinal pod name"),
+        claimed,
         config.durability_config(),
         1,
         tokio_util::sync::CancellationToken::new(),
@@ -1132,7 +1137,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             NUM_PARTITIONS as usize,
             "the dispatcher must still own all 64 partitions at checkpoint time",
         );
-        checkpoint_to_s3(&instance, &config, &input_groups).await;
+        checkpoint_to_s3(&instance, &config, &input_groups, claimed).await;
 
         shutdown.request_shutdown();
         instance.join().await;
@@ -1159,10 +1164,10 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         // The followers resume past the merge on P_old's partition and the transfer on P_new's.
         let merge_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.merges.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.merges.as_str()));
         let transfer_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.transfers.as_str()), &admitted.ownership());
+            .positions(&InputTopic::new(topics.transfers.as_str()));
         assert!(
             merge_resume.get(&part(p_old)).map(|offset| offset.get()) >= Some(1),
             "the merge follower resumes past the merge on P_old's partition: {merge_resume:?}",

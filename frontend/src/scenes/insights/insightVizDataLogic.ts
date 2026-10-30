@@ -24,7 +24,9 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import {
     FLAG_EVALUATIONS_TABLE,
-    insightReachesPastFlagEvaluationsRetention,
+    FlagCallsRetentionGap,
+    flagCallsRetentionGap,
+    flagEvaluationsRetentionStartDate,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
@@ -237,6 +239,8 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    flagCallsRetentionGap: FlagCallsRetentionGap | null
+    flagCallsRetentionStartDate: string
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -305,7 +309,6 @@ export interface insightVizDataLogicValues {
     showPercentStackView: boolean | null | undefined
     showPercentagesOnSeries: boolean | null | undefined
     showValuesOnSeries: boolean | null | undefined
-    showsFlagCallsRetentionNotice: boolean
     slowQueryPossibilities: SlowQueryPossibilities[]
     stickinessFilter: StickinessFilter | null | undefined
     supportsBarValueStacking: boolean
@@ -1200,7 +1203,7 @@ export interface insightVizDataLogicMeta {
             isUsingSessionAnalysis: boolean | Breakdown,
             query: Node<Record<string, any>> | null
         ) => boolean
-        showsFlagCallsRetentionNotice: (
+        flagCallsRetentionGap: (
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -1215,7 +1218,8 @@ export interface insightVizDataLogicMeta {
             dateRange: DateRange | null | undefined,
             compareFilter: CompareFilter | null | undefined,
             insightData: Record<string, any>
-        ) => boolean
+        ) => FlagCallsRetentionGap | null
+        flagCallsRetentionStartDate: (insightData: Record<string, any>) => string
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
             isTrends: boolean,
@@ -2313,21 +2317,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 query: Node | null
             ) => isUsingSessionAnalysis && !(isInsightVizNode(query) && query.suppressSessionAnalysisWarning),
         ],
-        showsFlagCallsRetentionNotice: [
+        flagCallsRetentionGap: [
             (s) => [s.querySource, s.dateRange, s.compareFilter, s.insightData],
             (
                 querySource: InsightQueryNode | null,
                 dateRange: DateRange | null | undefined,
                 compareFilter: CompareFilter | null | undefined,
                 insightData: Record<string, any>
-            ): boolean =>
-                !!querySource &&
-                readsFlagCalls(querySource) &&
-                insightReachesPastFlagEvaluationsRetention({
-                    dateFrom: dateRange?.date_from,
-                    resolvedDateRange: insightData?.resolved_date_range,
-                    compareFilter,
-                }),
+            ): FlagCallsRetentionGap | null =>
+                querySource && readsFlagCalls(querySource)
+                    ? flagCallsRetentionGap({ dateFrom: dateRange?.date_from, response: insightData, compareFilter })
+                    : null,
+        ],
+        flagCallsRetentionStartDate: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): string => flagEvaluationsRetentionStartDate(insightData),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],

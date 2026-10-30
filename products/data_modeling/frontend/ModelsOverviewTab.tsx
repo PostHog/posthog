@@ -180,7 +180,7 @@ function OverviewBody({
     /** False while the checks request is in flight, so an empty list is not yet an answer. */
     checksLoaded: boolean
     checksError: string | null
-    onRetryChecks?: () => void
+    onRetryChecks: () => void
 }): JSX.Element {
     const { attentionModels, behindSchedule, nodesLoading, modelsFailed, modelsResolved, noModelsYet } =
         useValues(modelsSceneLogic)
@@ -253,7 +253,7 @@ function OverviewBody({
             {checksError && (
                 <LemonBanner
                     type="error"
-                    action={onRetryChecks ? { children: 'Try again', onClick: onRetryChecks } : undefined}
+                    action={{ children: 'Try again', onClick: onRetryChecks }}
                     data-attr="models-overview-checks-error"
                 >
                     Data quality checks could not be loaded, so this page cannot say whether any are failing.
@@ -283,8 +283,7 @@ function OverviewBody({
     )
 }
 
-/** Split out so the checks request is only made where the tab exists. */
-function OverviewWithChecks(): JSX.Element {
+export function ModelsOverviewTab(): JSX.Element {
     const { checks, checksStatus, overviewLoading, snapshotLoaded, overviewError } = useValues(dataQualityOverviewLogic)
     const { loadOverview } = useActions(dataQualityOverviewLogic)
 
@@ -296,22 +295,6 @@ function OverviewWithChecks(): JSX.Element {
             checksLoaded={snapshotLoaded}
             checksError={overviewError}
             onRetryChecks={loadOverview}
-        />
-    )
-}
-
-export function ModelsOverviewTab(): JSX.Element {
-    const { dataQualityTabEnabled } = useValues(modelsSceneLogic)
-
-    return dataQualityTabEnabled ? (
-        <OverviewWithChecks />
-    ) : (
-        <OverviewBody
-            failingChecks={[]}
-            checksStatus="disabled"
-            checksLoading={false}
-            checksLoaded
-            checksError={null}
         />
     )
 }

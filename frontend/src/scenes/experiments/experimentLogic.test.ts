@@ -131,9 +131,20 @@ describe('experimentLogic', () => {
             total_exposures: { control: 600, test: 350, $multiple: 50 },
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
-            health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
+            health_findings: [
+                { code: 'srm', subcode: 'split_changed', reason: 'library', evidence: { p_value: 0.0001 } },
+                { code: 'bias_risk_multiple_excluded' },
+            ],
         }
-        const noServerVerdicts = { srm_server: null, zero_exposures_server: null, bias_risk_server: null }
+        const noServerVerdicts = {
+            srm_server: null,
+            srm_subcode: null,
+            srm_reason: null,
+            zero_exposures_server: null,
+            zero_exposures_subcode: null,
+            zero_exposures_reason: null,
+            bias_risk_server: null,
+        }
 
         it.each([
             {
@@ -171,7 +182,11 @@ describe('experimentLogic', () => {
                     has_srm: true,
                     has_bias_risk: true,
                     srm_server: true,
+                    srm_subcode: 'split_changed',
+                    srm_reason: 'library',
                     zero_exposures_server: false,
+                    zero_exposures_subcode: null,
+                    zero_exposures_reason: null,
                     bias_risk_server: true,
                 },
             },
@@ -198,10 +213,25 @@ describe('experimentLogic', () => {
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 0, test: 0 },
-                    health_findings: [{ code: 'zero_exposures' }],
+                    health_findings: [
+                        {
+                            code: 'zero_exposures',
+                            subcode: 'calls_not_counted',
+                            reason: 'test_account_filter',
+                            evidence: { hours_since_launch: 48 },
+                        },
+                    ],
                 },
                 handling: undefined,
-                expected: { health_ui: 'warnings', exposures_total: 0, zero_exposures_server: true },
+                expected: {
+                    health_ui: 'warnings',
+                    exposures_total: 0,
+                    srm_subcode: null,
+                    srm_reason: null,
+                    zero_exposures_server: true,
+                    zero_exposures_subcode: 'calls_not_counted',
+                    zero_exposures_reason: 'test_account_filter',
+                },
             },
         ])(
             'reports the exposure state with the completed refresh: $desc',
@@ -378,36 +408,70 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('addSharedMetricsToExperiment reuses the window (metric_config_change)', async () => {
-            // A keyed logic with a real experiment id so loadExperiment returns the launched experiment
-            // (the default unkeyed logic resolves experimentId to "new" and loads a draft). Mock every
-            // endpoint the follow-up refresh touches so its async work settles before unmount.
-            useMocks({
-                get: { '/api/projects/:team/experiments/:id': experiment },
-                post: {
-                    '/api/environments/:team/query': () => [
-                        200,
-                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                    ],
-                },
-            })
-            jest.spyOn(api, 'update').mockResolvedValue(experiment)
-            const keyed = experimentLogic({ experimentId: experiment.id })
-            keyed.mount()
-            keyed.actions.setExperiment(experiment)
+        const attachedSharedMetric = {
+            id: 7,
+            experiment: experiment.id as number,
+            saved_metric: 1,
+            name: 'Attached shared metric',
+            query: experiment.metrics[0],
+            metadata: { type: 'primary' },
+            created_at: '2024-01-01T00:00:00Z',
+        } as unknown as ExperimentSavedMetric
+        const keptSharedMetric = { ...attachedSharedMetric, id: 8, saved_metric: 2 } as ExperimentSavedMetric
 
-            await expectLogic(keyed, () => {
-                keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' })
-            })
-                .toDispatchActions([
-                    (action) =>
-                        action.type === keyed.actionTypes.refreshExperimentResults &&
-                        action.payload.triggeredBy === 'metric_config_change',
-                ])
-                .toFinishAllListeners()
+        it.each([
+            [
+                'addSharedMetricsToExperiment',
+                [attachedSharedMetric],
+                [],
+                (keyed: ReturnType<typeof experimentLogic>): void =>
+                    keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' }),
+            ],
+            [
+                'removeSharedMetricFromExperiment',
+                [keptSharedMetric],
+                [attachedSharedMetric, keptSharedMetric],
+                (keyed: ReturnType<typeof experimentLogic>): void => keyed.actions.removeSharedMetricFromExperiment(1),
+            ],
+        ])(
+            '%s applies the save response, clears positional results and reuses the window (metric_config_change)',
+            async (_name, savedMetricsAfter, savedMetricsBefore, dispatch) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team/query': () => [
+                            200,
+                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                        ],
+                    },
+                })
+                const before = { ...experiment, version: 4, saved_metrics: savedMetricsBefore } as Experiment
+                const response = { ...experiment, version: 5, saved_metrics: savedMetricsAfter } as Experiment
+                jest.spyOn(api, 'update').mockResolvedValue(response)
+                const keyed = experimentLogic({ experimentId: experiment.id })
+                keyed.mount()
+                keyed.actions.setUnmodifiedExperiment(before)
+                keyed.actions.setExperiment(before)
 
-            keyed.unmount()
-        })
+                await expectLogic(keyed, () => dispatch(keyed))
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['loadExperiment'])
+                    .toDispatchActions([
+                        (action) =>
+                            action.type ===
+                                experimentMetricsLogic({ experiment }).actionTypes.setPrimaryMetricsResults &&
+                            action.payload.results.length === 0,
+                        (action) =>
+                            action.type === keyed.actionTypes.refreshExperimentResults &&
+                            action.payload.forceRefresh === false &&
+                            action.payload.triggeredBy === 'metric_config_change',
+                    ])
+
+                expect(keyed.values.experiment.saved_metrics).toEqual(savedMetricsAfter)
+                expect(keyed.values.unmodifiedExperiment?.version).toEqual(5)
+
+                keyed.unmount()
+            }
+        )
     })
 
     describe('currentRefresh tracking', () => {
@@ -2313,6 +2377,7 @@ describe('experimentLogic', () => {
         ): ExperimentHealthFindingApi => ({
             code,
             subcode,
+            reason: null,
             severity: 'warning',
             title: '',
             detail: '',
@@ -2496,13 +2561,16 @@ describe('experimentLogic', () => {
             {
                 desc: 'server finding wins over the local rules',
                 overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
-                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                health: {
+                    findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')],
+                    checks: [],
+                },
                 expected: { key: 'running_but_flag_disabled' },
             },
             {
                 desc: 'server without a finding wins over the local rules',
                 overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
-                health: { findings: [] },
+                health: { findings: [], checks: [] },
                 expected: null,
             },
             {
@@ -2515,19 +2583,20 @@ describe('experimentLogic', () => {
                             variant_key: 'test',
                         }),
                     ],
+                    checks: [],
                 },
                 expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
             },
             {
                 desc: 'server finding of another code is no flag-state warning',
                 overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
-                health: { findings: [healthFinding('no_metric', null)] },
+                health: { findings: [healthFinding('no_metric', null)], checks: [] },
                 expected: null,
             },
             {
                 desc: 'server findings for a reader without the health findings flag leave the local rules',
                 overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
-                health: { findings: [] },
+                health: { findings: [], checks: [] },
                 healthFindingsFlag: false,
                 expected: { key: 'running_but_flag_disabled' },
             },
@@ -2558,7 +2627,10 @@ describe('experimentLogic', () => {
             {
                 desc: 'a server finding the local rules miss',
                 overrides: { ...running, ...newEngineMetrics, feature_flag: flag(true, multivariantFilters) },
-                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                health: {
+                    findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')],
+                    checks: [],
+                },
                 expected: {
                     health_ui: 'panel',
                     request_failed: false,
@@ -2577,29 +2649,37 @@ describe('experimentLogic', () => {
                 health: {
                     findings: [
                         {
-                            ...healthFinding('split_changed_mid_run', 'not_checked', { reason: 'exposure_filters' }),
+                            ...healthFinding('split_changed_mid_run', 'not_checked'),
+                            reason: 'exposure_filters',
                             severity: 'info',
                         },
                     ],
+                    checks: [],
                 },
                 expected: { health_findings: ['split_changed_mid_run:not_checked:info:exposure_filters'] },
             },
             {
                 desc: 'a server subcode the page does not know',
                 overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
-                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')] },
+                health: {
+                    findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')],
+                    checks: [],
+                },
                 expected: { flag_state_browser: null, flag_state_server: 'running_but_flag_archived' },
             },
             {
                 desc: 'a reader with the flag on a legacy experiment, which shows the separate warnings',
                 overrides: { ...running, ...legacyMetrics, feature_flag: flag(true, multivariantFilters) },
-                health: { findings: [] },
+                health: { findings: [], checks: [] },
                 expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
             {
                 desc: 'a reader without the health findings flag, who sees the separate warnings',
                 overrides: { ...running, ...newEngineMetrics, feature_flag: flag(false, multivariantFilters) },
-                health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                health: {
+                    findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')],
+                    checks: [],
+                },
                 healthFindingsFlag: false,
                 expected: {
                     health_ui: 'warnings',
@@ -2643,7 +2723,7 @@ describe('experimentLogic', () => {
         )
 
         it('loads the health with each experiment load and after a changed input, comparing only once', async () => {
-            const health: ExperimentHealthApi = { findings: [] }
+            const health: ExperimentHealthApi = { findings: [], checks: [] }
             useMocks({ get: { [healthUrl]: () => [200, health] } })
             const keyedLogic = mountKeyedLogic()
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
@@ -2759,7 +2839,7 @@ describe('experimentLogic', () => {
             const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
             const finding: ExperimentHealthFinding = {
                 code: 'flag_live_before_launch',
-                variant: 'not_started_but_multiple_variants_rolled_out',
+                subcode: 'not_started_but_multiple_variants_rolled_out',
             }
 
             logic.actions.loadExperimentSuccess(draft)
@@ -2774,7 +2854,7 @@ describe('experimentLogic', () => {
                         experiment_status: 'draft',
                         experiment_days_since_start: null,
                         finding_code: 'flag_live_before_launch',
-                        finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        finding_subcode: 'not_started_but_multiple_variants_rolled_out',
                         finding_severity: null,
                         finding_reason: null,
                         health_ui: 'warnings',
@@ -2802,7 +2882,7 @@ describe('experimentLogic', () => {
                 metrics_secondary: [],
                 saved_metrics: [],
             })
-            logic.actions.loadExperimentHealthSuccess({ findings: [] })
+            logic.actions.loadExperimentHealthSuccess({ findings: [], checks: [] })
 
             logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
             logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
@@ -2815,7 +2895,7 @@ describe('experimentLogic', () => {
                         experiment_status: 'running',
                         experiment_days_since_start: 3,
                         finding_code: 'bias_risk_multiple_excluded',
-                        finding_variant: null,
+                        finding_subcode: null,
                         finding_severity: null,
                         finding_reason: null,
                         health_ui: 'panel',
@@ -2842,7 +2922,7 @@ describe('experimentLogic', () => {
                 experiment_status: 'running',
                 experiment_days_since_start: 3,
                 finding_code: 'zero_exposures',
-                finding_variant: null,
+                finding_subcode: null,
                 finding_severity: null,
                 finding_reason: null,
                 health_ui: 'warnings',

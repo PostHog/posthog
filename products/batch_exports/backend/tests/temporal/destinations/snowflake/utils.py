@@ -15,10 +15,19 @@ import pytest
 import responses
 import snowflake.connector
 from requests.models import PreparedRequest
+from snowflake.connector.cursor import ResultMetadata
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
@@ -60,9 +69,8 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "is_deleted",
 ]
 
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="events",
+TEST_MODELS: list[AnyBatchExportModel | BatchExportSchema | None] = [
+    BatchExportEventsCustomModel(
         schema={
             "fields": [
                 {"expression": "event", "alias": "event"},
@@ -73,9 +81,9 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
             "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
         },
     ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
+    BatchExportEventsModel(),
+    BatchExportPersonsModel(),
+    BatchExportSessionsModel(),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -93,31 +101,48 @@ class FakeMetadata(typing.NamedTuple):
     name: str
     type_code: int
     is_nullable: bool
+    precision: int | None = None
+    scale: int | None = None
+
+
+DESCRIBE_TABLE_METADATA = [
+    ResultMetadata(
+        name=name,
+        type_code=2,
+        display_size=None,
+        internal_size=None,
+        precision=None,
+        scale=None,
+        is_nullable=True,
+    )
+    for name in ("name", "type", "kind", "null?")
+]
 
 
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
-    def __init__(self, *args, failure_mode: str | None = None, **kwargs):
+    def __init__(self, *args, queries: dict[str, str], failure_mode: str | None = None, **kwargs):
         self._execute_calls: list[dict[str, t.Any]] = []
         self._execute_async_calls: list[dict[str, t.Any]] = []
-        self._sfqid = 1
+        self._sfqid = str(uuid4())
+        self._queries = queries
+        self._query = ""
         self._fail = failure_mode
 
     @property
     def sfqid(self):
-        current = self._sfqid
-        self._sfqid += 1
-        return current
+        return self._sfqid
 
     def execute(self, query, params=None, file_stream=None):
         self._execute_calls.append({"query": query, "params": params, "file_stream": file_stream})
 
     def execute_async(self, query, params=None, file_stream=None):
         self._execute_async_calls.append({"query": query, "params": params, "file_stream": file_stream})
+        self._queries[self.sfqid] = query
 
     def get_results_from_sfqid(self, query_id):
-        pass
+        self._query = self._queries[query_id]
 
     def __enter__(self):
         return self
@@ -150,6 +175,8 @@ class FakeSnowflakeCursor:
             )
 
     def fetchall(self):
+        if self._query.strip().startswith("DESCRIBE TABLE"):
+            return [("uuid", "VARCHAR(16777216)", "COLUMN", "N")]
         if self._fail == "copy":
             return [("test", "LOAD FAILED", 100, 99, 1, 1, "Some error on copy", 3)]
         else:
@@ -157,6 +184,8 @@ class FakeSnowflakeCursor:
 
     @property
     def description(self):
+        if self._query.strip().startswith("DESCRIBE TABLE"):
+            return DESCRIBE_TABLE_METADATA
         return [FakeMetadata("uuid", 2, False)]
 
 
@@ -168,11 +197,12 @@ class FakeSnowflakeConnection:
         **kwargs,
     ):
         self._cursors: list[FakeSnowflakeCursor] = []
+        self._queries: dict[str, str] = {}
         self._is_running = True
         self.failure_mode = failure_mode
 
     def cursor(self) -> FakeSnowflakeCursor:
-        cursor = FakeSnowflakeCursor(failure_mode=self.failure_mode)
+        cursor = FakeSnowflakeCursor(queries=self._queries, failure_mode=self.failure_mode)
         self._cursors.append(cursor)
         return cursor
 
@@ -371,7 +401,7 @@ async def assert_clickhouse_records_in_snowflake(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None = None,
     backfill_details: BackfillDetails | None = None,
     sort_key: str = "event",
     expected_fields: list[str] | None = None,
@@ -428,13 +458,16 @@ async def assert_clickhouse_records_in_snowflake(
         inserted_records.append(record)
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
             model_name = "events"
             fields = batch_export_model["fields"]

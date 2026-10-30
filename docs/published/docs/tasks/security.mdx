@@ -1,0 +1,35 @@
+---
+title: Cloud Tasks security
+sidebarTitle: Security
+sidebar: Docs
+showTitle: true
+---
+
+Cloud Tasks run agents in isolated cloud sandboxes. This page describes their access to code, snapshot storage, and network controls.
+
+Last reviewed: October 27, 2026.
+
+## Code access and storage
+
+Repository cloning is optional. When a task needs code access, it can clone the selected repository into its sandbox. Agents can send relevant code and product data to large language model (LLM) providers during a run.
+
+Sandbox lifetime and saved snapshots have separate limits:
+
+| Data or environment                              | Retention                                                                                                      |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Running sandbox                                  | Each sandbox has a maximum lifetime of 6 hours. PostHog terminates it when the run ends.                       |
+| Repository snapshots from interactive cloud runs | Some tasks save snapshots for resume. These snapshots have no automatic expiry and remain stored indefinitely. |
+
+Snapshot creation depends on the task and its execution mode. A snapshot preserves files so an interactive run can resume after its sandbox stops. The 6-hour sandbox limit does not delete a saved snapshot.
+
+[Self-Driving agents](/docs/self-driving/security) do not create repository snapshots.
+
+Reports, conversations, execution records, and output files are separate records. Code that an agent includes in a report or model request is subject to the retention for that record or provider.
+
+Review [AI data processing access](/docs/posthog-ai/allow-access) before you enable agents for your organization. See [data storage](/docs/privacy/data-storage) for general PostHog storage and deletion information.
+
+## Execution controls
+
+Cloud Tasks use isolated sandboxes and shell execution policies. Network access depends on the task environment. A restricted environment allows approved destinations. An environment with full network access permits unrestricted outbound connections.
+
+See [sandbox network access](/handbook/engineering/ai/sandboxed-agents#network-access) for the available settings. For the additional safety checks used by Self-Driving agents, see [Self-Driving security](/docs/self-driving/security).

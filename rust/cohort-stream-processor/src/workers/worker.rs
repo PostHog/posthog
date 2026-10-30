@@ -707,6 +707,7 @@ pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) 
 /// Produce membership `changes`, await one ack per change, and record metrics. Returns the failed
 /// or missing/extra-ack count (`0` = fully acked). The caller owns the per-site warn and recovery
 /// action.
+#[hotpath::measure]
 pub(crate) async fn produce_membership(
     sink: &Arc<dyn MembershipSink>,
     changes: Vec<CohortMembershipChange>,
@@ -752,6 +753,7 @@ pub(crate) fn first_cascades(
 /// missing/extra-ack count (`0` when empty or fully acked). The caller owns the recovery posture:
 /// the event path holds the offset; the sweep/merge paths drop (at-most-once). Shared by the
 /// first-hop leg and onward-hop consumer legs.
+#[hotpath::measure]
 pub(crate) async fn produce_cascades(
     merge: &MergeWorkerDeps,
     cascades: Vec<CascadeMessage>,
@@ -777,6 +779,7 @@ struct EventEffects {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 async fn handle_event(
     partition_id: u16,
     handle: &StoreHandle,

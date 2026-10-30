@@ -679,7 +679,7 @@ class TestDispatchCommentCommand(BaseTest):
         assert issue.status == expected_status
         assert (issue.assignee.type if issue.assignee else None) == expected_assignee
 
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:
         reset_consumer_registry()
         self.addCleanup(reset_consumer_registry)

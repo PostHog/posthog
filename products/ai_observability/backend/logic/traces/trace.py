@@ -3,6 +3,8 @@ from datetime import datetime
 from functools import cached_property
 
 from .event import TraceEvent
+from .git import GitRef
+from .node_ids import NodeIdResolver, NodeIds
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
@@ -65,6 +67,26 @@ class Trace:
     def thread_node_ids(self) -> list[str]:
         generation = pick_user_visible_generation(self.events)
         return [generation.id] if generation else []
+
+    @cached_property
+    def default_node_id(self) -> str:
+        if any(event.is_trace_event for event in self.events):
+            return self.id
+        first_generation = next((node for node in self.tree if node.event.kind == "generation"), None)
+        chosen = first_generation or next(iter(self.tree), None)
+        return chosen.event.id if chosen else self.id
+
+    @cached_property
+    def node_ids_by_alias(self) -> dict[str, str]:
+        return NodeIdResolver(
+            NodeIds(uuid=event.id, generation_id=event.row.generation_id, span_id=event.row.span_id)
+            for event in self.events
+            if not event.is_trace_event
+        ).aliases
+
+    @cached_property
+    def git(self) -> GitRef | None:
+        return GitRef.from_rows(event.row for event in self.events)
 
     @property
     def person_label(self) -> str | None:

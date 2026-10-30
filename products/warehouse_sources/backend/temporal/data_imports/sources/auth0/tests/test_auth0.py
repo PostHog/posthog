@@ -269,9 +269,15 @@ class TestGetRows:
 
     def test_window_slides_past_the_search_result_cap(self) -> None:
         newest = "2024-06-02T00:00:00.000Z"
-        page_0 = {"users": _user_rows(100, "2024-06-01T00:00:00.000Z"), "total": 5000}
-        page_1 = {"users": _user_rows(100, newest, start=100), "total": 5000}
-        page_2 = {"users": _user_rows(3, newest, start=200), "total": 3}
+        page_0 = {"users": _user_rows(100, "2024-06-01T00:00:00.000Z"), "total": 200}
+        page_1 = {
+            "users": _user_rows(50, "2024-06-01T00:00:00.000Z", start=100) + _user_rows(50, newest, start=150),
+            "total": 200,
+        }
+        # The inclusive lower bound re-reads 49 users already synced at `newest`. `auth0|150` comes
+        # back too, updated after the slide, so its newer version must not be dropped.
+        updated = {"user_id": "auth0|150", "updated_at": "2024-06-03T00:00:00.000Z"}
+        page_2 = {"users": [*_user_rows(52, newest, start=151), updated], "total": 53}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 200):
             result = self._run(
@@ -281,7 +287,8 @@ class TestGetRows:
             )
 
         assert result.raised is None
-        assert [len(batch) for batch in result.items] == [100, 100, 3]
+        assert [len(batch) for batch in result.items] == [100, 100, 4]
+        assert result.items[2][-1] == updated
         # The third request restarts at page 0 with the window's lower bound moved to the newest
         # row seen — that is how the collection is walked past Auth0's 1000-result ceiling.
         assert result.requests[3].param("page") == "0"
@@ -294,7 +301,7 @@ class TestGetRows:
 
     def test_window_that_cannot_advance_fails_loudly(self) -> None:
         stuck = "2024-06-01T00:00:00.000Z"
-        page = {"users": _user_rows(100, stuck), "total": 5000}
+        page = {"users": _user_rows(100, stuck), "total": 200}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 200):
             result = self._run(
