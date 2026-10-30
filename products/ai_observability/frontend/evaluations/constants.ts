@@ -75,14 +75,16 @@ export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result
 export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
 // A skipped sentiment run has no label, so it leaves both sides of the ratio.
-export const EVALUATION_SENTIMENT_NEGATIVE_RATE_HOGQL = `countIf(lower(properties.$ai_sentiment_label) = 'negative') / nullIf(countIf(lower(properties.$ai_sentiment_label) IN ('positive', 'neutral', 'negative')), 0) * 100`
+export const EVALUATION_SENTIMENT_GRADED_HOGQL = `lower(properties.$ai_sentiment_label) IN ('positive', 'neutral', 'negative')`
 
 export function evaluationGradedHogQL(outputType: string): string {
     return outputType === 'categorical'
         ? EVALUATION_CATEGORICAL_GRADED_HOGQL
         : outputType === 'numeric'
           ? EVALUATION_NUMERIC_GRADED_HOGQL
-          : EVALUATION_BOOLEAN_GRADED_HOGQL
+          : outputType === 'sentiment'
+            ? EVALUATION_SENTIMENT_GRADED_HOGQL
+            : EVALUATION_BOOLEAN_GRADED_HOGQL
 }
 
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {

@@ -36,7 +36,7 @@ import { evaluationErrorMessage } from './apiErrors'
 import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
-    EVALUATION_SENTIMENT_NEGATIVE_RATE_HOGQL,
+    EVALUATION_SENTIMENT_GRADED_HOGQL,
     numericEvaluationPassedHogQL,
     evaluationPassedHogQL,
     evaluationPassRateHogQL,
@@ -1659,7 +1659,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                   math: HogQLMathType.HogQL,
                                   math_hogql:
                                       evaluation.output_type === 'sentiment'
-                                          ? EVALUATION_SENTIMENT_NEGATIVE_RATE_HOGQL
+                                          ? evaluationPassRateHogQL(
+                                                `lower(properties.$ai_sentiment_label) = 'negative'`,
+                                                EVALUATION_SENTIMENT_GRADED_HOGQL
+                                            )
                                           : evaluation.output_type === 'categorical'
                                             ? evaluationPassRateHogQL(
                                                   categoricalEvaluationPassedHogQL(evaluation),
