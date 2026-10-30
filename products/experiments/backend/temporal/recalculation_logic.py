@@ -33,6 +33,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
@@ -397,7 +398,14 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
 
 
 def _record_failure(
-    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str, retriable: bool
+    recalculation_id: str,
+    metric_uuid: str,
+    step: str,
+    message: str,
+    *,
+    error_type: str,
+    retriable: bool,
+    exposures_path: ExposuresPath | None = None,
 ) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
@@ -416,6 +424,8 @@ def _record_failure(
             "retriable": retriable,
             "timestamp": timezone.now().isoformat(),
         }
+        if exposures_path is not None:
+            metric_errors[metric_uuid]["exposures_path"] = exposures_path.value
         recalc.metric_errors = metric_errors
         recalc.save(update_fields=["metric_errors"])
 
@@ -704,6 +714,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
         calc_started_at = time.perf_counter()
         query_from = experiment.start_date
 
+        runner: ExperimentQueryRunner | None = None
+
         def record_terminal_error(message: str, error_type: str, *, retriable: bool) -> None:
             results.record_run_failure(
                 recalculation_id,
@@ -714,7 +726,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query_id=client_query_id,
             )
             _record_failure(
-                recalculation_id, metric_uuid, "calculation", message, error_type=error_type, retriable=retriable
+                recalculation_id,
+                metric_uuid,
+                "calculation",
+                message,
+                error_type=error_type,
+                retriable=retriable,
+                exposures_path=runner.exposures_path if runner is not None else None,
             )
             _capture_experiment_metric_event(
                 experiment,
