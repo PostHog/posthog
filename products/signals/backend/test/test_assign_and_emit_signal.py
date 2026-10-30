@@ -150,7 +150,6 @@ async def _monitoring_input(team: Team) -> AssignAndEmitSignalInput:
     signal.extra = {
         "report_id": str(report.id),
         "attempt_id": str(attempt.id),
-        "explanation": "Monitoring could not establish resolution.",
     }
     await SignalEmissionRecord.objects.acreate(
         team=team,

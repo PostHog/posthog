@@ -407,9 +407,6 @@ class CheckFailedSignalInput(SignalInputBase):
 class MonitoringUnresolvedSignalExtra(SignalExtraBase):
     report_id: str = Field(description="Original Closed report whose implementation remains unverified.")
     attempt_id: str = Field(description="Monitoring attempt that durably requested this investigation.")
-    explanation: str = Field(
-        max_length=1000, description="Brief reason the attempt ended without establishing resolution."
-    )
 
 
 class MonitoringUnresolvedSignalInput(SignalInputBase):

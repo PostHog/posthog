@@ -1729,13 +1729,15 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         (True, False, True, "layer", False),
         (True, False, True, "merged", False),
         (True, False, True, "merged_layer", False),
+        (True, False, True, "layer_overflow", False),
+        (True, False, True, "merged_overflow", False),
     ],
 )
 async def test_inferred_repository_and_monitoring_autostart_gates(
     repository_autostart_eligible: bool,
     user_triggered: bool,
     has_reviewer: bool,
-    monitoring: bool | Literal["late", "layer", "merged", "merged_layer"],
+    monitoring: bool | Literal["late", "layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"],
     expect_task: bool,
 ) -> None:
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
@@ -1767,9 +1769,15 @@ async def test_inferred_repository_and_monitoring_autostart_gates(
 
     def record_monitoring() -> None:
         origin = report
-        if monitoring in {"layer", "merged", "merged_layer"}:
+        if monitoring in {"layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"}:
             origin = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
-            if monitoring == "layer":
+            if monitoring in {"layer_overflow", "merged_overflow"}:
+                other = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="other")
+                if monitoring == "layer_overflow":
+                    _link(team.id, report, other, ReportLinkKind.FOLLOW_UP_OF)
+                else:
+                    _link(team.id, other, report, ReportLinkKind.FOLLOW_UP_OF)
+            if monitoring in {"layer", "layer_overflow"}:
                 _link(team.id, report, origin, ReportLinkKind.PART_OF)
             else:
                 source = origin
@@ -1798,7 +1806,7 @@ async def test_inferred_repository_and_monitoring_autostart_gates(
             emitted_at=timezone.now(),
         )
 
-    if monitoring is True or monitoring in {"layer", "merged", "merged_layer"}:
+    if monitoring is True or monitoring in {"layer", "merged", "merged_layer", "layer_overflow", "merged_overflow"}:
         await sync_to_async(record_monitoring)()
 
     def resolve_after_monitoring(*args: object, **kwargs: object) -> User:
@@ -1818,6 +1826,13 @@ async def test_inferred_repository_and_monitoring_autostart_gates(
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch.object(
+            SignalReportArtefact,
+            "MAX_REPORT_LINK_GRAPH_ROWS",
+            1
+            if monitoring in {"layer_overflow", "merged_overflow"}
+            else SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS,
+        ),
         patch(
             "products.signals.backend.auto_start._resolve_autostart_assignee",
             side_effect=resolve_after_monitoring if monitoring == "late" else None,

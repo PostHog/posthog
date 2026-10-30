@@ -73932,11 +73932,6 @@ export namespace Schemas {
       report_id: string;
       /** Monitoring attempt that durably requested this investigation. */
       attempt_id: string;
-      /**
-         * Brief reason the attempt ended without establishing resolution.
-         * @maxLength 1000
-         */
-      explanation: string;
     }
 
     export interface MonteCarloAlertSignalExtra {

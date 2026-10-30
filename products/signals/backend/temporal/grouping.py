@@ -842,10 +842,6 @@ def _link_check_follow_up(
     reason = (extra.get("explanation") or "")[:MAX_REPORT_LINK_REASON_LENGTH] or None
     try:
         content = ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason)
-        if SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=report_id, type="report_link", content=content.model_dump_json()
-        ).exists():
-            return
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,

@@ -96,6 +96,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.signals.backend.typed_report_links import (
+    IncompleteReportLinks,
     duplicate_chain,
     has_open_or_merged_pull_request,
     incoming_links,
@@ -788,19 +789,21 @@ def _monitoring_implementation_requires_request(team_id: int, report_id: str) ->
         ):
             return True
         # Layers and merged destinations do the same work, so they retain its implementation gate.
-        pending.extend(
-            edge.target_id
-            for edge in outgoing_links(team_id=team_id, report_id=current, kinds=(ReportLinkKind.PART_OF,))
-        )
-        pending.extend(
-            edge.source_id
-            for edge in incoming_links(
+        try:
+            parents = outgoing_links(
+                team_id=team_id, report_id=current, kinds=(ReportLinkKind.PART_OF,), require_complete=True
+            )
+            merged = incoming_links(
                 team_id=team_id,
                 report_id=current,
                 kinds=(ReportLinkKind.DUPLICATE_OF,),
                 include_deleted_sources=True,
+                require_complete=True,
             )
-        )
+        except IncompleteReportLinks:
+            return True
+        pending.extend(edge.target_id for edge in parents)
+        pending.extend(edge.source_id for edge in merged)
     return False
 
 
