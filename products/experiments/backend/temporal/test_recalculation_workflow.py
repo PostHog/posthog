@@ -16,6 +16,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.schema import PrecomputationMode
+
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
@@ -128,6 +130,7 @@ async def _run_workflow(activities) -> dict:
 class _CalcCall:
     task_queue: str
     has_calc_budget: bool
+    precomputation_mode: PrecomputationMode | None
 
 
 def _recording_calculate(calls: list[_CalcCall]) -> Callable:
@@ -138,6 +141,7 @@ def _recording_calculate(calls: list[_CalcCall]) -> Callable:
         recalculation_id: str,
         query_to: str,
         role: str = "primary",
+        precomputation_mode: PrecomputationMode | None = None,
     ) -> MetricRecalculationResult:
         info = activity.info()
         calls.append(
@@ -145,6 +149,7 @@ def _recording_calculate(calls: list[_CalcCall]) -> Callable:
                 task_queue=info.task_queue,
                 has_calc_budget=info.schedule_to_close_timeout
                 == timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                precomputation_mode=precomputation_mode,
             )
         )
         return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
@@ -164,9 +169,9 @@ _ACTIVITY_TASK_QUEUE = "test-activity-task-queue"
 _PRECOMPUTE_TASK_QUEUE = "test-precompute-task-queue"
 
 
-async def _run_with_calc_queue_workers(*, activity_queue_flag: bool, reads_precompute: bool) -> _QueuesRun:
+async def _run_with_calc_queue_workers(*, activity_queue_flag: bool, uses_precompute_queue: bool) -> _QueuesRun:
     metric = ExperimentMetricToRecalculate(
-        experiment_id=1, metric_uuid="m1", role="primary", reads_precomputed_metric_events=reads_precompute
+        experiment_id=1, metric_uuid="m1", role="primary", uses_precompute_queue=uses_precompute_queue
     )
     activities, _progress, _calls = _make_mock_activities(metrics=[metric])
     calls: list[_CalcCall] = []
@@ -309,6 +314,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             role: str,
             is_final_attempt: bool,
             attempt: int,
+            precomputation_mode: PrecomputationMode | None,
         ) -> MetricRecalculationResult:
             recorded_flags.append(is_final_attempt)
             raise RuntimeError("always fails")
@@ -645,23 +651,24 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # name, activity queue flag, reads precompute, expected queue (None is the workflow's), keeps the budget
-            ("flag_off_direct_scan", False, False, None, True),
-            ("flag_off_precompute", False, True, None, True),
-            ("flag_on_direct_scan", True, False, _ACTIVITY_TASK_QUEUE, False),
-            ("flag_on_precompute", True, True, _PRECOMPUTE_TASK_QUEUE, False),
+            # name, activity queue flag, precompute plan, expected queue (None is the workflow's), keeps the budget, mode
+            ("flag_off_direct_scan", False, False, None, True, None),
+            ("flag_off_precompute", False, True, None, True, None),
+            ("flag_on_direct_scan", True, False, _ACTIVITY_TASK_QUEUE, False, PrecomputationMode.DIRECT),
+            ("flag_on_precompute", True, True, _PRECOMPUTE_TASK_QUEUE, False, None),
         ]
     )
     async def test_calc_task_queue_and_budget(
         self,
         name: str,
         activity_queue_flag: bool,
-        reads_precompute: bool,
+        uses_precompute_queue: bool,
         expected_task_queue: str | None,
         keeps_budget: bool,
+        expected_mode: PrecomputationMode | None,
     ):
         run = await _run_with_calc_queue_workers(
-            activity_queue_flag=activity_queue_flag, reads_precompute=reads_precompute
+            activity_queue_flag=activity_queue_flag, uses_precompute_queue=uses_precompute_queue
         )
 
         assert run.result == {"total": 1, "succeeded": 1, "failed": 0}
@@ -669,6 +676,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             _CalcCall(
                 task_queue=expected_task_queue or run.workflow_task_queue,
                 has_calc_budget=keeps_budget,
+                precomputation_mode=expected_mode,
             )
         ]
         await _replay(run.history)
@@ -689,12 +697,13 @@ class TestExperimentMetricsRecalculationWorkflow:
             return False if patch_id == missing_patch else original_patched(patch_id)
 
         with patch.object(temporalio.workflow, "patched", side_effect=pre_patch):
-            run = await _run_with_calc_queue_workers(activity_queue_flag=True, reads_precompute=True)
+            run = await _run_with_calc_queue_workers(activity_queue_flag=True, uses_precompute_queue=True)
 
         assert run.calls == [
             _CalcCall(
                 task_queue=expected_task_queue or run.workflow_task_queue,
                 has_calc_budget=True,
+                precomputation_mode=None,
             )
         ]
         await _replay(run.history)

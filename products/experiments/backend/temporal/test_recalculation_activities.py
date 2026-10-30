@@ -20,6 +20,8 @@ from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.schema import PrecomputationMode
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -28,6 +30,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
+from products.experiments.backend.hogql_queries.precompute_policy import metric_events_precompute_plan
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -93,10 +96,11 @@ def _calculate(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt, precomputation_mode
         )
 
 
@@ -203,17 +207,23 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, team precompute enabled, funnel order, experiment age, reads the precompute table
-            ("ordered_funnel_on_precompute_team", True, "ordered", timedelta(days=7), True),
-            ("unordered_funnel_on_precompute_team", True, "unordered", timedelta(days=7), False),
-            ("ordered_funnel_on_direct_scan_team", False, "ordered", timedelta(days=7), False),
-            # The experiment can pass the minimum precompute runtime while the calc waits in a queue.
-            ("young_experiment_on_precompute_team", True, "ordered", timedelta(hours=1), True),
+            # name, team precompute enabled, funnel order, experiment age, the plan raises, uses the precompute queue
+            ("ordered_funnel_on_precompute_team", True, "ordered", timedelta(days=7), False, True),
+            ("unordered_funnel_on_precompute_team", True, "unordered", timedelta(days=7), False, False),
+            ("ordered_funnel_on_direct_scan_team", False, "ordered", timedelta(days=7), False, False),
+            ("young_experiment_on_precompute_team", True, "ordered", timedelta(hours=1), False, False),
+            ("plan_error", True, "ordered", timedelta(days=7), True, True),
         ]
     )
     @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
-    def test_discover_marks_metrics_that_read_the_precompute_table(
-        self, name: str, precompute_enabled: bool, funnel_order_type: str, age: timedelta, expected: bool
+    def test_discover_routes_metrics_by_the_precompute_plan(
+        self,
+        name: str,
+        precompute_enabled: bool,
+        funnel_order_type: str,
+        age: timedelta,
+        plan_raises: bool,
+        expected: bool,
     ):
         TeamExperimentsConfig.objects.update_or_create(
             team=self.team, defaults={"experiment_precomputation_enabled": precompute_enabled}
@@ -231,9 +241,13 @@ class TestRecalculationActivities(BaseTest):
         ]
         exp.save()
 
-        metrics = _discover(str(self._recalc(exp).id))
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.metric_events_precompute_plan",
+            side_effect=RuntimeError("plan failed") if plan_raises else metric_events_precompute_plan,
+        ):
+            metrics = _discover(str(self._recalc(exp).id))
 
-        assert [m.reads_precomputed_metric_events for m in metrics] == [expected]
+        assert [m.uses_precompute_queue for m in metrics] == [expected]
 
     @parameterized.expand(
         [
@@ -1100,7 +1114,13 @@ class TestCalculateActivity(BaseTest):
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
 
-    def test_query_to_is_passed_as_as_of_to_runner(self):
+    @parameterized.expand(
+        [
+            ("runner_decides", None),
+            ("activity_queue", PrecomputationMode.DIRECT),
+        ]
+    )
+    def test_query_to_and_mode_are_passed_to_runner(self, _name: str, precomputation_mode: PrecomputationMode | None):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
         # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
         # so every metric in the run queries a slightly different time window — silently violating the
@@ -1111,15 +1131,16 @@ class TestCalculateActivity(BaseTest):
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, precomputation_mode=precomputation_mode)
 
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
         assert kwargs["workload"] == Workload.OFFLINE
+        assert kwargs["query"].precomputation_mode == precomputation_mode
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
-        # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
+        # Companion to test_query_to_and_mode_are_passed_to_runner: the lower bound of the run's
         # time window is experiment.start_date, threaded into the runner via the experiment object it
         # constructs and stored on the result row by the result store's run write (query_from=experiment.start_date).
         # This test pins the stored-row side. If the runner ever changes how it derives query_from, or if a

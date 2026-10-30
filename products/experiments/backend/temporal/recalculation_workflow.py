@@ -13,6 +13,8 @@ from temporalio.exceptions import (
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.schema import PrecomputationMode
+
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
@@ -170,10 +172,19 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         )
         on_calc_queues = activity_task_queue is not None and temporalio.workflow.patched(CALC_QUEUES_WAIT_PATCH)
 
+        def on_precompute_queue(metric: ExperimentMetricToRecalculate) -> bool:
+            return on_calc_queues and bool(inputs.precompute_task_queue) and metric.uses_precompute_queue
+
         def calc_task_queue(metric: ExperimentMetricToRecalculate) -> str | None:
-            if on_calc_queues and inputs.precompute_task_queue and metric.reads_precomputed_metric_events:
-                return inputs.precompute_task_queue
-            return activity_task_queue
+            return inputs.precompute_task_queue if on_precompute_queue(metric) else activity_task_queue
+
+        def calc_args(metric: ExperimentMetricToRecalculate) -> list:
+            args = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
+            # A calc on the activity queue never reads the aux-cluster table, so it must not build it either.
+            # Every other calc keeps the five-argument call that a worker without the new parameter accepts.
+            if on_calc_queues and not on_precompute_queue(metric):
+                args.append(PrecomputationMode.DIRECT)
+            return args
 
         # The worker slots cap the calc queues, so a calc waits for a slot instead of timing out and retrying.
         calc_schedule_to_close = (
@@ -183,13 +194,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             *[
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.role,
-                    ],
+                    args=calc_args(metric),
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=calc_schedule_to_close,
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),

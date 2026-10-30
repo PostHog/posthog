@@ -90,11 +90,6 @@ logger = structlog.get_logger(__name__)
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
-# A young experiment passes the minimum runtime, and a cohort finishes its first calculation, while a recalc waits.
-_ROUTING_BLOCKING_PRECOMPUTE_SKIP_REASONS = BLOCKING_PRECOMPUTE_SKIP_REASONS - {
-    PrecomputeSkipReason.MIN_RUNTIME,
-    PrecomputeSkipReason.COHORT_NOT_CALCULATED,
-}
 
 
 class ExperimentResultsCacheMixin:

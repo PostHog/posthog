@@ -132,7 +132,9 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
-    reads_precomputed_metric_events: bool = False
+    # From the precompute plan at discovery, for orgs on the calc queues. False runs the calc on the activity
+    # queue with PrecomputationMode.DIRECT, so it never builds or reads the aux-cluster precompute table.
+    uses_precompute_queue: bool = False
 
 
 @dataclasses.dataclass

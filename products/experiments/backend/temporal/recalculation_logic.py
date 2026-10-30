@@ -19,7 +19,7 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import ExperimentQuery, PrecomputationMode
 
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
@@ -122,10 +122,11 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
-def _reads_precomputed_metric_events(
+def _uses_precompute_queue(
     experiment: Experiment, team_experiments_config: TeamExperimentsConfig, metric_dict: dict[str, Any]
 ) -> bool:
-    # Only the task queue depends on it, so an error must not fail the discovery of the whole run.
+    # An error must not fail the discovery of the whole run. The calc then goes to the precompute queue without
+    # an override, so the runner checks the same plan again when the calc runs.
     try:
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(metric_dict)),
@@ -136,10 +137,10 @@ def _reads_precomputed_metric_events(
             user_facing=False,
             error_event_context=None,
         )
-        return runner.may_read_precomputed_metric_events()
+        return runner.metric_events_precompute_plan.reads_precomputed
     except Exception as e:
         capture_exception(e)
-        return False
+        return True
 
 
 @database_sync_to_async_pool
@@ -159,9 +160,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
                 experiment_id=experiment.id,
                 metric_uuid=metric.uuid,
                 role=metric.role,
-                reads_precomputed_metric_events=_reads_precomputed_metric_events(
-                    experiment, team_experiments_config, metric.definition
-                ),
+                uses_precompute_queue=_uses_precompute_queue(experiment, team_experiments_config, metric.definition),
             )
             for metric in get_metrics_for_calculation(experiment)
         ]
@@ -646,6 +645,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -762,7 +762,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         try:
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
+                query=ExperimentQuery(
+                    experiment_id=experiment_id,
+                    metric=build_metric(metric_dict),
+                    precomputation_mode=precomputation_mode,
+                ),
                 team=experiment.team,
                 as_of=query_to_dt,
                 workload=Workload.OFFLINE,
