@@ -58,7 +58,8 @@ import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
 import {
-  applyContextWindowEnv,
+  type ContextWindowChoice,
+  contextWindowEnv,
   DEFAULT_MODEL,
   resolveFallbackModel,
 } from "./models";
@@ -119,7 +120,7 @@ export interface BuildOptionsParams {
   onProcessExited?: (pid: number) => void;
   onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
-  contextWindow?: "200k" | "1m";
+  contextWindow?: ContextWindowChoice;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
@@ -206,7 +207,7 @@ function buildEnvironment(
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
-  contextWindow?: "200k" | "1m",
+  contextWindow?: ContextWindowChoice,
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -227,6 +228,7 @@ function buildEnvironment(
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
     CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
+    ...contextWindowEnv(contextWindow),
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
@@ -238,7 +240,6 @@ function buildEnvironment(
     applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
   }
   applyContextWikiEnv(env, contextWiki);
-  applyContextWindowEnv(env, contextWindow);
   return env;
 }
 
@@ -757,7 +758,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",

@@ -163,16 +163,6 @@ describe("buildSessionOptions", () => {
     },
   );
 
-  it.each([
-    ["the default window", undefined, undefined],
-    ["a 200K window", "200k" as const, "200000"],
-  ])("caps the compaction window for %s", (_label, contextWindow, cap) => {
-    const options = buildSessionOptions({ ...makeParams(), contextWindow });
-
-    expect(options.betas).toEqual(["context-1m-2025-08-07"]);
-    expect(options.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe(cap);
-  });
-
   it("preserves a caller-provided fallbackModel", () => {
     const options = buildSessionOptions({
       ...makeParams(),

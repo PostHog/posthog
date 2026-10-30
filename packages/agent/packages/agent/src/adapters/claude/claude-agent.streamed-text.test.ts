@@ -365,11 +365,6 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
       expectedUpdates: [{ used: 900, size: 200_000 }],
     },
     {
-      source: "the SDK context usage and window",
-      contextUsage: { totalTokens: 900, maxTokens: 400_000 },
-      expectedUpdates: [{ used: 900, size: 400_000 }],
-    },
-    {
       source: "nothing, so no usage reaches the client",
       contextUsage: {},
       expectedUpdates: [],

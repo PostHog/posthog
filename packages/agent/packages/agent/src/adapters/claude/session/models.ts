@@ -8,7 +8,12 @@ import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/agent-contracts/domain-types";
-import { reasoningEffortsForModel } from "@posthog/agent-contracts/model-catalog";
+import {
+  CONTEXT_WINDOW_1M_TOKENS,
+  CONTEXT_WINDOW_200K_TOKENS,
+  contextWindowsForModel,
+  reasoningEffortsForModel,
+} from "@posthog/agent-contracts/model-catalog";
 import type { EffortLevel } from "../types";
 
 export const DEFAULT_MODEL = "opus";
@@ -46,30 +51,22 @@ export function rerootedModelOptions(
 
 export { supports1MContext, supportsFastMode };
 
-export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
-export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
-export const AUTO_COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+export type ContextWindowChoice = "200k" | "1m";
 
-export function applyContextWindowEnv(
-  env: Record<string, string | undefined>,
-  contextWindow: "200k" | "1m" | undefined,
-): void {
-  if (contextWindow === "200k") {
-    env[AUTO_COMPACT_WINDOW_ENV] = String(CONTEXT_WINDOW_200K_TOKENS);
-  } else if (contextWindow === "1m") {
-    delete env[AUTO_COMPACT_WINDOW_ENV];
-  }
-}
+export const DISABLE_1M_CONTEXT_ENV = "CLAUDE_CODE_DISABLE_1M_CONTEXT";
 
-export function contextWindowKey(options: {
-  betas?: string[];
-  env?: Record<string, string | undefined>;
-}): string {
-  return `${(options.betas ?? []).join(",")}|${options.env?.[AUTO_COMPACT_WINDOW_ENV] ?? ""}`;
-}
+const CONTEXT_WINDOW_CHOICES: Record<number, ContextWindowChoice> = {
+  [CONTEXT_WINDOW_200K_TOKENS]: "200k",
+  [CONTEXT_WINDOW_1M_TOKENS]: "1m",
+};
+
+const CONTEXT_WINDOW_NAMES: Record<ContextWindowChoice, string> = {
+  "200k": "200k",
+  "1m": "1M",
+};
 
 interface ContextWindowOption {
-  value: string;
+  value: ContextWindowChoice;
   name: string;
   _meta?: Record<string, unknown>;
 }
@@ -77,11 +74,46 @@ interface ContextWindowOption {
 export function getContextWindowOptions(
   modelId: string,
 ): ContextWindowOption[] | null {
-  if (!supports1MContext(modelId)) return null;
-  return [
-    { value: "200k", name: "200k" },
-    { value: "1m", name: "1M", _meta: { [DEFAULT_OPTION_META_KEY]: true } },
-  ];
+  const windows = contextWindowsForModel(modelId);
+  if (windows.length < 2) return null;
+  const largest = Math.max(...windows);
+  return windows.flatMap((size) => {
+    const value = CONTEXT_WINDOW_CHOICES[size];
+    if (!value) return [];
+    return [
+      {
+        value,
+        name: CONTEXT_WINDOW_NAMES[value],
+        ...(size === largest
+          ? { _meta: { [DEFAULT_OPTION_META_KEY]: true } }
+          : {}),
+      },
+    ];
+  });
+}
+
+export function contextWindowTokens(
+  modelId: string,
+  choice: ContextWindowChoice | undefined,
+): number | undefined {
+  const windows = contextWindowsForModel(modelId);
+  if (windows.length === 0) return undefined;
+  if (choice === "200k" && windows.includes(CONTEXT_WINDOW_200K_TOKENS)) {
+    return CONTEXT_WINDOW_200K_TOKENS;
+  }
+  return Math.max(...windows);
+}
+
+export function contextWindowEnv(
+  choice: ContextWindowChoice | undefined,
+): Record<typeof DISABLE_1M_CONTEXT_ENV, "0" | "1"> {
+  return { [DISABLE_1M_CONTEXT_ENV]: choice === "200k" ? "1" : "0" };
+}
+
+export function contextWindowChoiceFromEnv(
+  env: Record<string, string | undefined> | undefined,
+): ContextWindowChoice {
+  return env?.[DISABLE_1M_CONTEXT_ENV] === "1" ? "200k" : "1m";
 }
 
 function effortLevelsFor(modelId: string): readonly EffortLevel[] {

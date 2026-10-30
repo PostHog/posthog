@@ -4,6 +4,7 @@ import {
 } from "@posthog/agent-contracts";
 import { describe, expect, it } from "vitest";
 import {
+  contextWindowTokens,
   DEFAULT_EFFORT,
   FALLBACK_MODEL,
   getContextWindowOptions,
@@ -73,7 +74,7 @@ describe("model capability flags", () => {
     },
     {
       modelId: "claude-opus-4-6",
-      oneMContext: false,
+      oneMContext: true,
       effort: true,
       xhighEffort: true,
       mcpInjection: true,
@@ -240,6 +241,18 @@ describe("getContextWindowOptions", () => {
     expect(options.map((o) => o.value)).toEqual(["200k", "1m"]);
     expect(isDefaultSelectOption(options[1]?._meta)).toBe(true);
     expect(isDefaultSelectOption(options[0]?._meta)).toBe(false);
+  });
+});
+
+describe("contextWindowTokens", () => {
+  it.each([
+    ["claude-opus-5-5", undefined, 1_000_000],
+    ["claude-opus-5-5", "1m", 1_000_000],
+    ["claude-opus-5-5", "200k", 200_000],
+    ["claude-opus-4-5", "1m", 200_000],
+    ["zai-org/glm-5.3", undefined, undefined],
+  ] as const)("%s with %s runs at %s tokens", (modelId, choice, expected) => {
+    expect(contextWindowTokens(modelId, choice)).toBe(expected);
   });
 });
 

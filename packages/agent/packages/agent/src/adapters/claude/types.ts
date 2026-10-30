@@ -138,8 +138,6 @@ export type Session = BaseSession & {
   contextSize?: number;
   /** Persists across prompt() calls so SDK-reported values survive turn boundaries */
   lastContextWindowSize?: number;
-  liveContextKey?: string;
-  hasTranscript?: boolean;
   /** FIFO of in-flight prompts; the SDK echoes them back in order. */
   turnQueue: Turn[];
   activeTurn: Turn | null;

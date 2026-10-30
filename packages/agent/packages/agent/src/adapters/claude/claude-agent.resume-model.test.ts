@@ -470,6 +470,71 @@ describe("ClaudeAcpAgent session creation", () => {
     });
   });
 
+  it.each([
+    {
+      start: undefined,
+      startEnv: "0",
+      startSize: 1_000_000,
+      next: "200k",
+      nextEnv: "1",
+      nextSize: 200_000,
+    },
+    {
+      start: "200k",
+      startEnv: "1",
+      startSize: 200_000,
+      next: "1m",
+      nextEnv: "0",
+      nextSize: 1_000_000,
+    },
+  ] as const)(
+    "runs a $start session at the catalog window and switches to $next live",
+    async ({ start, startEnv, startSize, next, nextEnv, nextSize }) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+        {
+          id: "claude-opus-5-5",
+          owned_by: "anthropic",
+          context_window: 200_000,
+          supports_streaming: true,
+          supports_vision: true,
+          allowed: true,
+        },
+      ]);
+      const agent = makeAgent();
+      const response = await agent.newSession({
+        cwd,
+        mcpServers: [],
+        _meta: {
+          taskRunId: `run-context-${next}`,
+          model: "claude-opus-5-5",
+          contextWindow: start,
+        },
+      });
+      const session = (
+        agent as unknown as { session: { lastContextWindowSize?: number } }
+      ).session;
+
+      expect(createdQueryOptions[0]?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe(
+        startEnv,
+      );
+      expect(session.lastContextWindowSize).toBe(startSize);
+
+      const updated = await agent.setSessionConfigOption({
+        sessionId: response.sessionId,
+        configId: "context_window",
+        value: next,
+      });
+
+      expect(createdQueries[0]?.applyFlagSettings).toHaveBeenCalledWith({
+        env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: nextEnv },
+      });
+      expect(session.lastContextWindowSize).toBe(nextSize);
+      expect(
+        updated.configOptions.find((opt) => opt.id === "context_window"),
+      ).toMatchObject({ currentValue: next });
+    },
+  );
+
   // The shared claude settings file is cross-session state: the session's own
   // pick must win over it, with the file only as a fallback.
   it.each([

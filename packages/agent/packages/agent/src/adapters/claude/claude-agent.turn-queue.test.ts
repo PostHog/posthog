@@ -1,8 +1,7 @@
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
-import {
-  type SDKMessage,
-  type SDKUserMessage,
-  query as sdkQuery,
+import type {
+  SDKMessage,
+  SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,14 +12,12 @@ import {
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { DEFAULT_MODEL_PRICES, RunBudgetGuard } from "./session/budget-guard";
-import { toEffortFlagSettings } from "./session/options";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn(),
 }));
 
-vi.mock("./mcp/tool-metadata", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./mcp/tool-metadata")>()),
+vi.mock("./mcp/tool-metadata", () => ({
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   setMcpToolApprovalStates: vi.fn(),
@@ -185,104 +182,6 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  it.each([
-    {
-      name: "resumes the conversation in a rebuilt query",
-      liveContextKey: "context-1m-2025-08-07|200000",
-      hasTranscript: true,
-      backgroundTurnActive: false,
-      rebuilt: { resume: "s-context-window" },
-    },
-    {
-      name: "starts a rebuilt query fresh before the first saved turn",
-      liveContextKey: "context-1m-2025-08-07|200000",
-      hasTranscript: false,
-      backgroundTurnActive: false,
-      rebuilt: { sessionId: "s-context-window" },
-    },
-    {
-      name: "keeps the query when the context window is unchanged",
-      liveContextKey: "context-1m-2025-08-07|",
-      hasTranscript: true,
-      backgroundTurnActive: false,
-      rebuilt: null,
-    },
-    {
-      name: "keeps the query while a background turn runs",
-      liveContextKey: "context-1m-2025-08-07|200000",
-      hasTranscript: true,
-      backgroundTurnActive: true,
-      rebuilt: null,
-    },
-  ])(
-    "$name",
-    async ({
-      liveContextKey,
-      hasTranscript,
-      backgroundTurnActive,
-      rebuilt,
-    }) => {
-      const sessionId = "s-context-window";
-      const harness = installHarness(sessionId);
-      const session = (
-        harness.agent as unknown as {
-          session: {
-            modelId: string;
-            liveContextKey?: string;
-            hasTranscript?: boolean;
-            backgroundTurnActive?: boolean;
-            effort?: string;
-            fastModeEnabled?: boolean;
-            queryOptions: Record<string, unknown>;
-          };
-        }
-      ).session;
-      session.modelId = "claude-opus-5-5";
-      session.liveContextKey = liveContextKey;
-      session.hasTranscript = hasTranscript;
-      session.backgroundTurnActive = backgroundTurnActive;
-      session.effort = "ultracode";
-      session.fastModeEnabled = true;
-      session.queryOptions.betas = ["context-1m-2025-08-07"];
-      session.queryOptions.env = {};
-      const rebuiltQuery = createMockQuery();
-      vi.mocked(sdkQuery).mockReturnValue(
-        rebuiltQuery as unknown as ReturnType<typeof sdkQuery>,
-      );
-
-      harness.agent
-        .prompt({ sessionId, prompt: [{ type: "text", text: "next" }] })
-        .catch(() => undefined);
-      await tick();
-      await tick();
-
-      if (!rebuilt) {
-        expect(vi.mocked(sdkQuery)).not.toHaveBeenCalled();
-        expect(harness.pushed).toHaveLength(1);
-        return;
-      }
-      const [{ prompt: rebuiltInput, options }] =
-        vi.mocked(sdkQuery).mock.calls[0];
-      expect(options).toMatchObject({
-        betas: ["context-1m-2025-08-07"],
-        ...rebuilt,
-      });
-      expect("resume" in (options ?? {})).toBe(hasTranscript);
-      expect(options?.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
-      expect(rebuiltQuery.applyFlagSettings).toHaveBeenCalledWith(
-        toEffortFlagSettings("ultracode"),
-      );
-      expect(rebuiltQuery.applyFlagSettings).toHaveBeenCalledWith({
-        fastMode: true,
-      });
-      const sent = await (rebuiltInput as AsyncIterable<SDKUserMessage>)
-        [Symbol.asyncIterator]()
-        .next();
-      expect(JSON.stringify(sent.value?.message.content)).toContain("next");
-      expect(harness.pushed).toHaveLength(0);
-    },
-  );
 
   it("holds a queued prompt out of the SDK input until the running turn settles", async () => {
     const sessionId = "s-serialize";

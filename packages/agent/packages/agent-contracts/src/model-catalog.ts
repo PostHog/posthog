@@ -137,8 +137,15 @@ export function isRetiredModel(modelId: string): boolean {
   return catalogModelFor(modelId)?.retired === true;
 }
 
+export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
+export const CONTEXT_WINDOW_1M_TOKENS = 1_000_000;
+
+export function contextWindowsForModel(modelId: string): readonly number[] {
+  return catalogModelFor(modelId)?.contextWindows ?? [];
+}
+
 export function supports1MContext(modelId: string): boolean {
-  return catalogModelFor(modelId)?.supports1MContext ?? false;
+  return contextWindowsForModel(modelId).includes(CONTEXT_WINDOW_1M_TOKENS);
 }
 
 export function supportsFastMode(modelId: string): boolean {

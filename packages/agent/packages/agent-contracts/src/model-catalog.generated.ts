@@ -117,10 +117,11 @@ export interface CatalogModel {
    */
   costSummary?: string;
   /**
-   * Runs with the 1M-token context window. Absent means it does not, and a
-   * picker offers no window choice.
+   * Context window sizes in tokens, smallest first. The largest is the
+   * default. A picker offers a window choice only when there is more than
+   * one. Absent means the catalog does not know the window.
    */
-  supports1MContext?: boolean;
+  contextWindows?: readonly number[];
   /**
    * Runs in fast mode. Absent means it does not, and a picker offers no
    * fast-mode toggle.
@@ -244,6 +245,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    contextWindows: [200000],
     retired: true,
   },
   {
@@ -257,6 +259,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
+    contextWindows: [200000, 1000000],
     retired: true,
   },
   {
@@ -270,7 +273,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
     supportsFastMode: true,
     retired: true,
   },
@@ -285,7 +288,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
     supportsFastMode: true,
   },
   {
@@ -299,7 +302,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2.5×",
     costSummary: "Input $5 · Output $25 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
     supportsFastMode: true,
   },
   {
@@ -313,7 +316,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "2×",
     costSummary: "Input $4 · Output $20 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
     supportsFastMode: true,
   },
   {
@@ -327,7 +330,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
   },
   {
     id: "claude-fable-5-1",
@@ -340,7 +343,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
   },
   {
     id: "claude-sonnet-5-5",
@@ -353,7 +356,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1×",
     costSummary: "Input $2 · Output $10 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
   },
   {
     id: "claude-sonnet-5",
@@ -366,7 +369,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1×",
     costSummary: "Input $2 · Output $10 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
   },
   {
     id: "claude-sonnet-4-6",
@@ -379,7 +382,7 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "1.5×",
     costSummary: "Input $3 · Output $15 per 1M tokens",
-    supports1MContext: true,
+    contextWindows: [200000, 1000000],
     retired: true,
   },
   {
