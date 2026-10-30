@@ -13,6 +13,7 @@ import type { HogFlow, HogFlowAction } from '../types'
 import { HogFlowEditorPanel } from './HogFlowEditorPanel'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
+const VIEW_ONLY_LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel-view-only' }
 
 // The email template is hidden, so it is not in the shared destinations fixture. Mirrors
 // nodejs/src/cdp/templates/_destinations/email/email.template.ts.
@@ -165,6 +166,7 @@ type PanelStoryProps = {
     mode: HogFlowEditorMode
     selectedNodeId: string | null
     layout?: 'floating' | 'panel'
+    viewOnly?: boolean
 }
 
 const meta: Meta<typeof HogFlowEditorPanel> = {
@@ -176,7 +178,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
+                '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+                    200,
+                    params.id === VIEW_ONLY_LOGIC_PROPS.id
+                        ? { ...PANEL_WORKFLOW, id: params.id, user_access_level: 'viewer' }
+                        : PANEL_WORKFLOW,
+                ],
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
                 '/api/projects/:team_id/hog_function_templates': {
                     count: _hogFunctionTemplatesDestinations.results.length + 1,
@@ -212,11 +219,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
 }
 export default meta
 
-function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryProps): JSX.Element {
-    const { originalWorkflow } = useValues(workflowLogic(LOGIC_PROPS))
-    const { nodes } = useValues(hogFlowEditorLogic(LOGIC_PROPS))
-    const { setWorkflowValues } = useActions(workflowLogic(LOGIC_PROPS))
-    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic(LOGIC_PROPS))
+function PanelStory({ mode, selectedNodeId, layout = 'floating', viewOnly = false }: PanelStoryProps): JSX.Element {
+    const logicProps = viewOnly ? VIEW_ONLY_LOGIC_PROPS : LOGIC_PROPS
+    const { originalWorkflow } = useValues(workflowLogic(logicProps))
+    const { nodes } = useValues(hogFlowEditorLogic(logicProps))
+    const { setWorkflowValues } = useActions(workflowLogic(logicProps))
+    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic(logicProps))
 
     useEffect(() => {
         if (originalWorkflow) {
@@ -233,8 +241,8 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
 
     return (
         <ReactFlowProvider>
-            <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
-                <BindLogic logic={hogFlowEditorLogic} props={LOGIC_PROPS}>
+            <BindLogic logic={workflowLogic} props={logicProps}>
+                <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
                     {layout === 'panel' ? (
                         // Mirrors the tree view's host: a full-height row where the panel sits
                         // beside the tree, so the panel is as tall as the editor
@@ -278,6 +286,9 @@ ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
 
 export const CohortBranch: StoryFn<PanelStoryProps> = Template.bind({})
 CohortBranch.args = { mode: 'build', selectedNodeId: 'cohort' }
+
+export const EmailViewOnly: StoryFn<PanelStoryProps> = Template.bind({})
+EmailViewOnly.args = { mode: 'build', selectedNodeId: 'email', viewOnly: true }
 
 export const Variables: StoryFn<PanelStoryProps> = Template.bind({})
 Variables.args = { mode: 'variables', selectedNodeId: null }

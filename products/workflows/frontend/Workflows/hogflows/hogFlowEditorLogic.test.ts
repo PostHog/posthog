@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
 import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
@@ -802,6 +803,20 @@ describe('hogFlowEditorLogic', () => {
             // reference, so a fresh array wrapper per rebuild re-syncs its store every render.
             expect(logic.values.nodes).toBe(initialNodes)
             expect(logic.values.edges).toBe(initialEdges)
+        })
+
+        it.each([
+            [AccessControlLevel.Editor, true],
+            [AccessControlLevel.Viewer, false],
+        ])('lets a user with %s access delete steps: %s', async (userAccessLevel, canDelete) => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.loadWorkflowSuccess({ ...makeFlow(), user_access_level: userAccessLevel })
+            ).toDispatchActions(['setNodesRaw'])
+
+            const branchNode = logic.values.nodes.find((node) => node.id === 'branch')
+            expect(branchNode?.deletable).toBe(canDelete)
+            logic.actions.setSelectedNodeId('branch')
+            expect(logic.values.selectedNode?.deletable).toBe(canDelete)
         })
 
         it('replaces only the changed node reference when one action changes', async () => {

@@ -9,6 +9,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { workflowLogic } from '../../workflowLogic'
 import {
     HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH,
     HOG_FLOW_EDITOR_MODES,
@@ -38,6 +39,7 @@ export function HogFlowEditorPanel({
 }: HogFlowEditorPanelProps = {}): JSX.Element | null {
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { isViewOnly } = useValues(workflowLogic)
     const panelRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
         logicKey: 'hog-flow-simple-panel',
@@ -150,13 +152,22 @@ export function HogFlowEditorPanel({
                     view.content
                 ) : (
                     <>
-                        {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
-                            <HogFlowEditorPanelSelectedStep />
-                        )}
-                        {mode === 'build' && (
-                            <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
-                        )}
-                        {mode === 'variables' && <HogFlowEditorPanelVariables />}
+                        <fieldset disabled={isViewOnly} className="contents">
+                            {selectedNode && ['build', 'metrics', 'test', 'logs'].includes(mode) && (
+                                <HogFlowEditorPanelSelectedStep />
+                            )}
+                            {mode === 'build' && selectedNode && <HogFlowEditorPanelBuildDetail />}
+                            {mode === 'variables' && <HogFlowEditorPanelVariables />}
+                        </fieldset>
+                        {mode === 'build' &&
+                            !selectedNode &&
+                            (isViewOnly ? (
+                                <p className="m-0 p-3 text-secondary" data-attr="workflow-editor-panel-view-only">
+                                    Select a step to see its settings.
+                                </p>
+                            ) : (
+                                <HogFlowEditorPanelBuild />
+                            ))}
                         {mode === 'test' &&
                             (selectedNode?.data?.type === 'function_email' ? (
                                 <EmailActionTestContent />

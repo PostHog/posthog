@@ -80,6 +80,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { hasEditAccess } from './workflowAccess'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
@@ -316,6 +317,7 @@ export interface workflowLogicValues {
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
+    isViewOnly: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
     lastSavedAt: string | null
@@ -3039,6 +3041,7 @@ export interface workflowLogicMeta {
         ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
+        isViewOnly: (workflowUserAccessLevel: AccessControlLevel | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[], selectedScheduleId: string | null) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -3888,6 +3891,10 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): AccessControlLevel | null =>
                 originalWorkflow?.user_access_level ?? null,
+        ],
+        isViewOnly: [
+            (s) => [s.workflowUserAccessLevel],
+            (workflowUserAccessLevel: AccessControlLevel | null): boolean => !hasEditAccess(workflowUserAccessLevel),
         ],
         currentSchedule: [
             (s) => [s.schedules, s.selectedScheduleId],
@@ -4889,6 +4896,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
+                values.isViewOnly ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||
