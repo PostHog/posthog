@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
@@ -42,10 +42,11 @@ function FeedSkeleton(): JSX.Element {
     )
 }
 
-/** How many columns the grid lays out right now, which its container queries set and only layout can tell. */
+/** Reads the column count the grid's container queries chose; call it from inside the grid so it remounts with it. */
 function useGridColumns(grid: RefObject<HTMLElement>): number {
     const [columns, setColumns] = useState(1)
-    useEffect(() => {
+    // Measured before paint, so the first frame already shows the right number of placeholders.
+    useLayoutEffect(() => {
         const element = grid.current
         if (!element) {
             return
