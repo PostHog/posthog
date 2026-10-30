@@ -160,6 +160,8 @@ export class CloudRuns {
       teamId: number;
     }>,
     private readonly sessionLogs: SessionLogs,
+    // The task's estimated cost in USD so far, the figure the desktop shows.
+    readonly taskCost?: (taskId: string) => Promise<number>,
   ) {}
 
   // Fetches the last `entries` log entries so opening the run shows its recent messages at once.

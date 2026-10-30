@@ -23,7 +23,41 @@ import {
   withPending,
   withPendingShells,
 } from "../transcript";
+import { contextFill, usageStatus } from "../usage";
 import { Spinner } from "./Spinner";
+
+const COST_REFRESH_MS = 60_000;
+
+// The task's cost, refetched each minute and whenever a turn starts or ends.
+function useTaskCost(
+  runs: CloudRuns | null,
+  taskId: string | null,
+  turnOpen: boolean,
+): number | null {
+  const [cost, setCost] = useState<{ taskId: string; usd: number } | null>(
+    null,
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: turnOpen refetches the cost when a turn starts or ends
+  useEffect(() => {
+    const fetchCost = runs?.taskCost;
+    if (!fetchCost || !taskId) return;
+    let stopped = false;
+    const load = (): void => {
+      // A failed fetch keeps the last figure; the next one may succeed.
+      fetchCost(taskId).then(
+        (usd) => !stopped && setCost({ taskId, usd }),
+        () => {},
+      );
+    };
+    load();
+    const timer = setInterval(load, COST_REFRESH_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [runs, taskId, turnOpen]);
+  return cost && cost.taskId === taskId ? cost.usd : null;
+}
 
 const CHIP_COLORS = {
   open: "green",
@@ -200,8 +234,12 @@ export function Pane({
 
   // Panes without focus fade back, so the eye lands on the one being typed into.
   const shade = (line: string): string => (focused ? line : faint(line));
+  const fill = useMemo(() => contextFill(view.entries), [view.entries]);
+  const cost = useTaskCost(runs, paneTaskId, transcript.turnOpen);
   const drawn =
-    width > 0 ? composer.render(width, focused) : { editor: [], popup: [] };
+    width > 0
+      ? composer.render(width, focused, usageStatus(fill, cost))
+      : { editor: [], popup: [] };
   const composerLines = drawn.editor.map(shade);
   // A blank row on top separates floating suggestions from the chat they cover.
   const popupLines =

@@ -126,8 +126,12 @@ export function createCloud(
     logger,
     transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
   });
-  const runs = new CloudRuns(engine, context, (taskId, runId, options) =>
-    api.getTaskRunSessionLogsPage(taskId, runId, options),
+  const runs = new CloudRuns(
+    engine,
+    context,
+    (taskId, runId, options) =>
+      api.getTaskRunSessionLogsPage(taskId, runId, options),
+    async (taskId) => (await api.getTaskUsage(taskId)).total_cost_usd,
   );
   const sendMessage = async (
     taskId: string,

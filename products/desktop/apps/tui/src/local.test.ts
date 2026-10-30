@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalSession } from "./local";
 import { type AgentPrompt, promptReply } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
+import { contextFill } from "./usage";
 
 const emptyView = (): RunView => emptyRunView;
 
@@ -81,6 +82,43 @@ describe("LocalSession", () => {
     expect(
       transcriptFrom("pi", (view as unknown as RunView).entries).lines,
     ).toMatchObject([{ kind: "user", text: "earlier" }]);
+  });
+
+  it("reports the model's context window with each turn, so the composer can show the donut", async () => {
+    const { client, listeners, raw } = fakeClient();
+    Object.assign(raw, {
+      getState: async () => ({ model: { contextWindow: 200_000 } }),
+    });
+    const session = new LocalSession(client, policies());
+    let view = emptyView();
+    session.watch((next) => {
+      view = next;
+    });
+    await session.start();
+
+    const message = {
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+      model: "test-model",
+      usage: {
+        input: 800,
+        output: 100,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 900,
+      },
+      stopReason: "stop",
+      timestamp: 10,
+    };
+    listeners.event?.({ type: "message_end", message });
+    listeners.event?.({
+      type: "agent_end",
+      messages: [message],
+      willRetry: false,
+    });
+    listeners.event?.({ type: "agent_settled" });
+
+    expect(contextFill(view.entries)).toEqual({ tokens: 900, window: 200_000 });
   });
 
   it("runs a shell command on this machine and shows it in the chat", async () => {
