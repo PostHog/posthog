@@ -124,7 +124,7 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
 
 
-def _offset_paginator() -> OffsetPaginator:
+def _offset_paginator(maximum_offset: Optional[int] = None) -> OffsetPaginator:
     # v1 endpoints: start/limit offset. No top-level total; termination is a short/empty page.
     return OffsetPaginator(
         limit=PAGE_SIZE,
@@ -132,6 +132,7 @@ def _offset_paginator() -> OffsetPaginator:
         offset_param="start",
         limit_param="limit",
         total_path=None,
+        maximum_offset=maximum_offset,
         stop_after_empty_page=True,
     )
 
@@ -480,6 +481,21 @@ def _deal_fan_out_rows(
             progress["parent_page"] = next_parent_page.get("state")
 
 
+def _list_thread_ids(client: RESTClient, folder: str, stop_offset: Optional[int] = None) -> set[Any]:
+    """List the thread ids of a folder, or of its pages before `stop_offset` when it is set."""
+    if stop_offset is not None and stop_offset <= 0:
+        return set()
+    ids: set[Any] = set()
+    for threads in client.paginate(
+        path=MAIL_THREADS_PATH,
+        params={"folder": folder},
+        paginator=_offset_paginator(maximum_offset=stop_offset),
+        data_selector="data",
+    ):
+        ids.update(thread.get("id") for thread in threads)
+    return ids
+
+
 def _mail_rows(
     client: RESTClient,
     config: PipedriveEndpointConfig,
@@ -490,11 +506,19 @@ def _mail_rows(
 
     A thread is listed in every folder that holds one of its messages, so a thread already read
     from an earlier folder is skipped. Threads come newest message first rather than by id, so the
-    resume state is the folder, the page being read, and how many threads of that page are done.
+    resume state is the folder, the page being read, and the ids of the threads of that page that
+    are done. A resume lists the folders and pages before it again to rebuild the skipped threads,
+    which keeps the state from growing with the mailbox.
     """
     state = initial_state or {}
     start_folder = state.get("folder_index", 0)
-    seen: set[Any] = set()
+    seen: set[Any] = set(state.get("done_ids", []))
+    if initial_state:
+        for folder in MAIL_FOLDERS[:start_folder]:
+            seen |= _list_thread_ids(client, folder)
+        resume_page = state.get("page")
+        if start_folder < len(MAIL_FOLDERS) and resume_page:
+            seen |= _list_thread_ids(client, MAIL_FOLDERS[start_folder], stop_offset=resume_page.get("offset"))
     # A thread deleted between the folder listing and this fetch has nothing left to read.
     hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
 
@@ -506,7 +530,7 @@ def _mail_rows(
             continue
         resuming = folder_index == start_folder
         page: Optional[dict[str, Any]] = state.get("page") if resuming else None
-        done_in_page: int = state.get("position", 0) if resuming else 0
+        done_in_page: list[Any] = list(state.get("done_ids", [])) if resuming else []
         next_page: dict[str, Any] = {}
 
         def on_page(
@@ -534,9 +558,9 @@ def _mail_rows(
                 else:
                     resumable_source_manager.safe_point()
             else:
-                for position, thread in enumerate(threads):
+                for thread in threads:
                     thread_id = thread.get("id")
-                    if position < done_in_page or thread_id in seen:
+                    if thread_id in seen:
                         continue
                     seen.add(thread_id)
                     messages: list[dict[str, Any]] = []
@@ -548,13 +572,14 @@ def _mail_rows(
                     ):
                         messages.extend(rows)
                     if messages:
-                        stage({"folder_index": folder_index, "page": page, "position": position + 1})
+                        done_in_page.append(thread_id)
+                        stage({"folder_index": folder_index, "page": page, "done_ids": list(done_in_page)})
                         yield messages
                     else:
                         resumable_source_manager.safe_point()
 
             page = next_page.get("state")
-            done_in_page = 0
+            done_in_page = []
 
 
 def _project_phase_rows(
@@ -563,14 +588,14 @@ def _project_phase_rows(
     resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
     initial_state: Optional[dict[str, Any]],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Read the phases of every project board. The resume state is the number of boards done."""
-    done_boards: int = (initial_state or {}).get("done_boards", 0)
+    """Read the phases of every project board. The resume state is the ids of the boards done."""
+    done_boards: list[Any] = list((initial_state or {}).get("done_board_ids", []))
     # A board deleted between the board listing and this fetch has no phases left to read.
     hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
 
     for boards in client.paginate(path=PROJECT_BOARDS_PATH, paginator=SinglePagePaginator(), data_selector="data"):
-        for position, board in enumerate(boards):
-            if position < done_boards:
+        for board in boards:
+            if board["id"] in done_boards:
                 continue
             for phases in client.paginate(
                 path=config.path,
@@ -580,8 +605,9 @@ def _project_phase_rows(
                 hooks=hooks,
             ):
                 if phases:
+                    done_boards.append(board["id"])
                     resumable_source_manager.save_state(
-                        PipedriveResumeConfig(paginator_state={"done_boards": position + 1})
+                        PipedriveResumeConfig(paginator_state={"done_board_ids": list(done_boards)})
                     )
                     yield phases
                 else:

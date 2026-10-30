@@ -542,7 +542,7 @@ class TestMailbox:
             MAIL_THREADS_URL,
         ]
         manager.save_state.assert_called_once_with(
-            PipedriveResumeConfig(paginator_state={"folder_index": 0, "page": None, "position": 1})
+            PipedriveResumeConfig(paginator_state={"folder_index": 0, "page": None, "done_ids": [1]})
         )
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -552,7 +552,13 @@ class TestMailbox:
         params = _wire(
             session,
             [
-                _response([{"id": 5}, {"id": 6}]),
+                # The resume lists the inbox and the sent pages before the saved one to rebuild
+                # the threads already read.
+                _response([{"id": 7}]),
+                _response([{"id": 4}]),
+                # A reply moved thread 6 ahead of thread 5, which was done before the crash, and
+                # thread 7 was already read from the inbox.
+                _response([{"id": 6}, {"id": 5}, {"id": 7}]),
                 _response([{"id": 60, "mail_thread_id": 6}]),
                 _response([]),
                 _response([]),
@@ -560,23 +566,46 @@ class TestMailbox:
             urls=urls,
         )
         manager = _make_manager(
-            PipedriveResumeConfig(paginator_state={"folder_index": 1, "page": {"offset": 500}, "position": 1})
+            PipedriveResumeConfig(paginator_state={"folder_index": 1, "page": {"offset": 500}, "done_ids": [5]})
         )
 
         rows = _rows(_source("mail_messages", manager))
 
         assert [row["id"] for row in rows] == [60]
-        assert urls == [MAIL_THREADS_URL, f"{MAIL_THREADS_URL}/6/mailMessages", MAIL_THREADS_URL, MAIL_THREADS_URL]
-        assert params[0] == _folder_params("sent", start=500)
-        assert params[2:] == [_folder_params("archive"), _folder_params("drafts")]
+        assert urls == [MAIL_THREADS_URL] * 3 + [f"{MAIL_THREADS_URL}/6/mailMessages"] + [MAIL_THREADS_URL] * 2
+        assert params[:3] == [_folder_params("inbox"), _folder_params("sent"), _folder_params("sent", start=500)]
+        assert params[4:] == [_folder_params("archive"), _folder_params("drafts")]
+        manager.save_state.assert_called_once_with(
+            PipedriveResumeConfig(paginator_state={"folder_index": 1, "page": {"offset": 500}, "done_ids": [5, 6]})
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_mail_threads_resume_skips_threads_read_before_the_crash(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}]),
+                _response([{"id": 2}, {"id": 3}]),
+                _response([]),
+                _response(None),
+            ],
+        )
+        manager = _make_manager(PipedriveResumeConfig(paginator_state={"folder_index": 1}))
+
+        rows = _rows(_source("mail_threads", manager))
+
+        assert [row["id"] for row in rows] == [3]
 
 
 class TestProjectPhases:
     @pytest.mark.parametrize(
-        "resume_state, phase_pages, expected_phase_boards, expected_ids",
+        "resume_state, boards, phase_pages, expected_phase_boards, expected_ids, expected_done",
         [
-            (None, [[{"id": 11}], [], [{"id": 31}, {"id": 32}]], [1, 2, 3], [11, 31, 32]),
-            ({"done_boards": 2}, [[{"id": 31}]], [3], [31]),
+            (None, [1, 2, 3], [[{"id": 11}], [], [{"id": 31}, {"id": 32}]], [1, 2, 3], [11, 31, 32], [1, 3]),
+            # Board 1 was deleted after it was read, so board 2 is now first in the listing.
+            ({"done_board_ids": [1]}, [2, 3], [[{"id": 21}], [{"id": 31}]], [2, 3], [21, 31], [1, 2, 3]),
+            ({"done_board_ids": [1, 2]}, [1, 2, 3], [[{"id": 31}]], [3], [31], [1, 2, 3]),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -584,15 +613,17 @@ class TestProjectPhases:
         self,
         MockSession: mock.MagicMock,
         resume_state: Optional[dict[str, Any]],
+        boards: list[int],
         phase_pages: list[list[dict[str, Any]]],
         expected_phase_boards: list[int],
         expected_ids: list[int],
+        expected_done: list[int],
     ) -> None:
         session = MockSession.return_value
         urls: list[str] = []
         params = _wire(
             session,
-            [_response([{"id": 1}, {"id": 2}, {"id": 3}]), *(_response(page) for page in phase_pages)],
+            [_response([{"id": board_id} for board_id in boards]), *(_response(page) for page in phase_pages)],
             urls=urls,
         )
         manager = _make_manager(PipedriveResumeConfig(paginator_state=resume_state) if resume_state else None)
@@ -602,7 +633,9 @@ class TestProjectPhases:
         assert [row["id"] for row in rows] == expected_ids
         assert urls == [f"{BASE}/api/v1/projects/boards"] + [f"{BASE}/api/v1/projects/phases"] * len(phase_pages)
         assert params[1:] == [{"board_id": board_id} for board_id in expected_phase_boards]
-        assert manager.save_state.call_args.args[0] == PipedriveResumeConfig(paginator_state={"done_boards": 3})
+        assert manager.save_state.call_args.args[0] == PipedriveResumeConfig(
+            paginator_state={"done_board_ids": expected_done}
+        )
 
 
 class TestPipedriveSourcePartitioning:
