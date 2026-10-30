@@ -295,13 +295,17 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
     def _saga_calls(self):
         return [call for call in get_active_fake().calls if call.method == "lifecycle.delete_persons"]
 
-    def test_runs_the_saga_with_the_sorted_ids_then_publishes_the_stored_tombstones_without_a_queue_ack(self):
+    def test_runs_the_saga_with_the_sorted_ids_and_leaves_the_clickhouse_rows_to_the_outbox(self):
         p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
         p2 = create_person(team=self.team, distinct_ids=["b", "c"], properties={})
         deleted_before = _sample("posthog_person_deletion_lifecycle_outcomes_total", outcome="deleted")
         with _no_publish() as publish:
             result = delete_persons_profile(
-                self.team.pk, [p2, p1], actor=self.user, run=DeletionRun(run_id="run-1", rpc_timeout=7.5)
+                self.team.pk,
+                [p2, p1],
+                actor=self.user,
+                organization_id=self.organization.id,
+                run=DeletionRun(run_id="run-1", rpc_timeout=7.5),
             )
 
         assert result.deleted_count == 2
@@ -310,21 +314,29 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         assert list(call.request.person_ids) == sorted([p1.pk, p2.pk])
         assert call.request.op_id == str(lifecycle_delete_op_id("run-1", self.team.pk, [p2.pk, p1.pk]))
         assert call.timeout == 7.5
-        # The saga reports no distinct-id versions, so the publish takes what the replica now stores.
-        published = {c.args[1].uuid: c.args[1] for c in publish.call_args_list}
-        assert published[p1.uuid].version == 1
-        assert [(d.id, d.version) for d in published[p2.uuid].distinct_ids] == [("b", 1), ("c", 1)]
-        assert {call.method for call in get_active_fake().calls} & {"delete_persons", "ack_person_tombstones"} == set()
+        publish.assert_not_called()
+        assert {call.method for call in get_active_fake().calls} & {
+            "delete_persons",
+            "ack_person_tombstones",
+            "get_person_tombstones",
+        } == set()
+        logged = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
+        assert {(log.item_id, log.detail["context"]["person_version"]) for log in logged} == {
+            (str(p1.pk), 1),
+            (str(p2.pk), 1),
+        }
         assert _sample("posthog_person_deletion_lifecycle_outcomes_total", outcome="deleted") == deleted_before + 2
 
     def test_a_retry_of_the_run_attaches_to_its_op_and_a_new_run_starts_another(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         with _no_publish():
-            for run_id in ("run-1", "run-1", "run-2"):
-                result = delete_persons_profile(self.team.pk, [p], actor=self.user, run=DeletionRun(run_id=run_id))
-                # The retry is answered from the op's record and the new run finds the tombstone; both republish.
-                assert result.deleted_count == 1
+            counts = [
+                delete_persons_profile(self.team.pk, [p], actor=self.user, run=DeletionRun(run_id=run_id)).deleted_count
+                for run_id in ("run-1", "run-1", "run-2")
+            ]
 
+        # The retry is answered from the op's record; the new run starts an op that finds no live person.
+        assert counts == [1, 1, 0]
         ops = [call.request.op_id for call in self._saga_calls()]
         assert ops[0] == ops[1] != ops[2]
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].version == 1
@@ -359,7 +371,7 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         # The first op recorded the conflict, so only the next attempt's op id reaches the released person.
         assert (replayed.retryable_errors, retried.deleted_count) == ([p.uuid], 1)
 
-    def test_an_already_tombstoned_person_is_republished_and_a_missing_one_is_dropped(self):
+    def test_a_person_the_saga_does_not_find_is_neither_counted_nor_failed(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         tombstone_persons_in_postgres(self.team.pk, [p.uuid])
         ghost = Person(id=10**9, uuid=uuid4(), team=self.team)
@@ -367,22 +379,9 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         with _no_publish() as publish:
             result = delete_persons_profile(self.team.pk, [p, ghost], actor=self.user)
 
-        assert result.deleted_count == 1
-        assert result.failures == []
-        assert [(c.args[1].uuid, c.args[1].version) for c in publish.call_args_list] == [(p.uuid, 1)]
-
-    def test_a_person_revived_before_the_read_back_counts_at_the_version_the_saga_returned(self):
-        p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            _no_publish() as publish,
-            patch("posthog.models.person.util.get_person_tombstones", return_value=[]),
-        ):
-            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
-
-        assert result.deleted_count == 1
-        tombstone = publish.call_args.args[1]
-        assert (tombstone.uuid, tombstone.version, tombstone.distinct_ids) == (p.uuid, 1, [])
-        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
+        assert (result.deleted_count, result.failures) == (0, [])
+        publish.assert_not_called()
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
 
     def test_splits_a_batch_at_the_saga_person_cap(self):
         persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(3)]

@@ -784,9 +784,9 @@ class PersonDeletionConflict(Exception):
 
 @frozen
 class LifecycleDeleteOutcome:
-    """What one saga call left behind: the tombstones Postgres now holds, and the persons it could not claim."""
+    """What one saga call left behind: the version each deleted person's tombstone committed at, and the persons it could not claim."""
 
-    tombstones: list[PersonTombstone]
+    deleted: dict[UUID, int]
     conflicts: list[UUID]
 
 
@@ -805,11 +805,10 @@ def tombstone_persons_via_lifecycle(
 ) -> LifecycleDeleteOutcome:
     """Delete up to LIFECYCLE_DELETE_PERSONS_PER_RPC persons through the identity server's fenced saga.
 
-    The saga answers with an outcome per id and the person's tombstone version, not the distinct-id
-    versions, so the tombstones to publish are read back from the replica afterwards. That read also
-    covers an already tombstoned person (NOT_FOUND), which republishes like the replica path does. A
-    person the saga deleted but the read-back no longer shows tombstoned was revived in between: it
-    is reported at the version the saga returned, with no distinct ids, so it still counts as deleted.
+    The saga answers with an outcome per id and, for a deleted person, the version its tombstone
+    committed at. Nothing is produced to ClickHouse from here: the saga's publish outbox carries the
+    distinct-id tombstones and the person changelog carries the person row. NOT_FOUND means no live
+    row existed when the saga claimed the id, so there is nothing to delete, count, or log.
     """
     person_ids = sorted(person_uuids_by_id)
     request = LifecycleDeletePersonsRequest(
@@ -823,8 +822,7 @@ def tombstone_persons_via_lifecycle(
     results = personhog_call("lifecycle_delete_persons", personhog_fn, caller_tag="persons/deletion-lifecycle")
 
     conflicts: list[UUID] = []
-    settled: list[UUID] = []
-    deleted_versions: dict[UUID, int] = {}
+    deleted: dict[UUID, int] = {}
     for person_id in person_ids:
         uuid = person_uuids_by_id[person_id]
         result = results.get(person_id)
@@ -835,19 +833,9 @@ def tombstone_persons_via_lifecycle(
         ).inc()
         if outcome == DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT:
             conflicts.append(uuid)
-            continue
-        settled.append(uuid)
-        if outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None and result.HasField("person_version"):
-            deleted_versions[uuid] = int(result.person_version)
-
-    tombstones = get_person_tombstones(team_id, settled) if settled else []
-    stored = {tombstone.uuid for tombstone in tombstones}
-    tombstones.extend(
-        PersonTombstone(uuid=uuid, version=version, distinct_ids=[])
-        for uuid, version in deleted_versions.items()
-        if uuid not in stored
-    )
-    return LifecycleDeleteOutcome(tombstones=tombstones, conflicts=conflicts)
+        elif outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None and result.HasField("person_version"):
+            deleted[uuid] = int(result.person_version)
+    return LifecycleDeleteOutcome(deleted=deleted, conflicts=conflicts)
 
 
 @frozen
@@ -1012,14 +1000,10 @@ class PersonTombstonePublication:
 
     A person that fails to produce or deliver is reported in ``failures`` and stays queued for
     the weekly sweep. A failed ack is only logged, because the sweep republishes those rows too.
-
-    ``ack_queue`` is off for tombstones the lifecycle saga wrote: the saga queues nothing, and the
-    death document and the outbox carry those rows to ClickHouse behind this publish.
     """
 
     team_id: int
     source: str = "delete"
-    ack_queue: bool = True
     failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
     _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
 
@@ -1051,8 +1035,6 @@ class PersonTombstonePublication:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
             delivered.append((tombstone.uuid, tombstone.version))
-        if not self.ack_queue:
-            return
         for i in range(0, len(delivered), 1000):
             chunk = delivered[i : i + 1000]
             try:

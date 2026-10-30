@@ -653,25 +653,21 @@ def _tombstone_persons_at_exact_versions(
     tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
     fails; that failure gets its own step and the weekly deletion sweep republishes it.
 
-    With PERSON_DELETE_VIA_LIFECYCLE the tombstone is the identity server's fenced saga, which
-    tells the person's leader before the row changes. The versions are read back afterwards, and
-    the publish here backs up the death document and the outbox rather than a queue row.
+    With PERSON_DELETE_VIA_LIFECYCLE the identity server's fenced saga does the whole job: it
+    tells the person's leader before the row changes, and its publish outbox and the person
+    changelog carry the ClickHouse rows, so nothing is published from here.
     """
-    via_lifecycle = settings.PERSON_DELETE_VIA_LIFECYCLE
+    if settings.PERSON_DELETE_VIA_LIFECYCLE:
+        return _tombstone_persons_via_lifecycle(team_id, persons, failures, run)
+
     deleted: builtins.list[_DeletedPerson] = []
     person_by_uuid = {person.uuid: person for person in persons}
-    publication = PersonTombstonePublication(team_id=team_id, ack_queue=not via_lifecycle)
+    publication = PersonTombstonePublication(team_id=team_id)
 
-    batches = _batches_by_distinct_id_count(
-        persons, max_persons=LIFECYCLE_DELETE_PERSONS_PER_RPC if via_lifecycle else None
-    )
-    for batch in batches:
+    for batch in _batches_by_distinct_id_count(persons, max_persons=None):
         uuids = [person.uuid for person in batch]
         try:
-            if via_lifecycle:
-                tombstones = _tombstone_batch_via_lifecycle(team_id, batch, run, failures)
-            else:
-                tombstones = tombstone_persons_in_postgres(team_id, uuids)
+            tombstones = tombstone_persons_in_postgres(team_id, uuids)
         except Exception as exc:
             tombstones = _committed_tombstones(team_id, uuids, exc, failures)
         to_publish = [
@@ -697,25 +693,40 @@ def _tombstone_persons_at_exact_versions(
     return deleted
 
 
-def _tombstone_batch_via_lifecycle(
+def _tombstone_persons_via_lifecycle(
     team_id: int,
     persons: builtins.list[Person],
-    run: DeletionRun,
     failures: builtins.list[PersonDeletionFailure],
-) -> builtins.list[PersonTombstone]:
-    """Run one saga call and record the persons another live op kept from it as a retryable failure."""
-    outcome = tombstone_persons_via_lifecycle(
-        team_id, {person.pk: person.uuid for person in persons}, run_id=run.run_id, timeout=run.rpc_timeout
-    )
-    if outcome.conflicts:
-        _record_step_failure(
-            failures,
-            step=PersonDeletionStep.TOMBSTONE_POSTGRES,
-            team_id=team_id,
-            exc=PersonDeletionConflict("another lifecycle operation holds the person; it stays live for a retry"),
-            person_uuids=outcome.conflicts,
+    run: DeletionRun,
+) -> builtins.list[_DeletedPerson]:
+    """Run the saga per batch; a person another live op holds is a retryable failure for the next attempt."""
+    person_by_uuid = {person.uuid: person for person in persons}
+    deleted: builtins.list[_DeletedPerson] = []
+    for batch in _batches_by_distinct_id_count(persons, max_persons=LIFECYCLE_DELETE_PERSONS_PER_RPC):
+        try:
+            outcome = tombstone_persons_via_lifecycle(
+                team_id, {person.pk: person.uuid for person in batch}, run_id=run.run_id, timeout=run.rpc_timeout
+            )
+        except Exception as exc:
+            committed = _committed_tombstones(team_id, [person.uuid for person in batch], exc, failures)
+            deleted.extend(
+                _DeletedPerson(person=person_by_uuid[tombstone.uuid], tombstone_version=tombstone.version)
+                for tombstone in committed
+            )
+            continue
+        if outcome.conflicts:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.TOMBSTONE_POSTGRES,
+                team_id=team_id,
+                exc=PersonDeletionConflict("another lifecycle operation holds the person; it stays live for a retry"),
+                person_uuids=outcome.conflicts,
+            )
+        deleted.extend(
+            _DeletedPerson(person=person_by_uuid[uuid], tombstone_version=version)
+            for uuid, version in outcome.deleted.items()
         )
-    return outcome.tombstones
+    return deleted
 
 
 class PersonTombstoneStateUnknown(Exception):
