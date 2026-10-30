@@ -71,7 +71,9 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
     for report_id in report_ids:
         touched |= Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
     runs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
+        # `for_team`, not an ambient-scope filter: the default-owner caller runs in a Temporal
+        # activity, which sets no team scope, and the fail-closed manager raises there.
+        SignalScoutRun.objects.for_team(team_id)
         .filter(touched)
         # Ascending so that when several runs touched the same report the newest one, applied last,
         # is the skill that ends up owning it.

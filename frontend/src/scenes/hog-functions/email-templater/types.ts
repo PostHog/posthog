@@ -35,5 +35,6 @@ export type EmailFieldErrors = {
     from?: string
     to?: string
     subject?: string
+    preheader?: string
     body?: string
 }
