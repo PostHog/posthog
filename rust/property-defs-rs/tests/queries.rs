@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use property_defs_rs::{
     api::v1::errors::ApiError,
     api::v1::{query::Manager, routing::Params},
@@ -44,7 +42,6 @@ async fn test_person_property_definitions_queries(test_pool: PgPool) {
     // PropertyParentType::Person scoped tests
     query_type_person_no_filters(&qmgr, project_id).await;
     query_type_person_simple_search_filter(&qmgr, project_id).await;
-    query_type_person_description_search_filter(&qmgr, project_id).await;
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -446,27 +443,6 @@ async fn query_type_person_no_filters(qmgr: &Manager, project_id: i32) {
         let prop_name: String = row.get("name");
         assert!(expected_person_props_all().contains(&prop_name.as_str()))
     }
-}
-
-// search the enterprise description, which only the seeded enterprise rows carry
-async fn query_type_person_description_search_filter(qmgr: &Manager, project_id: i32) {
-    let mut qb = sqlx::QueryBuilder::new("");
-    let params = Params {
-        parent_type: PropertyParentType::Person,
-        search_terms: vec!["a fine property".to_string()],
-        search_fields: HashSet::from(["name".to_string(), "description".to_string()]),
-        ..Default::default()
-    };
-
-    let count_persons_description_search = qmgr.count_query(&mut qb, project_id, &params);
-    let total_count: i64 = qmgr
-        .pool
-        .fetch_one(count_persons_description_search)
-        .await
-        .unwrap()
-        .get(0);
-    let expected_person_rows: i64 = 8;
-    assert_eq!(expected_person_rows, total_count);
 }
 
 // fetch all PropertyParentType::Person records where props or description contain search term

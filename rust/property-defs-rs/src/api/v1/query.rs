@@ -90,7 +90,6 @@ impl Manager {
             &params.search_terms,
             &params.search_fields,
             params.filter_initial_props,
-            params.use_enterprise_taxonomy,
         );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
@@ -179,7 +178,6 @@ impl Manager {
             &params.search_terms,
             &params.search_fields,
             params.filter_initial_props,
-            params.use_enterprise_taxonomy,
         );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
@@ -356,7 +354,6 @@ impl Manager {
         search_terms: &'args [String],
         search_fields: &'args HashSet<String>,
         filter_initial_props: bool,
-        use_enterprise_taxonomy: bool,
     ) {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
@@ -406,24 +403,10 @@ impl Manager {
             // step 2.5: join whatever we found in search_extras and trigger word result
             let search_extras = format!("{search_extras}{screening_clause}");
 
-            // Only known fields reach the SQL, qualified by table: the caller names them, and the
-            // base table also has a `description` column, so a bare name would be ambiguous.
-            let mut search_columns: Vec<String> = search_fields
-                .iter()
-                .filter_map(|field| match field.as_str() {
-                    "name" => Some(format!("{PROPERTY_DEFS_TABLE}.\"name\"")),
-                    "description" if use_enterprise_taxonomy => {
-                        Some(format!("{ENTERPRISE_PROP_DEFS_TABLE}.\"description\""))
-                    }
-                    _ => None,
-                })
-                .collect();
-            search_columns.sort();
-
             // step 3: generate the search fuzzy-matching SQL clause
             // Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
-            if !search_columns.is_empty() && !search_terms.is_empty() {
+            if !search_fields.is_empty() && !search_terms.is_empty() {
                 // outer loop: one AND clause for every search term supplied by caller.
                 // each of these clauses may be enriched with "search_extras" suffix
                 for (tndx, term) in search_terms.iter().enumerate() {
@@ -433,20 +416,20 @@ impl Manager {
                     // inner loop: nested OR clause for every search field (column; by default
                     // "name" only) performing a fuzzy match attempt (ILIKE) for the current
                     // search term against that column
-                    for (fndx, column) in search_columns.iter().enumerate() {
+                    for (fndx, field) in search_fields.iter().enumerate() {
                         if fndx == 0 {
                             qb.push("(");
                         }
-                        qb.push(column.clone());
+                        qb.push(field.clone());
                         qb.push(" ILIKE ");
                         // applying terms directly to ensure fuzzy matches are
                         // in parity with original query. Terms are cleansed
                         // upstream to ensure this is safe.
                         qb.push(format!("'{term}%'"));
-                        if search_columns.len() > 1 && fndx < search_columns.len() - 1 {
+                        if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
                             qb.push(" OR ");
                         }
-                        if fndx == search_columns.len() - 1 {
+                        if fndx == search_fields.len() - 1 {
                             qb.push(")");
                         }
                     }
