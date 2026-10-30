@@ -50,8 +50,9 @@ export interface Pointer {
   boxes: ScreenBoxes;
 }
 
-// Long enough for the report that comes with a drop, short enough that a pointer moved before a typed paste does not count.
-const DROP_REPORT_MS = 200;
+// Ghostty reports the pointer milliseconds before a drop's paste, but the hover repaint of a full split sits between them,
+// so the window is generous; a pointer moved well before a typed paste still does not count.
+const DROP_REPORT_MS = 1_500;
 
 // Mouse input: clicks, hover, the wheel, and a drag that selects chat text and copies it on release.
 export function usePointer({
