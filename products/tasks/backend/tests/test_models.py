@@ -336,6 +336,12 @@ class TestTask(TestCase):
                 ("acp", ["posthog/posthog"]),
             ),
             ("profile_runtime", None, PI_PROFILE, ("pi", [])),
+            (
+                "profile_runtime_with_options",
+                TaskRunOptions(repositories=(Repository(name="posthog/posthog"),)),
+                PI_PROFILE,
+                ("pi", ["posthog/posthog"]),
+            ),
         ]
     )
     def test_create_without_run_applies_task_settings(
@@ -689,17 +695,24 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("runtime", PI_PROFILE, ("pi", "default_base")),
+            ("runtime", PI_PROFILE, None, ("pi", "default_base")),
+            ("runtime_also_in_options", PI_PROFILE, TaskRunOptions(runtime="pi"), ("pi", "default_base")),
             (
                 "template",
                 replace(BUSINESS_KNOWLEDGE, key="test.autoresearch", sandbox_templates=("autoresearch_base",)),
+                None,
                 ("acp", "autoresearch_base"),
             ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_takes_the_default_runtime_and_template_from_the_profile(
-        self, _name: str, profile: TaskProfile, expected: tuple[str, str], mock_execute_workflow
+        self,
+        _name: str,
+        profile: TaskProfile,
+        options: TaskRunOptions | None,
+        expected: tuple[str, str],
+        mock_execute_workflow,
     ):
         user = User.objects.create(email="defaults@test.com")
 
@@ -713,6 +726,7 @@ class TestTask(TestCase):
                 description="Picks no runtime or template",
                 profile=profile,
                 user_id=user.id,
+                options=options,
             )
 
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state

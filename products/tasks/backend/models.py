@@ -1643,7 +1643,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 ),
                 creates_run=False,
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             repositories = settings.repositories
             output_schema = settings.output_schema
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
@@ -1760,8 +1761,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         origin_product = cast("Task.OriginProduct", origin.origin_product)
         internal = origin.internal
-        if runtime is None:
-            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
@@ -1773,7 +1772,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             settings = apply_run_options(
                 options,
                 RunSettings(
-                    runtime=runtime,
+                    runtime=runtime or Task.Runtime.ACP.value,
                     runtime_adapter=runtime_adapter,
                     model=model,
                     reasoning_effort=reasoning_effort,
@@ -1790,7 +1789,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     extra_run_state=extra_run_state,
                 ),
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             runtime_adapter = settings.runtime_adapter
             model = settings.model
             reasoning_effort = settings.reasoning_effort
@@ -1804,6 +1804,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             initial_permission_mode = settings.initial_permission_mode
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
             extra_run_state = settings.extra_run_state
+        if runtime is None:
+            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         task, extra_state = Task._build_task(
             team=team,
             title=title,
