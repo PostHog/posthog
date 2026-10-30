@@ -64,4 +64,5 @@ def _holds(route: AlertRoute, matcher: Any, labels: Mapping[str, str]) -> bool:
     if not isinstance(matcher, dict) or matcher.get("op") != "=":
         logger.warning("alerts_platform_route_matcher_unsupported", route_id=str(route.id), matcher=matcher)
         return False
-    return labels.get(matcher.get("label")) == matcher.get("value")
+    label = matcher.get("label")
+    return isinstance(label, str) and labels.get(label) == matcher.get("value")
