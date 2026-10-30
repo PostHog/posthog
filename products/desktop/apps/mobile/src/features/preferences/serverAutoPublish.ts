@@ -16,6 +16,7 @@ export async function pullAutoPublishCloudRuns(
   const client = getPostHogApiClient();
   const { taskDefaults } = await client.getMyTaskRunConfig(projectId);
   if (generation !== saveGeneration) return;
+  if (useAuthStore.getState().projectId !== projectId) return;
   const serverValue = taskDefaults.auto_publish_cloud_runs;
   if (serverValue === null) {
     await client.setMyTaskDefaults(projectId, {
@@ -50,14 +51,14 @@ export function saveAutoPublishCloudRuns(
   });
 }
 
-export function useServerAutoPublishSync(): void {
+export function useServerAutoPublishSync(isConnected: boolean): void {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const projectId = useAuthStore((s) => s.projectId);
 
   useEffect(() => {
-    if (!isAuthenticated || !projectId) return;
+    if (!isAuthenticated || !projectId || !isConnected) return;
     pullAutoPublishCloudRuns(projectId).catch((error: unknown) => {
       log.warn("Failed to sync auto-publish setting", error);
     });
-  }, [isAuthenticated, projectId]);
+  }, [isAuthenticated, projectId, isConnected]);
 }

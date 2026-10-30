@@ -44,7 +44,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   useScreenTracking();
   useIdentifyUser();
   useRegisterSuperProperties();
-  useServerAutoPublishSync();
+  useServerAutoPublishSync(isConnected);
 
   useEffect(() => {
     initializeAuth();

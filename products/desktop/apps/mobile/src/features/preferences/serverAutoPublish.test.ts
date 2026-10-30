@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetMyTaskRunConfig, mockSetMyTaskDefaults } = vi.hoisted(() => ({
-  mockGetMyTaskRunConfig: vi.fn(),
-  mockSetMyTaskDefaults: vi.fn(),
-}));
+const { mockGetMyTaskRunConfig, mockSetMyTaskDefaults, authState } = vi.hoisted(
+  () => ({
+    mockGetMyTaskRunConfig: vi.fn(),
+    mockSetMyTaskDefaults: vi.fn(),
+    authState: { projectId: 2 as number | null },
+  }),
+);
 
 vi.mock("@/lib/posthogApiClient", () => ({
   getPostHogApiClient: () => ({
@@ -13,7 +16,7 @@ vi.mock("@/lib/posthogApiClient", () => ({
 }));
 
 vi.mock("@/features/auth", () => ({
-  useAuthStore: vi.fn(),
+  useAuthStore: Object.assign(vi.fn(), { getState: () => authState }),
 }));
 
 import {
@@ -35,6 +38,7 @@ function serverConfig(autoPublish: boolean | null) {
 }
 
 beforeEach(() => {
+  authState.projectId = PROJECT_ID;
   usePreferencesStore.setState(INITIAL_STATE, true);
   mockGetMyTaskRunConfig.mockReset();
   mockSetMyTaskDefaults.mockReset();
@@ -79,6 +83,20 @@ describe("pullAutoPublishCloudRuns", () => {
     await pull;
 
     expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(false);
+  });
+});
+
+describe("pullAutoPublishCloudRuns after a project switch", () => {
+  it("ignores a response for the previous project", async () => {
+    usePreferencesStore.setState({ autoPublishCloudRuns: true });
+    mockGetMyTaskRunConfig.mockImplementation(async () => {
+      authState.projectId = 3;
+      return serverConfig(false);
+    });
+
+    await pullAutoPublishCloudRuns(PROJECT_ID);
+
+    expect(usePreferencesStore.getState().autoPublishCloudRuns).toBe(true);
   });
 });
 
