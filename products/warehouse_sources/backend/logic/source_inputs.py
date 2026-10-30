@@ -21,8 +21,9 @@ from products.warehouse_sources.backend.facade.contracts import (
 )
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     mirror_connection_fields,
-    shadow_compare,
-    shadow_compare_many,
+    preload_connection_fields,
+    read_connection_fields,
+    read_connection_fields_many,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -40,11 +41,11 @@ class SourceInputsStore:
     def load(source: ExternalDataSource) -> dict[str, Any]:
         """All inputs of the source: connection fields, sync settings and runtime state.
 
-        The result is a new dict, so a change to it has no effect until a write method saves it.
+        The result is a new dict, so a change to it has no effect until a write method saves it. With the
+        read flag on, the connection fields come from the credentials row of the source, so the model field
+        can hold other values.
         """
-        inputs = _decode(source.job_inputs)
-        shadow_compare(source, inputs)
-        return inputs
+        return read_connection_fields(source, _decode(source.job_inputs))
 
     @staticmethod
     def load_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any]]:
@@ -61,8 +62,19 @@ class SourceInputsStore:
                 loaded[source.id] = _decode(source.job_inputs)
             except UnreadableSourceInputsError:
                 continue
-        shadow_compare_many(sources, loaded)
-        return loaded
+        return read_connection_fields_many(sources, loaded)
+
+    @staticmethod
+    def preload(sources: Iterable[ExternalDataSource]) -> None:
+        """Fetch what `load` needs for these sources in one batch, so that later `load` calls on the same
+        instances add no query. Use it before a loop that calls `load` once per table of a source."""
+        pairs = []
+        for source in sources:
+            try:
+                pairs.append((source, _decode(source.job_inputs).get(CREDENTIALS_REFERENCE_KEY)))
+            except UnreadableSourceInputsError:
+                continue
+        preload_connection_fields(pairs)
 
     @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:

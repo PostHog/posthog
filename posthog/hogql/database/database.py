@@ -2193,6 +2193,7 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
+                SourceInputsStore.preload([virtual_source])
                 SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -3326,6 +3327,13 @@ def _attach_external_data_sources(
         if defer_job_inputs:
             query = query.defer("job_inputs")
         sources_by_id = {source.pk: source for source in query}
+        if not defer_job_inputs:
+            from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+                SourceInputsStore,
+            )
+
+            # Direct tables call `load` once per table; fetch the credentials rows of all sources up front.
+            SourceInputsStore.preload(sources_by_id.values())
     for table in warehouse_tables:
         if table.external_data_source_id is None:
             continue
