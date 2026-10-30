@@ -1243,9 +1243,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
             # mid-run is researched on the schedule it would have had if it had landed after. The
             # bucket is strictly above what this run processed, so reaching it also means new
-            # signals arrived.
+            # signals arrived. A pending source refresh needs research even between buckets.
             bucket = next_research_bucket(report.researched_signal_count)
-            has_new_signals = bucket is not None and report.signal_count >= bucket
+            has_new_signals = report.pending_triggering_signal_id is not None or (
+                bucket is not None and report.signal_count >= bucket
+            )
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals

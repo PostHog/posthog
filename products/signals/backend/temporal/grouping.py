@@ -893,7 +893,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     return AssignAndEmitDbResult(
                         report_id=str(report.id),
                         promoted=report.status == SignalReport.Status.CANDIDATE and not suppress_promotion,
-                        timestamp=input.timestamp or timezone.now(),
+                        timestamp=monitoring_record.emitted_at,
                         run_count=report.run_count,
                         matched_deleted_report=report.status == SignalReport.Status.DELETED,
                         reresearch_capped=False,
@@ -1098,7 +1098,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             )
             if monitoring_record is not None:
                 monitoring_record.report_id = report_id
-                monitoring_record.save(update_fields=["report_id"])
+                monitoring_record.emitted_at = input.timestamp or timezone.now()
+                monitoring_record.save(update_fields=["report_id", "emitted_at"])
 
             metadata = {
                 "source_product": input.source_product,
@@ -1114,7 +1115,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
 
-            ts = input.timestamp or timezone.now()
+            ts = monitoring_record.emitted_at if monitoring_record is not None else input.timestamp or timezone.now()
 
             emit_embedding_request(
                 content=input.description,

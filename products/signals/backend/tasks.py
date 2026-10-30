@@ -64,6 +64,7 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
+from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research, emit_monitoring_research
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -333,6 +334,18 @@ def close_report_tracker_issue(
 @skip_team_scope_audit
 def sweep_monitoring_tracker_issues() -> None:
     complete_monitoring_tracker_issues(deadline=time.monotonic() + 40)
+
+
+@shared_task(ignore_result=True, soft_time_limit=20, time_limit=30)
+@with_team_scope()
+def emit_monitoring_research_request(*, team_id: int, report_id: str, attempt_id: str) -> None:
+    emit_monitoring_research(team_id=team_id, report_id=report_id, attempt_id=attempt_id)
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_research_requests() -> None:
+    emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
 @shared_task(

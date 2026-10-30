@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import timedelta
 
 import time_machine
@@ -21,10 +20,10 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
 )
 from products.signals.backend.report_monitoring_signals import (
-    emit_due_monitoring_research,
-    emit_monitoring_research,
+    MONITORING_EVIDENCE_MAX_CHARS,
     monitoring_research_evidence,
 )
+from products.signals.backend.tasks import emit_monitoring_research_request, sweep_monitoring_research_requests
 from products.signals.backend.temporal.emitter import SignalEmitterInput
 
 
@@ -60,7 +59,10 @@ class TestMonitoringSignals(BaseTest):
         )
 
     def emit(self) -> None:
-        emit_monitoring_research(team_id=self.team.id, report_id=self.report.id, attempt_id=self.attempt.id)
+        emit_monitoring_research_request.apply(
+            kwargs={"team_id": self.team.id, "report_id": str(self.report.id), "attempt_id": str(self.attempt.id)},
+            throw=True,
+        )
 
     def emitted(self) -> list[SignalEmitterInput]:
         return [
@@ -98,17 +100,17 @@ class TestMonitoringSignals(BaseTest):
         with self.assertRaisesRegex(RuntimeError, "Temporal unavailable"):
             self.emit()
         self.temporal_client.start_workflow.side_effect = None
-        emit_due_monitoring_research(deadline=time.monotonic() + 10, limit=1)
+        sweep_monitoring_research_requests.apply(throw=True)
         assert self.emitted() == []
         with time_machine.travel(self.now + timedelta(minutes=6), tick=False):
-            emit_due_monitoring_research(deadline=time.monotonic() + 10, limit=1)
+            sweep_monitoring_research_requests.apply(throw=True)
         assert len(self.emitted()) == 1
         target = SignalReport.objects.create(team=self.team, status="ready")
         SignalEmissionRecord.objects.filter(team=self.team, source_id=str(self.attempt.id)).update(
             report_id=str(target.id)
         )
         with time_machine.travel(self.now + timedelta(minutes=12), tick=False):
-            emit_due_monitoring_research(deadline=time.monotonic() + 10, limit=1)
+            sweep_monitoring_research_requests.apply(throw=True)
         assert len(self.emitted()) == 1
 
     def test_disabled_monitoring_preserves_the_request_until_enabled(self) -> None:
@@ -121,26 +123,36 @@ class TestMonitoringSignals(BaseTest):
         self.emit()
         assert len(self.emitted()) == 1
 
-    @parameterized.expand([("brief", 1), ("long_assessment", 1000)])
-    def test_research_loads_saved_evidence_without_putting_it_in_the_signal(self, _name: str, repetitions: int) -> None:
+    @parameterized.expand([("brief", 1, 1), ("long_history", 1000, 40)])
+    def test_research_loads_saved_evidence_without_putting_it_in_the_signal(
+        self, _name: str, repetitions: int, history_rows: int
+    ) -> None:
         assert self.attempt.aggregation_reason is not None
         reason = self.attempt.aggregation_reason * repetitions
         SignalReportMonitoringAttempt.objects.for_team(self.team.id).filter(id=self.attempt.id).update(
             aggregation_reason=reason
         )
-        SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(self.report.id),
-            content=NoteArtefact(
-                note="Assessment could not establish whether the deployment reached the affected population."
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
+        for _ in range(history_rows):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=NoteArtefact(
+                    note="Assessment could not establish whether the deployment reached the affected population. "
+                    * repetitions
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
         self.emit()
         payload = MonitoringUnresolvedSignalExtra.model_validate(self.emitted()[0].signal.extra)
-        evidence = json.loads(monitoring_research_evidence(team_id=self.team.id, payload=payload))
+        serialized = monitoring_research_evidence(team_id=self.team.id, payload=payload)
+        assert len(serialized) <= MONITORING_EVIDENCE_MAX_CHARS
+        evidence = json.loads(serialized)
         assert evidence["original_report"]["summary"] == self.report.summary
-        assert evidence["attempts"][0]["aggregation_reason"] == reason
+        assert reason.startswith(evidence["requested_attempt"]["reason_excerpt"])
+        assert str(self.attempt.id) == evidence["requested_attempt"]["id"]
+        assert "inbox-report-artefacts-list" in evidence["history"]
         assert len(payload.explanation) <= 1000
-        assert "affected population" in evidence["artefacts"][0]["content"]
+        assert "affected population" in evidence["artefacts"][0]["content_excerpt"]
         assert "affected population" not in self.emitted()[0].signal.description
+        self.attempt.refresh_from_db()
+        assert self.attempt.aggregation_reason == reason

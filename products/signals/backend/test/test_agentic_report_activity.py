@@ -84,6 +84,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
@@ -991,9 +992,9 @@ async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("monitoring", [False, True])
+@pytest.mark.parametrize("monitoring,safe", [(False, True), (True, True), (True, False)])
 async def test_run_agentic_report_activity_persists_artefacts(
-    monkeypatch: pytest.MonkeyPatch, ateam: Team, monitoring: bool
+    monkeypatch: pytest.MonkeyPatch, ateam: Team, monitoring: bool, safe: bool
 ) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1035,6 +1036,13 @@ async def test_run_agentic_report_activity_persists_artefacts(
             },
         )
     captured_signals: list[SignalData] = []
+    safety_inputs: list[SafetyJudgeInput] = []
+
+    async def judge_evidence(input: SafetyJudgeInput) -> SafetyJudgeOutput:
+        safety_inputs.append(input)
+        return SafetyJudgeOutput(safe=safe, explanation=None if safe else "Evidence requires review.")
+
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.report_safety_judge_activity", judge_evidence)
 
     async def fake_run_multi_turn_research(
         signals: list[SignalData], *args: object, **kwargs: object
@@ -1051,16 +1059,23 @@ async def test_run_agentic_report_activity_persists_artefacts(
         patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
         patch("products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture") as mock_capture,
     ):
-        result = await run_agentic_report_activity(
-            RunAgenticReportInput(
-                team_id=ateam.id,
-                report_id=str(report.id),
-                signals=signals,
-                repo_selection=RepoSelectionResult(
-                    repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
-                ),
-            )
+        activity_input = RunAgenticReportInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            signals=signals,
+            repo_selection=RepoSelectionResult(
+                repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
+            ),
         )
+        if not safe:
+            with pytest.raises(ApplicationError, match="failed safety review"):
+                await run_agentic_report_activity(activity_input)
+            assert safety_inputs and "Checkout completion remains unverified" in "".join(
+                signal.content for signal in safety_inputs[0].signals
+            )
+            assert captured_signals == []
+            return
+        result = await run_agentic_report_activity(activity_input)
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
         selection = await SignalReportArtefact.alatest_content(
@@ -1068,12 +1083,15 @@ async def test_run_agentic_report_activity_persists_artefacts(
         )
         assert selection is not None and selection.autostart_eligible is not monitoring
         if monitoring:
+            assert "".join(signal.content for signal in safety_inputs[0].signals) == captured_signals[0].content
             assert "Checkout completion remains unverified" in captured_signals[0].content
             assert "No final measurement was available" in captured_signals[0].content
             assert captured_signals[0].content != signals[0].content
             assert await SignalReport.objects.filter(
                 team=ateam, id=signals[0].extra["report_id"], status="closed"
             ).aexists()
+        else:
+            assert safety_inputs == []
 
         # Scoped to the reviewer events on purpose: patching `capture` on one module patches the
         # shared `posthoganalytics` module, so every other event this activity fires lands in the
