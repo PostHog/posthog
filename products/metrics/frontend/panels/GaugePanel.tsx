@@ -1,100 +1,129 @@
-import { useMemo } from 'react'
+import { getColorVar } from 'lib/colors'
 
-import { Gauge, resolveGaugeBounds } from '@posthog/quill-charts'
-import type { GaugeThreshold } from '@posthog/quill-charts'
-
-import { useChartTheme } from 'lib/charts/hooks'
-
-import { formatSeriesNames } from '../components/metricsSeries'
 import { flattenSeriesRows } from './metricsReduce'
-import { safeColorToken } from './metricsThresholds'
+import { thresholdColor } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
 
 const FALLBACK_COLOR = 'data-color-1'
-const MAX_GAUGES = 12
 
-interface GaugeCell {
-    key: string
-    name: string
-    value: number | null
-    formatValue: (value: number) => string
+/** The arc spans 240 degrees (a typical gauge sweep), from -210° to 30°. */
+const ARC_START_DEG = -210
+const ARC_SWEEP_DEG = 240
+
+function polarToCartesian(cx: number, cy: number, r: number, deg: number): [number, number] {
+    const rad = (deg * Math.PI) / 180
+    return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)]
+}
+
+function arcPath(cx: number, cy: number, r: number, fromDeg: number, toDeg: number): string {
+    const [x0, y0] = polarToCartesian(cx, cy, r, fromDeg)
+    const [x1, y1] = polarToCartesian(cx, cy, r, toDeg)
+    const largeArc = toDeg - fromDeg > 180 ? 1 : 0
+    return `M ${x0} ${y0} A ${r} ${r} 0 ${largeArc} 1 ${x1} ${y1}`
+}
+
+/** The extreme of a threshold list, computed iteratively: thresholds are persisted
+ * user input, so spreading them into `Math.max` could exceed the argument limit. */
+function thresholdExtreme(thresholds: { value: number }[], pick: (a: number, b: number) => number): number | undefined {
+    let extreme: number | undefined
+    for (const step of thresholds) {
+        extreme = extreme === undefined ? step.value : pick(extreme, step.value)
+    }
+    return extreme
+}
+
+/** Bounds for the arc: explicit yAxis min/max first, else the threshold extremes, else 0..value.
+ * The bounds always contain the value — a threshold ladder that ends below it is a color
+ * scale, not the range, so the max extends to the value rather than capping the arc. */
+function gaugeBounds(value: number, display: MetricsPanelProps['display']): { min: number; max: number } {
+    const thresholds = display.thresholds ?? []
+    const min = display.yAxis?.min ?? thresholdExtreme(thresholds, Math.min) ?? 0
+    const max =
+        display.yAxis?.max ??
+        Math.max(thresholdExtreme(thresholds, Math.max) ?? Number.NEGATIVE_INFINITY, value, min + 1)
+    return max > min ? { min, max } : { min, max: min + 1 }
 }
 
 /** A single-series radial gauge: the reduced value drawn as an arc between a min and a max,
  * colored by threshold. Grouped queries render one gauge per series, capped. */
 export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
-    const theme = useChartTheme()
     const reducer = resolveReducer(display)
-    const min = display.yAxis?.min ?? undefined
-    const max = display.yAxis?.max ?? undefined
-    const thresholds = useMemo<GaugeThreshold[]>(
-        () =>
-            (display.thresholds ?? []).map((step) => ({
-                value: step.value,
-                color: `var(--${safeColorToken(step.color, FALLBACK_COLOR)})`,
-            })),
-        [display.thresholds]
-    )
+    // A series with no non-null point has nothing to draw; drop it like the other
+    // scalar panels rather than render a dash gauge.
+    const rows = flattenSeriesRows(series, [reducer])
+        .filter((row) => row.values[reducer] !== null)
+        .slice(0, 12)
 
-    const cells = useMemo<GaugeCell[]>(() => {
-        const names = formatSeriesNames(
-            series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
-            fallbackName
-        )
-        const seen = new Map<string, number>()
-        return (
-            flattenSeriesRows(series, [reducer])
-                .map((row, index) => ({ row, index }))
-                // A series with no non-null point has nothing to draw; drop it like the other
-                // scalar panels rather than render a dash gauge.
-                .filter(({ row }) => row.values[reducer] !== null)
-                .slice(0, MAX_GAUGES)
-                .map(({ row, index }) => {
-                    const value = row.values[reducer] ?? null
-                    const bounds = resolveGaugeBounds({ value, min, max, thresholds })
-                    // Two clauses can return the same metric and labels, so the clause is part of the
-                    // identity, and a counter keeps any remaining collision unique.
-                    const identity = `${series[index].clause ?? ''}|${row.metricName ?? ''}|${names[index]}`
-                    const repeat = seen.get(identity) ?? 0
-                    seen.set(identity, repeat + 1)
-                    return {
-                        key: repeat ? `${identity}#${repeat}` : identity,
-                        name: names[index],
-                        value,
-                        formatValue: metricValuesFormatter(row.series.unit ?? undefined, [
-                            value ?? 0,
-                            bounds.min,
-                            bounds.max,
-                        ]),
-                    }
-                })
-        )
-    }, [series, reducer, fallbackName, min, max, thresholds])
-
-    if (cells.length === 0) {
+    if (rows.length === 0) {
         return <div className="flex h-full items-center justify-center text-secondary text-sm">No data</div>
     }
 
     return (
-        // Each cell needs a real height for the gauge to fill, and 140px keeps a gauge readable.
-        <div className="grid h-full w-full auto-rows-[minmax(120px,1fr)] grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2 overflow-auto p-2">
-            {cells.map((cell) => (
-                <div key={cell.key} className="flex min-h-0 min-w-0 flex-col">
-                    <Gauge
-                        value={cell.value}
-                        min={min}
-                        max={max}
-                        thresholds={thresholds}
-                        color={`var(--${FALLBACK_COLOR})`}
-                        theme={theme}
-                        label={cell.name}
-                        config={{ valueFormatter: cell.formatValue }}
-                        dataAttr="metrics-gauge"
-                    />
-                </div>
-            ))}
+        <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
+            {rows.map((row, index) => {
+                const value = row.values[reducer] ?? null
+                const unit = row.series.unit ?? undefined
+                const { min, max } = gaugeBounds(value ?? 0, display)
+                const formatValue = metricValuesFormatter(unit, [value ?? 0, min, max])
+                const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)
+                const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+                const name =
+                    Object.entries(row.labels)
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(', ') ||
+                    row.metricName ||
+                    fallbackName
+
+                const cx = 60
+                const cy = 60
+                const r = 48
+                return (
+                    <div key={index} className="flex flex-col items-center" title={name}>
+                        <svg width="120" height="100" viewBox="0 0 120 100" role="img" aria-label={`${name} gauge`}>
+                            {/* track */}
+                            <path
+                                d={arcPath(cx, cy, r, ARC_START_DEG, ARC_START_DEG + ARC_SWEEP_DEG)}
+                                fill="none"
+                                stroke="var(--color-graph-axis-line)"
+                                strokeWidth="10"
+                                strokeLinecap="round"
+                            />
+                            {/* value */}
+                            {fraction > 0 && (
+                                <path
+                                    d={arcPath(cx, cy, r, ARC_START_DEG, ARC_START_DEG + ARC_SWEEP_DEG * fraction)}
+                                    fill="none"
+                                    stroke={color}
+                                    strokeWidth="10"
+                                    strokeLinecap="round"
+                                />
+                            )}
+                            <text
+                                x={cx}
+                                y={cy + 4}
+                                textAnchor="middle"
+                                fontSize="16"
+                                fontWeight="600"
+                                fill="currentColor"
+                            >
+                                {value === null ? '—' : formatValue(value)}
+                            </text>
+                            <text
+                                x={cx}
+                                y={cy + 22}
+                                textAnchor="middle"
+                                fontSize="9"
+                                fill="var(--color-graph-axis-label)"
+                            >
+                                {formatValue(min)} – {formatValue(max)}
+                            </text>
+                        </svg>
+                        <span className="text-xs text-secondary max-w-[120px] truncate">{name}</span>
+                    </div>
+                )
+            })}
         </div>
     )
 }

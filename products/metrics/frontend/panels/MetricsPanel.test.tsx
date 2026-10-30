@@ -144,12 +144,19 @@ describe('MetricsPanel', () => {
             expect(screen.queryByText('50%')).not.toBeInTheDocument()
         })
 
-        it.each([
-            ['formats a ratio gauge value and its bounds on one scale', [0, 0, 0.5], '1', 2, ['0.5', '0', '2']],
-            ['renders the gauge with a formatted value and bounds', [0, 0, 40], '%', 100, ['40%', '0%', '100%']],
-        ])('%s', (_name, values, unit, max, [value, minText, maxText]) => {
-            renderPanel([seriesWith({}, values, 'cpu', unit)], { type: 'gauge', yAxis: { min: 0, max } })
-            expect(getHogChart().gauge()).toMatchObject({ value, min: minText, max: maxText })
+        it('formats a ratio gauge value and its bounds on one scale', () => {
+            renderPanel([seriesWith({}, [0, 0, 0.5], 'load', '1')], { type: 'gauge', yAxis: { min: 0, max: 2 } })
+            expect(screen.getByText('0.5')).toBeInTheDocument()
+            expect(screen.getByText('0 – 2')).toBeInTheDocument()
+        })
+
+        it('renders the gauge arc with a formatted value and bounds', () => {
+            renderPanel([seriesWith({}, [0, 0, 40], 'cpu', '%')], {
+                type: 'gauge',
+                yAxis: { min: 0, max: 100 },
+            })
+            expect(screen.getByText('40%')).toBeInTheDocument()
+            expect(screen.getByText('0% – 100%')).toBeInTheDocument()
         })
 
         it('renders the bar gauge with one bar per grouped series', () => {
@@ -195,28 +202,7 @@ describe('MetricsPanel', () => {
                 ],
             })
             // The max must contain the value, or the arc reads full at 150 of a "50 – 90" range.
-            expect(getHogChart().gauge()).toMatchObject({ value: '150%', min: '50%', max: '150%' })
-        })
-
-        it('drops both gauges when two clauses that returned the same series go away', () => {
-            const fromClause = (clause: string, pod: string, value: number): MetricsChartSeries => ({
-                ...seriesWith({ pod }, [0, 0, value], 'cpu'),
-                clause,
-            })
-            const display: MetricsDisplaySettings = { type: 'gauge', yAxis: { min: 0, max: 100 } }
-            const { container, rerender } = render(
-                <MetricsPanel
-                    series={[fromClause('a', 'x', 10), fromClause('b', 'x', 20), fromClause('a', 'y', 30)]}
-                    fallbackName="cpu"
-                    display={display}
-                />
-            )
-            expect(screen.getByText('a · pod=x')).toBeInTheDocument()
-            expect(screen.getByText('b · pod=x')).toBeInTheDocument()
-
-            rerender(<MetricsPanel series={[fromClause('a', 'y', 30)]} fallbackName="cpu" display={display} />)
-            const values = Array.from(container.querySelectorAll('[data-attr="hog-chart-gauge-value"]'))
-            expect(values.map((el) => el.textContent)).toEqual(['30'])
+            expect(screen.getByText((_content, el) => el?.textContent === '50% – 150%')).toBeInTheDocument()
         })
 
         it('shows No data on the gauge when every point is null', () => {

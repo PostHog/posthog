@@ -181,7 +181,7 @@ Takes `value`, `min`, `max`, and `thresholds`, not `series`, and fills its conta
 - `config.sweepAngle` runs from 180 (a half circle) to 360 (a ring that starts at 12 o'clock); default 240. `config.thickness` is a fraction of the radius, so the look holds from 80px to 400px wide.
 - Text sizes with the radius. The value shrinks to fit the inner circle and truncates only below 9px. The label drops out when it no longer fits under the value, and the min and max labels hide when they would overlap or the sweep passes 300°. The full text stays in the tooltip and the canvas `aria-label`.
 - A value change eases over `config.animationMs` (default 500), and the arc color follows the bands as it passes them. The first render, `animationMs: 0`, and reduced motion snap.
-- The tooltip shows the value, the range, the threshold band (its `label`, else its range), and the target. A `tooltip` render prop receives `GaugeTooltipContext`, not `TooltipContext`, so `renderHogChart` needs `{ nativeTooltip: true }` for a gauge.
+- The tooltip shows the value, the range, the threshold band (its `label`, else its range), and the target. A `tooltip` render prop receives `GaugeTooltipContext`, not `TooltipContext`.
 
 ## Sparkline
 
