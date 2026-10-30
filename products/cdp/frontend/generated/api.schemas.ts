@@ -802,11 +802,11 @@ export const PluginLogEntrySourceEnumApi = {
 } as const
 
 /**
- * * `DEBUG` - DEBUG
- * * `LOG` - LOG
- * * `INFO` - INFO
- * * `WARN` - WARN
- * * `ERROR` - ERROR
+ * * `DEBUG` - Debug
+ * * `LOG` - Log
+ * * `INFO` - Info
+ * * `WARN` - Warn
+ * * `ERROR` - Error
  */
 export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
 
@@ -1079,11 +1079,11 @@ export type PluginConfigsLogsListParams = {
 }
 
 /**
- * * `DEBUG` - DEBUG
- * * `LOG` - LOG
- * * `INFO` - INFO
- * * `WARN` - WARN
- * * `ERROR` - ERROR
+ * * `DEBUG` - Debug
+ * * `LOG` - Log
+ * * `INFO` - Info
+ * * `WARN` - Warn
+ * * `ERROR` - Error
  */
 export type PluginConfigsLogsListTypeFilterItem =
     (typeof PluginConfigsLogsListTypeFilterItem)[keyof typeof PluginConfigsLogsListTypeFilterItem]
