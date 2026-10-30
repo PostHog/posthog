@@ -114,7 +114,7 @@ _LinkTarget = Insight | Dashboard | Annotation | AlertConfiguration | int
 def _numeric_refs(evidence_type: EvidenceType, refs: set[str]) -> list[int]:
     numeric_ids = [int(r) for r in refs if r.isdigit()]
     if non_numeric := refs - {str(i) for i in numeric_ids}:
-        # These models have integer PKs; a non-numeric ref can't resolve (its link stays FK-less).
+        # A non-numeric ref cannot match an integer id, so its link stays FK-less.
         logger.warning("pulse_persist_non_numeric_ref", evidence_type=evidence_type, refs=sorted(non_numeric))
     return numeric_ids
 

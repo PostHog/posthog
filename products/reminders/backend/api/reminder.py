@@ -309,7 +309,7 @@ class ReminderSerializer(serializers.ModelSerializer):
             resource = model._default_manager.filter(team=team, **{lookup_field: resource_id}).first()
             can_view = resource is not None and access.check_access_level_for_object(resource, "viewer")
         else:
-            ref = lookup(team, resource_id)
+            ref = lookup(team.id, resource_id)
             can_view = ref is not None and access.check_access_level_for_ref(ref, "viewer")
         if not can_view:
             raise ValidationError(f"No {resource_type} with id {resource_id} in this project.")

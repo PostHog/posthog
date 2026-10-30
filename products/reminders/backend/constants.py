@@ -3,7 +3,6 @@ from collections.abc import Callable
 from django.apps import apps
 from django.db import models
 
-from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -14,11 +13,11 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
-FacadeLookup = Callable[[Team, str], ObjectAccessRef | None]
+FacadeLookup = Callable[[int, str], ObjectAccessRef | None]
 
 
-def _find_experiment(team: Team, resource_id: str) -> ObjectAccessRef | None:
-    experiment = experiments_reminders.get_experiment_ref(team_id=team.id, experiment_id=int(resource_id))
+def _find_experiment(team_id: int, resource_id: str) -> ObjectAccessRef | None:
+    experiment = experiments_reminders.get_experiment_ref(team_id=team_id, experiment_id=int(resource_id))
     if experiment is None:
         return None
     return ObjectAccessRef(
