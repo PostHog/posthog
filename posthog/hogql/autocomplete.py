@@ -788,7 +788,7 @@ def _suggest_property_names(
             group_type_index_key=group_type_index_key_expr(),
         ).filter(
             effective_project_id=context.team.project_id,  # type: ignore
-            name__contains=match_term,
+            name__icontains=match_term,
             type=property_type,
         )
         group_type_index_key = _group_type_index_key(table, property_type, joined_group_index)

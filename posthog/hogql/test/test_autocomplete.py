@@ -281,6 +281,10 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
 
+        query = "select properties.SOME_ from events"
+        results = self._select(query=query, start=18, end=23)
+        assert [s.label for s in results.suggestions] == ["some_event_value"]
+
     def test_autocomplete_nested_tables(self):
         # Inner table
         query = "select event, (select  from persons) as blah from events"
