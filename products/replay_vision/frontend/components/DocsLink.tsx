@@ -10,6 +10,7 @@ export type VisionDocsPage =
     | 'quota-and-limits'
     | 'actions'
     | 'webhooks'
+    | 'what-to-watch'
 
 /** Raw docs URL for surfaces that need an href instead of a link, like ProductIntroduction's docsURL prop. */
 export function visionDocsUrl(page?: VisionDocsPage): string {
@@ -20,16 +21,19 @@ export function visionDocsUrl(page?: VisionDocsPage): string {
 export function VisionDocsLink({
     page,
     dataAttr,
+    onClick,
     children,
 }: {
     page?: VisionDocsPage
     dataAttr: string
+    onClick?: () => void
     children: React.ReactNode
 }): JSX.Element {
     return (
         <Link
             to={`${visionDocsUrl(page)}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
             target="_blank"
+            onClick={onClick}
             data-attr={dataAttr}
         >
             {children}

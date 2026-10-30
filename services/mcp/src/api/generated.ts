@@ -34316,6 +34316,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35734,6 +35735,7 @@ export namespace Schemas {
       WooPayments: 'WooPayments',
       Soniox: 'Soniox',
       Nango: 'Nango',
+      Fathom: 'Fathom',
     } as const;
 
     /**
@@ -37165,7 +37167,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -40156,7 +40159,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -53410,7 +53414,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54862,7 +54867,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -114410,7 +114416,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -115893,7 +115900,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -117343,7 +117351,8 @@ export namespace Schemas {
        * * `Beacons` - Beacons
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
-       * * `Nango` - Nango */
+       * * `Nango` - Nango
+       * * `Fathom` - Fathom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -122571,6 +122580,22 @@ export namespace Schemas {
       event: TraceNodeEvent | null;
     }
 
+    export interface TracePullRequest {
+      /** The owner of the pull request's repository. */
+      repoOwner: string;
+      /** The name of the pull request's repository. */
+      repoName: string;
+      /** The pull request number. */
+      number: number;
+      /** The pull request title, or null when the synced data has none. */
+      title: string | null;
+    }
+
+    export interface TracePullRequestLookup {
+      /** The pull request the trace's git branch belongs to, ranked by engineering analytics, or null when the trace has no branch, the project has no GitHub source, or no pull request matches. */
+      pullRequest: TracePullRequest | null;
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.
@@ -125394,7 +125419,7 @@ export namespace Schemas {
     }
 
     /**
-     * Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.
+     * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
      */
     export type WorkflowImportRequestSnippets = {[key: string]: string};
 
@@ -125415,7 +125440,7 @@ export namespace Schemas {
       source: ImportProviderKeyEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
-      /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
+      /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
       snippets?: WorkflowImportRequestSnippets;
       /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
       segment_cohorts?: WorkflowImportRequestSegmentCohorts;
@@ -131118,6 +131143,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

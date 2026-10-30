@@ -398,7 +398,7 @@ describe('inboxReportDetailLogic', () => {
 
     describe('claiming a report opened from an out-of-date list row', () => {
         const claimBy = (
-            kind: 'task' | 'user',
+            kind: 'task' | 'user' | 'agent',
             claimId: string,
             userUuid?: string
         ): NonNullable<SignalReport['assignee']> =>
@@ -407,7 +407,7 @@ describe('inboxReportDetailLogic', () => {
                 kind,
                 user: userUuid ? { id: 1, uuid: userUuid, first_name: 'Ada', email: 'ada@example.com' } : null,
                 task_id: kind === 'task' ? 'task-1' : null,
-                agent: null,
+                agent: kind === 'agent' ? 'codex' : null,
                 claimed_at: '2026-01-01T00:00:00Z',
                 responsible_user: null,
             }) as unknown as NonNullable<SignalReport['assignee']>
@@ -422,6 +422,12 @@ describe('inboxReportDetailLogic', () => {
             {
                 name: 'reports a person who claimed the report meanwhile',
                 serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                expectedBodies: [{ takeover: false }],
+                expectedToast: 'Someone else is already working on this report.',
+            },
+            {
+                name: 'preserves a claim made by a person through their agent meanwhile',
+                serverAssignee: claimBy('agent', 'claim-agent', 'other-user'),
                 expectedBodies: [{ takeover: false }],
                 expectedToast: 'Someone else is already working on this report.',
             },
