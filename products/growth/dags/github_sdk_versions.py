@@ -64,6 +64,9 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     ),
     "posthog-go-mcp": lambda: fetch_go_sdk_data(),
     "posthog-ruby-mcp": lambda: fetch_ruby_sdk_data(),
+    "posthog-roblox": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-roblox", tag_prefixes=prefixed_or_unprefixed_semver_tags("v")
+    ),
     "js": lambda: fetch_js_lite_sdk_data(),
 }
 

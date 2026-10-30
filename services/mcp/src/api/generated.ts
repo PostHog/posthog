@@ -68054,6 +68054,7 @@ export namespace Schemas {
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
      * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `posthog-roblox` - posthog-roblox
      * * `js` - js
      */
     export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
@@ -68088,6 +68089,7 @@ export namespace Schemas {
       PosthogUnreal: 'posthog-unreal',
       PosthogGoMcp: 'posthog-go-mcp',
       PosthogRubyMcp: 'posthog-ruby-mcp',
+      PosthogRoblox: 'posthog-roblox',
       Js: 'js',
     } as const;
 
@@ -110278,6 +110280,7 @@ export namespace Schemas {
        * * `posthog-unreal` - posthog-unreal
        * * `posthog-go-mcp` - posthog-go-mcp
        * * `posthog-ruby-mcp` - posthog-ruby-mcp
+       * * `posthog-roblox` - posthog-roblox
        * * `js` - js */
       lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */

@@ -47,6 +47,7 @@ SdkTypes = Literal[
     "posthog-unreal",
     "posthog-go-mcp",
     "posthog-ruby-mcp",
+    "posthog-roblox",
     "js",
 ]
 SDK_TYPES: list[SdkTypes] = [
@@ -78,6 +79,7 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-unreal",
     "posthog-go-mcp",
     "posthog-ruby-mcp",
+    "posthog-roblox",
     "js",
 ]
 LEGACY_JAVA_SDK = "posthog-java"
