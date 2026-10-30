@@ -22,9 +22,35 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
 | `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
 | `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
+| `hog error-tracking release`            | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
+| `hog error-tracking download <id/ref>`  | Downloads a symbol set from PostHog and unpacks it.                                                                     |
+| `hog error-tracking extract <file>`     | Unpacks a symbol set file.                                                                                              |
 | `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
 | Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
+
+## What's left
+
+hog replaces posthog-cli once everything below is done.
+
+First, the commands that make hog a complete CLI:
+
+- [ ] `hog api`: the agent-first MCP tool catalog, with `tools`, `search`, `info`, `schema`, `call`, `skill` and `agents-md`. posthog-cli runs an embedded JavaScript bundle through Node. hog can import the bundle and drop the Node requirement.
+- [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
+- [ ] `hog schema`: `pull` and `status`, which download event definitions and generate a typed SDK.
+
+Then, once the commands above work:
+
+- [ ] Global options from posthog-cli: `--dry-run` and `POSTHOG_CLI_DRY_RUN`, which skip the whole command without credentials, `--no-fail`, `--skip-ssl-verification`, and `--rate-limit` with `POSTHOG_CLIENT_RATE_LIMIT`.
+- [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
+- [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
+
+Not planned:
+
+- `posthog-cli exp query editor`, the interactive query editor in the terminal. hog won't port it.
+- `posthog-cli exp task`. hog won't port it.
+- `posthog-cli exp logs import`, which imports historical logs from Loki. Not planned for now.
 
 ## Agents, people and pipes
 
