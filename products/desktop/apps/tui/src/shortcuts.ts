@@ -1,6 +1,6 @@
 import type { Key } from "ink";
 
-export type Shortcut = "splitRight" | "splitDown" | "close";
+export type Shortcut = "splitRight" | "splitDown" | "close" | "newChat";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -10,6 +10,7 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   // Legacy terminals send Ctrl+Shift+S as Ctrl+S, so Ctrl+\ (a raw byte there) also splits down.
   if (input === "\x1c" || (key.ctrl && input === "\\")) return "splitDown";
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
+  if (key.ctrl && letter === "n") return "newChat";
   return null;
 }
 

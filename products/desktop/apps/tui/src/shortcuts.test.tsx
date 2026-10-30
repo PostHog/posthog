@@ -30,6 +30,8 @@ describe("shortcutFor", () => {
     ["legacy Ctrl+C", "\x03", "close"],
     ["kitty Ctrl+C", "\x1b[99;5u", "close"],
     ["legacy Ctrl+D", "\x04", "close"],
+    ["legacy Ctrl+N", "\x0e", "newChat"],
+    ["kitty Ctrl+N", "\x1b[110;5u", "newChat"],
     ["plain s", "s", null],
     ["Tab", "\t", null],
   ])("%s", async (_, bytes, expected) => {

@@ -18,6 +18,7 @@ const APP_KEYS: KeyId[] = [
   "ctrl+\\",
   "ctrl+c",
   "ctrl+d",
+  "ctrl+n",
   "pageUp",
   "pageDown",
 ];
