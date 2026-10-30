@@ -460,10 +460,10 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List signal reports
+        title: List inbox reports
         description: >
-            List signal reports in the current project. A report clusters related signals into one issue or trend,
-            and shows in the Inbox. Each parameter's description says how it filters.
+            List inbox reports in the current project. A report groups related findings into one issue or trend.
+            Each parameter's description says how it filters.
 
             For "what needs me", pass `view=for_you` with `sort=priority`. For the next fixable work across the
             project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For

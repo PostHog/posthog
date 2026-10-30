@@ -7998,11 +7998,11 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports in the current project. A report clusters related signals into one issue or trend, and shows in the Inbox. Each parameter's description says how it filters.\nFor \"what needs me\", pass `view=for_you` with `sort=priority`. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal ranked shortlist, such as \"my top 10\", the prioritizing-my-inbox skill combines these rows with the user's activity summary. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.",
+        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters.\nFor \"what needs me\", pass `view=for_you` with `sort=priority`. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal ranked shortlist, such as \"my top 10\", the prioritizing-my-inbox skill combines these rows with the user's activity summary. For the work this agent claimed, pass `assignee=me`.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "List signal reports",
-        "title": "List signal reports",
+        "summary": "List inbox reports",
+        "title": "List inbox reports",
         "required_scopes": ["task:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/"],
         "annotations": {
