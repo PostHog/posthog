@@ -16,7 +16,11 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
+from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -897,3 +901,161 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         for result in response.json()["results"]:
             assert result["media_preview_urls"] == []
+
+
+@time_machine.travel("2020-01-02", tick=False)
+class TestEventDefinitionStopIngestingAPI(APIBaseTest):
+    def _stop_ingesting(self, event: EventDefinition, **kwargs: Any):
+        return self.client.post(
+            f"/api/projects/{self.team.project_id}/event_definitions/{event.id}/stop_ingesting/", **kwargs
+        )
+
+    def test_adds_a_live_drop_condition_and_hides_the_event(self):
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="spam_event", verified=True, verified_by=self.user, verified_at=timezone.now()
+        )
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["hidden"] is True
+        assert response.json()["verified"] is False
+
+        config = EventFilterConfig.objects.get(team=self.team)
+        assert config.mode == EventFilterMode.LIVE
+        assert config.filter_tree == {
+            "type": "or",
+            "children": [{"type": "condition", "field": "event_name", "operator": "exact", "value": "spam_event"}],
+        }
+
+        event.refresh_from_db()
+        assert event.hidden is True
+        assert event.verified is False
+        assert event.verified_by is None
+        assert event.verified_at is None
+
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="EventDefinition", item_id=str(event.id))
+        assert log.activity == "changed"
+        assert log.user == self.user
+        assert log.detail is not None
+        assert {(c["field"], c["before"], c["after"]) for c in log.detail["changes"]} == {
+            ("hidden", False, True),
+            ("verified", True, False),
+        }
+
+    def test_promotes_an_ingested_event_definition(self):
+        event = EventDefinition.objects.create(team=self.team, name="ingested_event")
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert EnterpriseEventDefinition.objects.get(id=event.id).hidden is True
+
+    def test_drops_the_event_in_every_environment_of_the_project(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert set(EventFilterConfig.objects.filter(mode=EventFilterMode.LIVE).values_list("team_id", flat=True)) == {
+            self.team.id,
+            other_team.id,
+        }
+
+    def test_changes_nothing_when_the_event_filter_is_in_dry_run(self):
+        tree = {
+            "type": "or",
+            "children": [{"type": "condition", "field": "distinct_id", "operator": "exact", "value": "bot"}],
+        }
+        EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.DRY_RUN, filter_tree=tree)
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "The event filter is in dry run. Make it live or remove its conditions, then try again."
+        )
+        config = EventFilterConfig.objects.get(team=self.team)
+        assert (config.mode, config.filter_tree) == (EventFilterMode.DRY_RUN, tree)
+        event.refresh_from_db()
+        assert event.hidden is False
+
+    def test_refuses_posthog_events(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="$pageview")
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not EventFilterConfig.objects.exists()
+
+    def test_requires_enterprise_build(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        with patch("posthog.api.event_definition.EE_AVAILABLE", False):
+            response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not EventFilterConfig.objects.exists()
+
+    @parameterized.expand(
+        [
+            ("event definition scope only", ["event_definition:write"], status.HTTP_403_FORBIDDEN),
+            ("both scopes", ["event_definition:write", "event_filter:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_personal_api_key_needs_the_event_filter_scope(self, _name: str, scopes: list[str], expected: int):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+        self.client.logout()
+
+        response = self._stop_ingesting(event, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == expected, response.json()
+
+    def test_personal_api_key_must_reach_every_environment(self):
+        Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["event_definition:write", "event_filter:write"],
+            scoped_teams=[self.team.id],
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+        self.client.logout()
+
+        response = self._stop_ingesting(event, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not EventFilterConfig.objects.exists()
+        event.refresh_from_db()
+        assert event.hidden is False
+
+    def test_user_needs_event_filter_editor_access_in_every_environment(self):
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        AccessControl.objects.create(team=other_team, resource="event_filter", access_level="viewer")
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        response = self._stop_ingesting(event)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not EventFilterConfig.objects.exists()
+        event.refresh_from_db()
+        assert event.hidden is False
+
+    def test_delete_does_not_change_the_event_filter(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        response = self.client.delete(f"/api/projects/{self.team.project_id}/event_definitions/{event.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not EventFilterConfig.objects.exists()

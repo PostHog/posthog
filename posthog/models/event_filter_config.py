@@ -1,11 +1,17 @@
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel, UUIDTModel
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 ALLOWED_FIELDS = {"event_name", "distinct_id"}
 ALLOWED_OPERATORS = {"exact", "contains"}
@@ -292,6 +298,75 @@ def tree_has_conditions(node: object) -> bool:
     if node_type in ("and", "or"):
         return any(tree_has_conditions(child) for child in node.get("children", []))
     return False
+
+
+def _event_name_drop_condition(event_name: str) -> dict:
+    return {"type": "condition", "field": "event_name", "operator": "exact", "value": event_name}
+
+
+def tree_drops_event_name(node: object, event_name: str) -> bool:
+    """
+    Check if the tree drops this event name for every distinct_id: an exact event_name condition
+    must be the root, or a direct child of a root OR group.
+    """
+    if not isinstance(node, dict):
+        return False
+    condition = _event_name_drop_condition(event_name)
+    candidates = node.get("children", []) if node.get("type") == "or" else [node]
+    return any(
+        isinstance(child, dict) and all(child.get(key) == value for key, value in condition.items())
+        for child in candidates
+    )
+
+
+def with_event_name_drop(node: dict | None, event_name: str) -> dict:
+    """Return a tree that also drops this event name for every distinct_id."""
+    condition = _event_name_drop_condition(event_name)
+    if node is None or not tree_has_conditions(node):
+        return {"type": "or", "children": [condition]}
+    if node.get("type") == "or":
+        return {**node, "children": [*node.get("children", []), condition]}
+    return {"type": "or", "children": [node, condition]}
+
+
+def add_event_name_drop(teams: Sequence[Team], event_name: str, created_by: "User | None" = None) -> None:
+    """
+    Make the live event filter of each team drop this event name.
+
+    This never makes a team's own conditions live. If a team's filter has conditions but is not
+    live, or the new condition breaks its limits or test cases, this raises a ValidationError
+    and changes no team.
+    """
+    with transaction.atomic():
+        for team in sorted(teams, key=lambda t: t.id):
+            where = f' in the "{team.name}" environment' if len(teams) > 1 else ""
+            config, _ = EventFilterConfig.objects.select_for_update().get_or_create(
+                team=team, defaults={"mode": EventFilterMode.DISABLED, "created_by": created_by}
+            )
+            if config.mode == EventFilterMode.LIVE and tree_drops_event_name(config.filter_tree, event_name):
+                continue
+            if config.mode != EventFilterMode.LIVE and tree_has_conditions(config.filter_tree):
+                state = "in dry run" if config.mode == EventFilterMode.DRY_RUN else "turned off"
+                raise ValidationError(
+                    f"The event filter{where} is {state}. Make it live or remove its conditions, then try again."
+                )
+
+            filter_tree = with_event_name_drop(config.filter_tree, event_name)
+            if _count_conditions(filter_tree) > MAX_CONDITIONS:
+                raise ValidationError(
+                    f"The event filter{where} already has the maximum of {MAX_CONDITIONS} conditions."
+                )
+            if _check_max_depth(filter_tree) > MAX_TREE_DEPTH:
+                raise ValidationError(f"The event filter{where} would be more than {MAX_TREE_DEPTH} levels deep.")
+            if config.test_cases and run_test_cases(filter_tree, config.test_cases):
+                raise ValidationError(
+                    f"A test case in the event filter{where} expects this event to be ingested. "
+                    "Change the test case, then try again."
+                )
+
+            config.filter_tree = filter_tree
+            config.mode = EventFilterMode.LIVE
+            config.save()
 
 
 def evaluate_filter_tree(node: dict, event: dict) -> bool:
