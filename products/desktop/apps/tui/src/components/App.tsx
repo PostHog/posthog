@@ -5,7 +5,7 @@ import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, canRun, pickerKey } from "../actions";
 import type { PiChats } from "../chats";
 import { ChatView } from "../chatView";
-import { Composer, isAppKey } from "../composer";
+import { Composer, isAppKey, isTyping } from "../composer";
 import {
   activeWorkspace,
   assignTask,
@@ -34,8 +34,10 @@ import type { CloudRuns } from "../runs";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
-  firstSelectable,
+  cursorIndex,
   moveSelection,
+  previewRow,
+  selectionKey,
   sidebarRows,
   type WorkPage,
 } from "../sidebar";
@@ -101,7 +103,8 @@ export function App({
     new Map(),
   );
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState(-1);
+  // The cursor follows a row's identity, since previewing a chat can move rows.
+  const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const closeGuard = useRef(new DoublePress(CLOSE_CONFIRM_MS));
   const sidebarBox = useRef<DOMElement | null>(null);
@@ -255,14 +258,14 @@ export function App({
       }),
     [layout, page, collapsed, known, fresh],
   );
-  const selectedIndex = selected < 0 ? firstSelectable(rows) : selected;
+  const selectedIndex = cursorIndex(rows, selected);
   const workspace = activeWorkspace(layout);
   const sidebarFocused = layout.focus === "sidebar";
 
   const activate = (index: number): void => {
     const row = rows[index];
     if (!row) return;
-    setSelected(index);
+    setSelected(selectionKey(row));
     const next = activateRow(layout, row);
     if (next === "viewMore") {
       setPage((current) => ({ ...current, loadingMore: true }));
@@ -309,10 +312,11 @@ export function App({
     }
     if (key.escape) {
       setLayout((current) => focusPane(current, workspace.focusedPaneId));
-    } else if (key.downArrow || input === "j") {
-      setSelected(moveSelection(rows, selectedIndex, 1));
-    } else if (key.upArrow || input === "k") {
-      setSelected(moveSelection(rows, selectedIndex, -1));
+    } else if (key.downArrow || key.upArrow) {
+      const step = key.downArrow ? 1 : -1;
+      const next = moveSelection(rows, selectedIndex, step);
+      setSelected(selectionKey(rows[next]));
+      setLayout((current) => previewRow(current, rows[next]));
     } else if (key.leftArrow || key.rightArrow) {
       const row = rows[selectedIndex];
       if (row?.kind !== "workspace") return;
@@ -351,8 +355,15 @@ export function App({
   };
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
-    if (layout.focus !== "pane" || isAppKey(sequence)) return;
+    if (isAppKey(sequence)) return;
     const paneId = workspace.focusedPaneId;
+    // Typing from the sidebar carries on in the previewed chat's composer.
+    if (layout.focus === "sidebar") {
+      if (!isTyping(sequence)) return;
+      setLayout((current) => focusPane(current, paneId));
+      composerFor(paneId).handleInput(sequence);
+      return;
+    }
     const composer = composerFor(paneId);
     const offer = offers.current.get(paneId);
     const key = pickerKey(sequence);

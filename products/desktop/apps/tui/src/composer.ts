@@ -1,6 +1,7 @@
 import { getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
+  decodeKittyPrintable,
   Editor,
   type KeyId,
   matchesKey,
@@ -25,6 +26,16 @@ const APP_KEYS: KeyId[] = [
 
 export function isAppKey(sequence: string): boolean {
   return APP_KEYS.some((key) => matchesKey(sequence, key));
+}
+
+const PASTE_START = "\u001b[200~";
+const REVERSE_VIDEO = "\u001b[7m";
+
+// Text a person types or pastes, as opposed to navigation and control keys.
+export function isTyping(sequence: string): boolean {
+  if (sequence.startsWith(PASTE_START)) return true;
+  if (decodeKittyPrintable(sequence) !== undefined) return true;
+  return [...sequence].every((char) => char >= " " && char !== "\u007f");
 }
 
 const DIM = (text: string): string => `\u001b[2m${text}\u001b[22m`;
@@ -68,8 +79,13 @@ export class Composer {
 
   render(width: number, focused: boolean): string[] {
     this.editor.focused = focused;
+    // pi always draws an inverse cursor block; only the focused pane should show one.
     return this.editor
       .render(width)
-      .map((line) => line.replace(CURSOR_MARKER, ""));
+      .map((line) =>
+        focused
+          ? line.replace(CURSOR_MARKER, "")
+          : line.replaceAll(REVERSE_VIDEO, ""),
+      );
   }
 }
