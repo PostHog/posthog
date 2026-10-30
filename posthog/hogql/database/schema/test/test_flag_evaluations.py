@@ -751,6 +751,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "posthog_events_qualified_with_a_join",
+                "SELECT count() FROM posthog.events JOIN (SELECT 'probe-distinct-id' AS d) AS s "
+                "ON posthog.events.distinct_id = s.d WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY",
+                [(1,)],
+            ),
+            (
                 "alias_named_flag_key_read_back",
                 "SELECT properties.$feature_flag AS flag_key, count() FROM events "
                 f"WHERE {FLAG_CALL_CONJUNCTS} GROUP BY flag_key",
@@ -933,6 +941,15 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "posthog_events_person_id_through_distinct_ids",
                 f"SELECT person_id FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
+            ),
+            (
+                "posthog_events_qualifier_that_a_joined_column_takes",
+                "SELECT count() FROM posthog.events "
+                "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
+                "starts with posthog.events reads another table",
             ),
             (
                 "current_person_properties",

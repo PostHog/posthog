@@ -11,7 +11,7 @@ reading `events`. On mode 2, a second pass finds the scans those rules miss in t
 
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import cache, partial
 from typing import TYPE_CHECKING, Protocol
@@ -142,7 +142,7 @@ def can_read_flag_evaluations(
     without a flag key.
 
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
-    binds as it did before.
+    binds as it did before, and every field that starts with `posthog.events` reads the scan.
     """
     scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()))
     return scan is not None and _qualifies(
@@ -154,7 +154,8 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead.
 
-    This returns the swapped query only when it resolves and every name in it binds as it does in the original.
+    This returns the swapped query only when it resolves, every name in it binds as it does in the original, and
+    every field in it that starts with `posthog.events` reads a scan.
     Otherwise it returns the resolved original. For an organization whose flag calls are only in
     `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
     resolves anything when such an organization's query has a scan of only flag calls with a shape that
@@ -237,6 +238,8 @@ def _resolve_with_swaps(
     else:
         if not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
             reason = "a name in it would read a different column there"
+        elif not _posthog_events_qualifiers_read_scans(swapped):
+            reason = "a name in it that starts with posthog.events reads another table"
         elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
             reason = "it reads a property from a different kind of column there"
         else:
@@ -320,9 +323,9 @@ class EventsScan:
         )
         collector = _AliasCollector(node)
         collector.visit(node)
-        # The resolver tries a CTE and a select alias before it reads a qualifier such as `posthog.events` as the
-        # name of a table.
-        scan.qualifier_shadows = ctes.union(name for name, _ in collector.aliases)
+        # The resolver tries a joined table's name, a CTE and a select alias before it reads a qualifier such as
+        # `posthog.events` as the name of a table.
+        scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in collector.aliases))
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
             name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
@@ -338,10 +341,12 @@ class EventsScan:
             return None
         if expr.chain[0] == self.alias and len(expr.chain) > 1:
             return expr.chain[1:]
+        unqualified = self._without_dotted_qualifier(expr.chain)
+        if unqualified is not None:
+            return unqualified
         if self.has_other_sources or expr.chain[0] in self.shadowed:
             return None
-        unqualified = self._without_dotted_qualifier(expr.chain)
-        return expr.chain if unqualified is None else unqualified
+        return expr.chain
 
     def _without_dotted_qualifier(self, chain: list[str | int]) -> list[str | int] | None:
         """`chain` without a leading `posthog.events`, or None when it has none. Without an alias, `FROM posthog.events`
@@ -349,11 +354,7 @@ class EventsScan:
         `` `posthog.events` ``."""
         if self.alias != "posthog__events" or str(chain[0]) in self.qualifier_shadows:
             return None
-        if chain[0] == "posthog.events" and len(chain) > 1:
-            return chain[1:]
-        if chain[:2] == ["posthog", "events"] and len(chain) > 2:
-            return chain[2:]
-        return None
+        return _below_posthog_events(chain)
 
     def shape_refusal(self, node: ast.SelectQuery) -> str | None:
         """Why `flag_evaluations` cannot stand in for this scan whatever its filters say, or None."""
@@ -463,6 +464,25 @@ def _pins_flag_calls_in(
     if branches := boolean_operands(expr, ast.Or):
         return all(_pins_flag_calls(_conjuncts(branch), reads_event, flag_keys) for branch in branches)
     return False
+
+
+def _join_names(join: ast.JoinExpr | None) -> Iterator[str]:
+    """The name each join in the chain from `join` puts in scope. A joined subquery without an alias puts none."""
+    while join is not None:
+        if join.alias is not None:
+            yield join.alias
+        elif isinstance(join.table, ast.Field):
+            yield "__".join(str(part) for part in join.table.chain)
+        join = join.next_join
+
+
+def _below_posthog_events(chain: list[str | int]) -> list[str | int] | None:
+    """`chain` without a leading `posthog.events` or `` `posthog.events` ``, or None when it has neither."""
+    if chain[0] == "posthog.events" and len(chain) > 1:
+        return chain[1:]
+    if chain[:2] == ["posthog", "events"] and len(chain) > 2:
+        return chain[2:]
+    return None
 
 
 def comparison_of(expr: ast.Expr) -> ast.CompareOperation | None:
@@ -965,6 +985,43 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
     """
     expected = Counter(_bindings(original)) + Counter({_ADDED_FLAG_KEY_READ: flag_key_predicates})
     return Counter(_bindings(swapped)) == expected
+
+
+def _posthog_events_qualifiers_read_scans(node: ast.AST) -> bool:
+    """Whether each field that starts with `posthog.events` reads an events or flag_evaluations scan.
+
+    The swap counts such a field as a read of the scan. A joined table can still take that name, for example with a
+    column named `posthog`. The field then reads that table in both queries, so `_swap_keeps_bindings` does not see it.
+    """
+    collector = _PosthogEventsQualifiedFieldCollector()
+    collector.visit(node)
+    return all(_reads_scan(field.type) for field in collector.fields)
+
+
+def _reads_scan(current: ast.Type | None) -> bool:
+    while isinstance(
+        current,
+        (
+            ast.PropertyType,
+            ast.FieldType,
+            ast.FieldTraverserType,
+            ast.LazyJoinType,
+            ast.TableAliasType,
+            ast.VirtualTableType,
+        ),
+    ):
+        current = current.field_type if isinstance(current, ast.PropertyType) else current.table_type
+    return isinstance(current, ast.TableType) and isinstance(current.table, (EventsTable, FlagEvaluationsTable))
+
+
+class _PosthogEventsQualifiedFieldCollector(_SyntaxVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and _below_posthog_events(node.chain) is not None:
+            self.fields.append(node)
 
 
 # A field records the last part of its chain, so `e.person_id` and `person_id` match.

@@ -241,6 +241,11 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _on_posthog_events(POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`.")),
             ),
             (
+                "posthog_events_qualifier_with_a_join",
+                "SELECT count() FROM posthog.events JOIN persons AS p ON posthog.events.person_id = p.id "
+                f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
+            (
                 "alias_that_renames_its_own_column",
                 f"SELECT e.timestamp AS timestamp FROM events e WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}",
             ),
@@ -433,8 +438,8 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 f"WITH posthog AS (SELECT 1) {_on_posthog_events(POSTHOG_EVENTS_QUALIFIED)}",
             ),
             (
-                "posthog_events_qualifier_with_a_join",
-                "SELECT count() FROM posthog.events JOIN persons AS p ON posthog.events.person_id = p.id "
+                "posthog_events_qualifier_that_a_join_alias_shadows",
+                "SELECT count() FROM posthog.events JOIN persons AS posthog ON posthog.events.person_id = posthog.id "
                 f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
             ),
             (
