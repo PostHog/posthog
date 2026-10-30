@@ -119,9 +119,9 @@ export function useChatList(): QueryState<ChatListItem[]> {
 
 export interface ChatArchiveActions {
     /** Hides the row at once and archives the task. A failed request puts the row back and rejects. */
-    archive: (item: ChatListItem) => Promise<void>
+    archive: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
     /** Puts the row back at once and unarchives the task, for the toast's Undo. */
-    restore: (item: ChatListItem) => Promise<void>
+    restore: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
 }
 
 function useLiveArchiveChat(): ChatArchiveActions {
@@ -147,7 +147,7 @@ function useLiveArchiveChat(): ChatArchiveActions {
     )
 
     const archive = useCallback(
-        (item: ChatListItem): Promise<void> => {
+        (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
             const pending = archivesInFlight.current.get(item.sourceId)
             if (pending) {
                 return pending
@@ -185,7 +185,7 @@ function useLiveArchiveChat(): ChatArchiveActions {
     )
 
     const restore = useCallback(
-        async (item: ChatListItem): Promise<void> => {
+        async (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
             if (!scope) {
                 throw new NotSignedInError()
             }

@@ -73,6 +73,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_ranking.candidates import recommended_order
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
@@ -252,6 +253,12 @@ class TestSignalReportDeleteAPI(APIBaseTest):
 
 class TestSignalReportListAPI(APIBaseTest):
     """GET list/retrieve: `priority` from actionability artefacts; `ordering` (comma-separated, e.g. `status,-total_weight`)."""
+
+    def _assert_personal_ranking_sorts_like_the_list(self, body: dict[str, Any]) -> None:
+        # The personal ranking reorders `for_you` reports in Python, and its fallback must match this list.
+        ids = [r["id"] for r in body["results"]]
+        reports = list(SignalReport.objects.filter(team=self.team, id__in=ids))
+        assert recommended_order(self.team.id, body["ranker"], reports) == ids
 
     def _list_url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signals/reports/"
@@ -1801,6 +1808,7 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(p2.id), 62),
             (str(no_priority.id), 65),
         ]
+        self._assert_personal_ranking_sorts_like_the_list(body)
 
     @parameterized.expand([("open", "open"), ("action", "action"), ("fix", "fixed")])
     def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, outcome, head):
@@ -1866,6 +1874,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert all(r["ranking"]["status"] == "not_available" for r in body["results"])
         for raw_score in ("0.1234", "0.8123", "0.8765", "0.9876"):
             assert raw_score not in response.content.decode()
+        self._assert_personal_ranking_sorts_like_the_list(body)
 
     @parameterized.expand(
         [
@@ -2479,7 +2488,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert filter_sql
         for sql in filter_sql:
             # Django aliases the PR artefact, task-run artefact, legacy task, and assignment task tables as V0.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 4
+            assert sql.count(f'"V0"."team_id" = {self.team.id}') == 4
             # A join to the assignment or pull request table lets the planner scan every team's rows first.
             assert "JOIN" not in sql
             assert '"pull_request_id" = ANY((ARRAY(SELECT' in sql
@@ -2592,12 +2601,12 @@ class TestSignalReportListAPI(APIBaseTest):
         [
             ("short_first_page", 10, 0, 3, False, False),
             ("short_last_page", 2, 2, 1, False, False),
-            ("exact_full_page", 3, 0, 3, True, False),
-            ("full_page_with_more", 2, 0, 2, True, True),
+            ("exact_full_page", 3, 0, 3, False, False),
+            ("full_page_with_more", 2, 0, 2, False, True),
             ("offset_past_the_end", 2, 5, 0, True, False),
         ]
     )
-    def test_search_page_counts_without_a_second_scan_when_the_page_is_short(
+    def test_search_page_counts_without_a_second_scan(
         self, _name: str, limit: int, offset: int, rows: int, runs_count_query: bool, has_next: bool
     ) -> None:
         for i in range(3):
@@ -2605,12 +2614,15 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="Unrelated")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(search="checkout", limit=limit, offset=offset))
+            response = self.client.get(
+                self._list_url(search="checkout", ordering="-created_at", limit=limit, offset=offset)
+            )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["count"] == 3
-        assert len(body["results"]) == rows
+        newest_first = ["Checkout failure 2", "Checkout failure 1", "Checkout failure 0"]
+        assert [r["title"] for r in body["results"]] == newest_first[offset : offset + rows]
         assert (body["next"] is not None) == has_next
         count_queries = [
             q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]
