@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { wizardRunsList, wizardRunsTasksRetrieve } from '../../generated/api'
 import type { WizardRunApi } from '../../generated/api.schemas'
+import { loadWizardRunArtifacts } from '../../lib/wizardApi'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { onboardingWizardRunLogic } from './onboardingWizardRunLogic'
 
@@ -15,7 +16,10 @@ jest.mock('../../generated/api', () => ({
     wizardRunsTasksRetrieve: jest.fn().mockResolvedValue({ tasks: [] }),
     getWizardRunsStreamRetrieveUrl: () => '/stream',
 }))
-jest.mock('../../lib/wizardApi', () => ({ loadWizardRunArtifacts: jest.fn().mockResolvedValue([]) }))
+jest.mock('../../lib/wizardApi', () => ({
+    loadWizardRunArtifacts: jest.fn().mockResolvedValue([]),
+    loadWizardOnboardingStartTime: jest.fn().mockImplementation(async () => new Date().toISOString()),
+}))
 
 const props = { projectId: '1', userId: MOCK_DEFAULT_USER.id }
 const startedAt = '2026-09-23T10:00:00Z'
@@ -83,6 +87,23 @@ describe('onboardingWizardRunLogic', () => {
         expect(JSON.parse(localStorage.getItem(`1.${props.userId}.onboarding_wizard_run_id`)!)).toEqual(
             logic.values.savedRun
         )
+        const taskReads = jest.mocked(wizardRunsTasksRetrieve).mock.calls.length
+        const artifactReads = jest.mocked(loadWizardRunArtifacts).mock.calls.length
+        for (const updatedAt of ['2026-09-23T10:02:00Z', '2026-09-23T10:03:00Z']) {
+            sync.actions.runUpdated(run.id, {
+                status: 'running',
+                stage: 'executing_wizard',
+                error_code: null,
+                error_message: null,
+                updated_at: updatedAt,
+                started_at: null,
+                finished_at: null,
+                tasks: [],
+            })
+        }
+        await expectLogic(logic).toFinishAllListeners()
+        expect(wizardRunsTasksRetrieve).toHaveBeenCalledTimes(taskReads)
+        expect(loadWizardRunArtifacts).toHaveBeenCalledTimes(artifactReads)
 
         const newer = { ...run, id: 'replacement', environment: 'cloud' as const, created_at: '2026-09-23T10:02:00Z' }
         sync.actions.runsLoaded([run, newer, audit])

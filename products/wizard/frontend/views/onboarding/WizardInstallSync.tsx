@@ -31,15 +31,18 @@ export function WizardInstallSync({
         return <>{children}</>
     }
     return (
-        <WizardInstallSyncView
-            run={run}
-            tasks={tasksByRunId[run.id] ?? []}
-            artifacts={artifactsByRunId[run.id] ?? []}
-            loading={runDataLoading[run.id] ?? true}
-            error={runDataErrors[run.id] ?? null}
-            onRetry={() => loadRunData(run)}
-            onArtifactClick={clickArtifact}
-            now={now}
-        />
+        <>
+            <WizardInstallSyncView
+                run={run}
+                tasks={tasksByRunId[run.id] ?? []}
+                artifacts={artifactsByRunId[run.id] ?? []}
+                loading={runDataLoading[run.id] ?? true}
+                error={runDataErrors[run.id] ?? null}
+                onRetry={() => loadRunData(run)}
+                onArtifactClick={clickArtifact}
+                now={now}
+            />
+            {(run.status === 'failed' || run.status === 'cancelled') && children}
+        </>
     )
 }
