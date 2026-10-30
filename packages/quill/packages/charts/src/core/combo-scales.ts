@@ -111,7 +111,9 @@ export function createComboScales(
         : axisPositions[0].axisId
 
     // `valueBounds` and `floatBaseline` belong to the configured primary axis (the default id, else
-    // the first configured axis), which keeps them when legend toggling hides its series.
+    // the first configured axis), which keeps them when legend toggling hides its series. This is
+    // deliberately not `primaryAxisId`: `valueDomain` carries goal-line `include`s, which follow the
+    // first visible axis.
     const boundsAxisId = axes?.length
         ? axisOverrides.has(DEFAULT_Y_AXIS_ID)
             ? DEFAULT_Y_AXIS_ID

@@ -253,9 +253,13 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 40])
         })
 
-        it('keeps a log scale when both ends are positive', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { min: 1, max: 100 } })
+        // A log domain can't hold zero, so a non-positive end is dropped and the axis stays logarithmic.
+        it.each([
+            ['both ends positive', { min: 1, max: 100 }],
+            ['a zero min', { min: 0, max: 100 }],
+        ])('keeps a log scale with %s', (_name, valueDomain) => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain })
             expect(scale(10)).toBeCloseTo((scale(1) + scale(100)) / 2)
         })
 

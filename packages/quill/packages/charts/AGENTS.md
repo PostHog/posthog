@@ -96,7 +96,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 
 - A duplicate label draws the series backwards. Use ISO dates, not display labels.
 - In percent layouts every formatter receives a 0..1 fraction; `ValueLabelContext.rawValue` has the original.
-- Bar charts, and combo axes carrying bars, ignore `yAxis.min` / `max` on purpose. Pin `valueDomain` instead.
+- Bar charts, and combo axes carrying bars, ignore `yAxis.min` / `max` on purpose. Pin the primary axis's `valueDomain` instead.
 - A pinned tooltip's `onRowClick` only fires when `config.tooltip.pinnable` is set. Call `ctx.onUnpin()` before opening a modal from it.
 - On stacked bars, describe the hovered segment from `TooltipContext.hoveredSeriesKey`, not `seriesData[0]`.
 - A secondary axis with a fixed meaning (0..1, 0..100) needs `min` / `max` pinned, or a reference line above its data falls off the plot.

@@ -542,7 +542,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
-    valueDomain?: ValueDomain /** Primary-axis `min` / `max`, honored only while that axis carries no bar series: a bar encodes
+    valueDomain?: ValueDomain
+    /** Primary-axis `min` / `max`, honored only while that axis carries no bar series: a bar encodes
      *  magnitude as length from zero, so a raised floor would misread it. Use `valueDomain` to rescale
      *  an axis with bars. `valueDomain` wins a bound both set. */
     valueBounds?: Pick<ValueDomain, 'min' | 'max'>
