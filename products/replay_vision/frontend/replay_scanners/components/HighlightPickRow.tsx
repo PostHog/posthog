@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -25,9 +25,10 @@ interface HighlightPickRowProps {
 
 export function HighlightPickRow({ item, position, isActive, rank }: HighlightPickRowProps): JSX.Element {
     const { highlightPick, cardSeen } = useActions(highlightPicksLogic)
+    const { picksLoad } = useValues(highlightPicksLogic)
     const { observation, reason } = item
     const { title, scannerName } = highlightPickSummary(observation)
-    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS, picksLoad?.feedLoadId)
 
     return (
         <LemonButton

@@ -1381,8 +1381,6 @@ class ReplayObservationViewSet(
         if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
             asset = media.small_asset
         response = get_export_asset_content_response(asset=asset, download=False)
-        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
-        # of posters does not come back through here on every visit.
         response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 

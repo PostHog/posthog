@@ -66,7 +66,7 @@ export function ObservationThumbnail({
             : undefined
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
     // Keyed by the source, so a poster swapped for another fades in again rather than flashing the old frame.
-    const loaded = src !== undefined && loadedSrc === src
+    const loaded = loadedSrc === src
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -78,21 +78,23 @@ export function ObservationThumbnail({
     }
 
     return (
-        <div className={`relative aspect-video overflow-hidden rounded border bg-surface-secondary ${className ?? ''}`}>
-            {src && !loaded && <LemonSkeleton className="absolute inset-0 size-full rounded-none" />}
+        <div className={clsx('relative aspect-video overflow-hidden rounded border bg-surface-secondary', className)}>
             {src && (
-                <img
-                    src={src}
-                    alt=""
-                    className={clsx(
-                        'absolute inset-0 size-full object-cover transition-opacity duration-300 motion-reduce:transition-none',
-                        loaded ? 'opacity-100' : 'opacity-0'
-                    )}
-                    loading="lazy"
-                    decoding="async"
-                    onLoad={() => setLoadedSrc(src)}
-                    onError={onError}
-                />
+                <>
+                    {!loaded && <LemonSkeleton className="absolute inset-0 size-full rounded-none" />}
+                    <img
+                        src={src}
+                        alt=""
+                        className={clsx(
+                            'absolute inset-0 size-full object-cover transition-opacity duration-300 motion-reduce:transition-none',
+                            loaded ? 'opacity-100' : 'opacity-0'
+                        )}
+                        loading="lazy"
+                        decoding="async"
+                        onLoad={() => setLoadedSrc(src)}
+                        onError={onError}
+                    />
+                </>
             )}
             <div className="absolute inset-0 flex items-center justify-center">
                 {children ?? (!src && <IconVideoCamera className="text-xl text-tertiary" aria-hidden />)}

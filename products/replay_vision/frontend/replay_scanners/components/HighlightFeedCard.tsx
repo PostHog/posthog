@@ -263,16 +263,12 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  * picked, then the key-moment poster and a button that starts the player there. The whole card
  * opens the observation page.
  */
-/** Reports the card as seen once per feed load, so a card that stays across a reload counts toward the new load too. */
-function CardSeen({ onSeen }: { onSeen: () => void }): JSX.Element {
-    const ref = useAutoMarkRead(true, onSeen, CARD_SEEN_DWELL_MS)
-    return <div ref={ref} className="pointer-events-none absolute inset-0" aria-hidden />
-}
-
 export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
     const { feedLoad, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
+    // Keyed by feed load, so a card that stays across a reload counts toward the new load too.
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS, feedLoad?.feedLoadId)
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like highlightCardHeadline.
     const scannerType =
@@ -305,10 +301,10 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
     }
     return (
         <article
+            ref={rowRef}
             className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent"
             data-attr="vision-highlight-feed-row"
         >
-            <CardSeen key={feedLoad?.feedLoadId} onSeen={() => cardSeen(item, position)} />
             <header className="flex min-w-0 items-center gap-2">
                 <div className="flex min-w-0">
                     <HighlightFeedScannerLink
