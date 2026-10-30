@@ -17,9 +17,7 @@ import { AuthPageStep, authLogic } from './authLogic'
 import { authTelemetryLogic } from './authTelemetryLogic'
 import { EmailStep } from './steps/EmailStep'
 import { LoginCodeStep } from './steps/LoginCodeStep'
-import { LoginStep } from './steps/LoginStep'
 import { PendingInviteStep } from './steps/PendingInviteStep'
-import { SignupCredentialsStep } from './steps/SignupCredentialsStep'
 import { SignupProfileStep } from './steps/SignupProfileStep'
 
 export const scene: SceneExport = {
@@ -46,10 +44,11 @@ function authNotes(step: AuthPageStep, entry: AuthEntry, isReturning: boolean): 
 }
 
 const STEP_COMPONENTS: Record<AuthPageStep, () => JSX.Element> = {
+    // These three share one component, so React keeps the card and opens the password field inside it
     email: EmailStep,
-    login: LoginStep,
+    login: EmailStep,
     login_code: LoginCodeStep,
-    signup_credentials: SignupCredentialsStep,
+    signup_credentials: EmailStep,
     signup_profile: SignupProfileStep,
     signup_pending_invite: PendingInviteStep,
 }

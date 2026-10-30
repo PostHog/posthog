@@ -74,14 +74,13 @@ class CDCReservedColumnError(Exception):
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
 
-    For the engine position column it is raised when capture writes the buffer — buffer files
-    derive their name, ordering, and retry cleanup from it, and a same-named source column means
-    the batcher could not append it. Writing anyway would order and clean up by customer data,
-    which can silently delete unconsumed buffer files.
+    Names are compared the way the load writes them, after snake_case normalization, so
+    `_PH_CDC_SEQ` collides with `_ph_cdc_seq`. Capture raises it before it writes the buffer: buffer
+    files derive their name, ordering, and retry cleanup from the engine position, and ordering or
+    cleaning up by customer data can silently delete unconsumed buffer files.
 
-    For the history table's validity columns it is raised on every path, from the SCD2 stamp
-    itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
-    names the column instead of a qualified field in a schema error.
+    The SCD2 stamp raises it too, because Delta refuses the duplicate name at write time anyway, and
+    failing before the writer names the column instead of a qualified field in a schema error.
     """
 
 
@@ -174,8 +173,10 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
-        "Rename the column on your database, or choose another sync method for that table.",
+        "A source table has a column that loads under a name PostHog writes for change data capture, "
+        "such as _ph_cdc_seq or _ph_valid_from, or valid_from on an older history table that ends in _cdc. "
+        "Rename the column on your database, leave it out of the synced columns, or choose another sync "
+        "method for that table.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (

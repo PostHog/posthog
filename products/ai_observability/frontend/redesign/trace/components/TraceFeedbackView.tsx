@@ -1,10 +1,12 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { FeedbackModeState } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { FeedbackEmptyState } from './FeedbackEmptyState'
 import { FeedbackScoresTable } from './FeedbackScoresTable'
+import { FeedbackSurveyCard } from './FeedbackSurveyCard'
 import { FeedbackTextCard } from './FeedbackTextCard'
+import { UnansweredSurveyRow } from './UnansweredSurveyRow'
 
 export interface TraceFeedbackViewProps {
     state: FeedbackModeState
@@ -27,11 +29,22 @@ export function TraceFeedbackView({ state, onSelectStep, onRetry }: TraceFeedbac
     if (state.status === 'error') {
         return <ErrorCallout message="Feedback couldn't load." onRetry={onRetry} />
     }
-    if (state.scores.length === 0 && state.responses.length === 0) {
-        return <FeedbackEmptyState />
+    const surveysFailedBanner = state.surveysFailed ? (
+        <LemonBanner type="warning" action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}>
+            Survey responses couldn't load, so only the feedback your code sent shows here.
+        </LemonBanner>
+    ) : null
+    if (state.scores.length === 0 && state.responses.length === 0 && state.unanswered.length === 0) {
+        return (
+            <div className="flex flex-col gap-4">
+                {surveysFailedBanner}
+                <FeedbackEmptyState />
+            </div>
+        )
     }
     return (
         <div className="flex flex-col gap-4" data-attr="trace-view-feedback">
+            {surveysFailedBanner}
             {state.scores.length > 0 ? (
                 <section className="flex flex-col gap-2">
                     <h3 className="m-0 text-sm font-semibold">Scores</h3>
@@ -46,13 +59,31 @@ export function TraceFeedbackView({ state, onSelectStep, onRetry }: TraceFeedbac
                 <section className="flex flex-col gap-2">
                     <h3 className="m-0 text-sm font-semibold">What users said</h3>
                     <ul className="m-0 list-none divide-y divide-primary rounded border border-primary bg-surface-primary p-0">
-                        {state.responses.map((item) => (
-                            <FeedbackTextCard
-                                key={item.id}
-                                item={item}
-                                onSelectStep={onSelectStep}
-                                isScrollTarget={item.id === scrollTargetId}
-                            />
+                        {state.responses.map((item) =>
+                            item.kind === 'text' ? (
+                                <FeedbackTextCard
+                                    key={`text-${item.id}`}
+                                    item={item}
+                                    onSelectStep={onSelectStep}
+                                    isScrollTarget={item.id === scrollTargetId}
+                                />
+                            ) : (
+                                <FeedbackSurveyCard
+                                    key={`survey-${item.id}`}
+                                    response={item}
+                                    isScrollTarget={item.id === scrollTargetId}
+                                />
+                            )
+                        )}
+                    </ul>
+                </section>
+            ) : null}
+            {state.unanswered.length > 0 ? (
+                <section className="flex flex-col gap-2">
+                    <h3 className="m-0 text-sm font-semibold">Shown, not answered</h3>
+                    <ul className="m-0 list-none divide-y divide-primary rounded border border-primary p-0">
+                        {state.unanswered.map((item) => (
+                            <UnansweredSurveyRow key={item.survey.id} item={item} />
                         ))}
                     </ul>
                 </section>
