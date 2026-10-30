@@ -327,6 +327,28 @@ class TestJudgeAttachmentsContent:
         assert {"type": "text", "text": f"{label}: not attached, too large."} in content
         presign.assert_not_called()
 
+    @pytest.mark.parametrize(("model", "attached"), [("gemini-2.5-flash", 10), ("gemini-2.0-flash", 1)])
+    def test_keeps_the_newest_videos_within_the_gemini_limit(self, model: str, attached: int):
+        images = JudgeAttachments(team_id=7)
+        image = images.marker(_inline("aa"))
+        videos = " ".join(
+            images.marker(MediaBlock(modality="video", url=f"phaiblob://v1/sha256/{i:064x}?mime=video%2Fmp4"))
+            for i in range(11)
+        )
+
+        with (
+            patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed"),
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": 2}),
+            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"hi"),
+        ):
+            content = images.content(f"user: {image} {videos}", "gemini", model)
+
+        labels = {part["text"] for part in content if isinstance(part, dict)}
+        assert "Image 1:" in labels
+        assert {f"Video {n}:" for n in range(12 - attached, 12)} <= labels
+        assert f"Video {11 - attached}:" not in labels
+        assert f"Not attached, over the judge's attachment limit: {11 - attached}." in labels
+
     def test_attachments_the_judge_cannot_read_take_no_slot(self):
         images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))

@@ -79,6 +79,11 @@ def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["
     return "url" if provider in _URL_PROVIDERS else "inline"
 
 
+def max_videos(model: str) -> int:
+    """Videos Gemini accepts in one request."""
+    return 1 if model.startswith(("gemini-1.", "gemini-2.0")) else 10
+
+
 def convert_attachment_parts(
     messages: list[dict[str, Any]], convert: Callable[[AttachmentPart], Any]
 ) -> list[dict[str, Any]]:

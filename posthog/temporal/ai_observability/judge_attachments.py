@@ -25,6 +25,7 @@ from products.ai_observability.backend.llm.attachments import (
     VIDEO_MIME_TYPES,
     AttachmentPart,
     attachment_transport,
+    max_videos,
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, MediaMarker
 
@@ -132,9 +133,20 @@ class JudgeAttachments:
         readable = [image for image in images if attachment_transport(provider, model, image.mime_type) is not None]
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(readable, key=lambda image: user_prompt.rfind(image.marker))
+        # Gemini rejects a request over its video limit, and the text-only retry would drop everything else too.
+        video_slots = max_videos(model)
+        kept: list[_Media] = []
+        for image in reversed(ranked):
+            if len(kept) == MAX_ATTACHMENTS:
+                break
+            if image.kind == "video":
+                if video_slots == 0:
+                    continue
+                video_slots -= 1
+            kept.append(image)
         attachments: dict[str, _Attachment] = {}
         inline_bytes = 0
-        for image in reversed(ranked[-MAX_ATTACHMENTS:]):
+        for image in kept:
             attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
             inline_bytes += attachment.inline_bytes
             attachments[image.marker] = attachment
