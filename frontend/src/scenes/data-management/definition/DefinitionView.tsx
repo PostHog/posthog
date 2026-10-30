@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -31,7 +31,6 @@ import {
     definitionLogic,
 } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
-import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -55,6 +54,7 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
 import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
 import { propertyUsageEntry } from './usage/propertyUsageEntry'
 
@@ -141,8 +141,17 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        metricsFailed,
+    } = useValues(logic)
     const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showUsageSection = useFeatureFlag('DEFINITION_USAGE_SECTION')
@@ -430,23 +439,6 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && (
-                    <div className="flex flex-col flex-1 basis-48 min-w-48">
-                        <h5>
-                            30 day queries{' '}
-                            <Tooltip title="Number of times this event has been queried in the last 30 days">
-                                <IconInfo className="text-sm" />
-                            </Tooltip>
-                        </h5>
-                        <b>
-                            {metricsLoading ? (
-                                <Spinner textColored />
-                            ) : (
-                                <>{metrics?.query_usage_30_day ? metrics.query_usage_30_day.toLocaleString() : '-'}</>
-                            )}
-                        </b>
-                    </div>
-                )}
                 {'owner' in definition && (
                     <div className="flex flex-col flex-1 basis-48 min-w-48" data-attr="definition-owner-view">
                         <h5>Owner</h5>
@@ -510,7 +502,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
-                    <EventDefinitionInsights definition={definition} />
+                    <DefinitionUsageSection
+                        queryCount={metrics?.query_usage_30_day ?? null}
+                        queryCountLoading={metricsLoading}
+                        queryCountFailed={metricsFailed}
+                        insightsLogicProps={{ definitionType: 'event', name: definition.name }}
+                    />
                     <SceneDivider />
                     <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />
