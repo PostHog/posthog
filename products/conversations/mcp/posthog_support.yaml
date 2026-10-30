@@ -1,56 +1,57 @@
-# MCP tools for contacting PostHog's own support team, as opposed to a team's own helpdesk in tools.yaml.
-# No tool sends a ticket: the draft tool returns a link the person opens to review and send it in PostHog.
-# The claim endpoint (posthog_support_drafts_claim_create) accepts browser sessions only, so it has no tool.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations --file ../../products/conversations/mcp/posthog_support.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: PostHog support
 feature: conversations
 url_prefix: /my-tickets
 ui_apps: {}
 tools:
-    posthog-support-tickets-list:
-        operation: posthog_support_tickets_retrieve
-        enabled: true
-        feature_flag: mcp-posthog-support-tickets
-        title: List my PostHog support tickets
-        description: >
-            List the tickets the logged-in person has raised with PostHog's support team, newest first, with
-            status and the number of unread replies from support. Use it to check whether support has replied, and
-            before drafting a ticket, to avoid a duplicate of one that is still open. Read one thread with
-            posthog-support-ticket-messages.
-    posthog-support-ticket-messages:
-        operation: posthog_support_tickets_messages_retrieve
-        enabled: true
-        feature_flag: mcp-posthog-support-tickets
-        title: Read a PostHog support ticket
-        description: >
-            Return the messages on one of the person's PostHog support tickets, oldest first. author_type support is
-            a PostHog support engineer, customer is the person. Replying from here is not available: send the person
-            to the ticket in PostHog to reply.
     posthog-support-draft-create:
         operation: posthog_support_drafts_create
         enabled: true
-        feature_flag: mcp-posthog-support-tickets
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
         title: Draft a PostHog support ticket
         description: >
-            Draft a ticket to PostHog's human support team for the person to review and send. It does NOT send
-            anything. Draft only when the person asked to contact support, the problem needs account, billing or data
-            only PostHog can see, you confirmed an error you cannot explain, or the person disagrees with your answer.
-            Your own belief that it is a PostHog bug is not enough: offer a ticket instead. Quote the person's own
-            words, and add facts, never your diagnosis. Afterwards, show the person the draft text and the
-            review_url, and tell them nothing is sent until they send it from PostHog. Load the
-            contacting-posthog-support skill first if it is available.
+            Draft a ticket to PostHog's human support team for the person to review and send. It does NOT send anything.
+            Draft only when the person asked to contact support, the problem needs account, billing or data only PostHog
+            can see, you confirmed an error you cannot explain, or the person disagrees with your answer. Your own
+            belief that it is a PostHog bug is not enough: offer a ticket instead. Quote the person's own words, and add
+            facts, never your diagnosis. Afterwards, show the person the draft text and the review_url, and tell them
+            nothing is sent until they send it from PostHog. Load the contacting-posthog-support skill first if it is
+            available.
+        feature_flag: mcp-posthog-support-tickets
     posthog-support-draft-discard:
         operation: posthog_support_drafts_discard_create
         enabled: true
-        feature_flag: mcp-posthog-support-tickets
         annotations:
             readOnly: false
             destructive: true
             idempotent: false
         title: Discard a PostHog support ticket draft
         description: >
-            Delete a draft from posthog-support-draft-create that the person no longer wants to send. Only call it
-            when the person asks.
+            Delete a draft from posthog-support-draft-create that the person no longer wants to send. Only call it when
+            the person asks.
+        feature_flag: mcp-posthog-support-tickets
+    posthog-support-ticket-messages:
+        operation: posthog_support_tickets_messages_retrieve
+        enabled: true
+        title: Read a PostHog support ticket
+        description: >
+            Return the messages on one of the person's PostHog support tickets, oldest first. author_type support is a
+            PostHog support engineer, customer is the person. Replying from here is not available: send the person to
+            the ticket in PostHog to reply.
+        feature_flag: mcp-posthog-support-tickets
+    posthog-support-tickets-list:
+        operation: posthog_support_tickets_retrieve
+        enabled: true
+        title: List my PostHog support tickets
+        description: >
+            List the tickets the logged-in person has raised with PostHog's support team, newest first, with status and
+            the number of unread replies from support. Use it to check whether support has replied, and before drafting
+            a ticket, to avoid a duplicate of one that is still open. Read one thread with
+            posthog-support-ticket-messages.
+        feature_flag: mcp-posthog-support-tickets
