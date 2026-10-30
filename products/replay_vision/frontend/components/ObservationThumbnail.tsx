@@ -18,6 +18,8 @@ interface ObservationThumbnailProps {
     className?: string
     /** `small` (up to 480px wide) for posters at most 240px wide, so it stays sharp at 2x. Defaults to `large`. */
     size?: VisionObservationsThumbnailRetrieveSize
+    /** A new value clears a failed load, so a caller that keeps the poster mounted across data reloads can retry it. */
+    retryKey?: unknown
     children?: React.ReactNode
 }
 
@@ -29,6 +31,7 @@ export function ObservationThumbnail({
     chapter,
     className,
     size = VisionObservationsThumbnailRetrieveSize.Large,
+    retryKey,
     children,
 }: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -41,7 +44,7 @@ export function ObservationThumbnail({
     useEffect(() => {
         setAttempt(0)
         setFailedId(null)
-    }, [observation.id, chapter])
+    }, [observation.id, chapter, retryKey])
 
     useEffect(() => {
         return () => {
