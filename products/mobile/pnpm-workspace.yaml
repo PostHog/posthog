@@ -7,12 +7,6 @@ packages:
 minimumReleaseAge: 10080
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
-trustPolicyExclude:
-    - semver@5.7.2 || 6.3.1
-    - undici-types@6.21.0
-    # Expo and React Native already select these versions. Their earlier releases have
-    # stronger provenance than the current release, so no-downgrade rejects them.
-    - ua-parser-js@0.7.41 || 1.0.41
 
 # pnpm 10 skips dependency install scripts unless they are listed here. Skia's postinstall links its
 # prebuilt iOS and Android binaries, and `pod install` fails without them.
