@@ -702,8 +702,8 @@ export interface dashboardLogicValues {
     canAutoPreview: boolean
     canEditDashboard: boolean
     canRestrictDashboard: boolean
-    canUndoLayoutChange: boolean
     canSaveProjectDashboardTemplate: boolean
+    canUndoLayoutChange: boolean
     cancellingPreview: boolean
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
@@ -768,8 +768,7 @@ export interface dashboardLogicValues {
     lastDashboardRefresh: Dayjs | null
     layout: Layout | undefined
     layoutForItem: Record<string, TileLayout>
-    layoutUndoStack: Record<number, TilePlacement>[]
-    tileSavesPending: boolean
+    layoutUndoStack: Record<DashboardTile['id'], TilePlacement>[]
     layouts: ResponsiveLayouts
     loadLayoutFromServerOnPreview: boolean
     loadTimer: Date | null
@@ -823,6 +822,7 @@ export interface dashboardLogicValues {
     tileGroupSectionLayouts: SectionLayouts[]
     tileGroupSections: DashboardSection[]
     tileGroupSectionsEnabled: boolean
+    tileSavesPending: boolean
     tiles: DashboardTile[]
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
@@ -1130,11 +1130,17 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    popLayoutUndo: () => {
+        value: true
+    }
     previewDashboardChanges: () => {
         value: true
     }
     previewDashboardChangesFailure: () => {
         value: true
+    }
+    pushLayoutUndo: (placements: Record<number, TilePlacement>) => {
+        placements: Record<number, TilePlacement>
     }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
@@ -1229,6 +1235,9 @@ export interface dashboardLogicActions {
             themeId: number | null
         } | null
     }
+    restoreTilePlacements: (placements: Record<number, TilePlacement>) => {
+        placements: Record<number, TilePlacement>
+    }
     retryDashboardLoad: () => {
         value: true
     }
@@ -1261,8 +1270,8 @@ export interface dashboardLogicActions {
         scope: DashboardEditSaveScope,
         recordUndo?: boolean
     ) => {
-        scope: DashboardEditSaveScope
         recordUndo: boolean
+        scope: DashboardEditSaveScope
     }
     saveEditModeChangesFailure: (
         error: string,
@@ -1274,14 +1283,14 @@ export interface dashboardLogicActions {
     saveEditModeChangesSuccess: (
         dashboard: DashboardType | null,
         payload?: {
-            scope: DashboardEditSaveScope
             recordUndo: boolean
+            scope: DashboardEditSaveScope
         }
     ) => {
         dashboard: DashboardType | null
         payload?: {
-            scope: DashboardEditSaveScope
             recordUndo: boolean
+            scope: DashboardEditSaveScope
         }
     }
     scheduleRefreshDashboardWidgets: (tileId: number) => {
@@ -1452,6 +1461,9 @@ export interface dashboardLogicActions {
         properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description'>>
         tileId: number
     }
+    setTileSavesPending: (pending: boolean) => {
+        pending: boolean
+    }
     setWaitingTileRefresh: (waiting: WaitingTileRefresh) => {
         waiting: WaitingTileRefresh
     }
@@ -1469,21 +1481,6 @@ export interface dashboardLogicActions {
     }
     stageLayouts: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
-    }
-    pushLayoutUndo: (placements: Record<number, TilePlacement>) => {
-        placements: Record<number, TilePlacement>
-    }
-    popLayoutUndo: () => {
-        value: true
-    }
-    setTileSavesPending: (pending: boolean) => {
-        pending: boolean
-    }
-    undoLayoutChange: () => {
-        value: true
-    }
-    restoreTilePlacements: (placements: Record<number, TilePlacement>) => {
-        placements: Record<number, TilePlacement>
     }
     stopWidgetRefreshes: (tileIds: number[]) => {
         tileIds: number[]
@@ -1524,6 +1521,9 @@ export interface dashboardLogicActions {
     }
     triggerDashboardUpdate: (payload: any) => {
         payload: any
+    }
+    undoLayoutChange: () => {
+        value: true
     }
     updateContainerWidth: (
         containerWidth: number,
