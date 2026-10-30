@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -87,6 +87,12 @@ def system_prompt(config: PersonalRankingConfig, limit: int) -> str:
     return f"""You order one person's inbox of reports. Each report describes a problem or an opportunity in their product, and many have an agent's pull request.
 
 You get the person (what they work on, from their activity summary), then one block per candidate report, labelled c1 to cN.
+
+The person block is an activity summary built from their recent PostHog activity: what they create, change and keep opening, and what they ask agents to do. It shows what they are likely to care about now, not their job description, so use it to guess which reports interest them most.
+- Themes are their recent areas of work. A strong theme seen recently counts more than a weak or old one.
+- Owns lists objects they made or keep changing. Watches lists objects they keep opening. A report about an object they own matters more than one they only watch.
+- Works in lists the PostHog products they use most.
+When no activity summary is available, rank on the needs-you facts, priority and the model's lift.
 
 The `model` line of a report holds the ranking model's predictions for three outcomes:
 - `open`: someone opens the report.
