@@ -158,6 +158,7 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         # --- posthog submodules that DAGs actually import ---
                         # (verified by tracing imports of all 148 dagster Python files)
                         - 'posthog/clickhouse/**'
@@ -281,6 +282,7 @@ jobs:
                       dagster_direct:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py
