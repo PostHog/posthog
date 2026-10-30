@@ -21,6 +21,7 @@ export interface FakeRuntimeOptions {
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
     respond?: (url: string, body: unknown) => { status: number; body: unknown }
+    telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
 }
@@ -136,6 +137,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             return true
         },
         prompts: fakePrompts([...(options.answers ?? [])]),
+        telemetryToken: options.telemetryToken,
         skipTlsVerification: () => {
             tls.verify = false
         },
