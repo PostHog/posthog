@@ -990,6 +990,10 @@ class TestCohortUtils(BaseTest):
                 "SELECT p.id AS id, q.id FROM persons AS p JOIN persons AS q ON p.id = q.id",
             ),
             (
+                "joined_persons_sibling_named_like_generated_alias",
+                "SELECT p.id, p.created_at AS __cohort_id FROM persons AS p",
+            ),
+            (
                 "events_distinct_id_aggregating_with_having",
                 "SELECT distinct_id, count() AS n FROM events GROUP BY distinct_id HAVING n >= 3",
             ),
@@ -1022,6 +1026,7 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("as actor_id", sql.lower())
         self.assertIn("max_execution_time=1200", sql)
+        self.assertNotIn("max_bytes_before_external_group_by", sql)
         insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
         if _name == "multi_column_with_where_on_select_alias":

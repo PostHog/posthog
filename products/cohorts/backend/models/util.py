@@ -566,6 +566,9 @@ def _wrap_select_query_with_column(
     selected = select[selected_index]
     if isinstance(selected, ast.Field) and len(selected.chain) > 1:
         source_name = f"__cohort_{source_column}"
+        taken = {_select_expr_name(expr) for expr in select}
+        while source_name in taken:
+            source_name = f"_{source_name}"
         select[selected_index] = ast.Alias(alias=source_name, expr=selected)
     inner.select = select
 
@@ -664,7 +667,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
-    settings = HogQLGlobalSettings(max_execution_time=COHORT_QUERY_TIMEOUT_SECONDS)
+    # The HogQL default of 0 would override the spill threshold the caller sets on the ClickHouse client.
+    settings = HogQLGlobalSettings(
+        max_execution_time=COHORT_QUERY_TIMEOUT_SECONDS, max_bytes_before_external_group_by=None
+    )
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
