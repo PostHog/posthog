@@ -24,7 +24,7 @@ const task = (): Task =>
 describe("App", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("shows the Work sidebar", () => {
+  it("shows the sidebar", () => {
     const work = {
       listRecent: () => new Promise(() => {}),
     } as unknown as WorkList;
@@ -32,7 +32,7 @@ describe("App", () => {
       renderToString(
         <App work={work} runs={{} as CloudRuns} chats={{} as PiChats} />,
       ),
-    ).toContain("Work");
+    ).toContain("PostHog");
   });
 
   it("keeps watching an open run across list refreshes", async () => {
