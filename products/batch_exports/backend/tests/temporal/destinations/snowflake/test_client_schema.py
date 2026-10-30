@@ -12,6 +12,7 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeTable,
 )
 from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, SchemaTransformer
+from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import DESCRIBE_TABLE_METADATA
 
 
 @pytest.fixture
@@ -28,7 +29,10 @@ def client() -> SnowflakeClient:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("missing_key", [None, "id", "version"])
-async def test_get_table_validates_keys_and_filters_columns(client: SnowflakeClient, missing_key: str | None) -> None:
+@pytest.mark.parametrize("as_mapping", [False, True])
+async def test_get_table_validates_keys_and_filters_columns(
+    client: SnowflakeClient, missing_key: str | None, as_mapping: bool
+) -> None:
     table = SnowflakeTable.from_arrow_schema(
         pa.schema([pa.field("id", pa.int64()), pa.field("version", pa.int64()), pa.field("missing", pa.string())]),  # type: ignore[arg-type]
         name='test"table',
@@ -43,7 +47,14 @@ async def test_get_table_validates_keys_and_filters_columns(client: SnowflakeCli
         ("extra", "GEOGRAPHY", "COLUMN", "Y"),
     ]
     rows = [row for row in rows if row[0].lower() != missing_key]
-    with patch.object(client, "execute_async_query", new=AsyncMock(return_value=(rows, []))) as execute:
+    result_rows = (
+        [{meta.name: value for meta, value in reversed(list(zip(DESCRIBE_TABLE_METADATA, row)))} for row in rows]
+        if as_mapping
+        else rows
+    )
+    with patch.object(
+        client, "execute_async_query", new=AsyncMock(return_value=(result_rows, DESCRIBE_TABLE_METADATA))
+    ) as execute:
         if missing_key is not None:
             with pytest.raises(SnowflakeIncompatibleSchemaError, match=f"'{missing_key}'"):
                 await client.get_table(table)
@@ -72,7 +83,7 @@ async def test_get_table_distinguishes_uuid_from_text_and_preserves_uuid_buffers
     with patch.object(
         client,
         "execute_async_query",
-        new=AsyncMock(return_value=([("Id", destination_type, "COLUMN", "Y")], [])),
+        new=AsyncMock(return_value=([("Id", destination_type, "COLUMN", "Y")], DESCRIBE_TABLE_METADATA)),
     ) as execute:
         result = await client.get_table(table)
     execute.assert_awaited_once_with('DESCRIBE TABLE "test_table"')

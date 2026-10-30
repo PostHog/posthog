@@ -5,6 +5,7 @@ import pyarrow as pa
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeDestinationField,
     SnowflakeField,
+    SnowflakeFieldDescriptor,
 )
 from products.batch_exports.backend.temporal.utils import JsonType
 
@@ -54,7 +55,9 @@ def test_field_maps_to_snowflake_type_and_reads_back(
     field = SnowflakeField.from_arrow_field(pa.field("value", data_type, nullable=destination_field.is_nullable))
 
     assert field.snowflake_type_ddl == ddl
-    parsed = SnowflakeDestinationField.from_description("value", description, destination_field.is_nullable)
+    parsed = SnowflakeDestinationField.from_field_descriptor(
+        SnowflakeFieldDescriptor(name="value", data_type=description, is_nullable=destination_field.is_nullable)
+    )
     assert parsed == destination_field
     restored = SnowflakeField.from_destination_field(parsed)
     assert restored == field

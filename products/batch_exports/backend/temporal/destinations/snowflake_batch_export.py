@@ -25,6 +25,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import SnowflakeIntegration
 from posthog.temporal.common.base import PostHogWorkflow
@@ -308,6 +309,37 @@ class SnowflakeType(typing.NamedTuple):
     scale: int | None = None
 
 
+@frozen
+class SnowflakeFieldDescriptor:
+    name: str
+    data_type: str
+    is_nullable: bool
+
+
+def _map_describe_table_to_descriptor(
+    row: collections.abc.Sequence[typing.Any] | collections.abc.Mapping[str, typing.Any],
+    metas: collections.abc.Sequence[ResultMetadata],
+) -> SnowflakeFieldDescriptor:
+    collect = {}
+
+    if isinstance(row, collections.abc.Mapping):
+        # Can happen with DictCursor, which we don't use at the moment.
+        it = zip((row[meta.name] for meta in metas), metas)
+    else:
+        it = zip(row, metas)
+
+    for field, meta in it:
+        match meta.name:
+            case "name":
+                collect["name"] = field
+            case "type":
+                collect["data_type"] = field
+            case "null?":
+                collect["is_nullable"] = field == "Y"
+
+    return SnowflakeFieldDescriptor(**collect)
+
+
 SNOWFLAKE_MAX_NUMBER_PRECISION = 38
 
 
@@ -319,9 +351,9 @@ class SnowflakeDestinationField(typing.NamedTuple):
     scale: int | None = None
 
     @classmethod
-    def from_description(cls, name: str, data_type: str, is_nullable: bool) -> typing.Self:
+    def from_field_descriptor(cls, fd: SnowflakeFieldDescriptor) -> typing.Self:
         """Construct this field from the result of a Snowflake DESCRIBE query."""
-        type_name, _, parameters = data_type.partition("(")
+        type_name, _, parameters = fd.data_type.partition("(")
         type_name = type_name.split(" COLLATE ", 1)[0].strip()
 
         precision: int | None = None
@@ -336,9 +368,9 @@ class SnowflakeDestinationField(typing.NamedTuple):
             type_name = "FIXED"
 
         if type_name not in typing.get_args(SnowflakeTypeName):
-            raise ValueError(f"Unsupported type: '{data_type}'")
+            raise ValueError(f"Unsupported type: '{fd.data_type}'")
 
-        return cls(name, typing.cast(SnowflakeTypeName, type_name), is_nullable, precision, scale)
+        return cls(fd.name, typing.cast(SnowflakeTypeName, type_name), fd.is_nullable, precision, scale)
 
 
 def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
@@ -959,15 +991,16 @@ class SnowflakeClient:
         try:
             result = await self.execute_async_query(f"DESCRIBE TABLE {_quote_snowflake_identifier(table.name)}")
             assert result is not None
-            rows, _ = result
+            rows, description = result
         except snowflake.connector.errors.ProgrammingError as e:
             if "does not exist" in str(e):
                 raise SnowflakeTableNotFoundError(table.name)
             else:
                 raise
+        field_descriptors = [_map_describe_table_to_descriptor(row, description) for row in rows]
 
         if table.is_mutable():
-            existing = {row[0].lower() for row in rows}
+            existing = {fd.name.lower() for fd in field_descriptors}
             missing_primary_key_fields = set(table.primary_key) - existing
             if missing_primary_key_fields:
                 raise SnowflakeIncompatibleSchemaError(
@@ -990,9 +1023,9 @@ class SnowflakeClient:
 
         record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
-            SnowflakeDestinationField.from_description(row[0], row[1], row[3] == "Y")
-            for row in rows
-            if row[0].lower() in record_batch_field_names
+            SnowflakeDestinationField.from_field_descriptor(fd)
+            for fd in field_descriptors
+            if fd.name.lower() in record_batch_field_names
         )
 
         try:

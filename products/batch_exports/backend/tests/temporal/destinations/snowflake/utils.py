@@ -15,6 +15,7 @@ import pytest
 import responses
 import snowflake.connector
 from requests.models import PreparedRequest
+from snowflake.connector.cursor import ResultMetadata
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
@@ -104,6 +105,20 @@ class FakeMetadata(typing.NamedTuple):
     scale: int | None = None
 
 
+DESCRIBE_TABLE_METADATA = [
+    ResultMetadata(
+        name=name,
+        type_code=2,
+        display_size=None,
+        internal_size=None,
+        precision=None,
+        scale=None,
+        is_nullable=True,
+    )
+    for name in ("name", "type", "kind", "null?")
+]
+
+
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
@@ -169,6 +184,8 @@ class FakeSnowflakeCursor:
 
     @property
     def description(self):
+        if self._query.strip().startswith("DESCRIBE TABLE"):
+            return DESCRIBE_TABLE_METADATA
         return [FakeMetadata("uuid", 2, False)]
 
 
