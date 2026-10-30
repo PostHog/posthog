@@ -14,6 +14,7 @@ import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 
 import { experimentLogic } from '../experimentLogic'
 import { DeletedFlagBanner } from './DeletedFlagBanner'
+import { deletedFlagBannerLogic } from './deletedFlagBannerLogic'
 
 const EXPERIMENT_ID = 7
 const FLAG_ID = 11
@@ -28,6 +29,9 @@ const deletedFlag = {
     active: true,
     ensure_experience_continuity: false,
 }
+
+// The flag API's copy of the flag. Unlike the experiment's copy, it says whether the viewer can edit the flag.
+const flagFromFlagApi = { ...deletedFlag, archived: false, can_edit: true }
 
 function draftExperiment(featureFlag: Record<string, unknown> = deletedFlag): Experiment {
     return {
@@ -82,6 +86,7 @@ describe('DeletedFlagBanner', () => {
                     200,
                     draftExperiment({ ...deletedFlag, key: 'checkout-flag', deleted: false }),
                 ],
+                '/api/projects/:team/feature_flags/:id': flagFromFlagApi,
                 '/api/projects/:team/feature_flags/:id/activity': {
                     results: [deletion],
                     next: null,
@@ -144,6 +149,7 @@ describe('DeletedFlagBanner', () => {
     it('restores the flag and reloads the experiment', async () => {
         renderBanner(draftExperiment())
 
+        await screen.findByText(/feature flag is deleted/)
         await userEvent.click(restoreButtons()[0])
 
         await waitFor(() => expect(restoreBodies).toEqual([{ deleted: false }]))
@@ -154,13 +160,32 @@ describe('DeletedFlagBanner', () => {
         useMocks({ get: { '/api/projects/:team/feature_flags/:id/activity': () => [500, { detail: 'Server error' }] } })
         renderBanner(draftExperiment())
 
-        expect(await screen.findByText(/The feature flag/)).toBeInTheDocument()
-        expect(screen.getByText(/was deleted/)).toBeInTheDocument()
+        expect(await screen.findByText(/can't launch until the flag is restored/)).toBeInTheDocument()
+        expect(screen.queryByText(/deleted it/)).not.toBeInTheDocument()
         expect(restoreButtons().length).toBeGreaterThan(0)
     })
 
+    it.each([
+        {
+            state: 'when the viewer cannot edit the flag',
+            response: () => [200, { ...flagFromFlagApi, can_edit: false }],
+        },
+        {
+            state: 'when the flag cannot be read',
+            response: () => [403, { detail: 'You do not have access to this feature flag.' }],
+        },
+    ])('offers no restore $state', async ({ response }) => {
+        useMocks({ get: { '/api/projects/:team/feature_flags/:id': response } })
+        renderBanner(draftExperiment())
+
+        expect(await screen.findByText(/Ask someone with edit access to restore it/)).toBeInTheDocument()
+        expect(restoreButtons()).toHaveLength(0)
+    })
+
     it('offers no restore for a flag on the new config format', async () => {
-        renderBanner(draftExperiment({ ...deletedFlag, filters: { version: 2, rules: [] } }))
+        const v2Flag = { ...deletedFlag, filters: { version: 2, rules: [] } }
+        useMocks({ get: { '/api/projects/:team/feature_flags/:id': { ...flagFromFlagApi, ...v2Flag } } })
+        renderBanner(draftExperiment(v2Flag))
 
         expect(await screen.findByText(/Restoring is not available for this flag yet/)).toBeInTheDocument()
         expect(restoreButtons()).toHaveLength(0)
@@ -182,12 +207,15 @@ describe('DeletedFlagBanner', () => {
     ])('stays hidden for $state', ({ experiment }) => {
         renderBanner({ ...draftExperiment(), ...experiment } as Experiment)
 
+        // The banner renders nothing while it reads the flag, so its logic shows that it never started.
+        expect(deletedFlagBannerLogic.findMounted({ experimentId: EXPERIMENT_ID, flagId: FLAG_ID })).toBeNull()
         expect(screen.queryByText(/feature flag is deleted/)).not.toBeInTheDocument()
     })
 
     it('stays hidden when the flag is not deleted', () => {
         renderBanner(draftExperiment({ ...deletedFlag, deleted: false }))
 
+        expect(deletedFlagBannerLogic.findMounted({ experimentId: EXPERIMENT_ID, flagId: FLAG_ID })).toBeNull()
         expect(screen.queryByText(/feature flag is deleted/)).not.toBeInTheDocument()
     })
 })
