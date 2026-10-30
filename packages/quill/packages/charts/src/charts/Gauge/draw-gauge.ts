@@ -11,7 +11,7 @@ export interface GaugePaint {
     layout: GaugeLayout
     trackColor: string
     bands: GaugePaintBand[]
-    /** Angle the value arc ends at. At the start angle the arc is empty. */
+    /** At `layout.angles.start` the arc is empty. */
     valueAngle: number
     valueColor: string
     /** Angle of the target tick, or null when there is no target in range. */
@@ -93,7 +93,6 @@ function drawTarget(ctx: CanvasRenderingContext2D, paint: GaugePaint, angle: num
     strokeTick()
 }
 
-/** Paint the threshold bands, the track, the value arc, and the target tick, back to front. */
 export function drawGauge(ctx: CanvasRenderingContext2D, paint: GaugePaint): void {
     const { layout } = paint
     drawBands(ctx, layout, paint.bands)

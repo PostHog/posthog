@@ -17,7 +17,6 @@ export interface GaugeBounds {
 
 export interface GaugeBand {
     threshold: GaugeThreshold
-    /** The band clipped to the gauge range. */
     from: number
     to: number
 }
@@ -67,7 +66,6 @@ const isFiniteNumber = (n: number | null | undefined): n is number => typeof n =
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi)
 
-/** Thresholds in ascending `value` order, without non-finite steps. Input order does not matter. */
 export function sortThresholds(thresholds: readonly GaugeThreshold[] | undefined): GaugeThreshold[] {
     return (thresholds ?? []).filter((t) => isFiniteNumber(t.value)).sort((a, b) => a.value - b.value)
 }
@@ -82,11 +80,8 @@ export interface ResolveGaugeBoundsInput {
     target?: number | null
 }
 
-/** The gauge range. An explicit `min` or `max` always wins. A missing `min` is the lowest threshold
- *  (else 0), lowered to 0, or to the value when it is negative, when the value or target sits under
- *  it. A missing `max` is the highest threshold (else the larger of `min + 1` and 0), raised to contain
- *  the value and the target, because a threshold ladder that stops short of the value is a color
- *  scale, not the range. The min and max labels then agree with where the arc ends. */
+/** The rules are on `GaugeProps.min` and `max`. A threshold ladder that stops short of the value is a
+ *  color scale, not the range, so the range still grows to contain the value and the target. */
 export function resolveGaugeBounds({ value, min, max, thresholds, target }: ResolveGaugeBoundsInput): GaugeBounds {
     const steps = (thresholds ?? []).map((t) => t.value).filter(isFiniteNumber)
     const contained = [value, target].filter(isFiniteNumber)
@@ -143,8 +138,7 @@ export function thresholdIndexAt(value: number | null, sorted: readonly GaugeThr
     return index
 }
 
-/** The visible part of each threshold band, clipped to the range. Bands outside the range or with
- *  no width are dropped. */
+/** Each band clipped to the range. Bands with no visible width are dropped. */
 export function thresholdBands(sorted: readonly GaugeThreshold[], bounds: GaugeBounds): GaugeBand[] {
     const bands: GaugeBand[] = []
     for (let i = 0; i < sorted.length; i++) {
@@ -157,14 +151,12 @@ export function thresholdBands(sorted: readonly GaugeThreshold[], bounds: GaugeB
     return bands
 }
 
-/** Clamp a sweep in degrees to the supported range. Below 180° the inner text no longer fits inside
- *  the arc, so narrower sweeps are not supported. */
+/** Below 180° the inner text no longer fits inside the arc. */
 export function clampGaugeSweep(sweepDegrees: number | undefined): number {
     return isFiniteNumber(sweepDegrees) ? clamp(sweepDegrees, MIN_GAUGE_SWEEP, MAX_GAUGE_SWEEP) : DEFAULT_GAUGE_SWEEP
 }
 
-/** Start and end angles of an arc of `sweepDegrees`, centered on 12 o'clock so the opening faces down.
- *  A full ring starts at 12 o'clock instead, like a progress ring. */
+/** Centered on 12 o'clock so the opening faces down. A full ring starts at 12 o'clock, like a progress ring. */
 export function isFullSweep(sweep: number): boolean {
     return sweep >= FULL_TURN - 1e-9
 }
@@ -191,7 +183,6 @@ function angleInArc(angle: number, angles: GaugeAngles): boolean {
     return offset <= angles.sweep + 1e-9
 }
 
-/** Bounding box of a ring sector around the origin. */
 export function ringSectorBox(angles: GaugeAngles, innerRadius: number, outerRadius: number): Box {
     const points: [number, number][] = []
     for (const angle of [angles.start, angles.end]) {
@@ -240,8 +231,7 @@ export function targetTickSize(thickness: number): TargetTickSize {
     return { overhang: Math.max(2, thickness * 0.18), width, gap: Math.max(1.5, width * 0.6) }
 }
 
-/** Fit the rings into the box, centered, at the largest radius that leaves room for the footer and,
- *  with a target, for the tick's reach past the outer ring. */
+/** A target tick reaches past the outer ring, so the layout refits with that reach as extra padding. */
 export function computeGaugeLayout(input: ComputeGaugeLayoutInput): GaugeLayout {
     const layout = fitGaugeLayout(input)
     if (!input.hasTarget) {
@@ -304,7 +294,6 @@ export function roundCapInset(radius: number, thickness: number): number {
     return Math.asin(clamp(thickness / 2 / radius, 0, 1))
 }
 
-/** Whether a point (relative to the chart wrapper) is over the gauge. */
 export function isOverGauge(layout: GaugeLayout, x: number, y: number): boolean {
     return Math.hypot(x - layout.cx, y - layout.cy) <= layout.outerRadius + 4
 }

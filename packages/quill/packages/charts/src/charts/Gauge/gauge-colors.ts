@@ -4,7 +4,6 @@ import type { ChartTheme } from '../../core/types'
 import { FONT_FAMILY } from '../../utils/text-measure'
 import type { GaugeThreshold } from './gauge-layout'
 
-/** Every color the gauge paints, as concrete values the canvas accepts, plus the host font. */
 export interface GaugeColors {
     base: string
     /** Sorted like the input, each with its color resolved. */

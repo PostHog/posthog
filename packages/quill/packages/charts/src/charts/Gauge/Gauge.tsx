@@ -108,8 +108,7 @@ const DEFAULT_ANIMATION_MS = 500
 const MAX_MINMAX_SWEEP = 300
 const EMPTY_SERIES: never[] = []
 const EMPTY_LABELS: string[] = []
-// Where the tooltip anchors, as a fraction of the outer radius up and right of the center: the
-// top-right shoulder of the ring, so it sits beside the gauge instead of over the value.
+// The ring's top-right shoulder, as a fraction of the outer radius, so the tooltip sits beside the value.
 const TOOLTIP_ANCHOR = 0.72
 
 const TEXT_BASE_STYLE: React.CSSProperties = {
@@ -225,8 +224,7 @@ function GaugeInner({
 
     const formatValue = valueFormatter ?? humanFriendlyNumber
 
-    // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint the
-    // canvas on every parent render. A threshold list is a handful of steps, so the key is cheap.
+    // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint on every render.
     const thresholdsKey = (thresholds ?? [])
         .map((t) => `${t.value}\u0000${t.color}\u0000${t.label ?? ''}`)
         .join('\u0001')
@@ -237,8 +235,7 @@ function GaugeInner({
         [value, min, max, sorted, target]
     )
 
-    // Computed styles are read in a layout effect, not during render, and again on every theme change,
-    // because a light/dark flip changes what each `var(--…)` means while the input string stays the same.
+    // Re-read on every theme change, because a light/dark flip changes what each `var(--…)` resolves to.
     const [colors, setColors] = useState(() => initialGaugeColors({ sorted, color, trackColor: trackColorProp, theme }))
     useLayoutEffect(() => {
         const root = wrapperRef.current
@@ -284,7 +281,6 @@ function GaugeInner({
         }
         const withFooter = fit(minMaxFont * 1.6)
         const placed = placeMinMax(withFooter, dimensions.width, minText, maxText, `${minMaxFont}px ${fontFamily}`)
-        // Labels that would overlap stay hidden, so the rings take back the room reserved for them.
         return placed ? { layout: withFooter, ends: placed } : { layout: fit(0), ends: null }
     }, [
         dimensions,
@@ -328,8 +324,7 @@ function GaugeInner({
         }
     }, [layout, trackColor, bandPaint, animatedFraction, arcColor, target, bounds, ink])
 
-    // The paint rides on `scales._private`, so the draw functions stay module-level and each frame of
-    // the value animation reaches the canvas through the same input the draw loop already watches.
+    // `useChartDraw` repaints when `scales` changes, so each animation frame rides in on `_private`.
     const scales = useMemo<ChartScales | null>(
         () => (paint ? { x: () => undefined, y: () => 0, yTicks: () => [], _private: { gauge: paint } } : null),
         [paint]
@@ -376,13 +371,10 @@ function GaugeInner({
     }, [valueIndex, resolvedThresholds])
 
     const canvasBounds = useCanvasBounds(canvasRef)
-    // The wrapper's rect while the cursor is over the ring, or null when it is outside.
     const [hoverRect, setHoverRect] = useState<DOMRect | null>(null)
     const showTooltip = tooltipConfig?.enabled !== false
 
-    // The tooltip anchors to the gauge, not the cursor. While the cursor stays over the ring and the
-    // gauge does not move, the state update returns the previous rect, so React bails out and nothing
-    // re-renders or redraws. A scroll moves the rect, so the tooltip follows.
+    // Returning the previous rect while the gauge stays put lets React skip the re-render on every mousemove.
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (!layout || !showTooltip) {
@@ -399,8 +391,6 @@ function GaugeInner({
     const onMouseLeave = useCallback(() => setHoverRect(null), [])
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick: () => {} }), [onMouseMove, onMouseLeave])
 
-    // One object goes to `<Tooltip>` and to the render prop, so `renderChart` captures what a custom
-    // tooltip receives.
     const tooltipCtx = useMemo<GaugeTooltipContext | null>(() => {
         if (!hoverRect || !layout) {
             return null
