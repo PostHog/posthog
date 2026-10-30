@@ -364,8 +364,17 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
         return True
     # Deferred: the experiments facade imports posthog.api on init, which circles back into the
     # recordings query modules this package loads.
-    from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
+    from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+        COHORT_NOT_CALCULATED_MESSAGE,
+        EXPOSURES_STILL_COMPUTING_MESSAGE,
+        resolve_exposure_linkage,
+    )
 
+    if isinstance(error, ValidationError) and any(
+        message in str(error.detail) for message in (EXPOSURES_STILL_COMPUTING_MESSAGE, COHORT_NOT_CALCULATED_MESSAGE)
+    ):
+        # The precomputation converges across calls, so a second resolution can succeed and hide this state.
+        return True
     try:
         resolve_exposure_linkage(
             scanner.team,
