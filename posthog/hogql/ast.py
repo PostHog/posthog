@@ -773,6 +773,9 @@ class PropertyType(Type):
     chain: list[str | int]
     field_type: FieldType
 
+    # The read yields the property's JSON text, as the document holds it, so no property-type conversion applies.
+    as_json: bool = False
+
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
@@ -786,6 +789,8 @@ class PropertyType(Type):
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+        if self.as_json:
+            return StringType(nullable=True)
 
         database_field = self.field_type.resolve_database_field(context)
         if isinstance(database_field, StructDatabaseField):

@@ -151,6 +151,35 @@ class TestWrappedEventJoins(SimpleTestCase):
             printed, _ = self._compile(f"SELECT {select} {WRAPPED_JOIN} {clause}", native=native)
             assert self._exports(printed, "joined", native) == expected, printed
 
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_exports_json_text_for_reads_that_parse_it(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT JSONExtractRaw(joined.properties, 'a'), JSONExtractString(joined.properties, 'a', 'b'), "
+            "JSONExtractRaw(joined.properties, 'amount'), toJSONString(joined.properties.a), joined.properties.a "
+            f"{WRAPPED_JOIN}",
+            native=native,
+        )
+        outer = printed.split(" FROM ", 1)[0]
+        assert "toJSONString(" not in outer, printed
+        assert outer.endswith(", joined.properties___a, joined.properties___a_2 AS a"), printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        if native:
+            assert "JSONExtractRaw(ifNull(joined.properties___a, ''))" in outer, printed
+            assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
+            assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
+            assert "accurateCastOrNull" not in printed, printed
+            assert self._exports(printed, "joined", native) == {
+                "properties___a",
+                "properties___a_2",
+                "properties___amount",
+            }
+            assert "toJSONString(joined.properties.^a)" in inner, printed
+            assert "JSONExtractKeysAndValuesRaw" not in inner, printed
+        else:
+            assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
+            assert self._exports(printed, "joined", native) == {"properties", "properties___a", "properties___a_2"}
+            assert "toJSONString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(joined.properties, %(hogql_val_" in inner
+
     def test_decides_exports_per_source(self) -> None:
         printed, _ = self._compile(
             "SELECT b.properties, c.properties.amount FROM events AS a "
@@ -355,6 +384,12 @@ class TestLazyJoins(BaseTest):
                 "window",
                 "sum(related.properties.amount) OVER (PARTITION BY related.$session_id)",
                 (7.0,),
+            ),
+            (
+                "json_functions",
+                "JSONExtractRaw(related.properties, 'a'), JSONExtractString(related.properties, 'a', 'b'), "
+                "JSONLength(related.properties, 'a'), JSONExtractRaw(related.properties, 'amount')",
+                ('{"b":"nested"}', "nested", 1, '"7"'),
             ),
         ]
     )

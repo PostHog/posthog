@@ -190,6 +190,7 @@ This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate i
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
 The subquery exports the columns, lazy-join fields and property keys the outer query reads, found by their resolved table binding rather than by alias text.
 A property key is exported as its stored value and the outer read keeps its own conversion, so a Numeric definition and an explicit string parser read the same export.
+A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')` or `toJSONString(t.properties.key)`, is exported as its JSON text instead, so an object or an array is not quoted a second time.
 The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
 Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
 Native queries disable forward-slash escaping so object and array text retains `/`.
