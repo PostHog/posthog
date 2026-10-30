@@ -7,9 +7,14 @@ from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.sql_freshness.facts import extract_facts
-from posthog.hogql_queries.sql_freshness.rules import RULES, Cap, FreshnessReason, Reject, SqlWindowClass
-
-API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
+from posthog.hogql_queries.sql_freshness.rules import (
+    RULES,
+    Cap,
+    FreshnessReason,
+    Reject,
+    SqlWindowClass,
+    shortest_lived_window,
+)
 
 
 @frozen
@@ -44,8 +49,9 @@ def classify(
         return rejects[0]
     caps = [verdict for verdict in verdicts if isinstance(verdict, Cap)]
     binding = min(caps, key=lambda cap: cap.until)
-    window = next(cap.window for cap in caps if cap.window is not None)
-    return SqlFreshness(window=window, fresh_until=binding.until.astimezone(UTC), reason=binding.reason)
+    return SqlFreshness(
+        window=shortest_lived_window(facts), fresh_until=binding.until.astimezone(UTC), reason=binding.reason
+    )
 
 
 def freshness_record(freshness: SqlFreshness) -> dict[str, str]:

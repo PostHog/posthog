@@ -49,7 +49,6 @@ class Reject:
 class Cap:
     until: datetime
     reason: FreshnessReason
-    window: Optional[SqlWindowClass] = None
 
 
 Verdict = Optional[Reject | Cap]
@@ -69,6 +68,10 @@ def window_class(window: Window, facts: QueryFacts) -> SqlWindowClass:
     if length <= SHORT_WINDOW_MAX_LENGTH:
         return SqlWindowClass.UP_TO_NOW_SHORT
     return SqlWindowClass.UP_TO_NOW_LONG
+
+
+def shortest_lived_window(facts: QueryFacts) -> SqlWindowClass:
+    return min((window_class(window, facts) for window in facts.windows), key=SQL_WINDOW_MAX_AGE.__getitem__)
 
 
 def _reads_fixed_past(facts: QueryFacts) -> bool:
@@ -102,8 +105,7 @@ def no_clock_outside_bounds(facts: QueryFacts) -> Verdict:
 def window_age(facts: QueryFacts) -> Verdict:
     if not facts.windows:
         return None
-    window = min((window_class(window, facts) for window in facts.windows), key=SQL_WINDOW_MAX_AGE.__getitem__)
-    return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[window], reason=FreshnessReason.WINDOW_AGE, window=window)
+    return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], reason=FreshnessReason.WINDOW_AGE)
 
 
 def clock_days_end_at_midnight(facts: QueryFacts) -> Verdict:
