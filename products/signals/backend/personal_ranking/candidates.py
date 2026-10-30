@@ -34,6 +34,7 @@ from products.signals.backend.ranking.inbox_sort import InboxRanker, latest_rank
 from products.signals.backend.ranking.report_predictions import ReportPredictions, read_report_predictions
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_claims import reports_claimed_for_user
+from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_priority import latest_report_priorities
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 
@@ -182,7 +183,10 @@ def _pools(
     team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, can_view_ranking: bool
 ) -> list[tuple[PoolName, list[str]]]:
     since = now - datetime.timedelta(days=config.window_days)
-    team_reports = SignalReport.objects.filter(team_id=team.id).exclude(status__in=EXCLUDED_STATUSES)
+    # The gate-aware filter, because a `monitoring` report reads as resolved while the monitoring gate is off.
+    team_reports = SignalReport.objects.filter(team_id=team.id).exclude(
+        report_status_filter(EXCLUDED_STATUSES, team_id=team.id)
+    )
     pools: list[tuple[PoolName, list[str]]] = [
         ("for_you_recommended", _recommended_for_you(team, user, since, config.for_you_recommended_pool)),
         (

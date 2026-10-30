@@ -58,6 +58,7 @@ FALLBACK_TIMEOUT = "timeout"
 FALLBACK_MALFORMED = "malformed_output"
 FALLBACK_TRUNCATED = "truncated_output"
 FALLBACK_NO_CANDIDATES = "no_candidates"
+FALLBACK_AI_NOT_APPROVED = "ai_not_approved"
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 
@@ -315,7 +316,10 @@ def build_personal_ranking(
     fallback_reason: str | None = FALLBACK_NO_CANDIDATES
     validated = None
     call = None
-    if candidates:
+    if candidates and team.organization.is_ai_data_processing_approved is not True:
+        # Report text never goes to the model without the organization's approval, so the list stays in model order.
+        status, fallback_reason = "fallback", FALLBACK_AI_NOT_APPROVED
+    elif candidates:
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt(config, limit)},
             {

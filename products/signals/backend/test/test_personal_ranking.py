@@ -311,6 +311,11 @@ class TestBuildPersonalRanking(BaseTest):
             team=self.team, report=reports["claimed"], actor_kind="user", actor_user=self.user
         )
         self._names_me(self._report("Resolved", status=SignalReport.Status.RESOLVED))
+        # Reads as resolved while the monitoring gate is off.
+        monitoring = self._report("Monitoring", status=SignalReport.Status.MONITORING)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=monitoring, actor_kind="user", actor_user=self.user
+        )
         return reports
 
     def _build(self, **kwargs: Any):
@@ -369,11 +374,15 @@ class TestBuildPersonalRanking(BaseTest):
             ("api_error", RuntimeError("gateway down"), "llm_error"),
             ("malformed", _response("not json"), "malformed_output"),
             ("truncated", _response(_answer([_entry("c1", 1)]), finish_reason="length"), "truncated_output"),
+            ("ai_not_approved", None, "ai_not_approved"),
         ]
     )
     def test_model_failure_falls_back_to_model_order(self, _name: str, outcome: Any, fallback_reason: str) -> None:
         self._setup_reports()
-        if isinstance(outcome, Exception):
+        if outcome is None:
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        elif isinstance(outcome, Exception):
             self.create.side_effect = outcome
         else:
             self.create.return_value = outcome
@@ -388,6 +397,8 @@ class TestBuildPersonalRanking(BaseTest):
         row = PersonalInboxRanking.objects.for_team(self.team.id).get()
         assert row.fallback_reason == fallback_reason
         assert len(row.result["ranked"]) == 3
+        if outcome is None:
+            self.create.assert_not_called()
 
     @parameterized.expand(
         [
