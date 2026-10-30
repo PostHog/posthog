@@ -3,16 +3,12 @@
 import structlog
 
 from posthog.models import Team, User
-from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
+from posthog.ph_client import feature_enabled_or_false
 
 logger = structlog.get_logger(__name__)
 
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
-TODAY_PULSE_RANKING_FLAG = "today-pulse-ranking"
-FRECENCY_RANKING = "frecency"
-RECENCY_RANKING = "recency"
-CONTROL_RANKING = "control"
 
 
 def is_enabled_for(user: User, team: Team) -> bool:
@@ -43,18 +39,6 @@ def _flag_on(flag: str, user: User, team: Team) -> bool:
     except Exception:
         logger.warning("today_flag_check_failed", exc_info=True)
         return False
-
-
-def pulse_ranking(user: User, team: Team) -> str:
-    variant = get_feature_flag_or_none(
-        TODAY_PULSE_RANKING_FLAG,
-        str(user.distinct_id),
-        groups=_groups(team),
-        group_properties=_group_properties(team),
-        person_properties={"email": user.email},
-        send_feature_flag_events=False,
-    )
-    return variant if variant in (FRECENCY_RANKING, RECENCY_RANKING) else CONTROL_RANKING
 
 
 def may_ask_jev(user: User, team: Team) -> bool:
