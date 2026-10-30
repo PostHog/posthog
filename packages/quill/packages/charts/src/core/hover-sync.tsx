@@ -97,6 +97,7 @@ export function buildSyncedIndexFinder(labels: readonly string[]): (label: strin
     const exact = new Map(labels.map((label, i) => [label, i]))
     const times = labels.map(parseDateLabel)
     const sortedByTime = times.every(isFinite) && times.every((t, i) => i === 0 || t >= times[i - 1])
+    const lastEnd = lastBucketEnd(times)
     return (label) => {
         const match = exact.get(label)
         if (match != null) {
@@ -108,8 +109,7 @@ export function buildSyncedIndexFinder(labels: readonly string[]): (label: strin
         }
         const last = times.length - 1
         if (t >= times[last]) {
-            const lastStep = last > 0 ? times[last] - times[last - 1] : 0
-            return t === times[last] || t < times[last] + lastStep ? last : -1
+            return t === times[last] || t < lastEnd ? last : -1
         }
         let lo = 0
         let hi = times.length - 1
@@ -123,4 +123,28 @@ export function buildSyncedIndexFinder(labels: readonly string[]): (label: strin
         }
         return lo
     }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Where the last bucket ends: one step past its start. A step of a month or more steps by calendar
+ *  months, since months differ in length. */
+function lastBucketEnd(times: number[]): number {
+    const last = times.length - 1
+    if (last < 1) {
+        return times[0] ?? NaN
+    }
+    const step = times[last] - times[last - 1]
+    if (step < 28 * DAY_MS) {
+        return times[last] + step
+    }
+    const months = Math.round(step / (30.44 * DAY_MS))
+    const start = new Date(times[last])
+    return Date.UTC(
+        start.getUTCFullYear(),
+        start.getUTCMonth() + months,
+        start.getUTCDate(),
+        start.getUTCHours(),
+        start.getUTCMinutes()
+    )
 }
