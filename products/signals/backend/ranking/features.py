@@ -83,13 +83,13 @@ SOURCE_PRODUCTS = (
 )
 SOURCE_FEATURE_NAMES = (*(f"source_{product}" for product in SOURCE_PRODUCTS), "source_other")
 
-# The team's project-vector kinds, in the order a network that reads them takes them. The dataset
-# dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
-# inputs both read these names, so the two sides cannot order the kinds differently.
+# The default project-vector kinds of a family, in the order a network that reads them takes them.
+# The training and serving inputs both read these names, so the two sides cannot order the kinds
+# differently. The pair lane and `user_offsets` read only these kinds.
 PROJECT_VECTOR_KINDS = ("typical", "open", "action", "dismiss")
-# Every kind `project_vectors()` can build. An experiment family can read a kind the stored table
-# and the serving path do not carry, such as `fixed`, which comes from the status stream.
-TRAINING_PROJECT_VECTOR_KINDS = (*PROJECT_VECTOR_KINDS, "fixed")
+# Every kind `project_vectors()` can build. The dataset dag's `inbox_project_vectors` writes one row
+# per (team, kind) of these, and serving gives each model the kinds it reads, in its own order.
+ALL_PROJECT_VECTOR_KINDS = (*PROJECT_VECTOR_KINDS, "fixed")
 # Below this many reports, a kind's mean is mostly one report's text, so the row keeps an all-zero
 # vector and the kind has no history.
 MIN_PROJECT_HISTORY_REPORTS = 5
