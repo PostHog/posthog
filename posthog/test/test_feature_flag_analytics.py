@@ -20,6 +20,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog import redis
 from posthog.constants import FlagRequestType
@@ -332,7 +333,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             increment_request_count(local_evaluation_team_id, request_type=FlagRequestType.LOCAL_EVALUATION)
             increment_request_count(remote_config_team_id, request_type=FlagRequestType.REMOTE_CONFIG)
 
-            with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"), snapshot_postgres_queries_context(self):
+            with (
+                self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
+                snapshot_postgres_queries_context(self),
+                patch(
+                    "products.feature_flags.backend.flag_analytics.capture_team_decide_usage",
+                    wraps=capture_team_decide_usage,
+                ) as team_export,
+            ):
                 capture_usage_for_all_teams(mock_capture)
 
                 mock_capture.capture.assert_any_call(
@@ -370,6 +378,27 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                     (remote_config_team_id, "remote config usage"),
                 }
                 assert mock_capture.capture.call_count == 4
+                assert {call.args[1] for call in team_export.call_args_list} == {
+                    team_id,
+                    other_team_id,
+                    local_evaluation_team_id,
+                    remote_config_team_id,
+                }
+
+    def test_failed_key_check_exports_every_team_in_the_batch(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        client = MagicMock()
+        client.pipeline.return_value.execute.side_effect = RedisConnectionError("Redis unavailable")
+
+        with (
+            patch("products.feature_flags.backend.flag_analytics.get_client", return_value=client),
+            patch("products.feature_flags.backend.flag_analytics.capture_team_decide_usage") as team_export,
+            patch("products.feature_flags.backend.flag_analytics.capture_exception") as capture_error,
+        ):
+            capture_usage_for_all_teams(MagicMock())
+
+        assert {self.team.id, other_team.id} <= {call.args[1] for call in team_export.call_args_list}
+        capture_error.assert_called_once()
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."

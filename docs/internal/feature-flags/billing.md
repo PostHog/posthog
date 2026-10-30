@@ -189,6 +189,7 @@ The task reads the teams 1,000 at a time, excluding internal metrics and demo te
 For each batch, one pipelined `EXISTS` call finds the teams that have a team key for any request type.
 The task skips the teams with no team key.
 Those teams also have no SDK keys, because the service writes the SDK key in the same pipeline as the team key.
+When the `EXISTS` call fails, the task reports the error and exports every team in that batch.
 
 For each team with a team key:
 

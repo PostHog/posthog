@@ -244,7 +244,14 @@ def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
         pipe = client.pipeline(transaction=False)
         for team in batch:
             pipe.exists(*(get_team_request_key(team.id, request_type) for request_type in EXPORTED_REQUEST_TYPES))
-        for team, existing_keys in zip(batch, pipe.execute()):
+        try:
+            key_counts = pipe.execute()
+        except redis.exceptions.RedisError as error:
+            # Export the whole batch so that one failed check does not stop the pass.
+            # The per-team export catches its own Redis errors.
+            capture_exception(error)
+            key_counts = [len(EXPORTED_REQUEST_TYPES)] * len(batch)
+        for team, existing_keys in zip(batch, key_counts):
             if existing_keys:
                 capture_team_decide_usage(ph_client, team.id, team.uuid)
 
