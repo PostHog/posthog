@@ -265,7 +265,11 @@ function stripVerifiedSource(target: CleanupTarget, warnings: string[]): boolean
             return false
         }
         ftruncateSync(descriptor, 0)
-        writeSync(descriptor, content.slice(0, range[0]) + content.slice(range[1]), 0)
+        const stripped = Buffer.from(content.slice(0, range[0]) + content.slice(range[1]))
+        // writeSync can write fewer bytes than asked, so it runs until every byte is written.
+        for (let written = 0; written < stripped.length; ) {
+            written += writeSync(descriptor, stripped, written, stripped.length - written, written)
+        }
         return true
     } finally {
         closeSync(descriptor)
