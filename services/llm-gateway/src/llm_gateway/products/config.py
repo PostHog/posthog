@@ -291,6 +291,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "bets": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-6-luna"}),
+        allow_api_keys=True,
+    ),
     "signals": ProductConfig(
         # Only the dedicated Signals app: dropping the PostHog Code ids is what finally makes
         # this product unreachable from a Desktop-app token.
