@@ -9,11 +9,14 @@ import { messageOf } from "../errors";
 import { droppedImage, droppedPath } from "../images";
 import {
   activeWorkspace,
+  backToPrevious,
   closeFocused,
   cycleFocus,
+  findPane,
   focusPane,
   type LayoutState,
   newChat,
+  newChatIn,
   paneIds,
   splitFocused,
 } from "../layout";
@@ -133,12 +136,12 @@ export function useKeys({
     }
     // The open search or settings take every other key through onKey.
     if (search.open || settings.open) return;
-    // Inside a split workspace a new chat joins it as another pane; elsewhere it takes the main view.
+    // Inside a split workspace a new chat takes the focused pane; elsewhere it takes the main view.
     if (shortcut === "newChat") {
       const inSplit = activeWorkspace(layout).root.kind === "split";
       track("chat opened", { via: "shortcut", in_split: inSplit });
       setLayout((current) =>
-        inSplit ? splitFocused(current, "row") : newChat(current),
+        newChatIn(current, activeWorkspace(current).focusedPaneId),
       );
       return;
     }
@@ -261,9 +264,10 @@ export function useKeys({
       onOfferKey(paneId, offer, key);
       return;
     }
-    // Esc stops a running turn; a second Esc straight after clears what is typed.
+    // Esc stops a running turn; a second Esc straight after clears what is typed, or brings back the chat an empty new chat replaced.
     if (key?.kind === "dismiss" && !composer.showingSuggestions()) {
       const turn = runningTurns.current.get(paneId);
+      const previous = findPane(layout, paneId)?.previous;
       // The chat says "Cancelled" once the turn stops, so only a failed stop needs a notice.
       if (turn && control) {
         track("turn stopped", {
@@ -277,9 +281,15 @@ export function useKeys({
             flashNotice(`Couldn't stop: ${messageOf(error)}`, { paneId }),
           );
       }
-      if (escapes.current.press(Date.now())) composer.clear();
-      else if (!turn && !composer.isEmpty())
+      if (escapes.current.press(Date.now())) {
+        if (composer.isEmpty() && previous) {
+          track("chat restored", { pane_id: paneId });
+          setLayout((current) => backToPrevious(current, paneId));
+        } else composer.clear();
+      } else if (!turn && !composer.isEmpty())
         flashNotice("Press Esc again to clear", { paneId });
+      else if (!turn && previous)
+        flashNotice("Press Esc again to go back", { paneId });
       return;
     }
     // Local agents take images directly; cloud runs get them uploaded as attachments when the message is sent.
