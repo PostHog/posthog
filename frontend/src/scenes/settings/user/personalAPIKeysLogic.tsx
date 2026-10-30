@@ -7,6 +7,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -758,8 +759,26 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
             }
         },
+        submitEditingKeyFailure: ({ error }) => {
+            // kea-forms catches the rejected API call and only passes the client-side validation errors to the
+            // fields, so the server's message has to be copied over here or the user sees nothing.
+            if (!(error instanceof ApiError)) {
+                return
+            }
+            if (error.attr && error.attr in values.editingKey) {
+                actions.setEditingKeyManualErrors({ [error.attr]: error.detail || error.message })
+            } else {
+                lemonToast.error(error.detail || 'Could not save the personal API key. Try again.')
+            }
+        },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
+            // A server error for this field is stale once its value changes, and kea-forms only drops it on blur.
+            // Left in place it keeps editingKeyHasErrors true and blocks a resubmit from the Enter key.
+            if (key in values.editingKeyManualErrors) {
+                const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
+                actions.setEditingKeyManualErrors(remainingErrors)
+            }
             // When we select a preset, update the scopes
             if (key === 'preset' && value) {
                 const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === value)
