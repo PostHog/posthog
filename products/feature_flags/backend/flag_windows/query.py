@@ -147,12 +147,13 @@ def counts_by_bucket(
     start: datetime,
     end: datetime,
     bucket: timedelta,
+    query_type: str,
     event: str | None = None,
     join: ast.JoinExpr | None = None,
 ) -> dict[str, list[BucketCounts]]:
     """For each edit, the people (or groups) that meet each of its conditions after the edit, in each bucket of
-    `[start, end)` that has events, oldest bucket first. `event` limits the scan to one event name. `join` joins a
-    table to the events, so that the conditions of every edit can read it."""
+    `[start, end)` that has events, oldest bucket first. `query_type` names the query in the query log. `event` limits
+    the scan to one event name. `join` joins a table to the events, so that the conditions of every edit can read it."""
     seconds = bucket.total_seconds()
     if seconds < 1 or seconds != int(seconds):
         raise ValueError(f"A bucket must be a whole number of seconds, got {bucket}")
@@ -207,6 +208,7 @@ def counts_by_bucket(
         response = execute_hogql_query(
             query,
             team=team,
+            query_type=query_type,
             workload=Workload.OFFLINE,
             # The join that applies person merges costs seconds on large teams and moves the counts by a tiny
             # fraction, because a merge moves few people.

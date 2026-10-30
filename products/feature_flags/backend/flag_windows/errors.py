@@ -54,7 +54,15 @@ def errors_by_bucket(
     """The errors after each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket without
     errors after the edit has no entry."""
     counts = counts_by_bucket(
-        team, edits, _conditions, start, end, bucket, event="$exception", join=_issue_first_seen_join()
+        team,
+        edits,
+        _conditions,
+        start,
+        end,
+        bucket,
+        query_type="flag_errors_by_bucket",
+        event="$exception",
+        join=_issue_first_seen_join(),
     )
     return {
         edit.id: [
@@ -93,9 +101,13 @@ def _issue_first_seen_join() -> ast.JoinExpr:
 def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     return [
         ast.Constant(value=True),
-        # A fingerprint that isn't synced to ClickHouse yet has no issue, and counts as new.
+        # A fingerprint that isn't synced to ClickHouse yet has no issue, and counts as new. An event without a
+        # fingerprint has no issue either, for example when cymbal can't process the exception, so it doesn't count.
         parse_expr(
-            "isNull(events.issue_id) OR earliest_issue_seen.first_seen >= {edited_at}",
+            """
+            (isNull(events.issue_id) AND isNotNull(properties.$exception_fingerprint))
+            OR earliest_issue_seen.first_seen >= {edited_at}
+            """,
             placeholders={"edited_at": ast.Constant(value=edit.edited_at)},
         ),
         read.exposed,
@@ -114,5 +126,5 @@ def _errors(edit: WatchedEdit, values: tuple[int, ...]) -> ErrorCounts:
         with_new_errors=with_new_errors,
         exposed_with_errors=exposed_with_errors,
         unexposed_with_errors=unexposed_with_errors,
-        by_variant=dict(zip(edit.variants, by_variant)),
+        by_variant=dict(zip(edit.variants, by_variant, strict=True)),
     )

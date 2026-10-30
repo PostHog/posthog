@@ -72,7 +72,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-5", "$exception", -5, {"$feature/new-checkout": True}),
                 ],
                 ErrorCounts(
-                    with_errors=3, with_new_errors=3, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=3, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
                 ),
             ),
             (
@@ -85,7 +85,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 ],
                 ErrorCounts(
                     with_errors=3,
-                    with_new_errors=3,
+                    with_new_errors=0,
                     exposed_with_errors=2,
                     unexposed_with_errors=1,
                     by_variant={"control": 1, "test": 1},
@@ -104,7 +104,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     ),
                 ],
                 ErrorCounts(
-                    with_errors=2, with_new_errors=2, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=2, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
                 ),
             ),
         ]
@@ -132,6 +132,8 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-2", "$exception", 2, {"$exception_fingerprint": "added"}),
                 # A fingerprint that error tracking hasn't synced yet is new.
                 ("person-3", "$exception", 3, {"$exception_fingerprint": "unsynced"}),
+                # An exception that error tracking couldn't fingerprint has no issue to be new.
+                ("person-4", "$exception", 4, {}),
             ]
         )
 

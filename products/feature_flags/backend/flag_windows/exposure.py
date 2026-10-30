@@ -43,7 +43,7 @@ def exposure_by_bucket(
 ) -> dict[str, list[ExposureBucket]]:
     """The exposure of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
     nobody carried the flag after the edit has no entry. A person whose value changed counts under both values."""
-    counts = counts_by_bucket(team, edits, _conditions, start, end, bucket)
+    counts = counts_by_bucket(team, edits, _conditions, start, end, bucket, query_type="flag_exposure_by_bucket")
     return {
         edit.id: [
             ExposureBucket(
@@ -64,4 +64,6 @@ def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
 
 def _exposure(edit: WatchedEdit, values: tuple[int, ...]) -> ExposureCounts:
     with_flag, exposed, *by_variant = values
-    return ExposureCounts(with_flag=with_flag, exposed=exposed, by_variant=dict(zip(edit.variants, by_variant)))
+    return ExposureCounts(
+        with_flag=with_flag, exposed=exposed, by_variant=dict(zip(edit.variants, by_variant, strict=True))
+    )
