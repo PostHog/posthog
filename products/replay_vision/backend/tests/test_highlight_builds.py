@@ -213,11 +213,12 @@ class TestHighlightBuilds(BaseTest):
 
     def test_copy_fills_a_missing_group_from_the_rank_json_once(self) -> None:
         group = uuid.uuid4()
+        created_at = _NOW - timedelta(minutes=1)
         observation = self._observation(
-            _NOW,
+            created_at,
             watch_rank={"category": "struggle", "contrast": 0.7, "anchor_version": ANCHOR_VERSION, "group": str(group)},
         )
-        self._observation(_NOW, watch_rank={"category": "failure", "contrast": 0.7, "anchor_version": 99})
+        self._observation(created_at, watch_rank={"category": "failure", "contrast": 0.7, "anchor_version": 99})
 
         copied = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
         again = copy_team_ranks(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1))
