@@ -4,6 +4,7 @@ from unittest import mock
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import AUTH_USERS_TABLE
@@ -102,3 +103,14 @@ class TestFirebaseSource:
         response = self.source.source_for_pipeline(firebase_config(), manager, source_inputs("firestore_rooms"))
 
         assert response.name == "firestore_rooms"
+
+    def test_non_retryable_errors_match_auth_batch_get_rejections(self) -> None:
+        # Identity Toolkit answers a service account that lacks the IAM role to list Auth users
+        # with a 400, not a 403 — `_error_detail`'s `message=...` is the only stable signal.
+        observed_error = (
+            "400 Client Error: Bad Request for url: "
+            "https://identitytoolkit.googleapis.com/v1/projects/example-project/accounts:batchGet?maxResults=1000 "
+            "(status=400 status_code=None message=INSUFFICIENT_PERMISSION)"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors.keys())
