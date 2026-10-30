@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -9,13 +10,52 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Task } from "@posthog/shared";
+import type { StoredLogEntry, Task } from "@posthog/shared";
 
 const LOCAL_SESSIONS = join(homedir(), ".config", "posthog-tui", "local");
 const SESSION_SUFFIX = ".jsonl";
 // Chats started before local chats had a task row; their pi session files still carry this id.
 export const LEGACY_PREFIX = "local:";
 const HARNESS_SUFFIX = ".harness";
+const ACP_SUFFIX = ".acp";
+
+// A Claude Code chat's log on this machine: its ACP messages, and Claude's session id so a reopen resumes it.
+export class AcpLog {
+  constructor(private readonly path: string) {}
+
+  load(): { sessionId?: string; entries: StoredLogEntry[] } {
+    let sessionId: string | undefined;
+    const entries: StoredLogEntry[] = [];
+    let text = "";
+    try {
+      text = readFileSync(this.path, "utf8");
+    } catch {
+      return { entries };
+    }
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as StoredLogEntry & {
+          sessionId?: string;
+        };
+        if (parsed.type === "session") sessionId = parsed.sessionId;
+        else entries.push(parsed);
+      } catch {}
+    }
+    return { ...(sessionId && { sessionId }), entries };
+  }
+
+  append(entry: StoredLogEntry): void {
+    appendFileSync(this.path, `${JSON.stringify(entry)}\n`);
+  }
+
+  session(sessionId: string): void {
+    appendFileSync(
+      this.path,
+      `${JSON.stringify({ type: "session", sessionId })}\n`,
+    );
+  }
+}
 
 export type LocalHarness = "pi" | "claude";
 
@@ -56,6 +96,15 @@ export class LocalChats {
     return join(this.dir, `${id}${HARNESS_SUFFIX}`);
   }
 
+  private acpFile(id: string): string {
+    return join(this.dir, `${id}${ACP_SUFFIX}`);
+  }
+
+  acpLog(id: string): AcpLog {
+    mkdirSync(this.dir, { recursive: true });
+    return new AcpLog(this.acpFile(id));
+  }
+
   // Which agent the chat runs, written when it first starts so a later /billing never changes it.
   remember(id: string, harness: LocalHarness): void {
     mkdirSync(this.dir, { recursive: true });
@@ -73,7 +122,11 @@ export class LocalChats {
   // Task ids of the local chats with a session file, with when each last changed.
   list(): Map<string, number> {
     const chats = new Map<string, number>();
-    for (const name of [...this.names(), ...this.names(HARNESS_SUFFIX)]) {
+    for (const name of [
+      ...this.names(),
+      ...this.names(HARNESS_SUFFIX),
+      ...this.names(ACP_SUFFIX),
+    ]) {
       const id = name.slice(0, name.lastIndexOf("."));
       if (id.startsWith(LEGACY_PREFIX)) continue;
       const changed = statSync(join(this.dir, name)).mtimeMs;
@@ -110,7 +163,7 @@ export class LocalChats {
 
   // Renames the session file, so the chat resumes under its task and is never linked twice.
   link(legacyId: string, taskId: string): void {
-    for (const file of [this.sessionFile, this.markerFile]) {
+    for (const file of [this.sessionFile, this.markerFile, this.acpFile]) {
       try {
         renameSync(file.call(this, legacyId), file.call(this, taskId));
       } catch (error) {
@@ -125,14 +178,16 @@ export class LocalChats {
   archive(id: string): void {
     const cleared = join(this.dir, "cleared");
     mkdirSync(cleared, { recursive: true });
-    try {
-      renameSync(
-        this.sessionFile(id),
-        join(cleared, `${id}.${Date.now()}${SESSION_SUFFIX}`),
-      );
-    } catch (error) {
-      // A chat whose agent has not answered yet has no file, so there is nothing to move.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    for (const [file, suffix] of [
+      [this.sessionFile(id), SESSION_SUFFIX],
+      [this.acpFile(id), ACP_SUFFIX],
+    ]) {
+      try {
+        renameSync(file, join(cleared, `${id}.${Date.now()}${suffix}`));
+      } catch (error) {
+        // A chat whose agent has not answered yet has no file, so there is nothing to move.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
 

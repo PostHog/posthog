@@ -1,12 +1,23 @@
-import { TypedEventEmitter } from "@posthog/shared";
+import { type StoredLogEntry, TypedEventEmitter } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { ClaudeLocalSession } from "./claudeLocal";
 import type { AgentPrompt } from "./prompts";
+
+function fakeLog(
+  saved: { sessionId?: string; entries: StoredLogEntry[] } = { entries: [] },
+) {
+  return {
+    load: vi.fn(() => saved),
+    append: vi.fn(),
+    session: vi.fn(),
+  };
+}
 
 function fakeAgent() {
   const events = new TypedEventEmitter<Record<string, unknown>>();
   const agent = Object.assign(events, {
     startSession: vi.fn(async () => ({ sessionId: "s1", channel: "c1" })),
+    reconnectSession: vi.fn(async () => ({ sessionId: "s1", channel: "c1" })),
     prompt: vi.fn(async () => ({ stopReason: "end_turn" })),
     cancelPrompt: vi.fn(async () => true),
     cancelSession: vi.fn(async () => true),
@@ -161,5 +172,71 @@ describe("ClaudeLocalSession", () => {
     await session.stop();
     expect(agent.cancelPrompt).toHaveBeenCalledWith("s1");
     expect(agent.cancelSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps its log, remembers Claude's session id, and resumes both on reopen", async () => {
+    const agent = fakeAgent();
+    const log = fakeLog();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      log,
+    );
+    await session.start();
+    const message = { method: "session/update", params: {} };
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: { type: "acp_message", ts: 1, message },
+    });
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: {
+        type: "acp_message",
+        ts: 2,
+        message: {
+          method: "_posthog/sdk_session",
+          params: { sessionId: "claude-abc" },
+        },
+      },
+    });
+    expect(log.append).toHaveBeenCalledTimes(2);
+    expect(log.session).toHaveBeenCalledWith("claude-abc");
+
+    const saved = {
+      sessionId: "claude-abc",
+      entries: [
+        { type: "acp_message", notification: message } as StoredLogEntry,
+      ],
+    };
+    const reopened = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog(saved),
+    );
+    const views: { entries: unknown[] }[] = [];
+    reopened.watch((view) => views.push(view as never));
+    await reopened.start();
+    expect(agent.reconnectSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskRunId: "local-1",
+        sessionId: "claude-abc",
+      }),
+    );
+    expect(views.at(-1)?.entries).toEqual(saved.entries);
+  });
+
+  it("starts afresh when the remembered session cannot be resumed", async () => {
+    const agent = fakeAgent();
+    agent.reconnectSession.mockResolvedValueOnce(null as never);
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog({ sessionId: "gone", entries: [] }),
+    );
+    await session.start();
+    expect(agent.startSession).toHaveBeenCalled();
   });
 });

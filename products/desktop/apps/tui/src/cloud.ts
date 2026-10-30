@@ -373,6 +373,7 @@ export function createCloud(
             ...pick,
           },
           claudeLoggedIn,
+          localChats.acpLog(id),
         );
         await session.start();
         return session;
