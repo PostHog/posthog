@@ -113,6 +113,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
+    UserTasksConfig,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
@@ -4612,6 +4613,39 @@ class TestTaskAPI(BaseTaskAPITest):
             },
         )
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("unset_default_publishes", Task.OriginProduct.USER_CREATED, None, {}, True),
+            ("stored_default_off", Task.OriginProduct.USER_CREATED, False, {}, False),
+            ("stored_default_on", Task.OriginProduct.USER_CREATED, True, {}, True),
+            ("request_overrides_default", Task.OriginProduct.USER_CREATED, True, {"auto_publish": False}, False),
+            ("signal_report_run_source", Task.OriginProduct.USER_CREATED, True, {"run_source": "signal_report"}, None),
+            ("other_origin", Task.OriginProduct.SLACK, True, {}, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_falls_back_to_user_auto_publish_default(
+        self,
+        _name: str,
+        origin_product: Task.OriginProduct,
+        stored_default: bool | None,
+        payload: dict,
+        expected: bool | None,
+        mock_workflow,
+    ):
+        if stored_default is not None:
+            UserTasksConfig.objects.for_team(self.team.id).create(
+                team=self.team, user=self.user, task_defaults={"auto_publish_cloud_runs": stored_default}
+            )
+        task = self.create_task()
+        task.origin_product = origin_product
+        task.save(update_fields=["origin_product"])
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(TaskRun.objects.get(task=task).state.get("auto_publish"), expected)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_creates_cloud_run_without_triggering_workflow(self, mock_workflow):

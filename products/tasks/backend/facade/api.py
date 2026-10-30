@@ -8737,6 +8737,13 @@ def _with_ai_run_defaults(
     return updated
 
 
+def _user_auto_publish_default(team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.task_defaults import get_user_task_defaults  # noqa: PLC0415
+
+    auto_publish = get_user_task_defaults(team_id, user_id)["auto_publish_cloud_runs"]
+    return True if auto_publish is None else auto_publish
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -9614,6 +9621,14 @@ def run_task(
             )
 
         branch = previous_branch
+
+    if (
+        validated_data.get("auto_publish") is None
+        and task.origin_product == Task.OriginProduct.USER_CREATED
+        and run_source in (None, RunSource.MANUAL)
+        and user_id is not None
+    ):
+        validated_data = {**validated_data, "auto_publish": _user_auto_publish_default(task.team_id, user_id)}
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
