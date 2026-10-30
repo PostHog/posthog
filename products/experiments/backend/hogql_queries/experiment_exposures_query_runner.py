@@ -433,6 +433,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             ExperimentExposureHealthFinding(
                 code=ExperimentExposureHealthFindingCode(finding.code.value),
                 subcode=finding.subcode,
+                reason=finding.reason,
                 severity=ExperimentExposureHealthFindingSeverity(finding.severity.value),
                 title=finding.title,
                 detail=finding.detail,
@@ -586,7 +587,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 3
         # The sample ratio finding can name a split change from the flag's history, so a reader who can't read the
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():
