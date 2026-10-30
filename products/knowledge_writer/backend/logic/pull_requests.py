@@ -233,8 +233,9 @@ def publish_claimed_pull_request(
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
     )
     if isinstance(pull_request, GitHubStepFailed):
+        failure = WriterPullRequestFailed("knowledge writer docs pull request failed")
         capture_exception(
-            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            failure,
             {
                 "team_id": team_id,
                 "task_run_id": str(task_run_id),
@@ -242,8 +243,7 @@ def publish_claimed_pull_request(
                 "status_code": pull_request.status_code,
             },
         )
-        record_pull_request_failure(task_id, team_id, "github_request_failed")
-        return None
+        raise failure
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))

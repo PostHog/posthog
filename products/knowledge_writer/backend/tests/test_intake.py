@@ -15,8 +15,17 @@ from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
-from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
-from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
+from products.knowledge_writer.backend.logic.pull_requests import (
+    LINK_BACK_START,
+    open_or_join_pull_request,
+    section_label,
+    section_marker,
+)
+from products.knowledge_writer.backend.logic.records import (
+    PULL_REQUEST_FAILURE_STATE_KEY,
+    PULL_REQUEST_STATE_KEY,
+    REQUEST_STATE_KEY,
+)
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -33,6 +42,7 @@ START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueu
 WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -106,6 +116,13 @@ def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...
     return dataclasses.replace(
         verdict, request=dataclasses.replace(verdict.request, suggested_page_urls=suggested_page_urls)
     )
+
+
+def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
+    try:
+        open_or_join_pull_request(task_run_id, team_id=team_id)
+    except Exception:
+        return
 
 
 def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
@@ -201,6 +218,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
@@ -268,6 +286,31 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     stored = tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
+
+
+@pytest.mark.django_db
+def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_why_and_calls_no_github(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    with (
+        patch(START_PUBLISH, side_effect=TimeoutError("Temporal unreachable")),
+        patch(LIST_PULL_REQUESTS) as github_request,
+        patch(CREATE_PULL_REQUEST) as create_pull_request,
+    ):
+        _finish_run(started.task_id, django_capture_on_commit_callbacks)
+
+    github_request.assert_not_called()
+    create_pull_request.assert_not_called()
+    failure = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+    assert failure == "publish_not_started"
 
 
 @pytest.mark.django_db
