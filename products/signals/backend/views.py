@@ -48,7 +48,7 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -69,20 +69,16 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import (
-    APIScopePermission,
-    TeamMemberStrictManagementPermission,
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-)
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -674,7 +670,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
 
 
-class SignalSteeringPermission(TeamMemberStrictManagementPermission):
+class SignalSteeringPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if (
             request.method in ("GET", "HEAD", "OPTIONS")
@@ -685,7 +681,7 @@ class SignalSteeringPermission(TeamMemberStrictManagementPermission):
         if is_sandbox_oauth_request(request):
             self.message = "Task agents cannot modify steering instructions or implementation repositories."
             return False
-        return super().has_permission(request, view)
+        return True
 
 
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -6922,16 +6918,12 @@ class SignalUserAutonomyConfigView(APIView):
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
-                candidate = Integration.objects.filter(
-                    pk=integration_id,
-                    kind="slack",
-                    team_id=current_team_id,
-                ).first()
-                if candidate is None:
+                try:
+                    integration = IntegrationManager.slack.oauth.get(current_team_id, integration_id)
+                except IntegrationNotFound:
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
-                integration = candidate
             defaults["slack_notification_integration"] = integration
         wants_direct_message = bool(validated.get("slack_notification_direct_message"))
         existing_config = SignalUserAutonomyConfig.objects.filter(user=user).first() if integration_in_request else None

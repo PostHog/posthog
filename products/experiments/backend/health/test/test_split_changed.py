@@ -303,6 +303,7 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "unknown_exposure",
                 _context(EVEN, UNEVEN, exposed_before_first=None),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -317,6 +318,7 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "few_exposed",
                 _context(EVEN, UNEVEN, exposed_units=4),
+                None,
                 {
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
@@ -331,8 +333,8 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "not_checked",
                 _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                "exposure_filters",
                 {
-                    "reason": "exposure_filters",
                     "change_count": 1,
                     "first_changed_at": "2026-09-12T13:04:00+00:00",
                     "last_changed_at": "2026-09-12T13:04:00+00:00",
@@ -345,15 +347,16 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "not_checked_without_history_access",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                {"reason": "no_history_access"},
+                "no_history_access",
+                {},
             ),
         ]
     )
-    def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
+    def test_evidence(self, _name: str, ctx: HealthContext, reason: str | None, expected: dict[str, Any]) -> None:
         finding = _split_code_finding(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(finding.evidence, expected)
+        self.assertEqual((finding.reason, finding.evidence), (reason, expected))
 
     @parameterized.expand(
         [

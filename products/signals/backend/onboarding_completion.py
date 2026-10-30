@@ -6,8 +6,9 @@ from rest_framework.exceptions import APIException
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -30,7 +31,7 @@ class InboxOnboardingReconciler:
 
     def has_repository(self) -> bool:
         failure: Exception | None = None
-        for integration in Integration.objects.filter(team_id=self.team_id, kind="github").order_by("id"):
+        for integration in sorted(IntegrationManager.github.oauth.list(self.team_id), key=lambda row: row.id):
             github = GitHubIntegration(integration, source="signals_onboarding", priority=Priority.NORMAL)
             try:
                 repositories, _ = github.list_repositories(per_page=1)

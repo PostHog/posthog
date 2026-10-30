@@ -550,9 +550,6 @@ class TestResolutionMetrics(BaseTest):
 
 
 class TestResolverFactoryInjection(BaseTest):
-    """Confirms prepare_ast_for_printing honors resolver_factory — proves the workflow path can
-    swap in BoundedResolver instead of the unbounded base Resolver."""
-
     def test_prepare_ast_for_printing_uses_injected_bounded_resolver(self):
         from posthog.hogql.printer import prepare_ast_for_printing
 
@@ -583,8 +580,7 @@ class TestResolverFactoryInjection(BaseTest):
         with pytest.raises(ResolutionDepthExceededError):
             prepare_ast_for_printing(query_node, context=context, dialect="clickhouse", resolver_factory=factory)
 
-    def test_prepare_ast_for_printing_default_resolver_is_unbounded(self):
-        """Sanity check: without the factory, no depth bound is applied — proves the kwarg is the opt-in."""
+    def test_prepare_ast_for_printing_default_resolver_accepts_short_view_chain(self):
         from posthog.hogql.printer import prepare_ast_for_printing
 
         DataWarehouseSavedQuery.objects.create(
@@ -601,7 +597,6 @@ class TestResolverFactoryInjection(BaseTest):
         query_node = parse_select("select * from v1")
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
 
-        # Should not raise — the default base Resolver has no depth bound.
         prepare_ast_for_printing(query_node, context=context, dialect="clickhouse")
 
     def test_shared_deadline_anchor_spans_multiple_resolvers(self):
